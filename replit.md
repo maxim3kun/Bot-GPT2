@@ -1,36 +1,43 @@
-# [Project name]
+# Bot Discord
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Bot Discord sympathique avec des commandes fun et une commande `!say`.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/api-server run dev` — lance le serveur + bot Discord (port 5000)
+- `pnpm run typecheck` — vérification complète TypeScript
+- `pnpm run build` — typecheck + build de tous les packages
+- Required env: `DISCORD_TOKEN` — token du bot Discord
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
+- Bot: discord.js v14
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- Bot Discord : `artifacts/api-server/src/bot.ts`
+- Point d'entrée serveur : `artifacts/api-server/src/index.ts`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Le bot Discord tourne dans le même processus que le serveur Express — simple et sans surcoût.
+- Préfixe des commandes : `!`
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Bot Discord avec les commandes :
+- `!say <message>` — répète le message
+- `!bonjour` / `!salut` / `!hello` — accueil chaleureux
+- `!compliment` — compliment aléatoire
+- `!blague` — blague aléatoire
+- `!encouragement` / `!courage` — mot d'encouragement
+- `!calin` / `!câlin` — câlin virtuel
+- `!8ball <question>` / `!8boule` — boule magique
+- `!dice [faces]` / `!dé` — lance un dé
+- `!aide` / `!help` — liste toutes les commandes
 
 ## User preferences
 
@@ -38,7 +45,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Le bot nécessite que l'intent **Message Content** soit activé dans le portail développeur Discord (Applications → ton bot → Bot → Privileged Gateway Intents → Message Content Intent).
 
 ## Pointers
 
