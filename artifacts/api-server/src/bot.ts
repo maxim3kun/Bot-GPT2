@@ -157,14 +157,14 @@ export function startBot(): void {
       try {
         const waitMsg = await message.reply("🎨 Generating your image, please wait...");
         const response = await fetch(
-          "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev/v1/images/generations",
+          "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
           {
             method: "POST",
             headers: {
               Authorization: `Bearer ${hfToken}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ prompt, num_inference_steps: 28 }),
+            body: JSON.stringify({ inputs: prompt }),
           }
         );
         if (!response.ok) {
@@ -173,13 +173,8 @@ export function startBot(): void {
           await waitMsg.edit("❌ Failed to generate the image. Try again later!");
           return;
         }
-        const data = await response.json() as { data?: { b64_json?: string }[] };
-        const b64 = data?.data?.[0]?.b64_json;
-        if (!b64) {
-          await waitMsg.edit("❌ No image returned. Try again!");
-          return;
-        }
-        const buffer = Buffer.from(b64, "base64");
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
         await waitMsg.delete();
         if ("send" in message.channel) {
           await message.channel.send({
