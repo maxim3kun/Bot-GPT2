@@ -1,4 +1,5 @@
 import { Client, GatewayIntentBits, Message } from "discord.js";
+import OpenAI from "openai";
 import { logger } from "./lib/logger";
 
 const PREFIX = "!";
@@ -72,12 +73,41 @@ function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+const conversationHistory = new Map<string, ChatMessage[]>();
+const MAX_HISTORY = 20;
+
+function getHistory(channelId: string): ChatMessage[] {
+  if (!conversationHistory.has(channelId)) {
+    conversationHistory.set(channelId, []);
+  }
+  return conversationHistory.get(channelId)!;
+}
+
+function addToHistory(channelId: string, role: "user" | "assistant", content: string): void {
+  const history = getHistory(channelId);
+  history.push({ role, content });
+  if (history.length > MAX_HISTORY) {
+    history.splice(0, history.length - MAX_HISTORY);
+  }
+}
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
+  const openaiKey = process.env["OPENAI_API_KEY"];
 
   if (!token) {
     logger.warn("DISCORD_TOKEN not set — bot will not start");
     return;
+  }
+
+  const openai = openaiKey
+    ? new OpenAI({ apiKey: openaiKey })
+    : null;
+
+  if (!openai) {
+    logger.warn("OPENAI_API_KEY not set — AI mentions will be disabled");
   }
 
   const client = new Client({
@@ -94,6 +124,55 @@ export function startBot(): void {
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
+
+    const botId = client.user?.id;
+    const isMentioned = botId && message.mentions.users.has(botId);
+
+    if (isMentioned && openai) {
+      const userText = message.content
+        .replace(/<@!?\d+>/g, "")
+        .trim();
+
+      if (!userText) {
+        await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
+        return;
+      }
+
+      try {
+        if ("sendTyping" in message.channel) await message.channel.sendTyping();
+
+        addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          max_completion_tokens: 1024,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a friendly, helpful, and cheerful Discord bot. " +
+                "Keep your answers concise and conversational. " +
+                "Use a warm, casual tone. You can use emojis sparingly. " +
+                "Never break character. Respond in the same language the user writes in.",
+            },
+            ...getHistory(message.channelId),
+          ],
+        });
+
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't think of a response! 😅";
+        addToHistory(message.channelId, "assistant", reply);
+
+        const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
+        for (const chunk of chunks) {
+          await message.reply(chunk);
+        }
+      } catch (err) {
+        logger.error({ err }, "Error calling OpenAI API");
+        await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
+      }
+      return;
+    }
+
     if (!message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
@@ -165,6 +244,7 @@ export function startBot(): void {
         case "help": {
           await message.reply(
             `📖 **Available commands:**\n\n` +
+            `\`@bot <message>\` — Chat with me as an AI! 🤖\n` +
             `\`!say <message>\` — I'll say it for you (and delete your message)\n` +
             `\`!hello\` — I'll welcome you warmly\n` +
             `\`!compliment\` — Get a heartfelt compliment 💖\n` +
