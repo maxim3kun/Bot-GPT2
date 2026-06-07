@@ -93,6 +93,15 @@ function addToHistory(channelId: string, role: "user" | "assistant", content: st
   }
 }
 
+function isBotMentioned(message: Message, botId: string): boolean {
+  if (message.mentions.users.has(botId)) return true;
+  return new RegExp(`<@!?${botId}>`).test(message.content);
+}
+
+function stripMentions(content: string): string {
+  return content.replace(/<@!?\d+>/g, "").trim();
+}
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
   const groqKey = process.env["GROQ_API_KEY"];
@@ -122,19 +131,41 @@ export function startBot(): void {
   });
 
   client.once("clientReady", () => {
-    logger.info({ tag: client.user?.tag }, "Discord bot connected");
+    logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
   });
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
 
-    const botId = client.user?.id;
-    const isMentioned = botId && message.mentions.users.has(botId);
+    const botId = client.user?.id ?? "";
+    const content = message.content;
 
-    if (isMentioned && openai) {
-      const userText = message.content
-        .replace(/<@!?\d+>/g, "")
-        .trim();
+    logger.info({ content, botId, mentioned: isBotMentioned(message, botId) }, "Message received");
+
+    // --- /image command ---
+    if (content.startsWith("/image ") || content.startsWith("!image ")) {
+      const prompt = content.slice(content.indexOf(" ") + 1).trim();
+      if (!prompt) {
+        await message.reply("🎨 Give me a description! e.g. `/image a sunset over Paris`");
+        return;
+      }
+      try {
+        await message.reply("🎨 Generating your image, please wait...");
+        const encoded = encodeURIComponent(prompt);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+        if ("send" in message.channel) {
+          await message.channel.send({ content: `🖼️ **${prompt}**\n${imageUrl}` });
+        }
+      } catch (err) {
+        logger.error({ err }, "Error generating image");
+        await message.reply("❌ Failed to generate the image. Try again!");
+      }
+      return;
+    }
+
+    // --- @mention → AI chat ---
+    if (botId && isBotMentioned(message, botId) && openai) {
+      const userText = stripMentions(content);
 
       if (!userText) {
         await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
@@ -170,15 +201,16 @@ export function startBot(): void {
           await message.reply(chunk);
         }
       } catch (err) {
-        logger.error({ err }, "Error calling OpenAI API");
+        logger.error({ err }, "Error calling Groq API");
         await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
       }
       return;
     }
 
-    if (!message.content.startsWith(PREFIX)) return;
+    // --- !prefix commands ---
+    if (!content.startsWith(PREFIX)) return;
 
-    const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
+    const args = content.slice(PREFIX.length).trim().split(/\s+/);
     const command = args.shift()?.toLowerCase();
 
     try {
@@ -248,6 +280,7 @@ export function startBot(): void {
           await message.reply(
             `📖 **Available commands:**\n\n` +
             `\`@bot <message>\` — Chat with me as an AI! 🤖\n` +
+            `\`/image <description>\` — Generate an image 🎨\n` +
             `\`!say <message>\` — I'll say it for you (and delete your message)\n` +
             `\`!hello\` — I'll welcome you warmly\n` +
             `\`!compliment\` — Get a heartfelt compliment 💖\n` +
