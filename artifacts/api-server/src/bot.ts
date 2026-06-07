@@ -149,12 +149,43 @@ export function startBot(): void {
         await message.reply("🎨 Give me a description! e.g. `/image a sunset over Paris`");
         return;
       }
+      const hfToken = process.env["HUGGINGFACE_TOKEN"];
+      if (!hfToken) {
+        await message.reply("❌ Image generation is not configured.");
+        return;
+      }
       try {
-        await message.reply("🎨 Generating your image, please wait...");
-        const encoded = encodeURIComponent(prompt);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+        const waitMsg = await message.reply("🎨 Generating your image, please wait...");
+        const response = await fetch(
+          "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev/v1/images/generations",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${hfToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ prompt, num_inference_steps: 28 }),
+          }
+        );
+        if (!response.ok) {
+          const err = await response.text();
+          logger.error({ err, status: response.status }, "HuggingFace image error");
+          await waitMsg.edit("❌ Failed to generate the image. Try again later!");
+          return;
+        }
+        const data = await response.json() as { data?: { b64_json?: string }[] };
+        const b64 = data?.data?.[0]?.b64_json;
+        if (!b64) {
+          await waitMsg.edit("❌ No image returned. Try again!");
+          return;
+        }
+        const buffer = Buffer.from(b64, "base64");
+        await waitMsg.delete();
         if ("send" in message.channel) {
-          await message.channel.send({ content: `🖼️ **${prompt}**\n${imageUrl}` });
+          await message.channel.send({
+            content: `🖼️ **${prompt}**`,
+            files: [{ attachment: buffer, name: "image.png" }],
+          });
         }
       } catch (err) {
         logger.error({ err }, "Error generating image");
