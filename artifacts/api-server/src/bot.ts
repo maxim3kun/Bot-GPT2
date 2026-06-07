@@ -95,19 +95,22 @@ function addToHistory(channelId: string, role: "user" | "assistant", content: st
 
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
-  const openaiKey = process.env["OPENAI_API_KEY"];
+  const groqKey = process.env["GROQ_API_KEY"];
 
   if (!token) {
     logger.warn("DISCORD_TOKEN not set — bot will not start");
     return;
   }
 
-  const openai = openaiKey
-    ? new OpenAI({ apiKey: openaiKey })
+  const openai = groqKey
+    ? new OpenAI({
+        apiKey: groqKey,
+        baseURL: "https://api.groq.com/openai/v1",
+      })
     : null;
 
   if (!openai) {
-    logger.warn("OPENAI_API_KEY not set — AI mentions will be disabled");
+    logger.warn("GROQ_API_KEY not set — AI mentions will be disabled");
   }
 
   const client = new Client({
@@ -144,7 +147,7 @@ export function startBot(): void {
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
 
         const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
             {
