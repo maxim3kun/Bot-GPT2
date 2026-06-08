@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Message } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
+import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive } from "./games";
 
 const PREFIX = "!";
 
@@ -437,6 +438,35 @@ export function startBot(): void {
           break;
         }
 
+        case "minesweeper":
+        case "mine": {
+          const diff = args[0]?.toLowerCase();
+          const board = playMinesweeper(message, diff);
+          if (board) await message.reply(board);
+          break;
+        }
+
+        case "geo": {
+          const sub = args[0]?.toLowerCase();
+          if (sub === "stop") {
+            if (isGeoActive(message.channelId)) {
+              stopGeoguessr(message.channelId);
+              await message.reply("🏳️ Partie de GeoGuessr abandonnée !");
+            } else {
+              await message.reply("🤷 Aucune partie en cours.");
+            }
+            break;
+          }
+          playGeoguessr(message).catch((err) => logger.error({ err }, "GeoGuessr error"));
+          break;
+        }
+
+        case "trivia": {
+          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
+          playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
+          break;
+        }
+
         case "ai": {
           const subcommand = args.shift()?.toLowerCase();
 
@@ -493,8 +523,13 @@ export function startBot(): void {
             `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
             `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
             `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
-            `\`!ai battle [topic]\` — Watch two AIs fight it out ⚔️\n` +
-            `\`!ai stop\` — Stop an ongoing AI battle 🛑`
+            `\`!ai battle [topic]\` — Regarde deux IA se battre ⚔️\n` +
+            `\`!ai stop\` — Arrête un AI battle en cours 🛑\n\n` +
+            `**🎮 Mini-jeux**\n` +
+            `\`!minesweeper [easy|medium|hard]\` — Démineur avec spoilers 💣\n` +
+            `\`!geo\` — Devine le pays avec des indices 🌍\n` +
+            `\`!geo stop\` — Abandonne la partie en cours\n` +
+            `\`!trivia\` — Quiz culture générale (A/B/C/D) 🧠`
           );
           break;
         }
