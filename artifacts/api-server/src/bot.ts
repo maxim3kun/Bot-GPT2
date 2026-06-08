@@ -302,6 +302,34 @@ export function startBot(): void {
           break;
         }
 
+        case "conspiracy": {
+          const topic = args.join(" ").trim();
+          if (!openai) {
+            await message.reply("❌ AI is not configured.");
+            break;
+          }
+          try {
+            if ("sendTyping" in message.channel) await message.channel.sendTyping();
+            const prompt = topic
+              ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`
+              : `Generate a short, absurd and funny random conspiracy theory. Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`;
+            const response = await openai.chat.completions.create({
+              model: "llama-3.1-8b-instant",
+              max_completion_tokens: 300,
+              messages: [
+                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used in their message. If no topic is given, use English. Be creative, funny and absurd — never harmful." },
+                { role: "user", content: prompt },
+              ],
+            });
+            const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
+            await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
+          } catch (err) {
+            logger.error({ err }, "Error generating conspiracy");
+            await message.reply("❌ The government blocked this conspiracy. Try again!");
+          }
+          break;
+        }
+
         case "help": {
           await message.reply(
             `📖 **Available commands:**\n\n` +
@@ -314,7 +342,8 @@ export function startBot(): void {
             `\`!encouragement\` — Get a motivating message 💪\n` +
             `\`!hug\` — Receive a virtual hug 🤗\n` +
             `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
-            `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲`
+            `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
+            `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️`
           );
           break;
         }
