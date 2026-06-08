@@ -79,18 +79,14 @@ const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
 
 function getHistory(channelId: string): ChatMessage[] {
-  if (!conversationHistory.has(channelId)) {
-    conversationHistory.set(channelId, []);
-  }
+  if (!conversationHistory.has(channelId)) conversationHistory.set(channelId, []);
   return conversationHistory.get(channelId)!;
 }
 
 function addToHistory(channelId: string, role: "user" | "assistant", content: string): void {
   const history = getHistory(channelId);
   history.push({ role, content });
-  if (history.length > MAX_HISTORY) {
-    history.splice(0, history.length - MAX_HISTORY);
-  }
+  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
 }
 
 function isBotMentioned(message: Message, botId: string): boolean {
@@ -102,8 +98,112 @@ function stripMentions(content: string): string {
   return content.replace(/<@!?\d+>/g, "").trim();
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type SendableChannel = { id: string; send: (...args: unknown[]) => Promise<unknown>; sendTyping: () => Promise<void> };
+
+function isSendable(channel: unknown): channel is SendableChannel {
+  return typeof channel === "object" && channel !== null && "send" in channel && "sendTyping" in channel;
+}
+
+const activeBattles = new Set<string>();
+
+async function runAiBattle(
+  topic: string,
+  channel: SendableChannel,
+  openai: OpenAI,
+  bot1Name: string,
+  bot2Client: Client
+): Promise<void> {
+  const ROUNDS = 3;
+  const bot2Channel = await bot2Client.channels.fetch(channel.id).catch(() => null);
+
+  if (!bot2Channel || !isSendable(bot2Channel as Message["channel"])) {
+    await channel.send("❌ Bot 2 is not in this channel or not ready. Make sure to invite it to the server!");
+    return;
+  }
+
+  const bot2SendableChannel = bot2Channel as unknown as SendableChannel;
+  const bot2Name = bot2Client.user?.username ?? "Challenger";
+
+  await channel.send(
+    `⚔️ **AI BATTLE** ⚔️\n\n` +
+    `**Topic:** ${topic}\n\n` +
+    `🔵 **${bot1Name}** will argue **FOR**\n` +
+    `🔴 **${bot2Name}** will argue **AGAINST**\n\n` +
+    `Let the battle begin! 🥊`
+  );
+
+  await sleep(2000);
+
+  const battleHistory: { role: "user" | "assistant"; content: string }[] = [];
+
+  const systemFor = `You are ${bot1Name}, an AI debater. Your role is to argue STRONGLY FOR the following topic: "${topic}". Be passionate, concise (max 120 words), and end with a provocative challenge to your opponent. Respond in the same language as the topic.`;
+  const systemAgainst = `You are ${bot2Name}, an AI debater. Your role is to argue STRONGLY AGAINST the following topic: "${topic}". Be passionate, concise (max 120 words), and end with a sharp counter to your opponent. Respond in the same language as the topic.`;
+
+  for (let round = 1; round <= ROUNDS; round++) {
+    // Bot 1 argues FOR
+    await channel.sendTyping();
+    const forPrompt = round === 1
+      ? `Make your opening argument FOR: "${topic}"`
+      : `Round ${round}: respond to the opponent's last point and reinforce your position.`;
+
+    battleHistory.push({ role: "user", content: forPrompt });
+
+    const forResponse = await openai.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      max_completion_tokens: 200,
+      messages: [{ role: "system", content: systemFor }, ...battleHistory],
+    });
+
+    const forArg = forResponse.choices[0]?.message?.content ?? "...";
+    battleHistory.push({ role: "assistant", content: forArg });
+
+    await channel.send(`🔵 **${bot1Name}** (Round ${round}):\n${forArg}`);
+    await sleep(3000);
+
+    // Bot 2 argues AGAINST
+    await bot2SendableChannel.sendTyping();
+    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}"`;
+    const againstHistory = battleHistory.map((m) => ({ ...m }));
+    againstHistory.push({ role: "user", content: againstPrompt });
+
+    const againstResponse = await openai.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      max_completion_tokens: 200,
+      messages: [{ role: "system", content: systemAgainst }, ...againstHistory],
+    });
+
+    const againstArg = againstResponse.choices[0]?.message?.content ?? "...";
+    battleHistory.push({ role: "user", content: againstArg });
+
+    await bot2SendableChannel.send(`🔴 **${bot2Name}** (Round ${round}):\n${againstArg}`);
+    await sleep(3000);
+  }
+
+  // Verdict
+  const verdictResponse = await openai.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    max_completion_tokens: 150,
+    messages: [
+      {
+        role: "system",
+        content: `You are a neutral debate judge. Briefly declare a winner between ${bot1Name} (FOR) and ${bot2Name} (AGAINST) based on their arguments about "${topic}". Be dramatic and fun. Max 80 words. Respond in the same language as the debate.`,
+      },
+      { role: "user", content: `The debate is over. Who won?\n\n${battleHistory.map((m) => m.content).join("\n\n")}` },
+    ],
+  });
+
+  const verdict = verdictResponse.choices[0]?.message?.content ?? "It's a tie!";
+  await sleep(2000);
+  await channel.send(`🏆 **VERDICT** 🏆\n\n${verdict}`);
+}
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
+  const token2 = process.env["DISCORD_TOKEN_2"];
   const groqKey = process.env["GROQ_API_KEY"];
 
   if (!token) {
@@ -112,23 +212,29 @@ export function startBot(): void {
   }
 
   const openai = groqKey
-    ? new OpenAI({
-        apiKey: groqKey,
-        baseURL: "https://api.groq.com/openai/v1",
-      })
+    ? new OpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" })
     : null;
 
-  if (!openai) {
-    logger.warn("GROQ_API_KEY not set — AI mentions will be disabled");
-  }
+  if (!openai) logger.warn("GROQ_API_KEY not set — AI features will be disabled");
 
+  // Main bot (bot 1)
   const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
   });
+
+  // Second bot (bot 2) for AI battle
+  let client2: Client | null = null;
+  if (token2) {
+    client2 = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+    client2.once("clientReady", () => {
+      logger.info({ tag: client2!.user?.tag }, "Bot 2 connected");
+    });
+    client2.login(token2).catch((err) => {
+      logger.error({ err }, "Failed to connect bot 2");
+    });
+  } else {
+    logger.warn("DISCORD_TOKEN_2 not set — !ai battle will be disabled");
+  }
 
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
@@ -160,10 +266,7 @@ export function startBot(): void {
           "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
           {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${hfToken}`,
-              "Content-Type": "application/json",
-            },
+            headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
             body: JSON.stringify({ inputs: prompt }),
           }
         );
@@ -173,14 +276,10 @@ export function startBot(): void {
           await waitMsg.edit("❌ Failed to generate the image. Try again later!");
           return;
         }
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        const buffer = Buffer.from(await response.arrayBuffer());
         await waitMsg.delete();
-        if ("send" in message.channel) {
-          await message.channel.send({
-            content: `🖼️ **${prompt}**`,
-            files: [{ attachment: buffer, name: "image.png" }],
-          });
+        if (isSendable(message.channel)) {
+          await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: "image.png" }] });
         }
       } catch (err) {
         logger.error({ err }, "Error generating image");
@@ -192,40 +291,25 @@ export function startBot(): void {
     // --- @mention → AI chat ---
     if (botId && isBotMentioned(message, botId) && openai) {
       const userText = stripMentions(content);
-
       if (!userText) {
         await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
         return;
       }
-
       try {
-        if ("sendTyping" in message.channel) await message.channel.sendTyping();
-
+        if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
-
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            {
-              role: "system",
-              content:
-                "You are a friendly, helpful, and cheerful Discord bot. " +
-                "Keep your answers concise and conversational. " +
-                "Use a warm, casual tone. You can use emojis sparingly. " +
-                "Never break character. Respond in the same language the user writes in.",
-            },
+            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot. Keep your answers concise and conversational. Use a warm, casual tone. You can use emojis sparingly. Never break character. Respond in the same language the user writes in." },
             ...getHistory(message.channelId),
           ],
         });
-
         const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't think of a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
-
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
-        for (const chunk of chunks) {
-          await message.reply(chunk);
-        }
+        for (const chunk of chunks) await message.reply(chunk);
       } catch (err) {
         logger.error({ err }, "Error calling Groq API");
         await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
@@ -247,9 +331,7 @@ export function startBot(): void {
             await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`");
           } else {
             await message.delete();
-            if ("send" in message.channel) {
-              await message.channel.send(text);
-            }
+            if (isSendable(message.channel)) await message.channel.send(text);
           }
           break;
         }
@@ -303,13 +385,10 @@ export function startBot(): void {
         }
 
         case "conspiracy": {
-          const topic = args.join(" ").trim();
-          if (!openai) {
-            await message.reply("❌ AI is not configured.");
-            break;
-          }
+          if (!openai) { await message.reply("❌ AI is not configured."); break; }
           try {
-            if ("sendTyping" in message.channel) await message.channel.sendTyping();
+            const topic = args.join(" ").trim();
+            if (isSendable(message.channel)) await message.channel.sendTyping();
             const prompt = topic
               ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`
               : `Generate a short, absurd and funny random conspiracy theory. Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`;
@@ -330,6 +409,36 @@ export function startBot(): void {
           break;
         }
 
+        case "ai": {
+          const subcommand = args.shift()?.toLowerCase();
+          if (subcommand !== "battle") break;
+
+          if (!openai) { await message.reply("❌ AI is not configured."); break; }
+          if (!client2) { await message.reply("❌ Bot 2 is not connected. Add `DISCORD_TOKEN_2` to the secrets."); break; }
+          if (!isSendable(message.channel)) break;
+
+          const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";
+
+          if (activeBattles.has(message.channelId)) {
+            await message.reply("⚔️ A battle is already happening in this channel! Wait for it to finish.");
+            break;
+          }
+
+          activeBattles.add(message.channelId);
+          const bot1Name = client.user?.username ?? "Defender";
+
+          runAiBattle(topic, message.channel, openai, bot1Name, client2)
+            .catch(async (err) => {
+              logger.error({ err }, "Error during AI battle");
+              await message.reply("❌ The battle crashed unexpectedly!");
+            })
+            .finally(() => {
+              activeBattles.delete(message.channelId);
+            });
+
+          break;
+        }
+
         case "help": {
           await message.reply(
             `📖 **Available commands:**\n\n` +
@@ -343,7 +452,8 @@ export function startBot(): void {
             `\`!hug\` — Receive a virtual hug 🤗\n` +
             `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
             `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
-            `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️`
+            `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
+            `\`!ai battle [topic]\` — Watch two AIs fight it out ⚔️`
           );
           break;
         }
