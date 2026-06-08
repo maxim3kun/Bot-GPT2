@@ -109,6 +109,7 @@ function isSendable(channel: unknown): channel is SendableChannel {
 }
 
 const activeBattles = new Set<string>();
+const stoppedBattles = new Set<string>();
 
 async function runAiBattle(
   topic: string,
@@ -128,69 +129,96 @@ async function runAiBattle(
   const bot2SendableChannel = bot2Channel as unknown as SendableChannel;
   const bot2Name = bot2Client.user?.username ?? "Challenger";
 
+  const channelId = channel.id;
+
   await channel.send(
     `⚔️ **AI BATTLE** ⚔️\n\n` +
     `**Topic:** ${topic}\n\n` +
     `🔵 **${bot1Name}** will argue **FOR**\n` +
     `🔴 **${bot2Name}** will argue **AGAINST**\n\n` +
-    `Let the battle begin! 🥊`
+    `3 rounds — one message every ~40 seconds.\nType \`!ai stop\` to end the battle early. 🥊`
   );
 
-  await sleep(2000);
+  await sleep(3000);
 
   const battleHistory: { role: "user" | "assistant"; content: string }[] = [];
 
-  const systemFor = `You are ${bot1Name}, an AI debater. Your role is to argue STRONGLY FOR the following topic: "${topic}". Be passionate, concise (max 120 words), and end with a provocative challenge to your opponent. Respond in the same language as the topic.`;
-  const systemAgainst = `You are ${bot2Name}, an AI debater. Your role is to argue STRONGLY AGAINST the following topic: "${topic}". Be passionate, concise (max 120 words), and end with a sharp counter to your opponent. Respond in the same language as the topic.`;
+  const systemFor = `You are ${bot1Name}, a passionate and eloquent AI debater. Your role is to argue STRONGLY FOR the following topic: "${topic}". Write a convincing argument of 150 to 200 words. Use vivid language, concrete examples, and end with a provocative rhetorical question or challenge aimed at your opponent. Respond in the same language as the topic.`;
+  const systemAgainst = `You are ${bot2Name}, a sharp and confident AI debater. Your role is to argue STRONGLY AGAINST the following topic: "${topic}". Write a convincing counter-argument of 150 to 200 words. Tear down your opponent's points with logic and wit, use real-world examples, and end with a strong closing statement. Respond in the same language as the topic.`;
 
   for (let round = 1; round <= ROUNDS; round++) {
-    // Bot 1 argues FOR
+    if (stoppedBattles.has(channelId)) {
+      await channel.send(`🛑 **Battle stopped after round ${round - 1}.**`);
+      stoppedBattles.delete(channelId);
+      return;
+    }
+
+    // Bot 1 argues FOR — show typing for ~10s to feel natural
     await channel.sendTyping();
     const forPrompt = round === 1
-      ? `Make your opening argument FOR: "${topic}"`
-      : `Round ${round}: respond to the opponent's last point and reinforce your position.`;
+      ? `Make your opening argument FOR: "${topic}". Write 150 to 200 words.`
+      : `Round ${round}: respond to your opponent's last argument and reinforce your position. Write 150 to 200 words.`;
 
     battleHistory.push({ role: "user", content: forPrompt });
 
     const forResponse = await openai.chat.completions.create({
       model: "llama-3.1-8b-instant",
-      max_completion_tokens: 200,
+      max_completion_tokens: 350,
       messages: [{ role: "system", content: systemFor }, ...battleHistory],
     });
 
     const forArg = forResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "assistant", content: forArg });
 
-    await channel.send(`🔵 **${bot1Name}** (Round ${round}):\n${forArg}`);
-    await sleep(3000);
+    await channel.send(`🔵 **${bot1Name}** — Round ${round}:\n\n${forArg}`);
+
+    // Pause before bot 2 replies (~40s), refresh typing mid-wait
+    await sleep(20000);
+    if (stoppedBattles.has(channelId)) {
+      await channel.send(`🛑 **Battle stopped mid-round ${round}.**`);
+      stoppedBattles.delete(channelId);
+      return;
+    }
+    await bot2SendableChannel.sendTyping();
+    await sleep(20000);
 
     // Bot 2 argues AGAINST
-    await bot2SendableChannel.sendTyping();
-    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}"`;
+    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}". Write 150 to 200 words.`;
     const againstHistory = battleHistory.map((m) => ({ ...m }));
     againstHistory.push({ role: "user", content: againstPrompt });
 
     const againstResponse = await openai.chat.completions.create({
       model: "llama-3.1-8b-instant",
-      max_completion_tokens: 200,
+      max_completion_tokens: 350,
       messages: [{ role: "system", content: systemAgainst }, ...againstHistory],
     });
 
     const againstArg = againstResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "user", content: againstArg });
 
-    await bot2SendableChannel.send(`🔴 **${bot2Name}** (Round ${round}):\n${againstArg}`);
-    await sleep(3000);
+    await bot2SendableChannel.send(`🔴 **${bot2Name}** — Round ${round}:\n\n${againstArg}`);
+
+    // Pause before next round
+    if (round < ROUNDS) {
+      await sleep(20000);
+      if (stoppedBattles.has(channelId)) {
+        await channel.send(`🛑 **Battle stopped after round ${round}.**`);
+        stoppedBattles.delete(channelId);
+        return;
+      }
+      await channel.sendTyping();
+      await sleep(20000);
+    }
   }
 
   // Verdict
   const verdictResponse = await openai.chat.completions.create({
     model: "llama-3.1-8b-instant",
-    max_completion_tokens: 150,
+    max_completion_tokens: 200,
     messages: [
       {
         role: "system",
-        content: `You are a neutral debate judge. Briefly declare a winner between ${bot1Name} (FOR) and ${bot2Name} (AGAINST) based on their arguments about "${topic}". Be dramatic and fun. Max 80 words. Respond in the same language as the debate.`,
+        content: `You are a dramatic debate judge. Declare a winner between ${bot1Name} (FOR) and ${bot2Name} (AGAINST) on the topic "${topic}". Be theatrical and funny. Max 100 words. Respond in the same language as the debate.`,
       },
       { role: "user", content: `The debate is over. Who won?\n\n${battleHistory.map((m) => m.content).join("\n\n")}` },
     ],
@@ -411,6 +439,17 @@ export function startBot(): void {
 
         case "ai": {
           const subcommand = args.shift()?.toLowerCase();
+
+          if (subcommand === "stop") {
+            if (!activeBattles.has(message.channelId)) {
+              await message.reply("🤷 No battle is running in this channel.");
+            } else {
+              stoppedBattles.add(message.channelId);
+              await message.reply("🛑 Stopping the battle after the current message...");
+            }
+            break;
+          }
+
           if (subcommand !== "battle") break;
 
           if (!openai) { await message.reply("❌ AI is not configured."); break; }
@@ -420,7 +459,7 @@ export function startBot(): void {
           const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";
 
           if (activeBattles.has(message.channelId)) {
-            await message.reply("⚔️ A battle is already happening in this channel! Wait for it to finish.");
+            await message.reply("⚔️ A battle is already happening in this channel! Type `!ai stop` to end it.");
             break;
           }
 
@@ -434,6 +473,7 @@ export function startBot(): void {
             })
             .finally(() => {
               activeBattles.delete(message.channelId);
+              stoppedBattles.delete(message.channelId);
             });
 
           break;
@@ -453,7 +493,8 @@ export function startBot(): void {
             `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
             `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
             `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
-            `\`!ai battle [topic]\` — Watch two AIs fight it out ⚔️`
+            `\`!ai battle [topic]\` — Watch two AIs fight it out ⚔️\n` +
+            `\`!ai stop\` — Stop an ongoing AI battle 🛑`
           );
           break;
         }
