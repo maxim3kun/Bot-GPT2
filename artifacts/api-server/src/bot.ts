@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Message } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
-import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive } from "./games";
+import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber } from "./games";
 
 const PREFIX = "!";
 
@@ -467,6 +467,12 @@ export function startBot(): void {
           break;
         }
 
+        case "guessnumber":
+        case "guess": {
+          playGuessNumber(message).catch((err) => logger.error({ err }, "GuessNumber error"));
+          break;
+        }
+
         case "ai": {
           const subcommand = args.shift()?.toLowerCase();
 
@@ -529,7 +535,8 @@ export function startBot(): void {
             `\`!minesweeper [easy|medium|hard]\` — Minesweeper with spoiler tiles 💣\n` +
             `\`!geo\` — Guess the country from a photo + text clues 🌍\n` +
             `\`!geo stop\` — Give up the current GeoGuessr game\n` +
-            `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠`
+            `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠\n` +
+            `\`!guessnumber\` — Guess the number between 1-100 🎯`
           );
           break;
         }

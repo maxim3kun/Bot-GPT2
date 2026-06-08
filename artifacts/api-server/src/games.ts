@@ -624,3 +624,103 @@ Respond ONLY with this JSON:
     activeTriviaGames.delete(channel.id);
   }
 }
+
+// ─────────────────────────────────────────
+// GUESS NUMBER
+// ─────────────────────────────────────────
+
+const activeGuessingGames = new Set<string>();
+
+export async function playGuessNumber(message: Message): Promise<void> {
+  const channel = toSendable(message.channel);
+  if (!channel) return;
+
+  if (activeGuessingGames.has(channel.id)) {
+    await channel.send("❌ A guessing game is already running in this channel!");
+    return;
+  }
+
+  activeGuessingGames.add(channel.id);
+
+  try {
+    const secretNumber = Math.floor(Math.random() * 100) + 1;
+    let attempts = 0;
+    const maxAttempts = 10;
+    let guessed = false;
+
+    const embed = new EmbedBuilder()
+      .setTitle("🎮 GUESS THE NUMBER")
+      .setDescription(
+        `I've thought of a number between **1** and **100**.\n` +
+        `You have **${maxAttempts} attempts** to guess it! 🎯\n\n` +
+        `Reply with your guess (just the number).`
+      )
+      .setColor(0x3498db);
+
+    await channel.send({ embeds: [embed] });
+
+    try {
+      while (attempts < maxAttempts && !guessed) {
+        const collected = await (message.channel as unknown as {
+          awaitMessages: (opts: {
+            filter: (m: Message) => boolean;
+            max: number;
+            time: number;
+            errors: string[];
+          }) => Promise<Map<string, Message>>;
+        }).awaitMessages({
+          filter: (m: Message) => {
+            if (m.author.bot) return false;
+            const guess = parseInt(m.content.trim());
+            return !isNaN(guess) && guess >= 1 && guess <= 100;
+          },
+          max: 1,
+          time: 60000,
+          errors: ["time"],
+        });
+
+        const msg = collected.values().next().value as Message | undefined;
+        if (!msg) break;
+
+        const guess = parseInt(msg.content.trim());
+        attempts++;
+
+        if (guess === secretNumber) {
+          guessed = true;
+          const resultEmbed = new EmbedBuilder()
+            .setTitle("🎉 YOU WON!")
+            .setDescription(
+              `**${msg.author.displayName}** found the number in **${attempts}** attempt${attempts > 1 ? "s" : ""}! 🏆`
+            )
+            .setColor(0x2ecc71);
+          await channel.send({ embeds: [resultEmbed] });
+        } else {
+          const hint = guess < secretNumber ? "📈 **Higher!**" : "📉 **Lower!**";
+          const remaining = maxAttempts - attempts;
+          await channel.send(
+            `${hint} (${remaining} attempt${remaining !== 1 ? "s" : ""} left)`
+          );
+        }
+      }
+
+      if (!guessed) {
+        const loseEmbed = new EmbedBuilder()
+          .setTitle("😢 GAME OVER!")
+          .setDescription(`The number was **${secretNumber}**.\n\nBetter luck next time! 🍀`)
+          .setColor(0xe74c3c);
+        await channel.send({ embeds: [loseEmbed] });
+      }
+    } catch (err) {
+      if ((err as any)?.code === "INTERACTION_COLLECTOR_ERROR") {
+        await channel.send("⏱️ Time's up! Game over!");
+      } else {
+        throw err;
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "GuessNumber error");
+    await channel.send("❌ An error occurred during the guessing game!");
+  } finally {
+    activeGuessingGames.delete(channel.id);
+  }
+}
