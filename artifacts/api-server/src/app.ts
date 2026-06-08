@@ -30,5 +30,5 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
-
+app.get("/", (req, res) => res.sendStatus(200));
 export default app;
