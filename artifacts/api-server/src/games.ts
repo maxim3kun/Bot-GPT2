@@ -1,4 +1,4 @@
-import { Message } from "discord.js";
+import { Message, EmbedBuilder } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 
@@ -15,15 +15,20 @@ function normalize(str: string): string {
     .trim();
 }
 
-type SendableChannel = {
+type DiscordChannel = {
   id: string;
   send: (content: unknown) => Promise<Message>;
   sendTyping: () => Promise<void>;
-  awaitMessages: (opts: unknown) => Promise<Map<string, Message>>;
+  awaitMessages: (opts: {
+    filter: (m: Message) => boolean;
+    max: number;
+    time: number;
+    errors: string[];
+  }) => Promise<Map<string, Message>>;
 };
 
-function toSendable(ch: Message["channel"]): SendableChannel | null {
-  if ("send" in ch && "awaitMessages" in ch) return ch as unknown as SendableChannel;
+function toSendable(ch: Message["channel"]): DiscordChannel | null {
+  if ("send" in ch && "awaitMessages" in ch) return ch as unknown as DiscordChannel;
   return null;
 }
 
@@ -63,10 +68,10 @@ export function playMinesweeper(message: Message, diffArg?: string): string | nu
     return n;
   };
 
-  const diffLabel: Record<MineDiff, string> = { easy: "🟢 Facile", medium: "🟡 Moyen", hard: "🔴 Difficile" };
+  const diffLabel: Record<MineDiff, string> = { easy: "🟢 Easy", medium: "🟡 Medium", hard: "🔴 Hard" };
   const lines: string[] = [
     `💣 **Minesweeper** — ${diffLabel[diff]} | ${rows}×${cols} — ${mines} mines`,
-    `Clique sur les spoilers pour révéler les cases !\n`,
+    `Click the spoilers to reveal the cells!\n`,
   ];
 
   for (let r = 0; r < rows; r++) {
@@ -88,250 +93,274 @@ interface Country {
   name: string;
   aliases: string[];
   flag: string;
+  landmark: string;
+  landmarkName: string;
   hints: string[];
 }
 
 const COUNTRIES: Country[] = [
   {
     name: "France", aliases: ["france"], flag: "🇫🇷",
+    landmark: "Eiffel_Tower", landmarkName: "Eiffel Tower",
     hints: [
-      "Ce pays est en Europe occidentale et a une superficie d'environ 551 000 km².",
-      "Sa langue officielle est utilisée par plus de 300 millions de personnes dans le monde.",
-      "Il borde l'Espagne, l'Italie, la Suisse, l'Allemagne, la Belgique et le Luxembourg.",
-      "Il est connu pour sa gastronomie, ses vins et son art de vivre.",
-      "Sa capitale est l'une des villes les plus visitées au monde.",
-      "Sa capitale est Paris. 🗼",
+      "This country covers about 551,000 km² and lies in Western Europe.",
+      "Its official language is spoken by over 300 million people worldwide.",
+      "It borders Spain, Italy, Switzerland, Germany, Belgium, and Luxembourg.",
+      "It is world-famous for its cuisine, wines, and fashion industry.",
+      "Its capital is one of the most visited cities on Earth.",
+      "Its capital city is Paris. 🗼",
     ],
   },
   {
-    name: "Japon", aliases: ["japan", "japon"], flag: "🇯🇵",
+    name: "Japan", aliases: ["japan", "japon"], flag: "🇯🇵",
+    landmark: "Mount_Fuji", landmarkName: "Mount Fuji",
     hints: [
-      "C'est un archipel de plus de 6 800 îles en Asie du Pacifique.",
-      "Ce pays est l'une des plus grandes économies mondiales avec une forte industrie automobile.",
-      "Sa cuisine comprend les sushis, les ramen et les tempuras.",
-      "Les samouraïs et les ninjas font partie de son histoire légendaire.",
-      "Le mont Fuji est son point culminant et un symbole national.",
-      "Sa capitale est Tokyo. 🗾",
+      "This country is an archipelago of over 6,800 islands in the Pacific.",
+      "It is one of the world's largest economies, famous for its car industry.",
+      "Its cuisine includes sushi, ramen, and tempura.",
+      "Samurai and ninja are part of its legendary history.",
+      "Its highest peak is a snow-capped volcano and a national symbol.",
+      "Its capital is Tokyo. 🗾",
     ],
   },
   {
-    name: "Brésil", aliases: ["brazil", "bresil", "brasil", "brésil"], flag: "🇧🇷",
+    name: "Brazil", aliases: ["brazil", "brasil"], flag: "🇧🇷",
+    landmark: "Christ_the_Redeemer_(statue)", landmarkName: "Christ the Redeemer",
     hints: [
-      "C'est le plus grand pays d'Amérique du Sud, avec une superficie de 8,5 millions de km².",
-      "Il abrite la plus grande forêt tropicale du monde.",
-      "Sa langue officielle est le portugais.",
-      "Le carnaval de sa ville la plus célèbre est mondialement connu.",
-      "Il a remporté la Coupe du Monde de football 5 fois.",
-      "Sa capitale est Brasília. Le Christ Rédempteur domine Rio de Janeiro. 🗿",
+      "This is the largest country in South America, covering 8.5 million km².",
+      "It is home to the world's largest tropical rainforest.",
+      "Its official language is Portuguese.",
+      "Its carnival is one of the most famous celebrations in the world.",
+      "It has won the FIFA World Cup a record 5 times.",
+      "Its capital is Brasília, but Rio de Janeiro is its most iconic city. 🗿",
     ],
   },
   {
-    name: "Australie", aliases: ["australia", "australie"], flag: "🇦🇺",
+    name: "Australia", aliases: ["australia"], flag: "🇦🇺",
+    landmark: "Sydney_Opera_House", landmarkName: "Sydney Opera House",
     hints: [
-      "C'est à la fois un pays et un continent entier dans l'hémisphère sud.",
-      "Il est entouré par l'océan Indien et l'océan Pacifique.",
-      "On y trouve des kangourous, des koalas et des wombats.",
-      "La Grande Barrière de Corail se trouve au large de ses côtes.",
-      "Sa ville la plus peuplée est Sydney, non sa capitale.",
-      "Sa capitale est Canberra. 🦘",
+      "This country is both a nation and an entire continent in the Southern Hemisphere.",
+      "It is surrounded by the Indian and Pacific Oceans.",
+      "It is home to kangaroos, koalas, and wombats.",
+      "The Great Barrier Reef lies off its northeastern coast.",
+      "Its most populous city is Sydney, which is not its capital.",
+      "Its capital is Canberra. 🦘",
     ],
   },
   {
-    name: "Allemagne", aliases: ["germany", "deutschland", "allemagne"], flag: "🇩🇪",
+    name: "Germany", aliases: ["germany", "deutschland"], flag: "🇩🇪",
+    landmark: "Brandenburg_Gate", landmarkName: "Brandenburg Gate",
     hints: [
-      "Ce pays est la plus grande économie d'Europe.",
-      "Il est célèbre pour sa bière, sa choucroute et l'Oktoberfest.",
-      "Il borde 9 pays : France, Autriche, Suisse, Pologne, etc.",
-      "La chute du Mur en 1989 a marqué sa réunification.",
-      "Il a remporté la Coupe du Monde de football 4 fois.",
-      "Sa capitale est Berlin. 🏰",
+      "This country has the largest economy in Europe.",
+      "It is famous for its beer, pretzels, and Oktoberfest festival.",
+      "It shares borders with 9 countries including France, Austria, and Poland.",
+      "The fall of its famous Wall in 1989 marked its reunification.",
+      "It has won the FIFA World Cup 4 times.",
+      "Its capital is Berlin. 🏰",
     ],
   },
   {
-    name: "Argentine", aliases: ["argentina", "argentine"], flag: "🇦🇷",
+    name: "Argentina", aliases: ["argentina"], flag: "🇦🇷",
+    landmark: "Perito_Moreno_Glacier", landmarkName: "Perito Moreno Glacier",
     hints: [
-      "C'est le 8e plus grand pays du monde par superficie.",
-      "Sa langue officielle est l'espagnol.",
-      "Il est réputé pour ses pampas, son bœuf et son vin Malbec.",
-      "Le tango est né dans ses rues.",
-      "C'est le pays natal de Lionel Messi et Diego Maradona.",
-      "Sa capitale est Buenos Aires. 💃",
+      "This is the 8th largest country in the world by area.",
+      "Its official language is Spanish.",
+      "It is renowned for its vast pampas, beef, and Malbec wine.",
+      "The tango dance originated in its streets.",
+      "It is the home country of Lionel Messi and Diego Maradona.",
+      "Its capital is Buenos Aires. 💃",
     ],
   },
   {
-    name: "Égypte", aliases: ["egypt", "egypte", "égypte"], flag: "🇪🇬",
+    name: "Egypt", aliases: ["egypt"], flag: "🇪🇬",
+    landmark: "Great_Pyramid_of_Giza", landmarkName: "Great Pyramid of Giza",
     hints: [
-      "Ce pays se trouve au nord-est de l'Afrique, sur la mer Méditerranée et la mer Rouge.",
-      "Il est traversé par le plus long fleuve du monde.",
-      "C'est l'une des plus anciennes civilisations de l'humanité.",
-      "Il compte l'une des sept merveilles du monde antique encore debout.",
-      "Le Sphinx et les pyramides de Gizeh y sont situés.",
-      "Sa capitale est Le Caire. 🏺",
+      "This country lies in northeastern Africa, on both the Mediterranean and Red Sea.",
+      "It is crossed by the longest river in the world.",
+      "It is the site of one of the oldest civilizations in human history.",
+      "It contains one of the Seven Wonders of the Ancient World still standing today.",
+      "The Sphinx and the pyramids of Giza are located here.",
+      "Its capital is Cairo. 🏺",
     ],
   },
   {
-    name: "Mexique", aliases: ["mexico", "mexique"], flag: "🇲🇽",
+    name: "Mexico", aliases: ["mexico"], flag: "🇲🇽",
+    landmark: "Chichen_Itza", landmarkName: "Chichen Itza",
     hints: [
-      "Ce pays est en Amérique du Nord, au sud des États-Unis.",
-      "C'est le pays hispanophone le plus peuplé du monde.",
-      "Les tacos, les guacamoles et les enchiladas y sont nés.",
-      "Les civilisations aztèques et mayas y ont prospéré.",
-      "Sa capitale est l'une des plus grandes mégalopoles du monde.",
-      "Sa capitale est Mexico. 🌮",
+      "This country is in North America, just south of the United States.",
+      "It is the most populous Spanish-speaking country in the world.",
+      "Tacos, guacamole, and enchiladas originated here.",
+      "The Aztec and Maya civilizations flourished on its territory.",
+      "Its capital is one of the largest megacities on Earth.",
+      "Its capital is Mexico City. 🌮",
     ],
   },
   {
-    name: "Inde", aliases: ["india", "inde"], flag: "🇮🇳",
+    name: "India", aliases: ["india"], flag: "🇮🇳",
+    landmark: "Taj_Mahal", landmarkName: "Taj Mahal",
     hints: [
-      "C'est le pays le plus peuplé du monde depuis 2023.",
-      "Il compte plus de 20 langues officielles reconnues.",
-      "Il est connu pour le curry, le yoga et Bollywood.",
-      "Il borde la Chine, le Pakistan, le Bangladesh, le Népal et le Bhoutan.",
-      "Le Taj Mahal, l'une des merveilles du monde, s'y trouve.",
-      "Sa capitale est New Delhi. 🐘",
+      "This country became the world's most populous nation in 2023.",
+      "It has over 20 officially recognized languages.",
+      "It is known for curry, yoga, and Bollywood.",
+      "It borders China, Pakistan, Bangladesh, Nepal, and Bhutan.",
+      "One of the Seven Wonders of the World is located here.",
+      "Its capital is New Delhi. 🐘",
     ],
   },
   {
     name: "Canada", aliases: ["canada"], flag: "🇨🇦",
+    landmark: "Niagara_Falls", landmarkName: "Niagara Falls",
     hints: [
-      "C'est le 2e plus grand pays du monde par superficie.",
-      "Il a deux langues officielles : l'anglais et le français.",
-      "Il partage la plus longue frontière internationale du monde avec son voisin du sud.",
-      "Il est réputé pour ses érables, son sirop d'érable et ses grandes forêts.",
-      "Ses villes majeures incluent Toronto, Montréal et Vancouver.",
-      "Sa capitale est Ottawa. 🍁",
+      "This is the 2nd largest country in the world by area.",
+      "It has two official languages: English and French.",
+      "It shares the world's longest international border with its southern neighbor.",
+      "It is famous for maple syrup, hockey, and its vast wilderness.",
+      "Its major cities include Toronto, Montreal, and Vancouver.",
+      "Its capital is Ottawa. 🍁",
     ],
   },
   {
-    name: "Corée du Sud", aliases: ["south korea", "coree du sud", "corée du sud", "korea", "south-korea"], flag: "🇰🇷",
+    name: "South Korea", aliases: ["south korea", "korea", "south-korea"], flag: "🇰🇷",
+    landmark: "Gyeongbokgung", landmarkName: "Gyeongbokgung Palace",
     hints: [
-      "Ce pays est une péninsule en Asie de l'Est, entouré de mer sur trois côtés.",
-      "Il est séparé de son voisin du nord par la DMZ depuis 1953.",
-      "C'est le pays d'origine du K-Pop, du K-Drama et du Kimchi.",
-      "C'est l'une des économies les plus développées d'Asie (Samsung, LG, Hyundai).",
-      "La Corée du Nord est juste au-dessus de lui.",
-      "Sa capitale est Séoul. 🎵",
+      "This country occupies the southern half of a peninsula in East Asia.",
+      "It has been separated from its northern neighbor by the DMZ since 1953.",
+      "It is the birthplace of K-Pop, K-Drama, and kimchi.",
+      "It is home to global brands like Samsung, LG, and Hyundai.",
+      "North Korea lies directly to its north.",
+      "Its capital is Seoul. 🎵",
     ],
   },
   {
-    name: "Italie", aliases: ["italy", "italie"], flag: "🇮🇹",
+    name: "Italy", aliases: ["italy"], flag: "🇮🇹",
+    landmark: "Colosseum", landmarkName: "Colosseum",
     hints: [
-      "Ce pays a une forme de botte dans la mer Méditerranée.",
-      "Il abrite la plus petite nation du monde (Vatican).",
-      "Pizza, pâtes, risotto et tiramisu y sont nés.",
-      "L'Empire romain y a pris naissance.",
-      "Le Colisée, Venise et la Tour de Pise s'y trouvent.",
-      "Sa capitale est Rome. 🍕",
+      "This country is shaped like a boot, jutting into the Mediterranean Sea.",
+      "It contains the world's smallest nation (the Vatican).",
+      "Pizza, pasta, risotto, and tiramisu were all invented here.",
+      "The Roman Empire originated on its territory.",
+      "The Colosseum, Venice, and the Leaning Tower of Pisa are found here.",
+      "Its capital is Rome. 🍕",
     ],
   },
   {
-    name: "Espagne", aliases: ["spain", "espagne"], flag: "🇪🇸",
+    name: "Spain", aliases: ["spain", "espana"], flag: "🇪🇸",
+    landmark: "Sagrada_Família", landmarkName: "Sagrada Família",
     hints: [
-      "Ce pays est dans le sud-ouest de l'Europe, sur la péninsule ibérique.",
-      "C'est la 4e plus grande économie de la zone euro.",
-      "La paella, les tapas et la sangria y sont nés.",
-      "La corrida et le flamenco font partie de sa culture.",
-      "Il borde la France, le Portugal, Andorre et le Maroc (via Ceuta et Melilla).",
-      "Sa capitale est Madrid. 🐂",
+      "This country occupies the Iberian Peninsula in southwestern Europe.",
+      "It is the 4th largest economy in the Eurozone.",
+      "Paella, tapas, and sangria originated here.",
+      "Bullfighting and flamenco are part of its cultural heritage.",
+      "It borders France, Portugal, Andorra, and Morocco (via enclaves).",
+      "Its capital is Madrid. 🐂",
     ],
   },
   {
-    name: "Russie", aliases: ["russia", "russie"], flag: "🇷🇺",
+    name: "Russia", aliases: ["russia"], flag: "🇷🇺",
+    landmark: "Saint_Basil's_Cathedral", landmarkName: "Saint Basil's Cathedral",
     hints: [
-      "C'est le plus grand pays du monde, couvrant 11 fuseaux horaires.",
-      "Il s'étend de l'Europe jusqu'au Pacifique.",
-      "Le lac Baïkal, le plus profond du monde, s'y trouve.",
-      "Sa littérature inclut Tolstoï, Dostoïevski et Tchekhov.",
-      "Il est le plus grand producteur mondial de gaz naturel.",
-      "Sa capitale est Moscou. Le Kremlin est son symbole. 🏔️",
+      "This is the largest country in the world, spanning 11 time zones.",
+      "It stretches from Eastern Europe all the way to the Pacific Ocean.",
+      "Lake Baikal, the world's deepest lake, is located here.",
+      "Its literary giants include Tolstoy, Dostoevsky, and Chekhov.",
+      "It is the world's largest natural gas producer.",
+      "Its capital is Moscow. ❄️",
     ],
   },
   {
-    name: "Chine", aliases: ["china", "chine"], flag: "🇨🇳",
+    name: "China", aliases: ["china"], flag: "🇨🇳",
+    landmark: "Great_Wall_of_China", landmarkName: "Great Wall of China",
     hints: [
-      "C'est le pays le plus peuplé de la planète (jusqu'en 2023) avec 1,4 milliard d'habitants.",
-      "C'est la 2e économie mondiale et le plus grand exportateur.",
-      "La Grande Muraille, la plus longue structure du monde, s'y trouve.",
-      "Il borde 14 pays, record mondial.",
-      "Le panda géant, symbole national, ne vit qu'ici à l'état sauvage.",
-      "Sa capitale est Pékin (Beijing). 🐉",
+      "This country had the world's largest population for centuries, with 1.4 billion people.",
+      "It is the world's 2nd largest economy and biggest exporter.",
+      "The longest man-made structure in the world is located here.",
+      "It shares borders with 14 countries — a world record.",
+      "The giant panda, its national symbol, is found nowhere else in the wild.",
+      "Its capital is Beijing. 🐉",
     ],
   },
   {
     name: "Portugal", aliases: ["portugal"], flag: "🇵🇹",
+    landmark: "Belém_Tower", landmarkName: "Belém Tower",
     hints: [
-      "Ce pays est à l'extrême ouest de l'Europe continentale.",
-      "Il borde uniquement l'Espagne à l'est et au nord.",
-      "C'est le fondateur du plus grand empire maritime de l'histoire au XVe siècle.",
-      "Le fado est son genre musical emblématique, reconnu par l'UNESCO.",
-      "Le Brésil, l'Angola et le Mozambique parlent sa langue.",
-      "Sa capitale est Lisbonne. 🎸",
+      "This small country sits at the westernmost tip of mainland Europe.",
+      "It borders only one other country — Spain.",
+      "It founded the largest maritime empire in history during the 15th century.",
+      "Fado, its traditional music, is recognized by UNESCO.",
+      "Brazil, Angola, and Mozambique speak its official language.",
+      "Its capital is Lisbon. 🎸",
     ],
   },
   {
-    name: "Suède", aliases: ["sweden", "suede", "suède"], flag: "🇸🇪",
+    name: "Sweden", aliases: ["sweden", "sverige"], flag: "🇸🇪",
+    landmark: "Stockholm_City_Hall", landmarkName: "Stockholm City Hall",
     hints: [
-      "Ce pays est le plus grand de Scandinavie par superficie.",
-      "Il partage la péninsule scandinave avec la Norvège.",
-      "ABBA, IKEA et Spotify y ont vu le jour.",
-      "C'est l'un des pays avec le plus haut niveau de vie au monde.",
-      "Le soleil de minuit y est visible en été dans le nord.",
-      "Sa capitale est Stockholm. ❄️",
+      "This country is the largest in Scandinavia by area.",
+      "It shares the Scandinavian Peninsula with its western neighbor.",
+      "ABBA, IKEA, and Spotify all originated here.",
+      "It consistently ranks among the world's highest quality of life countries.",
+      "The midnight sun is visible in its northern regions in summer.",
+      "Its capital is Stockholm. ❄️",
     ],
   },
   {
-    name: "Maroc", aliases: ["morocco", "maroc"], flag: "🇲🇦",
+    name: "Morocco", aliases: ["morocco", "maroc"], flag: "🇲🇦",
+    landmark: "Hassan_II_Mosque", landmarkName: "Hassan II Mosque",
     hints: [
-      "Ce pays est au nord-ouest de l'Afrique, bordant la mer Méditerranée et l'Atlantique.",
-      "Il est séparé de l'Europe par seulement 14 km (détroit de Gibraltar).",
-      "Le désert du Sahara occupe une partie de son territoire.",
-      "Le souk de Marrakech et la médina de Fès sont mondialement connus.",
-      "Le couscous, le tajine et le thé à la menthe y sont des spécialités.",
-      "Sa capitale est Rabat. 🏜️",
+      "This country is in northwest Africa, bordering the Mediterranean Sea and Atlantic Ocean.",
+      "It is separated from Europe by only 14 km (the Strait of Gibraltar).",
+      "Part of its territory is covered by the Sahara Desert.",
+      "The souks of Marrakech and the medina of Fes are world-famous.",
+      "Couscous, tagine, and mint tea are national specialties.",
+      "Its capital is Rabat. 🏜️",
     ],
   },
   {
-    name: "Grèce", aliases: ["greece", "grece", "grèce"], flag: "🇬🇷",
+    name: "Greece", aliases: ["greece", "grece", "hellas"], flag: "🇬🇷",
+    landmark: "Parthenon", landmarkName: "Parthenon",
     hints: [
-      "Ce pays est le berceau de la démocratie et de la philosophie occidentale.",
-      "Il compte plus de 6 000 îles, dont 227 habitées.",
-      "Il est en Europe du Sud, dans la mer Méditerranée.",
-      "Les Jeux Olympiques y ont été inventés dans l'Antiquité.",
-      "L'Acropole et le Parthénon dominent sa capitale.",
-      "Sa capitale est Athènes. 🏛️",
+      "This country is the birthplace of democracy and Western philosophy.",
+      "It has over 6,000 islands, 227 of which are inhabited.",
+      "It is located in southern Europe, in the Mediterranean Sea.",
+      "The Olympic Games were invented here in antiquity.",
+      "The Acropolis and the Parthenon overlook its capital city.",
+      "Its capital is Athens. 🏛️",
     ],
   },
   {
-    name: "Turquie", aliases: ["turkey", "turquie"], flag: "🇹🇷",
+    name: "Turkey", aliases: ["turkey", "turkiye"], flag: "🇹🇷",
+    landmark: "Hagia_Sophia", landmarkName: "Hagia Sophia",
     hints: [
-      "Ce pays est à la croisée de l'Europe et de l'Asie, sur deux continents.",
-      "Il borde la mer Noire, la mer Égée et la mer Méditerranée.",
-      "C'est le premier producteur mondial de noisettes.",
-      "La cappadoce, avec ses formations rocheuses uniques, s'y trouve.",
-      "La Grande Mosquée bleue et Sainte-Sophie sont dans sa plus grande ville.",
-      "Sa capitale est Ankara, mais Istanbul est sa ville la plus peuplée. 🕌",
+      "This country straddles Europe and Asia, existing on two continents.",
+      "It is bordered by the Black Sea, Aegean Sea, and Mediterranean Sea.",
+      "It is the world's largest producer of hazelnuts.",
+      "Cappadocia, with its unique rock formations and hot air balloons, is found here.",
+      "The Blue Mosque and Hagia Sophia are in its largest city.",
+      "Its capital is Ankara, but Istanbul is its most populous city. 🕌",
     ],
   },
   {
     name: "Nigeria", aliases: ["nigeria"], flag: "🇳🇬",
+    landmark: "Zuma_Rock", landmarkName: "Zuma Rock",
     hints: [
-      "C'est le pays le plus peuplé d'Afrique avec plus de 220 millions d'habitants.",
-      "Il est en Afrique de l'Ouest, bordant le golfe de Guinée.",
-      "C'est le plus grand producteur de pétrole d'Afrique.",
-      "Nollywood, son industrie cinématographique, est la 3e mondiale.",
-      "Il borde le Niger, le Tchad, le Cameroun et le Bénin.",
-      "Sa capitale est Abuja. 🌍",
+      "This is the most populous country in Africa with over 220 million people.",
+      "It is located in West Africa, bordering the Gulf of Guinea.",
+      "It is Africa's largest oil producer.",
+      "Its film industry, Nollywood, is the 3rd largest in the world.",
+      "It borders Niger, Chad, Cameroon, and Benin.",
+      "Its capital is Abuja. 🌍",
     ],
   },
   {
-    name: "États-Unis", aliases: ["usa", "united states", "us", "america", "etats-unis", "etats unis", "états-unis", "états unis", "amerique"], flag: "🇺🇸",
+    name: "United States", aliases: ["usa", "us", "united states", "america", "united states of america", "us of america"], flag: "🇺🇸",
+    landmark: "Statue_of_Liberty", landmarkName: "Statue of Liberty",
     hints: [
-      "C'est le 3e plus grand pays du monde par superficie et population.",
-      "Il compte 50 états et est une fédération.",
-      "Hollywood, la Silicon Valley et Wall Street s'y trouvent.",
-      "Il est bordé au nord par le Canada et au sud par le Mexique.",
-      "La Statue de la Liberté, le Grand Canyon et Yellowstone sont dans ce pays.",
-      "Sa capitale est Washington D.C. 🗽",
+      "This country is the 3rd largest in the world by both area and population.",
+      "It is a federation of 50 states.",
+      "Hollywood, Silicon Valley, and Wall Street are all located here.",
+      "It is bordered by Canada to the north and Mexico to the south.",
+      "The Grand Canyon, Yellowstone, and many iconic landmarks are found here.",
+      "Its capital is Washington D.C. 🗽",
     ],
   },
 ];
@@ -339,37 +368,69 @@ const COUNTRIES: Country[] = [
 interface GeoGame {
   country: Country;
   hintIndex: number;
-  attempts: number;
+  imageUrl: string | null;
 }
 
 const activeGeoGames = new Map<string, GeoGame>();
+
+async function fetchLandmarkImage(wikiTitle: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle)}`,
+      { headers: { "User-Agent": "DiscordBot/1.0 (educational project)" } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json() as { thumbnail?: { source: string } };
+    return data.thumbnail?.source ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function playGeoguessr(message: Message): Promise<void> {
   const channel = toSendable(message.channel);
   if (!channel) return;
 
   if (activeGeoGames.has(channel.id)) {
-    await channel.send("🌍 Une partie de GeoGuessr est déjà en cours ici ! Tape `!geo stop` pour l'abandonner.");
+    await channel.send("🌍 A GeoGuessr game is already running here! Type `!geo stop` to end it first.");
     return;
   }
 
   const country = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)];
-  const game: GeoGame = { country, hintIndex: 0, attempts: 0 };
+  const imageUrl = await fetchLandmarkImage(country.landmark);
+  const game: GeoGame = { country, hintIndex: 0, imageUrl };
   activeGeoGames.set(channel.id, game);
 
-  const sendHint = async (hint: string, hintNum: number) => {
-    await channel.send(
-      `🌍 **GEOGUESSR** — Indice ${hintNum}/${country.hints.length}\n\n` +
-      `📌 *${hint}*\n\n` +
-      `Quel est ce pays ? _(Tape ton pays ou \`!geo stop\` pour abandonner)_`
-    );
+  const TOTAL_HINTS = country.hints.length;
+  const MAX_SCORE = TOTAL_HINTS + 1;
+
+  const sendVisualHint = async () => {
+    if (imageUrl) {
+      const embed = new EmbedBuilder()
+        .setTitle("🌍 GEOGUESSR — Identify this location!")
+        .setDescription(
+          `📸 *${country.landmarkName}* — Where in the world is this?\n\n` +
+          `Type the **country name** to guess, or \`!geo stop\` to give up.\n` +
+          `_You have ${TOTAL_HINTS} text clue${TOTAL_HINTS > 1 ? "s" : ""} available if you get stuck._`
+        )
+        .setImage(imageUrl)
+        .setColor(0x2ecc71)
+        .setFooter({ text: `Visual hint | ${TOTAL_HINTS} text clues remaining` });
+      await channel.send({ embeds: [embed] });
+    } else {
+      await channel.send(
+        `🌍 **GEOGUESSR** — Guess the country!\n\n` +
+        `📌 *Hint 1/${TOTAL_HINTS}:* ${country.hints[0]}\n\n` +
+        `Type the **country name** below, or \`!geo stop\` to give up.`
+      );
+      game.hintIndex = 1;
+    }
   };
 
-  await sendHint(country.hints[0], 1);
-  game.hintIndex = 1;
+  await sendVisualHint();
 
   try {
-    while (game.hintIndex <= country.hints.length) {
+    while (true) {
       const collected = await (message.channel as unknown as {
         awaitMessages: (opts: {
           filter: (m: Message) => boolean;
@@ -390,39 +451,42 @@ export async function playGeoguessr(message: Message): Promise<void> {
       const text = reply.content.trim();
 
       if (normalize(text) === "!geo stop" || normalize(text) === "geo stop") {
-        await channel.send(`🏳️ Partie abandonnée ! C'était **${country.name}** ${country.flag}`);
+        await channel.send(`🏳️ Game over! The answer was **${country.name}** ${country.flag}`);
         break;
       }
 
       if (isCorrectGuess(text, country)) {
         const hintsUsed = game.hintIndex;
-        const stars = "⭐".repeat(Math.max(1, country.hints.length + 1 - hintsUsed));
+        const score = MAX_SCORE - hintsUsed;
+        const stars = "⭐".repeat(Math.max(1, score));
+        const label =
+          hintsUsed === 0
+            ? "from the photo alone — incredible!"
+            : `after ${hintsUsed} text clue${hintsUsed > 1 ? "s" : ""}`;
         await channel.send(
-          `✅ **Bravo ${reply.author.displayName} !** C'était bien **${country.name}** ${country.flag}\n` +
-          `Tu as trouvé en **${hintsUsed} indice${hintsUsed > 1 ? "s" : ""}** — Score : ${stars}`
+          `✅ **${reply.author.displayName}** got it! It was **${country.name}** ${country.flag}\n` +
+          `Found ${label} — Score: ${stars} (${score}/${MAX_SCORE})`
         );
         break;
       }
 
       // Wrong guess
-      game.attempts++;
-      if (game.hintIndex >= country.hints.length) {
-        // No more hints
+      const nextHintIndex = game.hintIndex;
+      if (nextHintIndex >= TOTAL_HINTS) {
         await channel.send(
-          `❌ Raté ! Plus d'indices disponibles.\nC'était **${country.name}** ${country.flag} — Dommage !`
+          `❌ Wrong! No more hints available.\nThe answer was **${country.name}** ${country.flag} — Better luck next time!`
         );
         break;
       } else {
-        await channel.send(`❌ Pas tout à fait... Voici un nouvel indice !`);
-        await sendHint(country.hints[game.hintIndex], game.hintIndex + 1);
+        await channel.send(
+          `❌ Wrong! Here's clue **${nextHintIndex + 1}/${TOTAL_HINTS}**:\n\n` +
+          `📌 *${country.hints[nextHintIndex]}*`
+        );
         game.hintIndex++;
       }
     }
   } catch {
-    // Timeout
-    await channel.send(
-      `⏱️ Temps écoulé ! C'était **${country.name}** ${country.flag}`
-    );
+    await channel.send(`⏱️ Time's up! The answer was **${country.name}** ${country.flag}`);
   } finally {
     activeGeoGames.delete(channel.id);
   }
@@ -445,9 +509,7 @@ function isCorrectGuess(guess: string, country: Country): boolean {
 // TRIVIA
 // ─────────────────────────────────────────
 
-const LETTER_EMOJIS: Record<string, string> = { a: "🅰️", b: "🅱️", c: "🌊", d: "🅳" };
 const CHOICES = ["A", "B", "C", "D"];
-
 const activeTriviaGames = new Set<string>();
 
 export async function playTrivia(message: Message, openai: OpenAI): Promise<void> {
@@ -455,7 +517,7 @@ export async function playTrivia(message: Message, openai: OpenAI): Promise<void
   if (!channel) return;
 
   if (activeTriviaGames.has(channel.id)) {
-    await channel.send("🧠 Une partie de trivia est déjà en cours ici !");
+    await channel.send("🧠 A trivia game is already running here!");
     return;
   }
 
@@ -471,8 +533,8 @@ export async function playTrivia(message: Message, openai: OpenAI): Promise<void
       messages: [
         {
           role: "system",
-          content: `Tu es un générateur de questions de quiz. Génère UNE question de culture générale en français avec 4 choix (A, B, C, D) et une seule bonne réponse.
-Réponds uniquement avec ce JSON :
+          content: `You are a trivia question generator. Generate ONE interesting general knowledge question in English with 4 choices (A, B, C, D) and exactly one correct answer.
+Respond ONLY with this JSON:
 {
   "question": "...",
   "choices": { "A": "...", "B": "...", "C": "...", "D": "..." },
@@ -480,7 +542,7 @@ Réponds uniquement avec ce JSON :
   "explanation": "..."
 }`,
         },
-        { role: "user", content: "Génère une question de trivia variée et intéressante." },
+        { role: "user", content: "Generate a varied and interesting trivia question." },
       ],
     });
 
@@ -490,13 +552,13 @@ Réponds uniquement avec ce JSON :
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
-      await channel.send("❌ Impossible de générer la question. Réessaie !");
+      await channel.send("❌ Couldn't generate the question. Try again!");
       return;
     }
 
     const { question, choices, answer, explanation } = data;
     if (!question || !choices || !answer) {
-      await channel.send("❌ La question générée est invalide. Réessaie !");
+      await channel.send("❌ The generated question was invalid. Try again!");
       return;
     }
 
@@ -504,15 +566,16 @@ Réponds uniquement avec ce JSON :
       .map((c) => `**${c}.** ${choices[c]}`)
       .join("\n");
 
-    await channel.send(
-      `🧠 **TRIVIA** — Sois le premier à répondre !\n\n` +
-      `❓ ${question}\n\n${choicesText}\n\n` +
-      `_Réponds avec **A**, **B**, **C** ou **D** — 30 secondes !_ ⏱️`
-    );
+    const embed = new EmbedBuilder()
+      .setTitle("🧠 TRIVIA — Be the first to answer!")
+      .setDescription(`❓ **${question}**\n\n${choicesText}\n\n_Reply with **A**, **B**, **C**, or **D** — 30 seconds!_ ⏱️`)
+      .setColor(0x9b59b6);
+
+    await channel.send({ embeds: [embed] });
 
     const correctLetter = answer.toUpperCase();
     const respondents = new Set<string>();
-    let winner: { user: string; letter: string } | null = null;
+    let winner: { user: string } | null = null;
 
     try {
       const collected = await (message.channel as unknown as {
@@ -534,11 +597,11 @@ Réponds uniquement avec ce JSON :
         respondents.add(msg.author.id);
         const letter = msg.content.trim().toUpperCase();
         if (letter === correctLetter && !winner) {
-          winner = { user: msg.author.displayName, letter };
+          winner = { user: msg.author.displayName };
+          break;
         } else if (letter !== correctLetter) {
-          await channel.send(`❌ **${msg.author.displayName}** — Mauvaise réponse !`);
+          await channel.send(`❌ **${msg.author.displayName}** — Wrong answer!`);
         }
-        if (winner) break;
       }
     } catch {
       // Timeout — no valid response
@@ -547,18 +610,16 @@ Réponds uniquement avec ce JSON :
     const correctText = choices[correctLetter] ?? "";
     if (winner) {
       await channel.send(
-        `✅ **${winner.user}** a trouvé ! La bonne réponse était **${correctLetter}. ${correctText}**\n\n` +
-        `💡 ${explanation}`
+        `✅ **${winner.user}** got it right! The answer was **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
       );
     } else {
       await channel.send(
-        `⏱️ Temps écoulé ! La bonne réponse était **${correctLetter}. ${correctText}**\n\n` +
-        `💡 ${explanation}`
+        `⏱️ Time's up! The answer was **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
       );
     }
   } catch (err) {
     logger.error({ err }, "Trivia error");
-    await channel.send("❌ Une erreur est survenue pendant le trivia !");
+    await channel.send("❌ An error occurred during the trivia game!");
   } finally {
     activeTriviaGames.delete(channel.id);
   }

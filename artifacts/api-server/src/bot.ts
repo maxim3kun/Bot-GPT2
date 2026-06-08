@@ -523,13 +523,13 @@ export function startBot(): void {
             `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
             `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
             `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
-            `\`!ai battle [topic]\` — Regarde deux IA se battre ⚔️\n` +
-            `\`!ai stop\` — Arrête un AI battle en cours 🛑\n\n` +
-            `**🎮 Mini-jeux**\n` +
-            `\`!minesweeper [easy|medium|hard]\` — Démineur avec spoilers 💣\n` +
-            `\`!geo\` — Devine le pays avec des indices 🌍\n` +
-            `\`!geo stop\` — Abandonne la partie en cours\n` +
-            `\`!trivia\` — Quiz culture générale (A/B/C/D) 🧠`
+            `\`!ai battle [topic]\` — Watch two AIs debate each other ⚔️\n` +
+            `\`!ai stop\` — Stop an ongoing AI battle 🛑\n\n` +
+            `**🎮 Mini-games**\n` +
+            `\`!minesweeper [easy|medium|hard]\` — Minesweeper with spoiler tiles 💣\n` +
+            `\`!geo\` — Guess the country from a photo + text clues 🌍\n` +
+            `\`!geo stop\` — Give up the current GeoGuessr game\n` +
+            `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠`
           );
           break;
         }
