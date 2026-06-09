@@ -18,6 +18,32 @@ const COMPLIMENTS = [
   "Your efforts make a real difference! 💪",
 ];
 
+const COMPLIMENTS_FR = [
+  "Tu es absolument incroyable ! ✨",
+  "Ton sourire illumine la pièce ! ☀️",
+  "Tu es une personne vraiment extraordinaire ! 🌟",
+  "Tu as un talent unique et précieux ! 💎",
+  "Le monde est meilleur grâce à toi ! 🌈",
+  "Tu es courageux(se) et inspirant(e) ! 🦁",
+  "Ta créativité ne connaît aucune limite ! 🎨",
+  "Tu es une personne profondément gentille ! 💖",
+  "Tu mérites tout le bonheur du monde ! 🌸",
+  "Tes efforts font une vraie différence ! 💪",
+];
+
+const COMPLIMENTS_ES = [
+  "¡Eres absolutamente increíble! ✨",
+  "¡Tu sonrisa ilumina la habitación! ☀️",
+  "¡Eres una persona verdaderamente extraordinaria! 🌟",
+  "¡Tienes un talento único y precioso! 💎",
+  "¡El mundo es mejor gracias a ti! 🌈",
+  "¡Eres valiente e inspirador(a)! 🦁",
+  "¡Tu creatividad no tiene límites! 🎨",
+  "¡Eres una persona profundamente amable! 💖",
+  "¡Mereces toda la felicidad del mundo! 🌸",
+  "¡Tus esfuerzos marcan una verdadera diferencia! 💪",
+];
+
 const JOKES = [
   "Why don't scientists trust atoms? Because they make up everything! 😂",
   "Why did the scarecrow win an award? Because he was outstanding in his field! 🌾",
@@ -31,6 +57,32 @@ const JOKES = [
   "Why did the bicycle fall over? Because it was two-tired! 🚲",
 ];
 
+const JOKES_FR = [
+  "Pourquoi les mathématiciens adorent les parcs d'attractions ? Parce qu'ils ont toujours des tangentes ! 🎢",
+  "Pourquoi les squelettes ne se battent-ils jamais ? Ils n'ont pas le cran ! 💀",
+  "Que dit une maman tomate à son bébé tomate en retard ? Dépêche-toi, ketchup ! 🍅",
+  "Pourquoi les poissons détestent l'ordinateur ? Parce qu'ils ont peur du filet ! 🐟",
+  "Pourquoi les araignées sont de mauvais conteurs ? Parce qu'elles racontent des toiles ! 🕷️",
+  "Pourquoi l'ordinateur a-t-il traversé la route ? Pour atteindre l'autre site web ! 💻",
+  "Qu'est-ce qu'un vampire ne peut pas mordre ? Sa langue ! 🧛",
+  "Que fait un canard quand il est content ? Il coin-coin ! 🦆",
+  "Pourquoi les tomates rougissent-elles ? Parce qu'elles ont vu la salade se déshabiller ! 🥗",
+  "Pourquoi le livre de maths était triste ? Parce qu'il avait trop de problèmes ! 📚",
+];
+
+const JOKES_ES = [
+  "¿Por qué los pájaros no usan Facebook? Porque ya tienen Twitter. 🐦",
+  "¿Qué hace una abeja en el gimnasio? ¡Zum-ba! 🐝",
+  "¿Por qué el libro de matemáticas estaba triste? Porque tenía muchos problemas. 📚",
+  "¿Qué le dijo un pez a otro pez? ¡Nada, nada! 🐟",
+  "¿Por qué los esqueletos no pelean entre ellos? Porque no tienen el valor. 💀",
+  "¿Cuál es el colmo de un electricista? No tener corriente. ⚡",
+  "¿Por qué el tomate se sonrojó? Porque vio la ensalada desnuda. 🍅",
+  "¿Qué hace una vaca cuando explota de felicidad? ¡Leche! 🥛",
+  "¿Cómo se llama un perro sin patas? No importa cómo lo llames, no vendrá. 🐶",
+  "¿Por qué las bicicletas no pueden pararse solas? Porque están dos-tired. 🚲",
+];
+
 const ENCOURAGEMENTS = [
   "You can do it, I believe in you! 💪",
   "Every great journey begins with a single step. Keep going! 🚀",
@@ -42,6 +94,32 @@ const ENCOURAGEMENTS = [
   "Even stars need darkness to shine. Hang in there! ⭐",
   "You've already overcome so many obstacles. You'll get through this one too! 🌈",
   "Take care of yourself and keep going at your own pace! 🌺",
+];
+
+const ENCOURAGEMENTS_FR = [
+  "Tu peux le faire, je crois en toi ! 💪",
+  "Chaque grand voyage commence par un petit pas. Continue ! 🚀",
+  "Tu es plus fort(e) que tu ne le penses ! 🦸",
+  "Les difficultés d'aujourd'hui sont les succès de demain ! 🌟",
+  "N'abandonne jamais ! La persévérance mène toujours à la victoire ! 🏆",
+  "Tu avances — même les petits pas comptent ! 👣",
+  "Continue de croire en toi, tu fais du super travail ! 🎯",
+  "Même les étoiles ont besoin d'obscurité pour briller. Accroche-toi ! ⭐",
+  "Tu as déjà surmonté tellement d'obstacles. Tu vas y arriver aussi ! 🌈",
+  "Prends soin de toi et avance à ton rythme ! 🌺",
+];
+
+const ENCOURAGEMENTS_ES = [
+  "Puedes hacerlo, ¡creo en ti! 💪",
+  "Cada gran viaje comienza con un solo paso. ¡Sigue adelante! 🚀",
+  "¡Eres más fuerte de lo que crees! 🦸",
+  "Las dificultades de hoy son los éxitos de mañana. 🌟",
+  "Nunca te rindas. La perseverancia siempre conduce a la victoria. 🏆",
+  "Estás avanzando — incluso los pasos pequeños cuentan. 👣",
+  "Sigue creyendo en ti mismo, lo estás haciendo muy bien. 🎯",
+  "Incluso las estrellas necesitan oscuridad para brillar. ¡Aguanta! ⭐",
+  "Ya has superado tantos obstáculos. ¡También superarás este! 🌈",
+  "Cuídate y sigue a tu propio ritmo. 🌺",
 ];
 
 const EIGHT_BALL_RESPONSES = [
@@ -61,7 +139,41 @@ const EIGHT_BALL_RESPONSES = [
   "Very doubtful! 🌫️",
   "Ask again later! ⏳",
 ];
+const EIGHT_BALL_RESPONSES_FR = [
+  "Oui, absolument ! ✅",
+  "C'est certain ! 🎯",
+  "Sans aucun doute ! 💯",
+  "Oui, je pense que oui ! 👍",
+  "Les signes indiquent oui ! 🔮",
+  "Probablement ! 🤔",
+  "Les perspectives sont bonnes ! 🌟",
+  "Peut-être... réessaie ! 🎲",
+  "Je ne suis pas sûr(e)... 😕",
+  "Les perspectives ne sont pas très bonnes... 😬",
+  "Probablement pas ! 👎",
+  "Non, certainement pas ! ❌",
+  "Mes sources disent non ! 🚫",
+  "Très douteux ! 🌫️",
+  "Demande à nouveau plus tard ! ⏳",
+];
 
+const EIGHT_BALL_RESPONSES_ES = [
+  "¡Sí, absolutamente! ✅",
+  "¡Es seguro! 🎯",
+  "¡Sin lugar a dudas! 💯",
+  "Sí, creo que sí. 👍",
+  "Las señales apuntan a que sí. 🔮",
+  "Probablemente. 🤔",
+  "El panorama se ve bien. 🌟",
+  "Quizás... ¡intenta de nuevo! 🎲",
+  "No estoy seguro(a)... 😕",
+  "Las perspectivas no son tan buenas... 😬",
+  "Probablemente no. 👎",
+  "No, definitivamente no. ❌",
+  "Mis fuentes dicen que no. 🚫",
+  "Muy dudoso. 🌫️",
+  "Pregunta otra vez más tarde. ⏳",
+];
 const HUGS = [
   "Here's a huge virtual hug for you! 🤗💕",
   "Sending you warmth and love! 🫂✨",
@@ -70,11 +182,117 @@ const HUGS = [
   "A soft and cozy hug, just for you! 🧸💝",
 ];
 
+const HUGS_FR = [
+  "Voici un énorme câlin virtuel pour toi ! 🤗💕",
+  "Je t'envoie de la chaleur et de l'amour ! 🫂✨",
+  "Un grand câlin rien que pour toi ! 🐻💖",
+  "Tiens, ce câlin bien mérité ! 🤗🌸",
+  "Un câlin doux et réconfortant, juste pour toi ! 🧸💝",
+];
+
+const HUGS_ES = [
+  "¡Aquí tienes un gran abrazo virtual! 🤗💕",
+  "Te envío calor y amor. 🫂✨",
+  "¡Un gran abrazo solo para ti! 🐻💖",
+  "Toma este abrazo bien merecido. 🤗🌸",
+  "Un abrazo suave y acogedor, solo para ti. 🧸💝",
+];
+
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+type Language = "en" | "fr" | "es";
+
+function parseLanguage(arg?: string): Language {
+  const lang = (arg ?? "").toLowerCase();
+  if (lang === "fr" || lang === "france") return "fr";
+  if (lang === "es" || lang === "espanol" || lang === "esp") return "es";
+  return "en";
+}
+
 type ChatMessage = { role: "user" | "assistant"; content: string };
+
+type HelpLanguage = "en" | "fr" | "es";
+
+function renderHelp(lang: HelpLanguage): string {
+  if (lang === "fr") {
+    return (
+      `📖 **Commandes disponibles :**\n\n` +
+      `\`@bot <message>\` — Discute avec moi en tant qu'IA 🤖\n` +
+      `\`/image <description>\` — Génère une image 🎨\n` +
+      `\`!say <message>\` — Je le dis pour toi (et supprime ton message)\n` +
+      `\`!help fr\` — Affiche l'aide en français\n` +
+      `\`!help es\` — Affiche l'aide en espagnol\n` +
+      `\`!hello\` — Je te souhaite la bienvenue\n` +
+      `\`!compliment\` — Reçois un compliment 💖\n` +
+      `\`!joke\` — Entends une blague 😄\n` +
+      `\`!encouragement\` — Un message motivant 💪\n` +
+      `\`!hug\` — Reçois un câlin virtuel 🤗\n` +
+      `\`!8ball <question>\` — Pose une question à la boule magique 🎱\n` +
+      `\`!dice [faces]\` — Lance un dé (ex. \\`!dice 20\\`) 🎲\n` +
+      `\`!conspiracy [topic]\` — Génère une théorie du complot farfelue 🕵️\n` +
+      `\`!ai battle [topic]\` — Regarde deux IA débattre ⚔️\n` +
+      `\`!ai stop\` — Arrête un débat IA en cours 🛑\n\n` +
+      `**🎮 Mini-jeux**\n` +
+      `\`!minesweeper [easy|medium|hard]\` — Démineur avec cases spoiler 💣\n` +
+      `\`!geo [easy|medium|hard]\` — Devine le pays à partir d'un indice 🌍\n` +
+      `\`!geo stop\` — Abandonne la partie GeoGuessr\n` +
+      `\`!trivia\` — Quiz de culture générale (A/B/C/D) 🧠\n` +
+      `\`!guessnumber\` — Devine un nombre entre 1 et 100 🎯`
+    );
+  }
+  if (lang === "es") {
+    return (
+      `📖 **Comandos disponibles:**\n\n` +
+      `\`@bot <message>\` — Chatea conmigo como IA 🤖\n` +
+      `\`/image <description>\` — Genera una imagen 🎨\n` +
+      `\`!say <message>\` — Lo digo por ti (y borro tu mensaje)\n` +
+      `\`!help fr\` — Muestra la ayuda en francés\n` +
+      `\`!help es\` — Muestra la ayuda en español\n` +
+      `\`!hello\` — Te doy una cálida bienvenida\n` +
+      `\`!compliment\` — Recibe un cumplido 💖\n` +
+      `\`!joke\` — Escucha un chiste 😄\n` +
+      `\`!encouragement\` — Un mensaje motivador 💪\n` +
+      `\`!hug\` — Recibe un abrazo virtual 🤗\n` +
+      `\`!8ball <question>\` — Pregunta a la bola mágica 🎱\n` +
+      `\`!dice [faces]\` — Lanza un dado (ej. \\`!dice 20\\`) 🎲\n` +
+      `\`!conspiracy [topic]\` — Genera una teoría conspirativa divertida 🕵️\n` +
+      `\`!ai battle [topic]\` — Observa a dos IA debatir ⚔️\n` +
+      `\`!ai stop\` — Detén un debate IA en curso 🛑\n\n` +
+      `**🎮 Mini-juegos**\n` +
+      `\`!minesweeper [easy|medium|hard]\` — Buscaminas con casillas spoiler 💣\n` +
+      `\`!geo [easy|medium|hard]\` — Adivina el país con una pista 🌍\n` +
+      `\`!geo stop\` — Rinde la partida de GeoGuessr\n` +
+      `\`!trivia\` — Quiz de cultura general (A/B/C/D) 🧠\n` +
+      `\`!guessnumber\` — Adivina un número entre 1 y 100 🎯`
+    );
+  }
+  return (
+    `📖 **Available commands:**\n\n` +
+    `\`@bot <message>\` — Chat with me as an AI! 🤖\n` +
+    `\`/image <description>\` — Generate an image 🎨\n` +
+    `\`!say <message>\` — I'll say it for you (and delete your message)\n` +
+    `\`!help fr\` — Show help in French\n` +
+    `\`!help es\` — Show help in Spanish\n` +
+    `\`!hello\` — I'll welcome you warmly\n` +
+    `\`!compliment\` — Get a heartfelt compliment 💖\n` +
+    `\`!joke\` — Hear a good joke 😄\n` +
+    `\`!encouragement\` — Get a motivating message 💪\n` +
+    `\`!hug\` — Receive a virtual hug 🤗\n` +
+    `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
+    `\`!dice [faces]\` — Roll a die (e.g. \\`!dice 20\\`) 🎲\n` +
+    `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
+    `\`!ai battle [topic]\` — Watch two AIs debate each other ⚔️\n` +
+    `\`!ai stop\` — Stop an ongoing AI battle 🛑\n\n` +
+    `**🎮 Mini-games**\n` +
+    `\`!minesweeper [easy|medium|hard]\` — Minesweeper with spoiler tiles 💣\n` +
+    `\`!geo [easy|medium|hard]\` — Guess the country from a photo + text clues 🌍\n` +
+    `\`!geo stop\` — Give up the current GeoGuessr game\n` +
+    `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠\n` +
+    `\`!guessnumber\` — Guess the number between 1-100 🎯`
+  );
+}
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
@@ -374,32 +592,47 @@ export function startBot(): void {
         }
 
         case "compliment": {
-          await message.reply(`${message.author.displayName}, ${getRandom(COMPLIMENTS)}`);
+          const lang = parseLanguage(args[0]);
+          if (lang !== "en") args.shift();
+          const compliments = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : COMPLIMENTS;
+          await message.reply(`${message.author.displayName}, ${getRandom(compliments)}`);
           break;
         }
 
         case "joke": {
-          await message.reply(getRandom(JOKES));
+          const lang = parseLanguage(args[0]);
+          if (lang !== "en") args.shift();
+          const jokes = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : JOKES;
+          await message.reply(getRandom(jokes));
           break;
         }
 
         case "encouragement":
         case "cheer": {
-          await message.reply(`${message.author.displayName}, ${getRandom(ENCOURAGEMENTS)}`);
+          const lang = parseLanguage(args[0]);
+          if (lang !== "en") args.shift();
+          const encouragements = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : ENCOURAGEMENTS;
+          await message.reply(`${message.author.displayName}, ${getRandom(encouragements)}`);
           break;
         }
 
         case "hug": {
-          await message.reply(`${message.author.displayName}, ${getRandom(HUGS)}`);
+          const lang = parseLanguage(args[0]);
+          if (lang !== "en") args.shift();
+          const hugs = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : HUGS;
+          await message.reply(`${message.author.displayName}, ${getRandom(hugs)}`);
           break;
         }
 
         case "8ball": {
+          const lang = parseLanguage(args[0]);
+          if (lang !== "en") args.shift();
           const question = args.join(" ");
           if (!question) {
             await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`");
           } else {
-            await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(EIGHT_BALL_RESPONSES)}`);
+            const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : EIGHT_BALL_RESPONSES;
+            await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(answers)}`);
           }
           break;
         }
@@ -457,7 +690,14 @@ export function startBot(): void {
             }
             break;
           }
-          playGeoguessr(message).catch((err) => logger.error({ err }, "GeoGuessr error"));
+
+          const difficulty = sub || "easy";
+          if (!["easy", "medium", "hard"].includes(difficulty)) {
+            await message.reply("❓ Invalid GeoGuessr mode. Use `!geo easy`, `!geo medium`, or `!geo hard`.\nExample: `!geo hard`");
+            break;
+          }
+
+          playGeoguessr(message, difficulty as "easy" | "medium" | "hard").catch((err) => logger.error({ err }, "GeoGuessr error"));
           break;
         }
 
@@ -516,28 +756,9 @@ export function startBot(): void {
         }
 
         case "help": {
-          await message.reply(
-            `📖 **Available commands:**\n\n` +
-            `\`@bot <message>\` — Chat with me as an AI! 🤖\n` +
-            `\`/image <description>\` — Generate an image 🎨\n` +
-            `\`!say <message>\` — I'll say it for you (and delete your message)\n` +
-            `\`!hello\` — I'll welcome you warmly\n` +
-            `\`!compliment\` — Get a heartfelt compliment 💖\n` +
-            `\`!joke\` — Hear a good joke 😄\n` +
-            `\`!encouragement\` — Get a motivating message 💪\n` +
-            `\`!hug\` — Receive a virtual hug 🤗\n` +
-            `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
-            `\`!dice [faces]\` — Roll a die (e.g. \`!dice 20\`) 🎲\n` +
-            `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
-            `\`!ai battle [topic]\` — Watch two AIs debate each other ⚔️\n` +
-            `\`!ai stop\` — Stop an ongoing AI battle 🛑\n\n` +
-            `**🎮 Mini-games**\n` +
-            `\`!minesweeper [easy|medium|hard]\` — Minesweeper with spoiler tiles 💣\n` +
-            `\`!geo\` — Guess the country from a photo + text clues 🌍\n` +
-            `\`!geo stop\` — Give up the current GeoGuessr game\n` +
-            `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠\n` +
-            `\`!guessnumber\` — Guess the number between 1-100 🎯`
-          );
+          const lang = args[0]?.toLowerCase();
+          const helpLang = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
+          await message.reply(renderHelp(helpLang));
           break;
         }
 

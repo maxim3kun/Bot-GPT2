@@ -365,6 +365,8 @@ const COUNTRIES: Country[] = [
   },
 ];
 
+type GeoDifficulty = "easy" | "medium" | "hard";
+
 interface GeoGame {
   country: Country;
   hintIndex: number;
@@ -372,6 +374,18 @@ interface GeoGame {
 }
 
 const activeGeoGames = new Map<string, GeoGame>();
+
+const GEO_DIFFICULTY_CONFIG: Record<GeoDifficulty, { totalHints: number; showImage: boolean; label: string }> = {
+  easy: { totalHints: 6, showImage: true, label: "Easy" },
+  medium: { totalHints: 4, showImage: false, label: "Medium" },
+  hard: { totalHints: 2, showImage: false, label: "Hard" },
+};
+
+function parseGeoDifficulty(arg?: string): GeoDifficulty {
+  const normalized = normalize(arg ?? "");
+  if (normalized === "easy" || normalized === "medium" || normalized === "hard") return normalized;
+  return "easy";
+}
 
 async function fetchLandmarkImage(wikiTitle: string): Promise<string | null> {
   try {
@@ -387,7 +401,7 @@ async function fetchLandmarkImage(wikiTitle: string): Promise<string | null> {
   }
 }
 
-export async function playGeoguessr(message: Message): Promise<void> {
+export async function playGeoguessr(message: Message, difficultyArg?: string): Promise<void> {
   const channel = toSendable(message.channel);
   if (!channel) return;
 
@@ -396,18 +410,21 @@ export async function playGeoguessr(message: Message): Promise<void> {
     return;
   }
 
+  const difficulty = parseGeoDifficulty(difficultyArg);
+  const difficultyConfig = GEO_DIFFICULTY_CONFIG[difficulty];
+
   const country = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)];
   const imageUrl = await fetchLandmarkImage(country.landmark);
   const game: GeoGame = { country, hintIndex: 0, imageUrl };
   activeGeoGames.set(channel.id, game);
 
-  const TOTAL_HINTS = country.hints.length;
+  const TOTAL_HINTS = Math.min(country.hints.length, difficultyConfig.totalHints);
   const MAX_SCORE = TOTAL_HINTS + 1;
 
-  const sendVisualHint = async () => {
-    if (imageUrl) {
+  const sendStartMessage = async () => {
+    if (difficultyConfig.showImage && imageUrl) {
       const embed = new EmbedBuilder()
-        .setTitle("🌍 GEOGUESSR — Identify this location!")
+        .setTitle(`🌍 GEOGUESSR — ${difficultyConfig.label} mode`)
         .setDescription(
           `📸 *${country.landmarkName}* — Where in the world is this?\n\n` +
           `Type the **country name** to guess, or \`!geo stop\` to give up.\n` +
@@ -415,11 +432,11 @@ export async function playGeoguessr(message: Message): Promise<void> {
         )
         .setImage(imageUrl)
         .setColor(0x2ecc71)
-        .setFooter({ text: `Visual hint | ${TOTAL_HINTS} text clues remaining` });
+        .setFooter({ text: `Mode: ${difficultyConfig.label} | ${TOTAL_HINTS} clues available` });
       await channel.send({ embeds: [embed] });
     } else {
       await channel.send(
-        `🌍 **GEOGUESSR** — Guess the country!\n\n` +
+        `🌍 **GEOGUESSR — ${difficultyConfig.label} mode**\n\n` +
         `📌 *Hint 1/${TOTAL_HINTS}:* ${country.hints[0]}\n\n` +
         `Type the **country name** below, or \`!geo stop\` to give up.`
       );
@@ -427,7 +444,7 @@ export async function playGeoguessr(message: Message): Promise<void> {
     }
   };
 
-  await sendVisualHint();
+  await sendStartMessage();
 
   try {
     while (true) {
