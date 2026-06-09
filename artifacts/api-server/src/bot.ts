@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Message } from "discord.js";
+import { Client, EmbedBuilder, GatewayIntentBits, Message } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber } from "./games";
@@ -215,83 +215,62 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 
 type HelpLanguage = "en" | "fr" | "es";
 
-function renderHelp(lang: HelpLanguage): string {
-  if (lang === "fr") {
-    return (
-      "📖 **Commandes disponibles :**\n\n" +
-      "`@bot <message>` — Discute avec moi en tant qu'IA 🤖\n" +
-      "`/image <description>` — Génère une image 🎨\n" +
-      "`!say <message>` — Je le dis pour toi (et supprime ton message)\n" +
-      "`!help fr` — Affiche l'aide en français\n" +
-      "`!help es` — Affiche l'aide en espagnol\n" +
-      "`!hello` — Je te souhaite la bienvenue\n" +
-      "`!compliment` — Reçois un compliment 💖\n" +
-      "`!joke` — Entends une blague 😄\n" +
-      "`!encouragement` — Un message motivant 💪\n" +
-      "`!hug` — Reçois un câlin virtuel 🤗\n" +
-      "`!8ball <question>` — Pose une question à la boule magique 🎱\n" +
-      "`!dice [faces]` — Lance un dé (ex. `!dice 20`) 🎲\n" +
-      "`!conspiracy [topic]` — Génère une théorie du complot farfelue 🕵️\n" +
-      "`!ai battle [topic]` — Regarde deux IA débattre ⚔️\n" +
-      "`!ai stop` — Arrête un débat IA en cours 🛑\n\n" +
-      "**🎮 Mini-jeux**\n" +
-      "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n" +
-      "`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n" +
-      "`!geo stop` — Abandonne la partie GeoGuessr\n" +
-      "`!trivia` — Quiz de culture générale (A/B/C/D) 🧠\n" +
-      "`!guessnumber` — Devine un nombre entre 1 et 100 🎯"
-    );
-  }
-  if (lang === "es") {
-    return (
-      "📖 **Comandos disponibles:**\n\n" +
-      "`@bot <message>` — Chatea conmigo como IA 🤖\n" +
-      "`/image <description>` — Genera una imagen 🎨\n" +
-      "`!say <message>` — Lo digo por ti (y borro tu mensaje)\n" +
-      "`!help fr` — Muestra la ayuda en francés\n" +
-      "`!help es` — Muestra la ayuda en español\n" +
-      "`!hello` — Te doy una cálida bienvenida\n" +
-      "`!compliment` — Recibe un cumplido 💖\n" +
-      "`!joke` — Escucha un chiste 😄\n" +
-      "`!encouragement` — Un mensaje motivador 💪\n" +
-      "`!hug` — Recibe un abrazo virtual 🤗\n" +
-      "`!8ball <question>` — Pregunta a la bola mágica 🎱\n" +
-      "`!dice [faces]` — Lanza un dado (ej. `!dice 20`) 🎲\n" +
-      "`!conspiracy [topic]` — Genera una teoría conspirativa divertida 🕵️\n" +
-      "`!ai battle [topic]` — Observa a dos IA debatir ⚔️\n" +
-      "`!ai stop` — Detén un debate IA en curso 🛑\n\n" +
-      "**🎮 Mini-juegos**\n" +
-      "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n" +
-      "`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n" +
-      "`!geo stop` — Rinde la partida de GeoGuessr\n" +
-      "`!trivia` — Quiz de cultura general (A/B/C/D) 🧠\n" +
-      "`!guessnumber` — Adivina un número entre 1 y 100 🎯"
-    );
-  }
-  return (
-    "📖 **Available commands:**\n\n" +
-    "`@bot <message>` — Chat with me as an AI! 🤖\n" +
-    "`/image <description>` — Generate an image 🎨\n" +
-    "`!say <message>` — I'll say it for you (and delete your message)\n" +
-    "`!help fr` — Show help in French\n" +
-    "`!help es` — Show help in Spanish\n" +
-    "`!hello` — I'll welcome you warmly\n" +
-    "`!compliment` — Get a heartfelt compliment 💖\n" +
-    "`!joke` — Hear a good joke 😄\n" +
-    "`!encouragement` — Get a motivating message 💪\n" +
-    "`!hug` — Receive a virtual hug 🤗\n" +
-    "`!8ball <question>` — Ask the magic 8-ball 🎱\n" +
-    "`!dice [faces]` — Roll a die (e.g. `!dice 20`) 🎲\n" +
-    "`!conspiracy [topic]` — Generate a wild conspiracy theory 🕵️\n" +
-    "`!ai battle [topic]` — Watch two AIs debate each other ⚔️\n" +
-    "`!ai stop` — Stop an ongoing AI battle 🛑\n\n" +
-    "**🎮 Mini-games**\n" +
-    "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n" +
-    "`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n" +
-    "`!geo stop` — Give up the current GeoGuessr game\n" +
-    "`!trivia` — General knowledge quiz (A/B/C/D) 🧠\n" +
-    "`!guessnumber` — Guess the number between 1-100 🎯"
-  );
+function renderHelpEmbed(lang: HelpLanguage) {
+  const locale = {
+    title:
+      lang === "fr"
+        ? "Aide du bot 🇫🇷"
+        : lang === "es"
+        ? "Ayuda del bot 🇪🇸"
+        : "Bot Help",
+    description:
+      lang === "fr"
+        ? "Voici un guide rapide pour commencer avec les commandes du bot."
+        : lang === "es"
+        ? "Aquí tienes una guía rápida para comenzar con los comandos del bot."
+        : "Here’s a quick guide to get started with the bot commands.",
+    general: lang === "fr" ? "Commandes principales" : lang === "es" ? "Comandos principales" : "Main commands",
+    fun: lang === "fr" ? "Divertissement" : lang === "es" ? "Diversión" : "Fun",
+    games: lang === "fr" ? "Mini-jeux" : lang === "es" ? "Juegos" : "Mini-games",
+    multilingual: lang === "fr" ? "Aide multilingue" : lang === "es" ? "Ayuda multilingüe" : "Multilingual help",
+    multilingualNote:
+      lang === "fr"
+        ? "🌍 `!help fr` | `!help es` — Utilise une seule fois pour afficher l'aide dans la langue choisie."
+        : lang === "es"
+        ? "🌍 `!help fr` | `!help es` — Úsalo solo una vez para mostrar la ayuda en el idioma elegido."
+        : "🌍 `!help fr` | `!help es` — Use once to show help in the chosen language.",
+    generalCommands:
+      lang === "fr"
+        ? "`@bot <message>` — Discute avec moi en tant qu'IA 🤖\n`/image <description>` — Génère une image 🎨\n`!say <message>` — Je le dis pour toi et supprime ton message\n`!hello` — Je te souhaite la bienvenue"
+        : lang === "es"
+        ? "`@bot <message>` — Chatea conmigo como IA 🤖\n`/image <description>` — Genera una imagen 🎨\n`!say <message>` — Lo digo por ti y borro tu mensaje\n`!hello` — Te doy una cálida bienvenida"
+        : "`@bot <message>` — Chat with me as an AI! 🤖\n`/image <description>` — Generate an image 🎨\n`!say <message>` — I'll say it for you and delete your message\n`!hello` — I'll welcome you warmly",
+    funCommands:
+      lang === "fr"
+        ? "`!compliment` — Reçois un compliment 💖\n`!joke` — Entends une blague 😄\n`!encouragement` — Message motivant 💪\n`!hug` — Reçois un câlin virtuel 🤗\n`!8ball <question>` — Demande à la boule magique 🎱\n`!dice [faces]` — Lance un dé (ex. `!dice 20`) 🎲\n`!conspiracy [topic]` — Génère une théorie farfelue 🕵️"
+        : lang === "es"
+        ? "`!compliment` — Recibe un cumplido 💖\n`!joke` — Escucha un chiste 😄\n`!encouragement` — Mensaje motivador 💪\n`!hug` — Recibe un abrazo virtual 🤗\n`!8ball <question>` — Pregunta a la bola mágica 🎱\n`!dice [faces]` — Lanza un dado (ej. `!dice 20`) 🎲\n`!conspiracy [topic]` — Genera una teoría divertida 🕵️"
+        : "`!compliment` — Get a heartfelt compliment 💖\n`!joke` — Hear a good joke 😄\n`!encouragement` — Get a motivating message 💪\n`!hug` — Receive a virtual hug 🤗\n`!8ball <question>` — Ask the magic 8-ball 🎱\n`!dice [faces]` — Roll a die (e.g. `!dice 20`) 🎲\n`!conspiracy [topic]` — Generate a wild conspiracy theory 🕵️",
+    gameCommands:
+      lang === "fr"
+        ? "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n`!geo stop` — Abandonne la partie GeoGuessr\n`!trivia` — Quiz de culture générale 🧠\n`!guessnumber` — Devine un nombre entre 1 et 100 🎯"
+        : lang === "es"
+        ? "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n`!geo stop` — Rinde la partida de GeoGuessr\n`!trivia` — Quiz de cultura general 🧠\n`!guessnumber` — Adivina un número entre 1 y 100 🎯"
+        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯"
+  };
+
+  return new EmbedBuilder()
+    .setTitle(locale.title)
+    .setColor(lang === "fr" ? 0x3498db : lang === "es" ? 0xe74c3c : 0x1abc9c)
+    .setDescription(locale.description)
+    .addFields(
+      { name: locale.general, value: locale.generalCommands, inline: false },
+      { name: locale.fun, value: locale.funCommands, inline: false },
+      { name: locale.games, value: locale.gameCommands, inline: false },
+      { name: locale.multilingual, value: locale.multilingualNote, inline: false }
+    )
+    .setFooter({ text: lang === "fr" ? "Utilise !help fr ou !help es une seule fois." : lang === "es" ? "Usa !help fr o !help es solo una vez." : "Use !help fr or !help es just once." })
+    .setTimestamp();
 }
 
 const conversationHistory = new Map<string, ChatMessage[]>();
@@ -758,7 +737,7 @@ export function startBot(): void {
         case "help": {
           const lang = args[0]?.toLowerCase();
           const helpLang = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
-          await message.reply(renderHelp(helpLang));
+          await message.reply({ embeds: [renderHelpEmbed(helpLang)] });
           break;
         }
 
