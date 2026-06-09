@@ -741,3 +741,208 @@ export async function playGuessNumber(message: Message): Promise<void> {
     activeGuessingGames.delete(channel.id);
   }
 }
+
+// ─────────────────────────────────────────
+// CONNECT 4
+// ─────────────────────────────────────────
+
+const CONNECT4_ROWS = 6;
+const CONNECT4_COLS = 7;
+const CONNECT4_TOKENS = ["⚪", "🔴", "🟡"];
+const CONNECT4_COLUMNS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"];
+const CONNECT4_USER = 1;
+const CONNECT4_BOT = 2;
+
+type Connect4Game = {
+  board: number[][];
+};
+
+const activeConnect4Games = new Map<string, Connect4Game>();
+
+function renderConnect4Board(board: number[][]): string {
+  const rows = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(""));
+  return `**${CONNECT4_COLUMNS.join("")}**\n${rows.join("\n")}`;
+}
+
+function getDropRow(board: number[][], col: number): number {
+  for (let row = CONNECT4_ROWS - 1; row >= 0; row--) {
+    if (board[row][col] === 0) return row;
+  }
+  return -1;
+}
+
+function isBoardFull(board: number[][]): boolean {
+  return board[0].every((cell) => cell !== 0);
+}
+
+function checkConnect4(board: number[][], token: number): boolean {
+  for (let row = 0; row < CONNECT4_ROWS; row++) {
+    for (let col = 0; col < CONNECT4_COLS; col++) {
+      if (board[row][col] !== token) continue;
+
+      const directions = [
+        { dr: 0, dc: 1 },
+        { dr: 1, dc: 0 },
+        { dr: 1, dc: 1 },
+        { dr: 1, dc: -1 },
+      ];
+
+      for (const { dr, dc } of directions) {
+        let count = 0;
+        for (let step = 0; step < 4; step++) {
+          const r = row + dr * step;
+          const c = col + dc * step;
+          if (r < 0 || r >= CONNECT4_ROWS || c < 0 || c >= CONNECT4_COLS) break;
+          if (board[r][c] !== token) break;
+          count += 1;
+        }
+        if (count === 4) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function findWinningColumn(board: number[][], token: number): number | null {
+  for (let col = 0; col < CONNECT4_COLS; col++) {
+    const row = getDropRow(board, col);
+    if (row === -1) continue;
+    board[row][col] = token;
+    const won = checkConnect4(board, token);
+    board[row][col] = 0;
+    if (won) return col;
+  }
+  return null;
+}
+
+function chooseBotColumn(board: number[][]): number {
+  const winMove = findWinningColumn(board, CONNECT4_BOT);
+  if (winMove !== null) return winMove;
+
+  const blockMove = findWinningColumn(board, CONNECT4_USER);
+  if (blockMove !== null) return blockMove;
+
+  const priorities = [3, 2, 4, 1, 5, 0, 6];
+  for (const col of priorities) {
+    if (getDropRow(board, col) !== -1) return col;
+  }
+  return -1;
+}
+
+export async function playConnect4(message: Message, arg?: string): Promise<void> {
+  const channel = toSendable(message.channel);
+  if (!channel) return;
+
+  const normalized = (arg ?? "").toLowerCase();
+  const active = activeConnect4Games.get(channel.id);
+
+  if (normalized === "stop") {
+    if (!active) {
+      await channel.send("🤷 Pas de partie Connect4 en cours. Lance `!connect4 test` pour commencer.");
+      return;
+    }
+    activeConnect4Games.delete(channel.id);
+    await channel.send("⛔ Partie Connect4 arrêtée. Recommence quand tu veux avec `!connect4 test`.\n");
+    return;
+  }
+
+  if (normalized === "test") {
+    if (active) {
+      await channel.send("Une partie est déjà en cours. Joue avec `!connect4 1` à `!connect4 7` ou arrête avec `!connect4 stop`.\n");
+      return;
+    }
+
+    const board = Array.from({ length: CONNECT4_ROWS }, () => Array(CONNECT4_COLS).fill(0));
+    activeConnect4Games.set(channel.id, { board });
+
+    const embed = new EmbedBuilder()
+      .setTitle("🔴 Connect4 — Mode Test Solo")
+      .setDescription("Tu joues en rouge. Envoie `!connect4 1` à `!connect4 7` pour poser un jeton. Le bot répondra automatiquement.")
+      .addFields({ name: "Plateau", value: renderConnect4Board(board), inline: false })
+      .setColor(0xf39c12);
+
+    await channel.send({ embeds: [embed] });
+    return;
+  }
+
+  if (!active) {
+    await channel.send("🤷 Aucune partie active. Commence avec `!connect4 test` pour jouer en solo contre le bot.");
+    return;
+  }
+
+  const colNumber = parseInt(normalized, 10);
+  if (isNaN(colNumber) || colNumber < 1 || colNumber > CONNECT4_COLS) {
+    await channel.send("❓ Choisis une colonne valide entre 1 et 7. Par exemple : `!connect4 4`.\n");
+    return;
+  }
+
+  const playerCol = colNumber - 1;
+  const playerRow = getDropRow(active.board, playerCol);
+  if (playerRow === -1) {
+    await channel.send("Cette colonne est pleine. Choisis-en une autre !");
+    return;
+  }
+
+  active.board[playerRow][playerCol] = CONNECT4_USER;
+  if (checkConnect4(active.board, CONNECT4_USER)) {
+    const embed = new EmbedBuilder()
+      .setTitle("🎉 Tu as gagné !")
+      .setDescription(`Alignement parfait — bravo !`)
+      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
+      .setColor(0x2ecc71);
+
+    activeConnect4Games.delete(channel.id);
+    await channel.send({ embeds: [embed] });
+    return;
+  }
+
+  if (isBoardFull(active.board)) {
+    const embed = new EmbedBuilder()
+      .setTitle("🤝 Match nul")
+      .setDescription("Le plateau est plein et personne n'a aligné quatre jetons.")
+      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
+      .setColor(0x95a5a6);
+
+    activeConnect4Games.delete(channel.id);
+    await channel.send({ embeds: [embed] });
+    return;
+  }
+
+  const botCol = chooseBotColumn(active.board);
+  const botRow = botCol === -1 ? -1 : getDropRow(active.board, botCol);
+  if (botRow !== -1) {
+    active.board[botRow][botCol] = CONNECT4_BOT;
+  }
+
+  if (botRow !== -1 && checkConnect4(active.board, CONNECT4_BOT)) {
+    const embed = new EmbedBuilder()
+      .setTitle("😢 Le bot a gagné")
+      .setDescription(`Le bot a joué en colonne ${botCol + 1}.`) 
+      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
+      .setColor(0xe74c3c);
+
+    activeConnect4Games.delete(channel.id);
+    await channel.send({ embeds: [embed] });
+    return;
+  }
+
+  if (isBoardFull(active.board)) {
+    const embed = new EmbedBuilder()
+      .setTitle("🤝 Match nul")
+      .setDescription("Le plateau est plein — personne n'a pu aligner quatre jetons.")
+      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
+      .setColor(0x95a5a6);
+
+    activeConnect4Games.delete(channel.id);
+    await channel.send({ embeds: [embed] });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle("🔁 À ton tour !")
+    .setDescription(`Le bot a joué en colonne ${botCol + 1}. Continue avec \`!connect4 1\` à \`!connect4 7\`.`)
+    .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
+    .setColor(0xf39c12);
+
+  await channel.send({ embeds: [embed] });
+}
