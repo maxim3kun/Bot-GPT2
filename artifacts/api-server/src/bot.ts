@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Message, EmbedBuilder } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Message, EmbedBuilder, MessageReaction, User } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber } from "./games";
@@ -215,8 +215,12 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 
 type HelpLanguage = "en" | "fr" | "es";
 
-function renderHelpEmbed(lang: HelpLanguage) {
-  const locale = {
+type HelpPage = 1 | 2;
+
+const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
+
+function getHelpPageData(lang: HelpLanguage) {
+  return {
     title:
       lang === "fr"
         ? "Aide du bot 🇫🇷"
@@ -225,10 +229,10 @@ function renderHelpEmbed(lang: HelpLanguage) {
         : "Bot Help",
     description:
       lang === "fr"
-        ? "Voici un guide rapide pour commencer avec les commandes du bot."
+        ? "Voici un guide rapide pour commencer avec les commandes du bot. Utilise les réactions pour naviguer entre les pages."
         : lang === "es"
-        ? "Aquí tienes una guía rápida para comenzar con los comandos del bot."
-        : "Here’s a quick guide to get started with the bot commands.",
+        ? "Aquí tienes una guía rápida para comenzar con los comandos del bot. Usa las reacciones para navegar entre las páginas."
+        : "Here’s a quick guide to get started with the bot commands. Use the reactions to navigate between pages.",
     general: lang === "fr" ? "Commandes principales" : lang === "es" ? "Comandos principales" : "Main commands",
     fun: lang === "fr" ? "Divertissement" : lang === "es" ? "Diversión" : "Fun",
     games: lang === "fr" ? "Mini-jeux" : lang === "es" ? "Juegos" : "Mini-games",
@@ -256,21 +260,64 @@ function renderHelpEmbed(lang: HelpLanguage) {
         ? "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n`!geo stop` — Abandonne la partie GeoGuessr\n`!trivia` — Quiz de culture générale 🧠\n`!guessnumber` — Devine un nombre entre 1 et 100 🎯"
         : lang === "es"
         ? "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n`!geo stop` — Rinde la partida de GeoGuessr\n`!trivia` — Quiz de cultura general 🧠\n`!guessnumber` — Adivina un número entre 1 y 100 🎯"
-        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯"
+        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯",
+  };
+}
+
+function renderHelpEmbed(lang: HelpLanguage, page: HelpPage) {
+  const data = getHelpPageData(lang);
+  const embedded = new EmbedBuilder()
+    .setTitle(data.title)
+    .setColor(lang === "fr" ? 0x3498db : lang === "es" ? 0xe74c3c : 0x1abc9c)
+    .setDescription(data.description)
+    .setFooter({ text: lang === "fr" ? `Page ${page}/2 • Utilise les réactions pour naviguer.` : lang === "es" ? `Página ${page}/2 • Usa las reacciones para navegar.` : `Page ${page}/2 • Use reactions to navigate.` })
+    .setTimestamp();
+
+  if (page === 1) {
+    embedded.addFields(
+      { name: data.general, value: data.generalCommands, inline: false },
+      { name: data.fun, value: data.funCommands, inline: false }
+    );
+  } else {
+    embedded.addFields(
+      { name: data.games, value: data.gameCommands, inline: false },
+      { name: data.multilingual, value: data.multilingualNote, inline: false }
+    );
+  }
+
+  return embedded;
+}
+
+async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
+  let currentPage: HelpPage = 1;
+  const helpMessage = await message.reply({ embeds: [renderHelpEmbed(lang, currentPage)] });
+
+  for (const emoji of HELP_PAGE_REACTIONS) {
+    await helpMessage.react(emoji).catch(() => null);
+  }
+
+  const filter = (reaction: MessageReaction, user: User) => {
+    return HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
   };
 
-  return new EmbedBuilder()
-    .setTitle(locale.title)
-    .setColor(lang === "fr" ? 0x3498db : lang === "es" ? 0xe74c3c : 0x1abc9c)
-    .setDescription(locale.description)
-    .addFields(
-      { name: locale.general, value: locale.generalCommands, inline: false },
-      { name: locale.fun, value: locale.funCommands, inline: false },
-      { name: locale.games, value: locale.gameCommands, inline: false },
-      { name: locale.multilingual, value: locale.multilingualNote, inline: false }
-    )
-    .setFooter({ text: lang === "fr" ? "Utilise !help fr ou !help es une seule fois." : lang === "es" ? "Usa !help fr o !help es solo una vez." : "Use !help fr or !help es just once." })
-    .setTimestamp();
+  const collector = helpMessage.createReactionCollector({ filter, time: 120000 });
+
+  collector.on("collect", async (reaction) => {
+    const emoji = reaction.emoji.name;
+    if (emoji === "➡️" && currentPage === 1) {
+      currentPage = 2;
+      await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage)] });
+    }
+    if (emoji === "⬅️" && currentPage === 2) {
+      currentPage = 1;
+      await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage)] });
+    }
+    await reaction.users.remove(message.author.id).catch(() => null);
+  });
+
+  collector.on("end", async () => {
+    await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage).setFooter({ text: lang === "fr" ? `Page ${currentPage}/2 • Aide expirée.` : lang === "es" ? `Página ${currentPage}/2 • Ayuda caducada.` : `Page ${currentPage}/2 • Help expired.` })] }).catch(() => null);
+  });
 }
 
 const conversationHistory = new Map<string, ChatMessage[]>();
@@ -522,16 +569,50 @@ export function startBot(): void {
 
     // --- @mention / DM → AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
-    if (openai && ((isDm && !content.startsWith(PREFIX)) || (!isDm && botId && isBotMentioned(message, botId)))) {
-      const userText = isDm ? content.trim() : stripMentions(content);
-      if (!userText) {
-        await message.reply(
-          isDm
-            ? "Hey! 👋 Send me a message and I'll do my best to help you in private!"
-            : "Hey! 👋 Mention me with a message and I'll do my best to help you!"
-        );
+
+    // DM flow: always acknowledge, even if AI is not configured
+    if (isDm && !content.startsWith(PREFIX)) {
+      if (!openai) {
+        await message.reply("❌ L'IA n'est pas configurée.");
         return;
       }
+
+      const userText = content.trim();
+      if (!userText) {
+        await message.reply("Hey! 👋 Send me a message and I'll do my best to help you in private!");
+        return;
+      }
+
+      try {
+        if (isSendable(message.channel)) await message.channel.sendTyping();
+        addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+        const response = await openai.chat.completions.create({
+          model: "llama-3.1-8b-instant",
+          max_completion_tokens: 1024,
+          messages: [
+            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot. Keep your answers concise and conversational. Use a warm, casual tone. You can use emojis sparingly. Never break character. Respond in the same language the user writes in." },
+            ...getHistory(message.channelId),
+          ],
+        });
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't think of a response! 😅";
+        addToHistory(message.channelId, "assistant", reply);
+        const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
+        for (const chunk of chunks) await message.reply(chunk);
+      } catch (err) {
+        logger.error({ err }, "Error calling Groq API");
+        await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
+      }
+      return;
+    }
+
+    // Mention flow: only trigger if AI is configured
+    if (openai && !isDm && botId && isBotMentioned(message, botId)) {
+      const userText = stripMentions(content);
+      if (!userText) {
+        await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
+        return;
+      }
+
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -748,7 +829,7 @@ export function startBot(): void {
         case "help": {
           const lang = args[0]?.toLowerCase();
           const helpLang = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
-          await message.reply({ embeds: [renderHelpEmbed(helpLang)] });
+          await sendPaginatedHelp(message, helpLang);
           break;
         }
 
