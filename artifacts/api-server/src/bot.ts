@@ -1,4 +1,4 @@
-import { Client, EmbedBuilder, GatewayIntentBits, Message } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Message } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber } from "./games";
@@ -445,7 +445,13 @@ export function startBot(): void {
 
   // Main bot (bot 1)
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: ["CHANNEL"],
   });
 
   // Second bot (bot 2) for AI battle
@@ -514,11 +520,16 @@ export function startBot(): void {
       return;
     }
 
-    // --- @mention → AI chat ---
-    if (botId && isBotMentioned(message, botId) && openai) {
-      const userText = stripMentions(content);
+    // --- @mention / DM → AI chat ---
+    const isDm = message.channel.type === ChannelType.DM;
+    if (openai && ((isDm && !content.startsWith(PREFIX)) || (!isDm && botId && isBotMentioned(message, botId)))) {
+      const userText = isDm ? content.trim() : stripMentions(content);
       if (!userText) {
-        await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
+        await message.reply(
+          isDm
+            ? "Hey! 👋 Send me a message and I'll do my best to help you in private!"
+            : "Hey! 👋 Mention me with a message and I'll do my best to help you!"
+        );
         return;
       }
       try {
