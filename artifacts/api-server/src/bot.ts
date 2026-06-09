@@ -218,79 +218,79 @@ type HelpLanguage = "en" | "fr" | "es";
 function renderHelp(lang: HelpLanguage): string {
   if (lang === "fr") {
     return (
-      `📖 **Commandes disponibles :**\n\n` +
-      `\`@bot <message>\` — Discute avec moi en tant qu'IA 🤖\n` +
-      `\`/image <description>\` — Génère une image 🎨\n` +
-      `\`!say <message>\` — Je le dis pour toi (et supprime ton message)\n` +
-      `\`!help fr\` — Affiche l'aide en français\n` +
-      `\`!help es\` — Affiche l'aide en espagnol\n` +
-      `\`!hello\` — Je te souhaite la bienvenue\n` +
-      `\`!compliment\` — Reçois un compliment 💖\n` +
-      `\`!joke\` — Entends une blague 😄\n` +
-      `\`!encouragement\` — Un message motivant 💪\n` +
-      `\`!hug\` — Reçois un câlin virtuel 🤗\n` +
-      `\`!8ball <question>\` — Pose une question à la boule magique 🎱\n` +
-      `\`!dice [faces]\` — Lance un dé (ex. \\`!dice 20\\`) 🎲\n` +
-      `\`!conspiracy [topic]\` — Génère une théorie du complot farfelue 🕵️\n` +
-      `\`!ai battle [topic]\` — Regarde deux IA débattre ⚔️\n` +
-      `\`!ai stop\` — Arrête un débat IA en cours 🛑\n\n` +
-      `**🎮 Mini-jeux**\n` +
-      `\`!minesweeper [easy|medium|hard]\` — Démineur avec cases spoiler 💣\n` +
-      `\`!geo [easy|medium|hard]\` — Devine le pays à partir d'un indice 🌍\n` +
-      `\`!geo stop\` — Abandonne la partie GeoGuessr\n` +
-      `\`!trivia\` — Quiz de culture générale (A/B/C/D) 🧠\n` +
-      `\`!guessnumber\` — Devine un nombre entre 1 et 100 🎯`
+      "📖 **Commandes disponibles :**\n\n" +
+      "`@bot <message>` — Discute avec moi en tant qu'IA 🤖\n" +
+      "`/image <description>` — Génère une image 🎨\n" +
+      "`!say <message>` — Je le dis pour toi (et supprime ton message)\n" +
+      "`!help fr` — Affiche l'aide en français\n" +
+      "`!help es` — Affiche l'aide en espagnol\n" +
+      "`!hello` — Je te souhaite la bienvenue\n" +
+      "`!compliment` — Reçois un compliment 💖\n" +
+      "`!joke` — Entends une blague 😄\n" +
+      "`!encouragement` — Un message motivant 💪\n" +
+      "`!hug` — Reçois un câlin virtuel 🤗\n" +
+      "`!8ball <question>` — Pose une question à la boule magique 🎱\n" +
+      "`!dice [faces]` — Lance un dé (ex. `!dice 20`) 🎲\n" +
+      "`!conspiracy [topic]` — Génère une théorie du complot farfelue 🕵️\n" +
+      "`!ai battle [topic]` — Regarde deux IA débattre ⚔️\n" +
+      "`!ai stop` — Arrête un débat IA en cours 🛑\n\n" +
+      "**🎮 Mini-jeux**\n" +
+      "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n" +
+      "`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n" +
+      "`!geo stop` — Abandonne la partie GeoGuessr\n" +
+      "`!trivia` — Quiz de culture générale (A/B/C/D) 🧠\n" +
+      "`!guessnumber` — Devine un nombre entre 1 et 100 🎯"
     );
   }
   if (lang === "es") {
     return (
-      `📖 **Comandos disponibles:**\n\n` +
-      `\`@bot <message>\` — Chatea conmigo como IA 🤖\n` +
-      `\`/image <description>\` — Genera una imagen 🎨\n` +
-      `\`!say <message>\` — Lo digo por ti (y borro tu mensaje)\n` +
-      `\`!help fr\` — Muestra la ayuda en francés\n` +
-      `\`!help es\` — Muestra la ayuda en español\n` +
-      `\`!hello\` — Te doy una cálida bienvenida\n` +
-      `\`!compliment\` — Recibe un cumplido 💖\n` +
-      `\`!joke\` — Escucha un chiste 😄\n` +
-      `\`!encouragement\` — Un mensaje motivador 💪\n` +
-      `\`!hug\` — Recibe un abrazo virtual 🤗\n` +
-      `\`!8ball <question>\` — Pregunta a la bola mágica 🎱\n` +
-      `\`!dice [faces]\` — Lanza un dado (ej. \\`!dice 20\\`) 🎲\n` +
-      `\`!conspiracy [topic]\` — Genera una teoría conspirativa divertida 🕵️\n` +
-      `\`!ai battle [topic]\` — Observa a dos IA debatir ⚔️\n` +
-      `\`!ai stop\` — Detén un debate IA en curso 🛑\n\n` +
-      `**🎮 Mini-juegos**\n` +
-      `\`!minesweeper [easy|medium|hard]\` — Buscaminas con casillas spoiler 💣\n` +
-      `\`!geo [easy|medium|hard]\` — Adivina el país con una pista 🌍\n` +
-      `\`!geo stop\` — Rinde la partida de GeoGuessr\n` +
-      `\`!trivia\` — Quiz de cultura general (A/B/C/D) 🧠\n` +
-      `\`!guessnumber\` — Adivina un número entre 1 y 100 🎯`
+      "📖 **Comandos disponibles:**\n\n" +
+      "`@bot <message>` — Chatea conmigo como IA 🤖\n" +
+      "`/image <description>` — Genera una imagen 🎨\n" +
+      "`!say <message>` — Lo digo por ti (y borro tu mensaje)\n" +
+      "`!help fr` — Muestra la ayuda en francés\n" +
+      "`!help es` — Muestra la ayuda en español\n" +
+      "`!hello` — Te doy una cálida bienvenida\n" +
+      "`!compliment` — Recibe un cumplido 💖\n" +
+      "`!joke` — Escucha un chiste 😄\n" +
+      "`!encouragement` — Un mensaje motivador 💪\n" +
+      "`!hug` — Recibe un abrazo virtual 🤗\n" +
+      "`!8ball <question>` — Pregunta a la bola mágica 🎱\n" +
+      "`!dice [faces]` — Lanza un dado (ej. `!dice 20`) 🎲\n" +
+      "`!conspiracy [topic]` — Genera una teoría conspirativa divertida 🕵️\n" +
+      "`!ai battle [topic]` — Observa a dos IA debatir ⚔️\n" +
+      "`!ai stop` — Detén un debate IA en curso 🛑\n\n" +
+      "**🎮 Mini-juegos**\n" +
+      "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n" +
+      "`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n" +
+      "`!geo stop` — Rinde la partida de GeoGuessr\n" +
+      "`!trivia` — Quiz de cultura general (A/B/C/D) 🧠\n" +
+      "`!guessnumber` — Adivina un número entre 1 y 100 🎯"
     );
   }
   return (
-    `📖 **Available commands:**\n\n` +
-    `\`@bot <message>\` — Chat with me as an AI! 🤖\n` +
-    `\`/image <description>\` — Generate an image 🎨\n` +
-    `\`!say <message>\` — I'll say it for you (and delete your message)\n` +
-    `\`!help fr\` — Show help in French\n` +
-    `\`!help es\` — Show help in Spanish\n` +
-    `\`!hello\` — I'll welcome you warmly\n` +
-    `\`!compliment\` — Get a heartfelt compliment 💖\n` +
-    `\`!joke\` — Hear a good joke 😄\n` +
-    `\`!encouragement\` — Get a motivating message 💪\n` +
-    `\`!hug\` — Receive a virtual hug 🤗\n` +
-    `\`!8ball <question>\` — Ask the magic 8-ball 🎱\n` +
-    `\`!dice [faces]\` — Roll a die (e.g. \\`!dice 20\\`) 🎲\n` +
-    `\`!conspiracy [topic]\` — Generate a wild conspiracy theory 🕵️\n` +
-    `\`!ai battle [topic]\` — Watch two AIs debate each other ⚔️\n` +
-    `\`!ai stop\` — Stop an ongoing AI battle 🛑\n\n` +
-    `**🎮 Mini-games**\n` +
-    `\`!minesweeper [easy|medium|hard]\` — Minesweeper with spoiler tiles 💣\n` +
-    `\`!geo [easy|medium|hard]\` — Guess the country from a photo + text clues 🌍\n` +
-    `\`!geo stop\` — Give up the current GeoGuessr game\n` +
-    `\`!trivia\` — General knowledge quiz (A/B/C/D) 🧠\n` +
-    `\`!guessnumber\` — Guess the number between 1-100 🎯`
+    "📖 **Available commands:**\n\n" +
+    "`@bot <message>` — Chat with me as an AI! 🤖\n" +
+    "`/image <description>` — Generate an image 🎨\n" +
+    "`!say <message>` — I'll say it for you (and delete your message)\n" +
+    "`!help fr` — Show help in French\n" +
+    "`!help es` — Show help in Spanish\n" +
+    "`!hello` — I'll welcome you warmly\n" +
+    "`!compliment` — Get a heartfelt compliment 💖\n" +
+    "`!joke` — Hear a good joke 😄\n" +
+    "`!encouragement` — Get a motivating message 💪\n" +
+    "`!hug` — Receive a virtual hug 🤗\n" +
+    "`!8ball <question>` — Ask the magic 8-ball 🎱\n" +
+    "`!dice [faces]` — Roll a die (e.g. `!dice 20`) 🎲\n" +
+    "`!conspiracy [topic]` — Generate a wild conspiracy theory 🕵️\n" +
+    "`!ai battle [topic]` — Watch two AIs debate each other ⚔️\n" +
+    "`!ai stop` — Stop an ongoing AI battle 🛑\n\n" +
+    "**🎮 Mini-games**\n" +
+    "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n" +
+    "`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n" +
+    "`!geo stop` — Give up the current GeoGuessr game\n" +
+    "`!trivia` — General knowledge quiz (A/B/C/D) 🧠\n" +
+    "`!guessnumber` — Guess the number between 1-100 🎯"
   );
 }
 
