@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Message } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Message, EmbedBuilder } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber } from "./games";
