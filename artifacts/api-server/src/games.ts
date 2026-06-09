@@ -760,8 +760,11 @@ type Connect4Game = {
 const activeConnect4Games = new Map<string, Connect4Game>();
 
 function renderConnect4Board(board: number[][]): string {
-  const rows = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(""));
-  return `**${CONNECT4_COLUMNS.join("")}**\n${rows.join("\n")}`;
+  // Render a nicer monospace board for Discord
+  const rows = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" "));
+  const header = CONNECT4_COLUMNS.join(" ");
+  const body = rows.join("\n");
+  return `\n\`\`\`\n${header}\n${body}\n\`\`\``;
 }
 
 function getDropRow(board: number[][], col: number): number {
@@ -846,7 +849,7 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
     return;
   }
 
-  if (normalized === "test") {
+  if (normalized === "test" || normalized === "solo") {
     if (active) {
       await channel.send("Une partie est déjà en cours. Joue avec `!connect4 1` à `!connect4 7` ou arrête avec `!connect4 stop`.\n");
       return;
@@ -856,10 +859,12 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
     activeConnect4Games.set(channel.id, { board });
 
     const embed = new EmbedBuilder()
-      .setTitle("🔴 Connect4 — Mode Test Solo")
-      .setDescription("Tu joues en rouge. Envoie `!connect4 1` à `!connect4 7` pour poser un jeton. Le bot répondra automatiquement.")
+      .setTitle("🔴 Connect4 — Mode Solo")
+      .setDescription("Tu joues en rouge. Envoie `!connect4 1` à `!connect4 7` pour poser un jeton. Le bot répondra automatiquement. Astuce : utilise `!connect4 stop` pour terminer la partie.")
       .addFields({ name: "Plateau", value: renderConnect4Board(board), inline: false })
-      .setColor(0xf39c12);
+      .setColor(0xf39c12)
+      .setFooter({ text: "Tape !connect4 solo pour relancer une partie en solo." })
+      .setTimestamp();
 
     await channel.send({ embeds: [embed] });
     return;

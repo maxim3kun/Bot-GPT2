@@ -257,10 +257,10 @@ function getHelpPageData(lang: HelpLanguage) {
         : "`!compliment` — Get a heartfelt compliment 💖\n`!joke` — Hear a good joke 😄\n`!encouragement` — Get a motivating message 💪\n`!hug` — Receive a virtual hug 🤗\n`!8ball <question>` — Ask the magic 8-ball 🎱\n`!dice [faces]` — Roll a die (e.g. `!dice 20`) 🎲\n`!conspiracy [topic]` — Generate a wild conspiracy theory 🕵️",
     gameCommands:
       lang === "fr"
-        ? "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n`!geo stop` — Abandonne la partie GeoGuessr\n`!trivia` — Quiz de culture générale 🧠\n`!guessnumber` — Devine un nombre entre 1 et 100 🎯\n`!connect4 test` — Lance un test solo contre le bot 🔴🟡\n`!connect4 <1-7>` — Place un jeton dans une colonne"
+        ? "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n`!geo stop` — Abandonne la partie GeoGuessr\n`!trivia` — Quiz de culture générale 🧠\n`!guessnumber` — Devine un nombre entre 1 et 100 🎯\n`!connect4 test` / `!connect4 solo` — Lance un test solo contre le bot 🔴🟡\n`!connect4 <1-7>` — Place un jeton dans une colonne"
         : lang === "es"
-        ? "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n`!geo stop` — Rinde la partida de GeoGuessr\n`!trivia` — Quiz de cultura general 🧠\n`!guessnumber` — Adivina un número entre 1 y 100 🎯\n`!connect4 test` — Inicia una prueba en solitario contra el bot 🔴🟡\n`!connect4 <1-7>` — Coloca una ficha en una columna"
-        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯\n`!connect4 test` — Start a solo test vs the bot 🔴🟡\n`!connect4 <1-7>` — Drop a disc into a column",
+        ? "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n`!geo stop` — Rinde la partida de GeoGuessr\n`!trivia` — Quiz de cultura general 🧠\n`!guessnumber` — Adivina un número entre 1 y 100 🎯\n`!connect4 test` / `!connect4 solo` — Inicia una prueba en solitario contra el bot 🔴🟡\n`!connect4 <1-7>` — Coloca una ficha en una columna"
+        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯\n`!connect4 test` / `!connect4 solo` — Start a solo test vs the bot 🔴🟡\n`!connect4 <1-7>` — Drop a disc into a column",
   };
 }
 
@@ -302,7 +302,7 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
 
   const collector = helpMessage.createReactionCollector({ filter, time: 120000 });
 
-  collector.on("collect", async (reaction) => {
+  collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
     if (emoji === "➡️" && currentPage === 1) {
       currentPage = 2;
@@ -312,7 +312,7 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
       currentPage = 1;
       await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage)] });
     }
-    await reaction.users.remove(message.author.id).catch(() => null);
+    await reaction.users.remove(user.id).catch(() => null);
   });
 
   collector.on("end", async () => {
