@@ -10,7 +10,28 @@ import {
   type AudioPlayer,
 } from "@discordjs/voice";
 import { type Message, type TextChannel, EmbedBuilder } from "discord.js";
+import { get as httpsGet } from "https";
+import { get as httpGet } from "http";
+import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
+
+// ── HTTP stream fetcher (follows redirects) ───────────────────────────────────
+
+async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
+  if (hops > 8) throw new Error("Too many redirects");
+  return new Promise((resolve, reject) => {
+    const getter = url.startsWith("https://") ? httpsGet : httpGet;
+    getter(url, (res) => {
+      const loc = res.headers.location;
+      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
+        fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
+          .then(resolve).catch(reject);
+      } else {
+        resolve(res);
+      }
+    }).on("error", reject);
+  });
+}
 
 // ── Radio station list ────────────────────────────────────────────────────────
 
@@ -200,30 +221,29 @@ export function nowPlaying(guildId: string): EmbedBuilder | null {
   return null;
 }
 
-export function listRadios(): EmbedBuilder {
-  const embed = new EmbedBuilder()
-    .setTitle("📻 Available Radio Stations")
-    .setColor(0x5865f2)
-    .setDescription("Use `!radio <key>` to start listening.\nExample: `!radio nrj`\n\u200b");
+const RADIO_PAGES: { lang: "en" | "fr" | "es"; flag: string; label: string }[] = [
+  { lang: "en", flag: "🇬🇧", label: "English" },
+  { lang: "fr", flag: "🇫🇷", label: "French" },
+  { lang: "es", flag: "🇪🇸", label: "Spanish" },
+];
 
-  const groups: { label: string; flag: string; lang: "fr" | "es" | "en" }[] = [
-    { label: "French", flag: "🇫🇷", lang: "fr" },
-    { label: "Spanish", flag: "🇪🇸", lang: "es" },
-    { label: "English", flag: "🇬🇧", lang: "en" },
-  ];
+export function langToPage(lang?: string): 1 | 2 | 3 {
+  if (lang === "fr") return 2;
+  if (lang === "es") return 3;
+  return 1;
+}
 
-  for (const group of groups) {
-    const stations = Object.entries(RADIO_STATIONS).filter(([, s]) => s.lang === group.lang);
-    if (stations.length === 0) continue;
-    embed.addFields({
-      name: `${group.flag} ${group.label}`,
-      value: stations.map(([key, s]) => `${s.emoji} \`!radio ${key}\` — **${s.name}** · ${s.genre}`).join("\n"),
-      inline: false,
-    });
-  }
+export function buildRadioListEmbed(page: 1 | 2 | 3): EmbedBuilder {
+  const { lang, flag, label } = RADIO_PAGES[page - 1]!;
+  const color = lang === "fr" ? 0x5865f2 : lang === "es" ? 0xe74c3c : 0x1abc9c;
+  const stations = Object.entries(RADIO_STATIONS).filter(([, s]) => s.lang === lang);
+  const lines = stations.map(([key, s]) => `${s.emoji} \`${key}\` — **${s.name}** · *${s.genre}*`).join("\n");
 
-  embed.setFooter({ text: "!radio leave — stop and disconnect" });
-  return embed;
+  return new EmbedBuilder()
+    .setTitle(`📻 Radio — ${flag} ${label}`)
+    .setColor(color)
+    .setDescription(lines)
+    .setFooter({ text: `Page ${page}/3 · ⬅️ ➡️ to navigate · !radio <key> to play · !radio leave to stop` });
 }
 
 export async function playRadio(message: Message, stationKey: string): Promise<void> {
@@ -245,7 +265,8 @@ export async function playRadio(message: Message, stationKey: string): Promise<v
   state.queue = [];
 
   try {
-    const resource = createAudioResource(station.url, { inputType: StreamType.Arbitrary });
+    const stream = await fetchStream(station.url);
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
     state.player.play(resource);
 
     state.player.once(AudioPlayerStatus.Playing, async () => {

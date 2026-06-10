@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
@@ -340,12 +340,7 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
 function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
   const fr = lang === "fr"; const es = lang === "es";
   const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
-  const otherTopics = fr
-    ? "💡 Autres : `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`"
-    : es
-    ? "💡 Otros: `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`"
-    : "💡 Other topics: `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`";
-  const embed = new EmbedBuilder().setColor(color).setFooter({ text: otherTopics });
+  const embed = new EmbedBuilder().setColor(color);
 
   switch (topic) {
     case "general":
@@ -389,10 +384,10 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
       embed.setTitle(fr ? "📻 Radio" : es ? "📻 Radio" : "📻 Radio");
       embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
         value: fr
-          ? "`!radio list` 📋 — Liste des stations\n`!radio <nom>` — Jouer (ex: `!radio nrj`, `!radio bbc`)\n`!radio leave` — Déconnecter\n`!np` — Titre en cours"
+          ? "`!radio list` — Liste 🇬🇧🇫🇷🇪🇸 · `!radio list fr` → page FR\n`!radio <clé>` — Jouer une station\n`!radio leave` — Déconnecter · `!np` — En cours"
           : es
-          ? "`!radio list` 📋 — Lista de estaciones\n`!radio <nombre>` — Reproducir (ej: `!radio nrj`)\n`!radio leave` — Desconectar\n`!np` — Título actual"
-          : "`!radio list` 📋 — List all stations\n`!radio <name>` — Play (e.g. `!radio nrj`, `!radio bbc`)\n`!radio leave` — Disconnect\n`!np` — Now playing",
+          ? "`!radio list` — Lista 🇬🇧🇫🇷🇪🇸 · `!radio list es` → página ES\n`!radio <clave>` — Reproducir una estación\n`!radio leave` — Desconectar · `!np` — Ahora"
+          : "`!radio list` — Browse 🇬🇧🇫🇷🇪🇸 · `!radio list fr` → FR page\n`!radio <key>` — Play a station\n`!radio leave` — Disconnect · `!np` — Now playing",
       }); break;
 
     case "youtube":
@@ -410,10 +405,10 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
       embed.addFields(
         { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
           value: fr
-            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest schedule <h…>` — Modifier les horaires ⏰\n`!quest reset` — Réinitialiser"
+            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest reset` — Réinitialiser"
             : es
-            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest schedule <h…>` — Cambiar horario ⏰\n`!quest reset` — Reiniciar"
-            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest schedule <h…>` — Customize reminder times ⏰\n`!quest reset` — Reset all" },
+            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest reset` — Reiniciar"
+            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest reset` — Reset all" },
         { name: fr ? "⏰ Rappels" : es ? "⏰ Recordatorios" : "⏰ Reminders",
           value: fr
             ? "Par défaut : **10:00 · 15:00 · 18:00 UTC**\nPersonnalise avec `!quest schedule 8 14 21`\nReset : `!quest schedule reset`"
@@ -1074,8 +1069,21 @@ export function startBot(): void {
         case "radio": {
           const sub = args[0]?.toLowerCase();
 
-          if (!sub || sub === "list") {
-            await message.reply({ embeds: [listRadios()] });
+          if (!sub || sub === "list" || sub === "liste") {
+            let page = langToPage(args[1]?.toLowerCase()) as 1 | 2 | 3;
+            const radioMsg = await message.reply({ embeds: [buildRadioListEmbed(page)] });
+            await radioMsg.react("⬅️").catch(() => null);
+            await radioMsg.react("➡️").catch(() => null);
+            const collector = radioMsg.createReactionCollector({
+              filter: (r, u) => ["⬅️", "➡️"].includes(r.emoji.name ?? "") && !u.bot && u.id === message.author.id,
+              idle: 5 * 60 * 1000,
+            });
+            collector.on("collect", async (reaction, user) => {
+              if (reaction.emoji.name === "➡️") page = (page === 3 ? 1 : page + 1) as 1 | 2 | 3;
+              if (reaction.emoji.name === "⬅️") page = (page === 1 ? 3 : page - 1) as 1 | 2 | 3;
+              await radioMsg.edit({ embeds: [buildRadioListEmbed(page)] });
+              await reaction.users.remove(user.id).catch(() => null);
+            });
             break;
           }
 
