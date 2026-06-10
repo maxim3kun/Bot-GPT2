@@ -803,7 +803,7 @@ export function startBot(): void {
     if (!content.startsWith(PREFIX)) return;
 
     const args = content.slice(PREFIX.length).trim().split(/\s+/);
-    const command = args.shift()?.toLowerCase();
+    const command = args.shift()?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
     try {
       switch (command) {

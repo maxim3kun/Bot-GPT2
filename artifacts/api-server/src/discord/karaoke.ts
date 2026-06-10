@@ -1,5 +1,6 @@
 import { Message, EmbedBuilder } from "discord.js";
 import { AudioPlayerStatus, StreamType, getVoiceConnection, createAudioResource } from "@discordjs/voice";
+import { spawn, type ChildProcess } from "child_process";
 import { ensureVoiceConnection, radioStates } from "./radio";
 import { logger } from "../lib/logger";
 
@@ -51,6 +52,61 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
   }
 }
 
+// ── yt-dlp helpers ────────────────────────────────────────────────────────────
+
+interface YtInfo {
+  url: string;
+  title: string;
+  duration: number;
+  thumbnail: string;
+}
+
+function ytDlpSearch(query: string): Promise<YtInfo | null> {
+  return new Promise((resolve) => {
+    let output = "";
+    let errorOutput = "";
+    const proc = spawn("yt-dlp", [
+      `ytsearch1:${query}`,
+      "--print", "%(webpage_url)s\t%(title)s\t%(duration)s\t%(thumbnail)s",
+      "--no-playlist",
+      "--no-warnings",
+      "-q",
+    ]);
+    proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
+    proc.stderr.on("data", (d: Buffer) => { errorOutput += d.toString(); });
+    proc.on("close", (code) => {
+      if (code !== 0 || !output.trim()) {
+        if (errorOutput) logger.warn({ errorOutput }, "yt-dlp search stderr");
+        resolve(null);
+        return;
+      }
+      const parts = output.trim().split("\t");
+      resolve({
+        url: parts[0] ?? "",
+        title: parts[1] ?? query,
+        duration: parseInt(parts[2] ?? "0", 10) || 0,
+        thumbnail: parts[3] ?? "",
+      });
+    });
+    proc.on("error", (err) => {
+      logger.error({ err }, "yt-dlp spawn error");
+      resolve(null);
+    });
+  });
+}
+
+function ytDlpStream(videoUrl: string): { stream: ReturnType<ChildProcess["stdout"] & object>; proc: ChildProcess } {
+  const proc = spawn("yt-dlp", [
+    videoUrl,
+    "-f", "bestaudio[ext=webm]/bestaudio/best",
+    "--no-playlist",
+    "--no-warnings",
+    "-o", "-",
+    "-q",
+  ]);
+  return { stream: proc.stdout as any, proc };
+}
+
 // ── Karaoke session state ─────────────────────────────────────────────────────
 
 interface KaraokeSession {
@@ -63,6 +119,7 @@ interface KaraokeSession {
   songTitle: string;
   artistName: string;
   lastEditedIdx: number;
+  ytProc: ChildProcess | null;
 }
 
 const karaokeSessions = new Map<string, KaraokeSession>();
@@ -130,13 +187,16 @@ function startLyricsLoop(session: KaraokeSession): void {
   }, 1500);
 }
 
-// ── Public: stop ──────────────────────────────────────────────────────────────
+// ── Public: stop session ──────────────────────────────────────────────────────
 
 export function stopKaraokeSession(guildId: string): boolean {
   const session = karaokeSessions.get(guildId);
   if (!session) return false;
   session.stopped = true;
   if (session.intervalId) clearInterval(session.intervalId);
+  if (session.ytProc) {
+    try { session.ytProc.kill("SIGTERM"); } catch { /* ignore */ }
+  }
   karaokeSessions.delete(guildId);
   return true;
 }
@@ -145,7 +205,7 @@ export function isKaraokeActive(guildId: string): boolean {
   return karaokeSessions.has(guildId);
 }
 
-// ── Public: stop command ──────────────────────────────────────────────────────
+// ── Public: !karaoke stop ─────────────────────────────────────────────────────
 
 export async function stopKaraoke(message: Message): Promise<void> {
   if (!message.guildId) return;
@@ -174,7 +234,7 @@ export async function stopKaraoke(message: Message): Promise<void> {
   }
 }
 
-// ── Public: start command ─────────────────────────────────────────────────────
+// ── Public: !karaoke <query> ──────────────────────────────────────────────────
 
 export async function startKaraoke(message: Message, query: string): Promise<void> {
   if (!message.guildId) return;
@@ -221,8 +281,8 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
         .setColor(0x9b59b6)
         .setTitle("🎤 Lyrics found!")
         .setDescription(
-          `✅ Found **${lrcData.lines.length} synced lines** for **${lrcData.title}** by ${lrcData.artist}\n\n` +
-          "🎵 Loading audio from YouTube…",
+          `✅ **${lrcData.lines.length} synced lines** — **${lrcData.title}** by ${lrcData.artist}\n\n` +
+          "🎵 Searching audio on YouTube…",
         )
         .setFooter({ text: "Searching for instrumental version first…" }),
     ],
@@ -235,40 +295,20 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     return;
   }
 
-  // 3. Search YouTube: instrumental first, then normal
-  let videoUrl: string | null = null;
-  let videoTitle: string = lrcData.title;
-  let videoDuration = 0;
-  let videoThumbnail: string | null = null;
-
+  // 3. Search YouTube via yt-dlp (instrumental → normal)
   const searchVariants = [
     `${lrcData.artist} ${lrcData.title} instrumental karaoke`,
     `${lrcData.artist} ${lrcData.title} instrumental`,
     `${lrcData.artist} ${lrcData.title}`,
-    query,
   ];
 
-  try {
-    const play = await import("play-dl");
-    for (const q of searchVariants) {
-      try {
-        const results = await play.search(q, { source: { youtube: "video" }, limit: 1 });
-        if (results.length > 0 && results[0]?.url) {
-          videoUrl = results[0].url;
-          videoTitle = results[0].title ?? lrcData.title;
-          videoDuration = results[0].durationInSec ?? 0;
-          videoThumbnail = results[0].thumbnails?.[0]?.url ?? null;
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, "play-dl search error");
+  let videoInfo: YtInfo | null = null;
+  for (const q of searchVariants) {
+    videoInfo = await ytDlpSearch(q);
+    if (videoInfo?.url) break;
   }
 
-  if (!videoUrl) {
+  if (!videoInfo?.url) {
     stopKaraokeSession(guildId);
     getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({
@@ -276,36 +316,44 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
         new EmbedBuilder()
           .setColor(0xed4245)
           .setTitle("🎤 Audio not found")
-          .setDescription("❌ Could not find audio on YouTube for this song.\nTry `!karaoke <artist> <song name>` with a more specific query."),
+          .setDescription(
+            "❌ Could not find audio on YouTube for this song.\n" +
+            "Try `!karaoke <artist> <song name>` with a more specific query.",
+          ),
       ],
     });
     return;
   }
 
-  // 4. Stream audio
+  // 4. Get radio state (player)
   const radioState = radioStates.get(guildId);
   if (!radioState) {
     await waitMsg.edit("❌ Voice connection lost. Try again.");
     return;
   }
 
+  // 5. Stream audio via yt-dlp → ffmpeg → discord player
   try {
-    const play = await import("play-dl");
-    const stream = await play.stream(videoUrl, { quality: 2 });
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type as unknown as StreamType,
+    const { stream, proc } = ytDlpStream(videoInfo.url);
+
+    proc.on("error", (err) => {
+      logger.error({ err }, "yt-dlp stream process error");
+    });
+
+    const resource = createAudioResource(stream, {
+      inputType: StreamType.Arbitrary,
     });
 
     radioState.stationKey = null;
     radioState.youtubeTitle = `🎤 ${lrcData.title}`;
-    radioState.youtubeUrl = videoUrl;
+    radioState.youtubeUrl = videoInfo.url;
     radioState.queue = [];
     radioState.player.play(resource);
 
-    // 5. Wait for playback to actually start, then launch lyrics loop
+    // 6. Start lyrics loop when audio actually begins
     radioState.player.once(AudioPlayerStatus.Playing, async () => {
-      const mins = Math.floor(videoDuration / 60);
-      const secs = videoDuration % 60;
+      const mins = Math.floor(videoInfo!.duration / 60);
+      const secs = videoInfo!.duration % 60;
 
       const session: KaraokeSession = {
         guildId,
@@ -317,50 +365,51 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
         songTitle: lrcData.title,
         artistName: lrcData.artist,
         lastEditedIdx: -1,
+        ytProc: proc,
       };
       karaokeSessions.set(guildId, session);
 
       const firstEmbed = buildLyricsEmbed(session, 0);
-      firstEmbed.addFields(
-        {
-          name: "🎵 Video",
-          value: videoTitle.length > 50 ? videoTitle.slice(0, 50) + "…" : videoTitle,
-          inline: true,
-        },
-        {
-          name: "⏱ Duration",
-          value: videoDuration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "Unknown",
-          inline: true,
-        },
-      );
-      if (videoThumbnail) firstEmbed.setThumbnail(videoThumbnail);
+      if (videoInfo!.duration > 0) {
+        firstEmbed.addFields(
+          {
+            name: "🎵 Video",
+            value: videoInfo!.title.length > 50 ? videoInfo!.title.slice(0, 50) + "…" : videoInfo!.title,
+            inline: true,
+          },
+          {
+            name: "⏱ Duration",
+            value: `${mins}:${secs.toString().padStart(2, "0")}`,
+            inline: true,
+          },
+        );
+      }
+      if (videoInfo!.thumbnail) firstEmbed.setThumbnail(videoInfo!.thumbnail);
 
       try {
         await waitMsg.edit({ content: "", embeds: [firstEmbed] });
-      } catch {
-        // message might have been deleted
-      }
+      } catch { /* message might have been deleted */ }
 
       startLyricsLoop(session);
     });
 
-    // Clean up if player errors
+    // Cleanup on player error
     radioState.player.once("error", async (err) => {
-      logger.error({ err, videoUrl }, "Karaoke playback error");
+      logger.error({ err, url: videoInfo?.url }, "Karaoke playback error");
       stopKaraokeSession(guildId);
       await waitMsg.edit({
         embeds: [
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle("🎤 Playback error")
-            .setDescription("❌ Audio playback failed. The video may be unavailable or age-restricted."),
+            .setDescription("❌ Audio playback failed. Please try again."),
         ],
       });
       radioStates.delete(guildId);
       getVoiceConnection(guildId)?.destroy();
     });
 
-    // Clean up when song ends
+    // Show "finished" embed when song ends naturally
     radioState.player.once(AudioPlayerStatus.Idle, () => {
       const session = karaokeSessions.get(guildId);
       if (!session || session.stopped) return;
@@ -377,7 +426,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     });
 
   } catch (err) {
-    logger.error({ err, videoUrl }, "Karaoke stream error");
+    logger.error({ err, url: videoInfo.url }, "Karaoke stream error");
     stopKaraokeSession(guildId);
     getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({
@@ -385,7 +434,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
         new EmbedBuilder()
           .setColor(0xed4245)
           .setTitle("🎤 Error")
-          .setDescription("❌ Failed to start audio stream. Please try again."),
+          .setDescription("❌ Failed to start the audio stream. Please try again."),
       ],
     });
   }
