@@ -1,7 +1,9 @@
-import { ChannelType, Client, GatewayIntentBits, Message, EmbedBuilder, MessageReaction, User } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
+import { joinVoice, leaveVoice, toggleSubtitles, voiceStop, voiceResume } from "./discord/voice";
+import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 
 const PREFIX = "!";
 
@@ -497,8 +499,9 @@ export function startBot(): void {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildVoiceStates,
     ],
-    partials: ["CHANNEL"],
+    partials: [Partials.Channel],
   });
 
   // Second bot (bot 2) for AI battle
@@ -517,6 +520,7 @@ export function startBot(): void {
 
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
+    client.user?.setActivity("!help for commands", { type: ActivityType.Listening });
   });
 
   client.on("messageCreate", async (message: Message) => {
@@ -828,6 +832,121 @@ export function startBot(): void {
               stoppedBattles.delete(message.channelId);
             });
 
+          break;
+        }
+
+        case "music": {
+          const sub = args.shift()?.toLowerCase();
+          if (sub === "generator") {
+            const prompt = args.join(" ").trim();
+            if (!prompt) {
+              await message.reply("❌ You need to provide a prompt! Example: `!music generator lo-fi hip hop beats chill`");
+              break;
+            }
+            if (!process.env["SUNO_API_KEY"]) {
+              await message.reply("❌ Suno music generation is not configured (SUNO_API_KEY missing).");
+              break;
+            }
+            const POLL_INTERVAL = 8000;
+            const POLL_MAX = 15;
+            const startEmbed = new EmbedBuilder()
+              .setColor(0x5865f2)
+              .setTitle("🎵 Generating your music…")
+              .setDescription(`**Prompt:** ${prompt}`)
+              .setFooter({ text: "Suno is generating your track, this takes ~30-60 seconds ⏳" });
+            const reply = await message.reply({ embeds: [startEmbed] });
+            let taskId: string;
+            try {
+              taskId = await generateSong({ prompt });
+            } catch (err) {
+              logger.error({ err }, "Suno generate error");
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Error").setDescription(`Failed to start generation: ${String(err)}`)] });
+              break;
+            }
+            for (let attempt = 1; attempt <= POLL_MAX; attempt++) {
+              await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+              let result;
+              try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll error, retrying"); continue; }
+              const statusUp = result.status.toUpperCase();
+              if (statusUp === "ERROR" || statusUp === "FAILED" || statusUp === "FAILURE") {
+                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try again with a different prompt.").addFields({ name: "Task ID", value: taskId })] });
+                break;
+              }
+              if (result.done && result.clips.length > 0) {
+                const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
+                  const e = new EmbedBuilder()
+                    .setColor(0x57f287)
+                    .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
+                    .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
+                    .addFields({ name: "🎵 Listen", value: clip.audio_url! })
+                    .setFooter({ text: `Task ID: ${taskId}` })
+                    .setTimestamp();
+                  if (clip.image_url) e.setThumbnail(clip.image_url);
+                  if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
+                  if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
+                  return e;
+                });
+                if (embeds.length > 0) { await reply.edit({ embeds }); break; }
+              }
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your music…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
+            }
+          } else if (sub === "prompt") {
+            const PROMPT_EXAMPLES = [
+              { category: "🌊 Lo-Fi / Chill", prompt: "lo-fi hip hop beats, rainy day, chill, vinyl crackle, mellow piano" },
+              { category: "🎸 Energetic Rock", prompt: "upbeat rock anthem, electric guitar riffs, powerful drums, energetic chorus" },
+              { category: "🌙 Night Vibes", prompt: "dark synthwave, neon lights, midnight drive, 80s retro, pulsing bass" },
+              { category: "🎹 Classical Piano", prompt: "emotional piano solo, cinematic, melancholic, slow tempo, orchestral strings" },
+              { category: "🔥 Trap / Rap", prompt: "hard trap beat, 808 bass, hi-hats, dark melody, aggressive, street" },
+              { category: "🌸 J-Pop / Anime", prompt: "anime opening, upbeat J-pop, catchy melody, japanese style, energetic" },
+              { category: "🌿 Meditation", prompt: "peaceful meditation music, nature sounds, flute, soft drums, zen atmosphere" },
+              { category: "🎺 Jazz", prompt: "smooth jazz, saxophone, late night club, soft brushed drums, warm bass" },
+            ];
+            const embed = new EmbedBuilder().setColor(0x5865f2).setTitle("💡 Music Prompt Examples").setDescription("Copy a prompt and use it with `!music generator [prompt]`\n\u200b");
+            for (const { category, prompt } of PROMPT_EXAMPLES) embed.addFields({ name: category, value: `\`${prompt}\`` });
+            embed.setFooter({ text: "💡 Tip: combine multiple styles for unique results!" });
+            await message.reply({ embeds: [embed] });
+          } else {
+            await message.reply("❓ Unknown subcommand. Try `!music generator <prompt>` or `!music prompt`.");
+          }
+          break;
+        }
+
+        case "credits": {
+          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno is not configured (SUNO_API_KEY missing)."); break; }
+          try {
+            const credits = await getCredits();
+            const embed = new EmbedBuilder()
+              .setColor(credits > 10 ? 0x57f287 : 0xed4245)
+              .setTitle("💳 Suno Credits")
+              .addFields({ name: "Remaining credits", value: `${credits}`, inline: true })
+              .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
+            await message.reply({ embeds: [embed] });
+          } catch (err) {
+            await message.reply(`❌ Unable to fetch credits: ${String(err)}`);
+          }
+          break;
+        }
+
+        case "join": {
+          await joinVoice(message);
+          break;
+        }
+
+        case "leave": {
+          await leaveVoice(message);
+          break;
+        }
+
+        case "voice": {
+          const voiceSub = args[0]?.toLowerCase();
+          if (voiceSub === "stop") await voiceStop(message);
+          else if (voiceSub === "resume") await voiceResume(message);
+          else await message.reply("❓ Usage: `!voice stop` or `!voice resume`");
+          break;
+        }
+
+        case "subtitles": {
+          await toggleSubtitles(message);
           break;
         }
 

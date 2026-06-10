@@ -100,6 +100,13 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "@discordjs/opus",
+      "@snazzah/davey",
+      "@snazzah/davey-linux-x64-gnu",
+      "ffmpeg-static",
+      "opusscript",
+      "prism-media",
+      "@discordjs/voice",
     ],
     sourcemap: "linked",
     plugins: [
