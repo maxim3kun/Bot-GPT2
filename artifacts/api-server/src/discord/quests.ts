@@ -392,9 +392,155 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     }
 
     attachReactionCollector(questMsg, profile, message.channel as TextChannel);
+
+    // Ask bully mode preference
+    const modeMsg = await message.channel.send(
+      "⚡ Last step — how do you want your daily reminders (10h · 15h · 18h UTC)?\n" +
+      "🔥 **Brutal accountability** — no excuses, no mercy, straight talk\n" +
+      "💬 **Friendly nudges** — supportive and encouraging",
+    );
+    await modeMsg.react("🔥").catch(() => null);
+    await modeMsg.react("💬").catch(() => null);
+
+    const modeCollected = await modeMsg.awaitReactions({
+      filter: (r, u) => ["🔥", "💬"].includes(r.emoji.name ?? "") && u.id === message.author.id,
+      max: 1,
+      time: 30_000,
+    }).catch(() => null);
+
+    const picked = modeCollected?.first()?.emoji?.name;
+    profile.bullying = picked === "🔥";
+    saveStore();
+
+    await modeMsg.edit(
+      profile.bullying
+        ? "🔥 **Brutal mode set.** Expect zero sugar-coating when you're slacking."
+        : "💬 **Friendly mode set.** I'll keep it supportive.",
+    ).catch(() => null);
+
   } catch (err) {
     logger.error({ err }, "Quest setup error");
     await waitMsg.edit("❌ Failed to create quests. Try again with `!quest start`.");
+  }
+}
+
+export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {
+  if (!objective.trim()) {
+    await message.reply("❓ Usage: `!quest add <your goal>` — e.g. `!quest add Run 5km three times a week`");
+    return;
+  }
+
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+
+  if (profile.quests.length >= 9) {
+    await message.reply("❌ You already have 9 quests (max). Complete or reset some before adding more.");
+    return;
+  }
+
+  if (!openai) {
+    const quest: Quest = {
+      id: profile.quests.length + 1,
+      title: objective.slice(0, 40),
+      description: objective,
+      difficulty: "medium",
+      points: 25,
+      completed: false,
+    };
+    profile.quests.push(quest);
+    saveStore();
+    const embed = buildQuestEmbed(profile);
+    await message.reply({ content: `✅ Quest added: **${quest.title}** (+${quest.points} XP)`, embeds: [embed] });
+    return;
+  }
+
+  const thinkMsg = await message.channel.send("🤔 One question before I add this...");
+
+  try {
+    // Step 1: AI generates ONE sharp clarifying question
+    const qRes = await openai.chat.completions.create({
+      model: "llama-3.1-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a goal-setting coach. The user wants to add a personal quest/goal. " +
+            "Ask ONE short, sharp clarifying question to better define this goal. " +
+            "Focus on: timeline, how to measure success, or the real motivation. " +
+            "One sentence only. No preamble, no label. Respond in the same language as the goal.",
+        },
+        { role: "user", content: `Goal: ${objective}` },
+      ],
+      temperature: 0.8,
+      max_tokens: 80,
+    });
+
+    const question = qRes.choices[0]?.message?.content?.trim() ?? "What's your target timeline for this?";
+    await thinkMsg.edit(`💬 **${question}** *(60s to answer — or ignore and I'll use the goal as-is)*`);
+
+    // Step 2: wait for user answer (optional — if no answer, proceed anyway)
+    const answered = await message.channel.awaitMessages({
+      filter: m => m.author.id === message.author.id,
+      max: 1,
+      time: 60_000,
+    }).catch(() => null);
+
+    const answer = answered && answered.size > 0 ? answered.first()!.content : "";
+
+    // Step 3: AI creates the quest
+    const questRes = await openai.chat.completions.create({
+      model: "llama-3.1-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Create ONE quest JSON from a user goal. Return ONLY valid JSON, no other text, no markdown.\n" +
+            'Schema: {"title":"<max 40 chars>","description":"<one sentence>","difficulty":"easy|medium|hard","points":10|25|50}\n' +
+            "easy=10pts (daily habit), medium=25pts (weekly/monthly goal), hard=50pts (long-term project).\n" +
+            "Respond in the same language as the goal.",
+        },
+        {
+          role: "user",
+          content: `Goal: "${objective}"\nUser answer: "${answer || "no answer"}"`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 200,
+    });
+
+    const raw = questRes.choices[0]?.message?.content?.trim() ?? "{}";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON object in response");
+
+    const parsed = JSON.parse(jsonMatch[0]) as { title?: string; description?: string; difficulty?: string; points?: number };
+
+    const quest: Quest = {
+      id: profile.quests.length + 1,
+      title: (parsed.title ?? objective).slice(0, 40),
+      description: parsed.description ?? objective,
+      difficulty: (["easy", "medium", "hard"].includes(parsed.difficulty ?? "") ? parsed.difficulty : "medium") as "easy" | "medium" | "hard",
+      points: typeof parsed.points === "number" ? parsed.points : 25,
+      completed: false,
+    };
+
+    profile.quests.push(quest);
+    saveStore();
+
+    await thinkMsg.edit(
+      `✅ Quest added: **${quest.title}** — ${DIFF_EMOJI[quest.difficulty] ?? "⬜"} ${quest.difficulty}, +${quest.points} XP`,
+    ).catch(() => null);
+
+    const listEmbed = buildQuestEmbed(profile);
+    const questMsg = await message.channel.send({ embeds: [listEmbed] });
+    const newIdx = profile.quests.findIndex(q => q.id === quest.id);
+    if (newIdx >= 0 && QUEST_NUMS[newIdx]) {
+      await questMsg.react(QUEST_NUMS[newIdx]!).catch(() => null);
+    }
+    attachReactionCollector(questMsg, profile, message.channel as TextChannel);
+
+  } catch (err) {
+    logger.error({ err }, "Quest add error");
+    await thinkMsg.edit("❌ Failed to add quest. Try again.").catch(() => null);
   }
 }
 
