@@ -424,6 +424,31 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
   }
 }
 
+export async function setReminderChannel(message: Message): Promise<void> {
+  if (!message.guildId) {
+    await message.reply("❌ This command must be used in a server channel, not in DMs.");
+    return;
+  }
+
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  profile.notifyChannelId = message.channelId;
+  profile.notifyGuildId = message.guildId;
+  saveStore();
+
+  const pending = profile.quests.filter(q => !q.completed).length;
+  const mode = profile.bullying ? "🔥 Brutal accountability" : "💬 Friendly nudges";
+  const modeHint = profile.bullying === undefined
+    ? "\n💡 Tip: use `!quest start` to set up your quests and choose a reminder style."
+    : "";
+
+  await message.reply(
+    `✅ Got it! I'll send your daily reminders here — <#${message.channelId}>.\n` +
+    `⏰ **Schedule:** 10:00 · 15:00 · 18:00 UTC\n` +
+    `📋 **Pending quests:** ${pending}\n` +
+    `Mode: ${mode}${modeHint}`,
+  );
+}
+
 export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {
   if (!objective.trim()) {
     await message.reply("❓ Usage: `!quest add <your goal>` — e.g. `!quest add Run 5km three times a week`");
