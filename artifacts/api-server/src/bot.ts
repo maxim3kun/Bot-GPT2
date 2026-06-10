@@ -209,8 +209,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle(fr ? "📖 Aide du bot" : es ? "📖 Ayuda del bot" : "📖 Bot Help")
     .setColor(color)
-    .setFooter({ text: footer })
-    .setTimestamp();
+    .setFooter({ text: footer });
 
   if (page === 1) {
     embed.setDescription(fr ? "Commandes générales et divertissement." : es ? "Comandos generales y diversión." : "General commands and fun.");
@@ -492,11 +491,12 @@ export function startBot(): void {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildVoiceStates,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
 
   let client2: Client | null = null;
