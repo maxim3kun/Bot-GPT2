@@ -311,7 +311,12 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
 
 type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai";
 
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; lang: HelpLanguage } | null {
+  const key = stripAccents(arg0.toLowerCase());
   const langOverride: HelpLanguage | null = arg1 === "fr" ? "fr" : arg1 === "es" ? "es" : arg1 === "en" ? "en" : null;
   const map: Record<string, { topic: HelpTopic; lang: HelpLanguage }> = {
     general: { topic: "general", lang: "en" }, fun: { topic: "general", lang: "en" },
@@ -327,7 +332,7 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
     voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
     ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
   };
-  const match = map[arg0];
+  const match = map[key];
   if (!match) return null;
   return { topic: match.topic, lang: langOverride ?? match.lang };
 }
@@ -1315,13 +1320,7 @@ export function startBot(): void {
           if (detected) {
             await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang)] });
           } else {
-            await message.reply(
-              "❓ Unknown topic. Available:\n" +
-              "`!help general` · `!help games` · `!help music` · `!help radio` · `!help youtube`\n" +
-              "`!help quest` · `!help levels` · `!help voice` · `!help ai`\n\n" +
-              "Language shortcuts: `!help jeux` (FR) · `!help juegos` (ES) · `!help quetes` (FR) · `!help misiones` (ES)\n" +
-              "Add `fr` or `es` for other sections: `!help music fr` · `!help radio es`",
-            );
+            await sendPaginatedHelp(message, "en");
           }
           break;
         }
