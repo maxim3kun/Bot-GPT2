@@ -39,25 +39,29 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   // 🇫🇷 French
   nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
   fun:         { name: "Fun Radio",      url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
-  rtl:         { name: "RTL",            url: "https://streaming.radio.rtl.fr/rtl-1-44-128",                       emoji: "📻", genre: "News / Variety",           lang: "fr" },
-  europe1:     { name: "Europe 1",       url: "https://europe1.lmn.fm/europe1.mp3",                                emoji: "🌍", genre: "News / Talk",              lang: "fr" },
   skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
   franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
+  franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
   musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
-  virgin:      { name: "Virgin Radio",   url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
+  ouifm:       { name: "OÜI FM",         url: "https://stream.ouifm.fr/ouifm-high.mp3",                           emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
+  virgin:      { name: "Virgin Radio",   url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
-  cherie:      { name: "Chérie FM",      url: "https://cdn.nrjaudio.fm/audio1/fr/30201/aac_64.mp3",                emoji: "💕", genre: "Pop / Love songs",         lang: "fr" },
+  rtl2:        { name: "RTL 2",          url: "https://streaming.radio.rtl2.fr/rtl2-1-44-128",                     emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://25553.live.streamtheworld.com/LOS40_SC",                    emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
   cadena100:   { name: "Cadena 100",     url: "https://25773.live.streamtheworld.com/CADENA100_SC",                emoji: "💃", genre: "Pop / Dance",              lang: "es" },
   europafm:    { name: "Europa FM",      url: "https://25773.live.streamtheworld.com/EUROPAFM_SC",                 emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
   dial:        { name: "Cadena Dial",    url: "https://25773.live.streamtheworld.com/CADENADIAL_SC",               emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  // 🇬🇧 English
-  bbc1:        { name: "BBC Radio 1",    url: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one",               emoji: "🇬🇧", genre: "Pop / Hits",             lang: "en" },
-  bbc2:        { name: "BBC Radio 2",    url: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_two",               emoji: "🎵", genre: "Pop / Oldies",             lang: "en" },
+  rock_es:     { name: "Rock FM ES",     url: "https://25773.live.streamtheworld.com/ROCKFM_SC",                   emoji: "🤘", genre: "Rock",                      lang: "es" },
+  cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                           emoji: "📢", genre: "News / Talk",              lang: "es" },
+  // 🇬🇧 English (geo-free streams only — BBC is UK-only)
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                       emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
-  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3",                         emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://media-ice.musicradio.com/AbsoluteRadioMP3",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://icecast.thisisdax.com/HeartFMMP3",                          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://icecast.thisisdax.com/AbsoluteRadioMP3",                    emoji: "🎸", genre: "Classic Rock",             lang: "en" },
+  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                  emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
+  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",                        emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
+  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                               emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
+  jazz24:      { name: "Jazz24",         url: "https://live.wostreaming.net/direct/ppm-jazz24mp3-ibc1",            emoji: "🎷", genre: "Jazz",                     lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -155,10 +159,31 @@ export async function ensureVoiceConnection(message: Message): Promise<boolean> 
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
     connection.subscribe(player);
 
-    // Persistent queue handler — fires when a YouTube track ends
+    // Fires when stream ends — auto-reconnect radio, or advance YouTube queue
     player.on(AudioPlayerStatus.Idle, () => {
       const s = radioStates.get(guildId);
-      if (!s || s.stationKey) return; // Radio playing — don't touch
+      if (!s) return;
+
+      if (s.stationKey) {
+        // Radio stream dropped — reconnect after 3 s
+        const key = s.stationKey;
+        const station = RADIO_STATIONS[key];
+        if (!station) return;
+        setTimeout(async () => {
+          const cur = radioStates.get(guildId);
+          if (!cur || cur.stationKey !== key) return; // stopped or switched in the meantime
+          try {
+            const stream = await fetchStream(station.url);
+            const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+            cur.player.play(resource);
+            logger.info({ key }, "Radio auto-reconnected after stream drop");
+          } catch (err) {
+            logger.error({ err, key }, "Radio reconnect failed");
+          }
+        }, 3000);
+        return;
+      }
+
       if (s.queue.length > 0) {
         playNextFromQueue(guildId).catch((err) => logger.error({ err }, "Auto-queue error"));
       }
