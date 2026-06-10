@@ -218,18 +218,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` — Chat IA 🤖 · `!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi · `!hello` — Bienvenue 👋"
+          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi\n`!hello` — Bienvenue 👋"
           : es
-          ? "`@bot <msg>` — Chat IA 🤖 · `!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti · `!hello` — Bienvenida 👋"
-          : "`@bot <msg>` — AI chat 🤖 · `!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you · `!hello` — Welcome 👋",
+          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti\n`!hello` — Bienvenida 👋"
+          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
         value: fr
-          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲 · `!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` après la commande : ex. `!joke fr`"
+          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` : ex. `!joke fr`"
           : es
-          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <pregunta>` 🎱 · `!dice [caras]` 🎲 · `!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` después del comando : ej. `!joke es`"
-          : "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲 · `!conspiracy [topic]` 🕵️\n> Append `fr` or `es` to the command : e.g. `!joke fr`",
+          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <pregunta>` 🎱 · `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` : ej. `!joke es`"
+          : "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` : e.g. `!joke fr`",
       },
     );
   } else if (page === 2) {
@@ -238,10 +238,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — réagis 1️⃣–7️⃣ 🔴🟡"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — reacciona 1️⃣–7️⃣ 🔴🟡"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — react 1️⃣–7️⃣ to play 🔴🟡",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
       },
       {
         name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
@@ -258,18 +258,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
         value: fr
-          ? "`!join` 🔊 `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
+          ? "`!join` 🔊 · `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
           : es
-          ? "`!join` 🔊 `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
-          : "`!join` 🔊 `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Live captions (bot + you)",
+          ? "`!join` 🔊 · `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
+          : "`!join` 🔊 · `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Live captions",
       },
       {
         name: fr ? "📻 Radio & YouTube" : es ? "📻 Radio & YouTube" : "📻 Radio & YouTube",
         value: fr
-          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter une station (ex: `!radio nrj`)\n`!youtube <url>` — Lire l'audio d'une vidéo YouTube 🎬\n`!radio leave` — Déconnecter"
+          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter (ex: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — En cours · `!radio leave` — Déconnecter\n`!playlist add <nom> <url>` · `!playlist play <nom>` 🎵"
           : es
-          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar una estación (ej: `!radio nrj`)\n`!youtube <url>` — Reproducir audio de YouTube 🎬\n`!radio leave` — Desconectar"
-          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen to a station (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing info\n`!radio leave` — Disconnect\n`!playlist add <name> <url>` / `!playlist play <name>` 🎵",
+          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar (ej: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — Ahora · `!radio leave` — Desconectar\n`!playlist add <nom> <url>` · `!playlist play <nom>` 🎵"
+          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing · `!radio leave` — Disconnect\n`!playlist add <name> <url>` · `!playlist play <name>` 🎵",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -302,7 +302,7 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
   const filter = (reaction: MessageReaction, user: User) =>
     HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
 
-  const collector = helpMessage.createReactionCollector({ filter, time: 120000 });
+  const collector = helpMessage.createReactionCollector({ filter });
 
   collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
@@ -310,15 +310,6 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
     if (emoji === "⬅️" && page > 1) page = (page - 1) as HelpPage;
     await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
     await reaction.users.remove(user.id).catch(() => null);
-  });
-
-  collector.on("end", async () => {
-    const fr = lang === "fr"; const es = lang === "es";
-    await helpMessage.edit({
-      embeds: [buildHelpEmbed(lang, page).setFooter({
-        text: fr ? `Page ${page}/3 — Aide expirée.` : es ? `Página ${page}/3 — Ayuda caducada.` : `Page ${page}/3 — Help expired.`,
-      })],
-    }).catch(() => null);
   });
 }
 
