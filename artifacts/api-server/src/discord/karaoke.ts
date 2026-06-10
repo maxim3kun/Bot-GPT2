@@ -35,21 +35,42 @@ interface LrclibResult {
   syncedLyrics: string | null;
 }
 
+async function lrclibFetch(params: Record<string, string>): Promise<LrclibResult[]> {
+  const qs = new URLSearchParams(params).toString();
+  const resp = await fetch(`https://lrclib.net/api/search?${qs}`, {
+    signal: AbortSignal.timeout(20000),
+    headers: { "User-Agent": "DiscordBot/1.0 (https://github.com)" },
+  });
+  if (!resp.ok) return [];
+  return resp.json() as Promise<LrclibResult[]>;
+}
+
 async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: string; artist: string } | null> {
-  try {
-    const url = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!resp.ok) return null;
-    const results = await resp.json() as LrclibResult[];
-    const hit = results.find(r => r.syncedLyrics && r.syncedLyrics.trim().length > 0);
-    if (!hit?.syncedLyrics) return null;
-    const lines = parseLrc(hit.syncedLyrics);
-    if (lines.length === 0) return null;
-    return { lines, title: hit.trackName, artist: hit.artistName };
-  } catch (err) {
-    logger.error({ err }, "lrclib search error");
-    return null;
+  const words = query.trim().split(/\s+/);
+  const artistGuess = words[0] ?? "";
+  const trackGuess = words.slice(1).join(" ");
+
+  // Try multiple search strategies, from most specific to broadest
+  const strategies: Record<string, string>[] = [
+    { q: query },
+    ...(trackGuess ? [{ artist_name: artistGuess, track_name: trackGuess }] : []),
+    ...(trackGuess ? [{ track_name: trackGuess }] : []),
+    ...(trackGuess ? [{ q: trackGuess }] : []),
+  ];
+
+  for (const params of strategies) {
+    try {
+      const results = await lrclibFetch(params);
+      const hit = results.find(r => r.syncedLyrics && r.syncedLyrics.trim().length > 0);
+      if (!hit?.syncedLyrics) continue;
+      const lines = parseLrc(hit.syncedLyrics);
+      if (lines.length === 0) continue;
+      return { lines, title: hit.trackName, artist: hit.artistName };
+    } catch (err) {
+      logger.warn({ err, params }, "lrclib strategy failed");
+    }
   }
+  return null;
 }
 
 // ── yt-dlp helpers ────────────────────────────────────────────────────────────
@@ -70,13 +91,15 @@ function ytDlpSearch(query: string): Promise<YtInfo | null> {
       "--print", "%(webpage_url)s\t%(title)s\t%(duration)s\t%(thumbnail)s",
       "--no-playlist",
       "--no-warnings",
+      "--ignore-errors",
+      "--skip-download",
       "-q",
     ]);
     proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
     proc.stderr.on("data", (d: Buffer) => { errorOutput += d.toString(); });
-    proc.on("close", (code) => {
-      if (code !== 0 || !output.trim()) {
-        if (errorOutput) logger.warn({ errorOutput }, "yt-dlp search stderr");
+    proc.on("close", () => {
+      if (!output.trim()) {
+        if (errorOutput) logger.warn({ query, errorOutput }, "yt-dlp search stderr");
         resolve(null);
         return;
       }
@@ -98,9 +121,8 @@ function ytDlpSearch(query: string): Promise<YtInfo | null> {
 function ytDlpStream(videoUrl: string): { stream: ReturnType<ChildProcess["stdout"] & object>; proc: ChildProcess } {
   const proc = spawn("yt-dlp", [
     videoUrl,
-    "-f", "bestaudio[ext=webm]/bestaudio/best",
+    "-f", "bestaudio/best",
     "--no-playlist",
-    "--no-warnings",
     "-o", "-",
     "-q",
   ]);
