@@ -7,6 +7,7 @@ import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIO
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
+import { startQuestSetup, showQuestList, markQuestDone, showQuestProfile, resetQuests } from "./discord/quests";
 
 const PREFIX = "!";
 
@@ -195,18 +196,18 @@ function parseLanguage(arg?: string): Language {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-// ── Help system (3 pages) ─────────────────────────────────────────────────────
+// ── Help system (4 pages) ─────────────────────────────────────────────────────
 
 type HelpLanguage = "en" | "fr" | "es";
-type HelpPage = 1 | 2 | 3;
+type HelpPage = 1 | 2 | 3 | 4;
 const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
 
 function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
   const fr = lang === "fr"; const es = lang === "es";
   const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
-  const footer = fr ? `Page ${page}/3 — ⬅️ ➡️ pour naviguer`
-    : es ? `Página ${page}/3 — ⬅️ ➡️ para navegar`
-    : `Page ${page}/3 — ⬅️ ➡️ to navigate`;
+  const footer = fr ? `Page ${page}/4 — ⬅️ ➡️ pour naviguer`
+    : es ? `Página ${page}/4 — ⬅️ ➡️ para navegar`
+    : `Page ${page}/4 — ⬅️ ➡️ to navigate`;
 
   const embed = new EmbedBuilder()
     .setTitle(fr ? "📖 Aide du bot" : es ? "📖 Ayuda del bot" : "📖 Bot Help")
@@ -219,18 +220,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi\n`!hello` — Bienvenue 👋\n`!sondage <question> | <choix1> | <choix2>...` — 📊 Sondage"
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊"
           : es
-          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti\n`!hello` — Bienvenida 👋\n`!sondage <pregunta> | <op1> | <op2>...` — 📊 Encuesta"
-          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋\n`!poll <question> | <choice1> | <choice2>...` — 📊 Poll",
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊"
+          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
         value: fr
-          ? "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <question>` 🎱\n`!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` : ex. `!joke fr`"
+          ? "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` — ex. `!joke fr`"
           : es
-          ? "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <pregunta>` 🎱\n`!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` : ej. `!joke es`"
-          : "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <question>` 🎱\n`!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` : e.g. `!joke fr`",
+          ? "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <pregunta>` 🎱  `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` — ej. `!joke es`"
+          : "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`",
       },
     );
   } else if (page === 2) {
@@ -239,54 +240,66 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Abandon\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Rendirse\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Quit\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
       },
       {
         name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
         value: fr
-          ? "`!music generator <prompt>` — Génère une chanson 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
+          ? "`!music generator <prompt>` — Style, ambiance, paroles 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
           : es
-          ? "`!music generator <prompt>` — Genera una canción 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
-          : "`!music generator <prompt>` — Generate a song 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
+          ? "`!music generator <prompt>` — Estilo, ambiente, letra 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
+          : "`!music generator <prompt>` — Style, mood, lyrics 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
       },
     );
-  } else {
-    embed.setDescription(fr ? "Vocal, radio, IA avancée et infos." : es ? "Voz, radio, IA avanzada e info." : "Voice, radio, advanced AI and info.");
+  } else if (page === 3) {
+    embed.setDescription(fr ? "Vocal et radio." : es ? "Voz y radio." : "Voice and radio.");
     embed.addFields(
       {
         name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
         value: fr
-          ? "`!join` 🔊\n`!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Sous-titres live"
+          ? "`!join` 🔊 / `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
           : es
-          ? "`!join` 🔊\n`!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
-          : "`!join` 🔊\n`!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Live captions",
+          ? "`!join` 🔊 / `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
+          : "`!join` 🔊 / `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Live captions",
       },
       {
         name: fr ? "📻 Radio & YouTube" : es ? "📻 Radio & YouTube" : "📻 Radio & YouTube",
         value: fr
-          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter (ex: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — En cours\n`!radio leave` — Déconnecter\n`!playlist add <nom> <url>`\n`!playlist play <nom>` 🎵"
+          ? "`!radio list` 📋  `!radio <nom>` (ex: `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — En cours\n`!radio leave` — Déconnecter\n`!playlist add <nom> <url>`  `!playlist play <nom>` 🎵"
           : es
-          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar (ej: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — Ahora\n`!radio leave` — Desconectar\n`!playlist add <nombre> <url>`\n`!playlist play <nombre>` 🎵"
-          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing\n`!radio leave` — Disconnect\n`!playlist add <name> <url>`\n`!playlist play <name>` 🎵",
+          ? "`!radio list` 📋  `!radio <nombre>` (ej: `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Ahora\n`!radio leave` — Desconectar\n`!playlist add <nombre> <url>`  `!playlist play <nombre>` 🎵"
+          : "`!radio list` 📋  `!radio <name>` (e.g. `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Now playing\n`!radio leave` — Disconnect\n`!playlist add <name> <url>`  `!playlist play <name>` 🎵",
+      },
+    );
+  } else {
+    embed.setDescription(fr ? "Quêtes, IA avancée et infos." : es ? "Misiones, IA avanzada e info." : "Quests, advanced AI and info.");
+    embed.addFields(
+      {
+        name: fr ? "🎯 Quêtes & Niveaux" : es ? "🎯 Misiones & Niveles" : "🎯 Quests & Levels",
+        value: fr
+          ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest list` — Voir tes quêtes en cours\n`!quest done <n>` — Cocher une quête ✅\n`!quest profile` — Ton niveau & XP 🏆\n`!quest reset` — Réinitialiser"
+          : es
+          ? "`!quest start` — Crea misiones con IA 🤖\n`!quest list` — Ver misiones activas\n`!quest done <n>` — Marcar misión ✅\n`!quest profile` — Tu nivel & XP 🏆\n`!quest reset` — Reiniciar"
+          : "`!quest start` — Create quests via AI 🤖\n`!quest list` — View active quests\n`!quest done <n>` — Check off a quest ✅\n`!quest profile` — Your level & XP 🏆\n`!quest reset` — Reset all",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
         value: fr
-          ? "`!ai battle <sujet>` — Débat entre deux bots IA 🥊\n`!ai stop` — Arrêter le débat en cours"
+          ? "`!ai battle <sujet>` 🥊 / `!ai stop`"
           : es
-          ? "`!ai battle <tema>` — Debate entre dos bots IA 🥊\n`!ai stop` — Detener el debate"
-          : "`!ai battle <topic>` — Debate between two AI bots 🥊\n`!ai stop` — Stop the ongoing debate",
+          ? "`!ai battle <tema>` 🥊 / `!ai stop`"
+          : "`!ai battle <topic>` 🥊 / `!ai stop`",
       },
       {
         name: fr ? "ℹ️ Info" : es ? "ℹ️ Info" : "ℹ️ Info",
         value: fr
-          ? "`!credits` — Crédits du projet ✨\n`!help fr` / `!help es` — Aide dans ta langue"
+          ? "`!credits` ✨  `!help fr` / `!help es`"
           : es
-          ? "`!credits` — Créditos del proyecto ✨\n`!help fr` / `!help es` — Ayuda en tu idioma"
-          : "`!credits` — Project credits ✨\n`!help fr` / `!help es` — Help in your language",
+          ? "`!credits` ✨  `!help fr` / `!help es`"
+          : "`!credits` ✨  `!help fr` / `!help es`",
       },
     );
   }
@@ -307,8 +320,8 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
 
   collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
-    if (emoji === "➡️") page = (page === 3 ? 1 : (page + 1)) as HelpPage;
-    if (emoji === "⬅️") page = (page === 1 ? 3 : (page - 1)) as HelpPage;
+    if (emoji === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
+    if (emoji === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
     await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
@@ -1076,6 +1089,25 @@ export function startBot(): void {
             await pollMsg.react(POLL_EMOJIS[i]!).catch(() => null);
           }
           await message.delete().catch(() => null);
+          break;
+        }
+
+        // ── Quest tracker ─────────────────────────────────────────────────────────
+        case "quest": {
+          const sub = args[0]?.toLowerCase();
+          if (!sub || sub === "start") {
+            await startQuestSetup(message, openai);
+          } else if (sub === "list") {
+            await showQuestList(message);
+          } else if (sub === "done") {
+            await markQuestDone(message, args[1] ?? "");
+          } else if (sub === "profile" || sub === "profil") {
+            await showQuestProfile(message);
+          } else if (sub === "reset") {
+            await resetQuests(message);
+          } else {
+            await message.reply("❓ Commands: `!quest start` `!quest list` `!quest done <n>` `!quest profile` `!quest reset`");
+          }
           break;
         }
 
