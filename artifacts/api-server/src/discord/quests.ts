@@ -33,6 +33,7 @@ export interface UserProfile {
   bullying?: boolean;
   lastRemindedDate?: string;
   lastRemindedHour?: number;
+  reminderHours?: number[];
 }
 
 type QuestStore = Record<string, UserProfile>;
@@ -236,13 +237,17 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
     const minute = now.getUTCMinutes();
     const dateStr = now.toISOString().split("T")[0]!;
 
-    if (!REMINDER_HOURS.includes(hour) || minute > 1) return;
+    if (minute > 1) return;
 
     for (const profile of Object.values(store)) {
       if (!profile.notifyChannelId) continue;
 
       const pending = profile.quests.filter(q => !q.completed);
       if (pending.length === 0) continue;
+
+      // Check against this user's personal schedule
+      const userHours = profile.reminderHours ?? REMINDER_HOURS;
+      if (!userHours.includes(hour)) continue;
 
       // Don't fire twice in the same hour
       if (profile.lastRemindedDate === dateStr && profile.lastRemindedHour === hour) continue;
@@ -436,17 +441,111 @@ export async function setReminderChannel(message: Message): Promise<void> {
   saveStore();
 
   const pending = profile.quests.filter(q => !q.completed).length;
-  const mode = profile.bullying ? "🔥 Brutal accountability" : "💬 Friendly nudges";
-  const modeHint = profile.bullying === undefined
-    ? "\n💡 Tip: use `!quest start` to set up your quests and choose a reminder style."
+  const hours = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
+  const tip = profile.quests.length === 0
+    ? "\n💡 No quests yet — use `!quest start` to set your goals."
     : "";
 
   await message.reply(
-    `✅ Got it! I'll send your daily reminders here — <#${message.channelId}>.\n` +
-    `⏰ **Schedule:** 10:00 · 15:00 · 18:00 UTC\n` +
-    `📋 **Pending quests:** ${pending}\n` +
-    `Mode: ${mode}${modeHint}`,
+    `✅ Reminders will be sent here → <#${message.channelId}>\n` +
+    `⏰ **Schedule:** ${hours} UTC\n` +
+    `📋 **Pending:** ${pending} quest${pending !== 1 ? "s" : ""}${tip}`,
   );
+}
+
+export async function markAllQuestsDone(message: Message): Promise<void> {
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  const pending = profile.quests.filter(q => !q.completed);
+
+  if (pending.length === 0) {
+    await message.reply("✅ All quests are already completed!");
+    return;
+  }
+
+  const confirmMsg = await message.reply(
+    `⚡ Mark all **${pending.length} remaining quest${pending.length > 1 ? "s" : ""}** as done? React ✅ to confirm (10s).`,
+  );
+  await confirmMsg.react("✅").catch(() => null);
+
+  const collected = await confirmMsg.awaitReactions({
+    filter: (r, u) => r.emoji.name === "✅" && u.id === message.author.id,
+    max: 1,
+    time: 10_000,
+  }).catch(() => null);
+
+  if (!collected || collected.size === 0) {
+    await confirmMsg.edit("❌ Cancelled.");
+    return;
+  }
+
+  let totalGained = 0;
+  let leveledUp = false;
+  let finalLevel: ReturnType<typeof getLevelInfo> | null = null;
+
+  for (let i = 0; i < profile.quests.length; i++) {
+    if (!profile.quests[i]!.completed) {
+      totalGained += profile.quests[i]!.points;
+      const result = awardQuest(profile, i);
+      if (result.leveledUp) { leveledUp = true; finalLevel = result.newLevel; }
+    }
+  }
+
+  saveStore();
+
+  const lvl = getLevelInfo(profile.totalPoints);
+  const embed = new EmbedBuilder()
+    .setColor(0x2ecc71)
+    .setTitle(leveledUp && finalLevel ? `🎊 Level Up! → ${finalLevel.title} (Lv. ${finalLevel.level})` : "✅ All Quests Completed!")
+    .setDescription(`**${pending.length} quest${pending.length > 1 ? "s" : ""}** marked done — **+${totalGained} XP**`)
+    .addFields(
+      { name: "Total XP", value: `${profile.totalPoints} pts`, inline: true },
+      { name: "Level", value: lvl.title, inline: true },
+    );
+
+  await confirmMsg.edit({ content: "", embeds: [embed] });
+  await message.react("✅").catch(() => null);
+}
+
+export async function setSchedule(message: Message, input: string): Promise<void> {
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+
+  if (!input.trim()) {
+    const current = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
+    await message.reply(
+      `⏰ Your current schedule: **${current} UTC**\n` +
+      `To change: \`!quest schedule 8 13 21\` *(up to 5 times, 0–23 UTC)*\n` +
+      `To reset to default: \`!quest schedule reset\``,
+    );
+    return;
+  }
+
+  if (input.trim().toLowerCase() === "reset") {
+    delete profile.reminderHours;
+    saveStore();
+    await message.reply("✅ Schedule reset to default: **10:00 · 15:00 · 18:00 UTC**");
+    return;
+  }
+
+  const parsed = input
+    .split(/[\s,]+/)
+    .map(s => parseInt(s.replace(/:.*$/, ""), 10))
+    .filter(h => !isNaN(h) && h >= 0 && h <= 23);
+
+  if (parsed.length === 0) {
+    await message.reply("❌ Invalid times. Use hours 0–23 — e.g. `!quest schedule 8 13 21`");
+    return;
+  }
+  if (parsed.length > 5) {
+    await message.reply("❌ Max 5 reminder times.");
+    return;
+  }
+
+  const unique = [...new Set(parsed)].sort((a, b) => a - b);
+  profile.reminderHours = unique;
+  saveStore();
+
+  const display = unique.map(h => `${h}:00`).join(" · ");
+  await message.reply(`⏰ Schedule updated: **${display} UTC**`);
 }
 
 export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {

@@ -7,7 +7,7 @@ import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIO
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule } from "./discord/quests";
 
 const PREFIX = "!";
 
@@ -283,7 +283,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher une quête ✅\n`!quest profile` — Niveau & XP 🏆\n`!quest reset` — Réinitialiser\n> ⏰ Rappels auto : 10h · 15h · 18h UTC"
           : es
           ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar misión ✅\n`!quest profile` — Nivel & XP 🏆\n`!quest reset` — Reiniciar\n> ⏰ Recordatorios: 10h · 15h · 18h UTC"
-          : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off a quest ✅\n`!quest profile` — Level & XP 🏆\n`!quest remind` — Set this channel for daily pings 📍\n`!quest reset` — Reset all\n> ⏰ Auto-reminders: 10h · 15h · 18h UTC",
+          : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off a quest ✅\n`!quest done all` — Mark all remaining done ⚡\n`!quest profile` — Level & XP 🏆\n`!quest remind` — Set this channel for daily pings 📍\n`!quest schedule <h…>` — Customize reminder times ⏰\n`!quest reset` — Reset all\n> Default schedule: 10:00 · 15:00 · 18:00 UTC",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -1100,13 +1100,16 @@ export function startBot(): void {
           } else if (sub === "list") {
             await showQuestList(message);
           } else if (sub === "done") {
-            await markQuestDone(message, args[1] ?? "");
+            if (args[1]?.toLowerCase() === "all") await markAllQuestsDone(message);
+            else await markQuestDone(message, args[1] ?? "");
           } else if (sub === "profile" || sub === "profil") {
             await showQuestProfile(message);
           } else if (sub === "reset") {
             await resetQuests(message);
           } else if (sub === "remind") {
             await setReminderChannel(message);
+          } else if (sub === "schedule") {
+            await setSchedule(message, args.slice(1).join(" "));
           } else if (sub === "add") {
             const objective = args.slice(1).join(" ");
             await addQuestWithCoach(message, objective, openai);
