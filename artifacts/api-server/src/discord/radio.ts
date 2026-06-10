@@ -14,17 +14,29 @@ import { logger } from "../lib/logger";
 
 // ── Radio station list ────────────────────────────────────────────────────────
 
-export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string }> = {
-  nrj:         { name: "NRJ",           url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits" },
-  fun:         { name: "Fun Radio",     url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic" },
-  rtl:         { name: "RTL",           url: "https://streaming.radio.rtl.fr/rtl-1-44-128",                       emoji: "📻", genre: "News / Variety" },
-  europe1:     { name: "Europe 1",      url: "https://europe1.lmn.fm/europe1.mp3",                                emoji: "🌍", genre: "News / Talk" },
-  skyrock:     { name: "Skyrock",       url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B" },
-  franceinter: { name: "France Inter",  url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk" },
-  musique:     { name: "France Musique",url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical" },
-  virgin:      { name: "Virgin Radio",  url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "🎸", genre: "Rock / Alternative" },
-  nostalgie:   { name: "Nostalgie",     url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics" },
-  cherie:      { name: "Chérie FM",     url: "https://cdn.nrjaudio.fm/audio1/fr/30201/aac_64.mp3",                emoji: "💕", genre: "Pop / Love songs" },
+export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string; lang: "fr" | "es" | "en" }> = {
+  // 🇫🇷 French
+  nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
+  fun:         { name: "Fun Radio",      url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
+  rtl:         { name: "RTL",            url: "https://streaming.radio.rtl.fr/rtl-1-44-128",                       emoji: "📻", genre: "News / Variety",           lang: "fr" },
+  europe1:     { name: "Europe 1",       url: "https://europe1.lmn.fm/europe1.mp3",                                emoji: "🌍", genre: "News / Talk",              lang: "fr" },
+  skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
+  franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
+  musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
+  virgin:      { name: "Virgin Radio",   url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
+  nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
+  cherie:      { name: "Chérie FM",      url: "https://cdn.nrjaudio.fm/audio1/fr/30201/aac_64.mp3",                emoji: "💕", genre: "Pop / Love songs",         lang: "fr" },
+  // 🇪🇸 Spanish
+  los40:       { name: "Los 40",         url: "https://25553.live.streamtheworld.com/LOS40_SC",                    emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://25773.live.streamtheworld.com/CADENA100_SC",                emoji: "💃", genre: "Pop / Dance",              lang: "es" },
+  europafm:    { name: "Europa FM",      url: "https://25773.live.streamtheworld.com/EUROPAFM_SC",                 emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://25773.live.streamtheworld.com/CADENADIAL_SC",               emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
+  // 🇬🇧 English
+  bbc1:        { name: "BBC Radio 1",    url: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one",               emoji: "🇬🇧", genre: "Pop / Hits",             lang: "en" },
+  bbc2:        { name: "BBC Radio 2",    url: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_two",               emoji: "🎵", genre: "Pop / Oldies",             lang: "en" },
+  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                       emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3",                         emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://media-ice.musicradio.com/AbsoluteRadioMP3",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -194,11 +206,19 @@ export function listRadios(): EmbedBuilder {
     .setColor(0x5865f2)
     .setDescription("Use `!radio <key>` to start listening.\nExample: `!radio nrj`\n\u200b");
 
-  for (const [key, station] of Object.entries(RADIO_STATIONS)) {
+  const groups: { label: string; flag: string; lang: "fr" | "es" | "en" }[] = [
+    { label: "French", flag: "🇫🇷", lang: "fr" },
+    { label: "Spanish", flag: "🇪🇸", lang: "es" },
+    { label: "English", flag: "🇬🇧", lang: "en" },
+  ];
+
+  for (const group of groups) {
+    const stations = Object.entries(RADIO_STATIONS).filter(([, s]) => s.lang === group.lang);
+    if (stations.length === 0) continue;
     embed.addFields({
-      name: `${station.emoji} ${station.name}`,
-      value: `\`!radio ${key}\` — ${station.genre}`,
-      inline: true,
+      name: `${group.flag} ${group.label}`,
+      value: stations.map(([key, s]) => `${s.emoji} \`!radio ${key}\` — **${s.name}** · ${s.genre}`).join("\n"),
+      inline: false,
     });
   }
 

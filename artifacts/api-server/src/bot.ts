@@ -222,7 +222,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi\n`!hello` — Bienvenue 👋\n`!sondage <question> | <choix1> | <choix2>...` — 📊 Sondage"
           : es
           ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti\n`!hello` — Bienvenida 👋\n`!sondage <pregunta> | <op1> | <op2>...` — 📊 Encuesta"
-          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋\n`!sondage <question> | <choice1> | <choice2>...` — 📊 Poll",
+          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋\n`!poll <question> | <choice1> | <choice2>...` — 📊 Poll",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
@@ -307,8 +307,8 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
 
   collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
-    if (emoji === "➡️" && page < 3) page = (page + 1) as HelpPage;
-    if (emoji === "⬅️" && page > 1) page = (page - 1) as HelpPage;
+    if (emoji === "➡️") page = (page === 3 ? 1 : (page + 1)) as HelpPage;
+    if (emoji === "⬅️") page = (page === 1 ? 3 : (page - 1)) as HelpPage;
     await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
@@ -1060,7 +1060,7 @@ export function startBot(): void {
           const raw = args.join(" ");
           const parts = raw.split("|").map(s => s.trim()).filter(Boolean);
           if (parts.length < 3) {
-            await message.reply("❌ Format : `!sondage <question> | <choix1> | <choix2> ...` *(2 choix minimum)*");
+            await message.reply("❌ Format: `!poll <question> | <choice1> | <choice2> ...` *(minimum 2 choices)*");
             break;
           }
           const question = parts[0]!;
@@ -1070,7 +1070,7 @@ export function startBot(): void {
             .setTitle(`📊 ${question}`)
             .setDescription(description)
             .setColor(0x5865f2)
-            .setFooter({ text: `Sondage de ${message.author.displayName ?? message.author.username}` });
+            .setFooter({ text: `Poll by ${message.author.displayName ?? message.author.username}` });
           const pollMsg = await message.channel.send({ embeds: [embed] });
           for (let i = 0; i < choices.length; i++) {
             await pollMsg.react(POLL_EMOJIS[i]!).catch(() => null);
