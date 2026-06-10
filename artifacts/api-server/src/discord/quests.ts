@@ -506,6 +506,74 @@ export async function markAllQuestsDone(message: Message): Promise<void> {
   await message.react("✅").catch(() => null);
 }
 
+export async function showQuestStats(message: Message): Promise<void> {
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0]!;
+
+  // Build last 7 days (oldest → newest)
+  const days: { label: string; dateStr: string }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    const dateStr = d.toISOString().split("T")[0]!;
+    const label = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+    days.push({ label, dateStr });
+  }
+
+  // Aggregate completions per day
+  const byDay = new Map<string, { count: number; xp: number }>();
+  for (const d of days) byDay.set(d.dateStr, { count: 0, xp: 0 });
+
+  for (const quest of profile.quests) {
+    if (!quest.completed || !quest.completedAt) continue;
+    const dateStr = quest.completedAt.split("T")[0]!;
+    const entry = byDay.get(dateStr);
+    if (entry) { entry.count++; entry.xp += quest.points; }
+  }
+
+  const maxCount = Math.max(...[...byDay.values()].map(v => v.count), 1);
+  const BAR_LEN = 8;
+
+  let chart = "";
+  let weekCount = 0;
+  let weekXp = 0;
+
+  for (const { label, dateStr } of days) {
+    const { count, xp } = byDay.get(dateStr)!;
+    const filled = count > 0 ? Math.max(1, Math.round((count / maxCount) * BAR_LEN)) : 0;
+    const bar = "█".repeat(filled) + "░".repeat(BAR_LEN - filled);
+    const isToday = dateStr === todayStr ? " ◀" : "";
+    const detail = count > 0 ? `**${count}** ·${xp} XP` : "—";
+    chart += `\`${label}\` \`${bar}\` ${detail}${isToday}\n`;
+    weekCount += count; weekXp += xp;
+  }
+
+  // Current streak (consecutive days ending today with at least 1 completion)
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (byDay.get(days[i]!.dateStr)!.count > 0) streak++;
+    else break;
+  }
+
+  const lvl = getLevelInfo(profile.totalPoints);
+  const nextXp = lvl.next ? `${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title}` : "Max level!";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x3498db)
+    .setTitle(`📊 Weekly Stats — ${profile.username}`)
+    .setDescription(chart)
+    .addFields(
+      { name: "This week", value: `${weekCount} quest${weekCount !== 1 ? "s" : ""} · ${weekXp} XP`, inline: true },
+      { name: "Streak", value: streak > 0 ? `🔥 ${streak} day${streak > 1 ? "s" : ""}` : "—", inline: true },
+      { name: "All time", value: `${profile.completedCount} quests · ${profile.totalPoints} XP`, inline: true },
+    )
+    .setFooter({ text: `Lv.${lvl.level} ${lvl.title} — ${nextXp}` });
+
+  await message.reply({ embeds: [embed] });
+}
+
 export async function setSchedule(message: Message, input: string): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
 

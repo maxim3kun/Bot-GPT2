@@ -7,7 +7,7 @@ import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIO
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats } from "./discord/quests";
 
 const PREFIX = "!";
 
@@ -280,10 +280,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎯 Quêtes & Niveaux" : es ? "🎯 Misiones & Niveles" : "🎯 Quests & Levels",
         value: fr
-          ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher une quête ✅\n`!quest profile` — Niveau & XP 🏆\n`!quest reset` — Réinitialiser\n> ⏰ Rappels auto : 10h · 15h · 18h UTC"
+          ? "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — voir `!help quetes`"
           : es
-          ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar misión ✅\n`!quest profile` — Nivel & XP 🏆\n`!quest reset` — Reiniciar\n> ⏰ Recordatorios: 10h · 15h · 18h UTC"
-          : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off a quest ✅\n`!quest done all` — Mark all remaining done ⚡\n`!quest profile` — Level & XP 🏆\n`!quest remind` — Set this channel for daily pings 📍\n`!quest schedule <h…>` — Customize reminder times ⏰\n`!quest reset` — Reset all\n> Default schedule: 10:00 · 15:00 · 18:00 UTC",
+          ? "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — ver `!help misiones`"
+          : "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — see `!help quest`",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -304,6 +304,177 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
     );
   }
 
+  return embed;
+}
+
+// ── Topic-specific help ───────────────────────────────────────────────────────
+
+type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai";
+
+function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; lang: HelpLanguage } | null {
+  const langOverride: HelpLanguage | null = arg1 === "fr" ? "fr" : arg1 === "es" ? "es" : arg1 === "en" ? "en" : null;
+  const map: Record<string, { topic: HelpTopic; lang: HelpLanguage }> = {
+    general: { topic: "general", lang: "en" }, fun: { topic: "general", lang: "en" },
+    games: { topic: "games", lang: "en" }, jeux: { topic: "games", lang: "fr" }, juegos: { topic: "games", lang: "es" },
+    music: { topic: "music", lang: "en" }, musique: { topic: "music", lang: "fr" }, musica: { topic: "music", lang: "es" },
+    radio: { topic: "radio", lang: "en" },
+    youtube: { topic: "youtube", lang: "en" }, yt: { topic: "youtube", lang: "en" },
+    quest: { topic: "quest", lang: "en" }, quete: { topic: "quest", lang: "fr" }, quetes: { topic: "quest", lang: "fr" },
+    misiones: { topic: "quest", lang: "es" }, mision: { topic: "quest", lang: "es" },
+    levels: { topic: "levels", lang: "en" }, level: { topic: "levels", lang: "en" },
+    niveaux: { topic: "levels", lang: "fr" }, niveau: { topic: "levels", lang: "fr" },
+    niveles: { topic: "levels", lang: "es" }, nivel: { topic: "levels", lang: "es" },
+    voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
+    ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
+  };
+  const match = map[arg0];
+  if (!match) return null;
+  return { topic: match.topic, lang: langOverride ?? match.lang };
+}
+
+function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
+  const fr = lang === "fr"; const es = lang === "es";
+  const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
+  const otherTopics = fr
+    ? "💡 Autres : `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`"
+    : es
+    ? "💡 Otros: `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`"
+    : "💡 Other topics: `!help general` · `games/jeux/juegos` · `music/musique` · `radio` · `youtube` · `quest/quetes/misiones` · `levels/niveaux/niveles` · `voice/vocal` · `ai`";
+  const embed = new EmbedBuilder().setColor(color).setFooter({ text: otherTopics });
+
+  switch (topic) {
+    case "general":
+      embed.setTitle(fr ? "🌐 Commandes générales" : es ? "🌐 Comandos generales" : "🌐 General Commands");
+      embed.addFields(
+        { name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
+          value: fr
+            ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` / `!bonjour` / `!salut` 👋\n`!poll <question> | opt1 | opt2 | …` 📊"
+            : es
+            ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | opt1 | opt2 | …` 📊"
+            : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | opt1 | opt2 | …` 📊" },
+        { name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
+          value: fr
+            ? "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` — ex. `!joke fr`"
+            : es
+            ? "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <pregunta>` 🎱  `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` — ej. `!joke es`"
+            : "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`" },
+      ); break;
+
+    case "games":
+      embed.setTitle(fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
+          : es
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
+      }); break;
+
+    case "music":
+      embed.setTitle(fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`!music generator <prompt>` — Style, ambiance, paroles 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
+          : es
+          ? "`!music generator <prompt>` — Estilo, ambiente, letra 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
+          : "`!music generator <prompt>` — Style, mood, lyrics 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
+      }); break;
+
+    case "radio":
+      embed.setTitle(fr ? "📻 Radio" : es ? "📻 Radio" : "📻 Radio");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`!radio list` 📋 — Liste des stations\n`!radio <nom>` — Jouer (ex: `!radio nrj`, `!radio bbc`)\n`!radio leave` — Déconnecter\n`!np` — Titre en cours"
+          : es
+          ? "`!radio list` 📋 — Lista de estaciones\n`!radio <nombre>` — Reproducir (ej: `!radio nrj`)\n`!radio leave` — Desconectar\n`!np` — Título actual"
+          : "`!radio list` 📋 — List all stations\n`!radio <name>` — Play (e.g. `!radio nrj`, `!radio bbc`)\n`!radio leave` — Disconnect\n`!np` — Now playing",
+      }); break;
+
+    case "youtube":
+      embed.setTitle(fr ? "🎬 YouTube & Playlists" : es ? "🎬 YouTube & Listas" : "🎬 YouTube & Playlists");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`!youtube <url>` 🎬 — Jouer une vidéo\n`!np` — En cours\n`!playlist add <nom> <url>` — Créer\n`!playlist play <nom>` — Jouer\n`!playlist list` — Lister\n`!playlist show <nom>` — Détail\n`!playlist remove <nom>` — Supprimer"
+          : es
+          ? "`!youtube <url>` 🎬 — Reproducir video\n`!np` — Ahora\n`!playlist add <nombre> <url>` — Crear\n`!playlist play <nombre>` — Reproducir\n`!playlist list` — Listar\n`!playlist show <nombre>` — Detalle\n`!playlist remove <nombre>` — Eliminar"
+          : "`!youtube <url>` 🎬 — Play a video\n`!np` — Now playing\n`!playlist add <name> <url>` — Create\n`!playlist play <name>` — Play\n`!playlist list` — List all\n`!playlist show <name>` — Details\n`!playlist remove <name>` — Delete",
+      }); break;
+
+    case "quest":
+      embed.setTitle(fr ? "🎯 Système de Quêtes" : es ? "🎯 Sistema de Misiones" : "🎯 Quest System");
+      embed.addFields(
+        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+          value: fr
+            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest schedule <h…>` — Modifier les horaires ⏰\n`!quest reset` — Réinitialiser"
+            : es
+            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest schedule <h…>` — Cambiar horario ⏰\n`!quest reset` — Reiniciar"
+            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest schedule <h…>` — Customize reminder times ⏰\n`!quest reset` — Reset all" },
+        { name: fr ? "⏰ Rappels" : es ? "⏰ Recordatorios" : "⏰ Reminders",
+          value: fr
+            ? "Par défaut : **10:00 · 15:00 · 18:00 UTC**\nPersonnalise avec `!quest schedule 8 14 21`\nReset : `!quest schedule reset`"
+            : es
+            ? "Por defecto: **10:00 · 15:00 · 18:00 UTC**\nPersonaliza con `!quest schedule 8 14 21`\nReset: `!quest schedule reset`"
+            : "Default: **10:00 · 15:00 · 18:00 UTC**\nCustomize: `!quest schedule 8 14 21`\nReset: `!quest schedule reset`" },
+      ); break;
+
+    case "levels": {
+      embed.setTitle(fr ? "🏆 Système de Niveaux" : es ? "🏆 Sistema de Niveles" : "🏆 Level System");
+      const levelsTable = [
+        { level: 1, threshold: 0,     title: "🌱 Novice" },
+        { level: 2, threshold: 100,   title: "⚡ Apprentice" },
+        { level: 3, threshold: 250,   title: "🔥 Adventurer" },
+        { level: 4, threshold: 500,   title: "⚔️ Warrior" },
+        { level: 5, threshold: 1000,  title: "🏆 Champion" },
+        { level: 6, threshold: 2000,  title: "💎 Master" },
+        { level: 7, threshold: 3500,  title: "🌟 Expert" },
+        { level: 8, threshold: 6000,  title: "👑 Legend" },
+        { level: 9, threshold: 10000, title: "🌌 Transcendent" },
+      ];
+      embed.addFields(
+        { name: fr ? "Niveaux disponibles" : es ? "Niveles disponibles" : "Available levels",
+          value: levelsTable.map(l => `**Lv.${l.level}** ${l.title} — ${l.threshold === 0 ? "0" : l.threshold} XP`).join("\n") },
+        { name: fr ? "Gagner de l'XP" : es ? "Ganar XP" : "Earning XP",
+          value: fr
+            ? "• Quête facile : 15–25 XP\n• Quête moyenne : 30–50 XP\n• Quête difficile : 60–100 XP\n> `!quest profile` — voir ta progression"
+            : es
+            ? "• Misión fácil: 15–25 XP\n• Misión media: 30–50 XP\n• Misión difícil: 60–100 XP\n> `!quest profile` — ver progreso"
+            : "• Easy quest: 15–25 XP\n• Medium quest: 30–50 XP\n• Hard quest: 60–100 XP\n> `!quest profile` — see your progress" },
+      ); break;
+    }
+
+    case "voice":
+      embed.setTitle(fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`!join` 🔊 — Rejoindre le salon vocal\n`!leave` 👋 — Quitter\n`!voice say <texte>` 🗣️ — Synthèse vocale\n`!voice stop` — Mode sous-titres uniquement\n`!voice resume` — Mode vocal complet\n`!subtitles` 📝 — Activer/désactiver sous-titres"
+          : es
+          ? "`!join` 🔊 — Unirse al canal de voz\n`!leave` 👋 — Salir\n`!voice say <texto>` 🗣️ — Síntesis de voz\n`!voice stop` — Solo subtítulos\n`!voice resume` — Modo vocal completo\n`!subtitles` 📝 — Activar/desactivar subtítulos"
+          : "`!join` 🔊 — Join voice channel\n`!leave` 👋 — Leave\n`!voice say <text>` 🗣️ — Text-to-speech\n`!voice stop` — Captions-only mode\n`!voice resume` — Full voice mode\n`!subtitles` 📝 — Toggle live captions",
+      }); break;
+
+    case "ai":
+      embed.setTitle(fr ? "🤖 IA & Avancé" : es ? "🤖 IA & Avanzado" : "🤖 AI & Advanced");
+      embed.addFields(
+        { name: fr ? "Chat IA" : es ? "Chat IA" : "AI Chat",
+          value: fr
+            ? "`@bot <message>` — Chat IA (fonctionne aussi en DM)\n`/image <description>` — Génère une image (HuggingFace)"
+            : es
+            ? "`@bot <mensaje>` — Chat IA (también en DM)\n`/image <descripción>` — Genera imagen (HuggingFace)"
+            : "`@bot <message>` — AI chat (works in DMs too)\n`/image <description>` — Generate image (HuggingFace)" },
+        { name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
+          value: fr
+            ? "`!ai battle <sujet>` 🥊 — Débat entre deux bots IA\n`!ai stop` — Arrêter le débat"
+            : es
+            ? "`!ai battle <tema>` 🥊 — Debate entre dos bots IA\n`!ai stop` — Detener el debate"
+            : "`!ai battle <topic>` 🥊 — Debate between two AI bots\n`!ai stop` — Stop the debate" },
+        { name: fr ? "🎭 Fun IA" : es ? "🎭 Fun IA" : "🎭 AI Fun",
+          value: fr
+            ? "`!conspiracy [sujet]` 🕵️ — Théorie du complot IA\n`!trivia` 🧠 — Quiz culture générale IA"
+            : es
+            ? "`!conspiracy [tema]` 🕵️ — Teoría de conspiración IA\n`!trivia` 🧠 — Quiz cultura general IA"
+            : "`!conspiracy [topic]` 🕵️ — AI conspiracy theory\n`!trivia` 🧠 — AI general knowledge quiz" },
+      ); break;
+  }
   return embed;
 }
 
@@ -1110,6 +1281,8 @@ export function startBot(): void {
             await setReminderChannel(message);
           } else if (sub === "schedule") {
             await setSchedule(message, args.slice(1).join(" "));
+          } else if (sub === "stats") {
+            await showQuestStats(message);
           } else if (sub === "add") {
             const objective = args.slice(1).join(" ");
             await addQuestWithCoach(message, objective, openai);
@@ -1127,9 +1300,29 @@ export function startBot(): void {
         // ── Help ─────────────────────────────────────────────────────────────────
         case "help":
         case "aide": {
-          const lang = args[0]?.toLowerCase();
-          const helpLang: HelpLanguage = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
-          await sendPaginatedHelp(message, helpLang);
+          const arg0 = (args[0] ?? "").toLowerCase();
+          const arg1 = (args[1] ?? "").toLowerCase();
+
+          // Plain `!help`, `!help fr`, `!help es` → paginated 4-page help
+          if (!arg0 || arg0 === "fr" || arg0 === "es" || arg0 === "en") {
+            const helpLang: HelpLanguage = arg0 === "fr" ? "fr" : arg0 === "es" ? "es" : "en";
+            await sendPaginatedHelp(message, helpLang);
+            break;
+          }
+
+          // Topic-specific help
+          const detected = detectTopicAndLang(arg0, arg1 || undefined);
+          if (detected) {
+            await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang)] });
+          } else {
+            await message.reply(
+              "❓ Unknown topic. Available:\n" +
+              "`!help general` · `!help games` · `!help music` · `!help radio` · `!help youtube`\n" +
+              "`!help quest` · `!help levels` · `!help voice` · `!help ai`\n\n" +
+              "Language shortcuts: `!help jeux` (FR) · `!help juegos` (ES) · `!help quetes` (FR) · `!help misiones` (ES)\n" +
+              "Add `fr` or `es` for other sections: `!help music fr` · `!help radio es`",
+            );
+          }
           break;
         }
 
