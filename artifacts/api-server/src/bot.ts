@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
+import { playRadio, stopRadio, listRadios, playYoutube, RADIO_STATIONS } from "./discord/radio";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 
 const PREFIX = "!";
@@ -252,7 +253,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       },
     );
   } else {
-    embed.setDescription(fr ? "Vocal, IA avancée et infos." : es ? "Voz, IA avanzada e info." : "Voice, advanced AI and info.");
+    embed.setDescription(fr ? "Vocal, radio, IA avancée et infos." : es ? "Voz, radio, IA avanzada e info." : "Voice, radio, advanced AI and info.");
     embed.addFields(
       {
         name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
@@ -261,6 +262,14 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           : es
           ? "`!join` 🔊 `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
           : "`!join` 🔊 `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Live captions (bot + you)",
+      },
+      {
+        name: fr ? "📻 Radio & YouTube" : es ? "📻 Radio & YouTube" : "📻 Radio & YouTube",
+        value: fr
+          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter une station (ex: `!radio nrj`)\n`!youtube <url>` — Lire l'audio d'une vidéo YouTube 🎬\n`!radio leave` — Déconnecter"
+          : es
+          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar una estación (ej: `!radio nrj`)\n`!youtube <url>` — Reproducir audio de YouTube 🎬\n`!radio leave` — Desconectar"
+          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen to a station (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!radio leave` — Disconnect",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -877,6 +886,37 @@ export function startBot(): void {
 
         case "subtitles": {
           await toggleSubtitles(message);
+          break;
+        }
+
+        // ── Radio ────────────────────────────────────────────────────────────────
+        case "radio": {
+          const sub = args[0]?.toLowerCase();
+
+          if (!sub || sub === "list") {
+            await message.reply({ embeds: [listRadios()] });
+            break;
+          }
+
+          if (sub === "leave" || sub === "stop") {
+            await stopRadio(message);
+            break;
+          }
+
+          // !radio <stationKey>
+          await playRadio(message, sub);
+          break;
+        }
+
+        // ── YouTube ──────────────────────────────────────────────────────────────
+        case "youtube":
+        case "yt": {
+          const url = args[0];
+          if (!url) {
+            await message.reply("❓ Provide a YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
+            break;
+          }
+          await playYoutube(message, url);
           break;
         }
 

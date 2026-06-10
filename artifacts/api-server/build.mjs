@@ -107,6 +107,9 @@ async function buildAll() {
       "opusscript",
       "prism-media",
       "@discordjs/voice",
+      "play-dl",
+      "m3u8stream",
+      "miniget",
     ],
     sourcemap: "linked",
     plugins: [

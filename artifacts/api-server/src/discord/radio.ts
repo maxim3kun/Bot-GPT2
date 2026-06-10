@@ -1,0 +1,235 @@
+import {
+  joinVoiceChannel,
+  createAudioPlayer,
+  createAudioResource,
+  AudioPlayerStatus,
+  VoiceConnectionStatus,
+  getVoiceConnection,
+  StreamType,
+  NoSubscriberBehavior,
+  type AudioPlayer,
+} from "@discordjs/voice";
+import { type Message, EmbedBuilder } from "discord.js";
+import { logger } from "../lib/logger";
+
+// ── Radio station list ────────────────────────────────────────────────────────
+
+export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string }> = {
+  nrj:         { name: "NRJ",           url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits" },
+  fun:         { name: "Fun Radio",     url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic" },
+  rtl:         { name: "RTL",           url: "https://streaming.radio.rtl.fr/rtl-1-44-128",                       emoji: "📻", genre: "News / Variety" },
+  europe1:     { name: "Europe 1",      url: "https://europe1.lmn.fm/europe1.mp3",                                emoji: "🌍", genre: "News / Talk" },
+  skyrock:     { name: "Skyrock",       url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B" },
+  franceinter: { name: "France Inter",  url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk" },
+  musique:     { name: "France Musique",url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical" },
+  virgin:      { name: "Virgin Radio",  url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "🎸", genre: "Rock / Alternative" },
+  nostalgie:   { name: "Nostalgie",     url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics" },
+  cherie:      { name: "Chérie FM",     url: "https://cdn.nrjaudio.fm/audio1/fr/30201/aac_64.mp3",                emoji: "💕", genre: "Pop / Love songs" },
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+interface RadioState {
+  player: AudioPlayer;
+  stationKey: string | null;
+  youtubeTitle: string | null;
+  guildId: string;
+}
+
+const radioStates = new Map<string, RadioState>();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function ensureVoiceConnection(message: Message): Promise<boolean> {
+  const voiceChannel = message.member?.voice.channel;
+  if (!voiceChannel) {
+    await message.reply("❌ You need to be in a voice channel first!");
+    return false;
+  }
+
+  const guildId = message.guildId!;
+  let connection = getVoiceConnection(guildId);
+
+  if (!connection) {
+    connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId,
+      adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
+    });
+
+    connection.on(VoiceConnectionStatus.Disconnected, () => {
+      radioStates.delete(guildId);
+    });
+  }
+
+  // Create or reuse player
+  if (!radioStates.has(guildId)) {
+    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    connection.subscribe(player);
+    radioStates.set(guildId, { player, stationKey: null, youtubeTitle: null, guildId });
+  } else {
+    // Resubscribe in case connection changed
+    connection.subscribe(radioStates.get(guildId)!.player);
+  }
+
+  return true;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function isRadioActive(guildId: string): boolean {
+  return radioStates.has(guildId);
+}
+
+export function listRadios(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle("📻 Available Radio Stations")
+    .setColor(0x5865f2)
+    .setDescription("Use `!radio <key>` to start listening.\nExample: `!radio nrj`\n\u200b");
+
+  for (const [key, station] of Object.entries(RADIO_STATIONS)) {
+    embed.addFields({
+      name: `${station.emoji} ${station.name}`,
+      value: `\`!radio ${key}\` — ${station.genre}`,
+      inline: true,
+    });
+  }
+
+  embed.setFooter({ text: "!radio leave — stop and disconnect" });
+  return embed;
+}
+
+export async function playRadio(message: Message, stationKey: string): Promise<void> {
+  const station = RADIO_STATIONS[stationKey.toLowerCase()];
+  if (!station) {
+    const keys = Object.keys(RADIO_STATIONS).join("`, `");
+    await message.reply(`❌ Unknown station. Available: \`${keys}\`\nSee the full list with \`!radio list\`.`);
+    return;
+  }
+
+  const ready = await ensureVoiceConnection(message);
+  if (!ready) return;
+
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId)!;
+  state.stationKey = stationKey.toLowerCase();
+  state.youtubeTitle = null;
+
+  try {
+    const resource = createAudioResource(station.url, { inputType: StreamType.Arbitrary });
+    state.player.play(resource);
+
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      const embed = new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle(`${station.emoji} Now playing — ${station.name}`)
+        .addFields(
+          { name: "Genre", value: station.genre, inline: true },
+          { name: "Stop", value: "`!radio leave`", inline: true },
+        )
+        .setFooter({ text: "Switch station anytime with !radio <key>" });
+      await message.reply({ embeds: [embed] });
+    });
+
+    state.player.once("error", async (err) => {
+      logger.error({ err, stationKey }, "Radio stream error");
+      await message.reply(`❌ Stream error for **${station.name}**. Try another station with \`!radio list\`.`);
+      radioStates.delete(guildId);
+      getVoiceConnection(guildId)?.destroy();
+    });
+
+  } catch (err) {
+    logger.error({ err, stationKey }, "Radio play error");
+    await message.reply("❌ Failed to start the radio stream. Try again!");
+    radioStates.delete(guildId);
+    getVoiceConnection(guildId)?.destroy();
+  }
+}
+
+export async function stopRadio(message: Message): Promise<void> {
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId);
+
+  if (!state) {
+    await message.reply("❌ No radio is currently playing.");
+    return;
+  }
+
+  state.player.stop();
+  radioStates.delete(guildId);
+  getVoiceConnection(guildId)?.destroy();
+  await message.reply("👋 Radio stopped and disconnected.");
+}
+
+export async function playYoutube(message: Message, url: string): Promise<void> {
+  // Validate URL roughly
+  if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
+    await message.reply("❌ Please provide a valid YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
+    return;
+  }
+
+  const ready = await ensureVoiceConnection(message);
+  if (!ready) return;
+
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId)!;
+
+  const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait...");
+
+  try {
+    // Dynamically import play-dl to avoid bundling issues
+    const play = await import("play-dl");
+
+    const info = await play.video_info(url);
+    const title = info.video_details.title ?? "Unknown";
+    const duration = info.video_details.durationInSec;
+    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
+
+    const stream = await play.stream(url, { quality: 2 });
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type as unknown as StreamType,
+    });
+
+    state.player.play(resource);
+    state.stationKey = null;
+    state.youtubeTitle = title;
+
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      const mins = Math.floor(duration / 60);
+      const secs = duration % 60;
+      const embed = new EmbedBuilder()
+        .setColor(0xed4245)
+        .setTitle(`▶️ Now playing`)
+        .setDescription(`**${title}**`)
+        .addFields(
+          { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+          { name: "Stop", value: "`!radio leave`", inline: true },
+        )
+        .setFooter({ text: url });
+      if (thumbnail) embed.setThumbnail(thumbnail);
+      await waitMsg.edit({ content: "", embeds: [embed] });
+    });
+
+    state.player.once(AudioPlayerStatus.Idle, async () => {
+      if (state.youtubeTitle === title) {
+        radioStates.delete(guildId);
+        getVoiceConnection(guildId)?.destroy();
+      }
+    });
+
+    state.player.once("error", async (err) => {
+      logger.error({ err, url }, "YouTube playback error");
+      await waitMsg.edit("❌ Playback error. The video may be unavailable or age-restricted.");
+      radioStates.delete(guildId);
+      getVoiceConnection(guildId)?.destroy();
+    });
+
+  } catch (err) {
+    logger.error({ err, url }, "YouTube load error");
+    await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
+    radioStates.delete(guildId);
+    getVoiceConnection(guildId)?.destroy();
+  }
+}

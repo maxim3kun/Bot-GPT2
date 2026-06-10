@@ -1,90 +1,131 @@
-# 🤖 Bot Discord — Maxime
+# 🤖 Discord Bot — by Maxime
 
-Bot Discord complet avec commandes fun, mini-jeux, IA conversationnelle, génération musicale et module vocal.
-
----
-
-## 🚀 Démarrage rapide
-
-1. Ajoute les variables d'environnement requises (voir section ci-dessous)
-2. Lance le workflow **Discord Bot** sur Replit
-3. Invite ton bot sur ton serveur Discord et active les intents nécessaires
+A full-featured Discord bot with fun commands, mini-games, AI chat, music generation, voice, radio streaming, and YouTube audio playback.
 
 ---
 
-## 🔑 Variables d'environnement
+## 🚀 Quick Start
 
-| Variable | Obligatoire | Description |
+1. Add the required environment variables (see section below)
+2. Launch the **Discord Bot** workflow on Replit
+3. Invite your bot to your Discord server and enable the required intents
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Required | Description |
 |---|---|---|
-| `DISCORD_TOKEN` | ✅ Oui | Token du bot principal |
-| `GROQ_API_KEY` | Recommandé | Active le chat IA, trivia, conspiracy et la bataille IA |
-| `DISCORD_TOKEN_2` | Optionnel | Second bot pour `!ai battle` |
-| `HUGGINGFACE_TOKEN` | Optionnel | Active la génération d'images (`!image`) |
-| `SUNO_API_KEY` | Optionnel | Active la génération musicale (`!music`) |
+| `DISCORD_TOKEN` | ✅ Yes | Main bot token |
+| `GROQ_API_KEY` | Recommended | Enables AI chat, trivia, conspiracy and AI battles |
+| `DISCORD_TOKEN_2` | Optional | Second bot for `!ai battle` |
+| `HUGGINGFACE_TOKEN` | Optional | Enables image generation (`!image`) |
+| `SUNO_API_KEY` | Optional | Enables music generation (`!music`) |
 
-> ⚠️ Dans le portail développeur Discord, active les intents : **Message Content**, **Server Members** et **Voice**.
+> ⚠️ In the Discord Developer Portal, enable these intents: **Message Content**, **Server Members**, and **Voice**.
 
 ---
 
-## 📖 Commandes
+## 📖 Commands
 
-### 🌐 Général
+### 🌐 General
 
-| Commande | Description |
+| Command | Description |
 |---|---|
-| `@bot <message>` | Chat IA (fonctionne aussi en message privé) |
-| `!say <message>` | Le bot répète ton message (le tien est supprimé) |
-| `!hello` / `!hi` / `!bonjour` / `!salut` | Message de bienvenue |
-| `!image <description>` | Génère une image via HuggingFace FLUX |
-| `!credits` | Affiche les crédits du projet |
-| `!help` / `!help fr` / `!help es` | Aide paginée (3 pages, navigation par réactions) |
+| `@bot <message>` | AI chat (also works in DMs) |
+| `!say <message>` | Bot repeats your message (yours is deleted) |
+| `!hello` / `!hi` / `!bonjour` / `!salut` | Welcome message |
+| `!image <description>` | Generate an image via HuggingFace FLUX |
+| `!credits` | Show project credits |
+| `!help` / `!help fr` / `!help es` | Paginated help (3 pages, navigate with reactions) |
 
 ---
 
-### 🎉 Divertissement
+### 🎉 Fun
 
-Toutes ces commandes acceptent un suffixe de langue : `fr` (français) ou `es` (espagnol). Par défaut : anglais.
+All commands accept a language suffix: `fr` (French) or `es` (Spanish). Default: English.
 
-| Commande | Description | Exemple |
+| Command | Description | Example |
 |---|---|---|
-| `!compliment [fr\|es]` | Reçois un compliment aléatoire | `!compliment fr` |
-| `!joke [fr\|es]` | Blague aléatoire | `!joke es` |
-| `!encouragement [fr\|es]` | Mot d'encouragement | `!encouragement` |
-| `!hug [fr\|es]` | Câlin virtuel | `!hug fr` |
-| `!8ball <question> [fr\|es]` | Boule magique 🎱 | `!8ball Will I win? fr` |
-| `!dice [faces]` | Lance un dé (6 faces par défaut, max 1000) | `!dice 20` |
-| `!conspiracy [sujet]` | Génère une théorie du complot absurde (IA) | `!conspiracy the moon` |
+| `!compliment [fr\|es]` | Receive a random compliment | `!compliment fr` |
+| `!joke [fr\|es]` | Random joke | `!joke es` |
+| `!encouragement [fr\|es]` | Encouraging message | `!encouragement` |
+| `!hug [fr\|es]` | Virtual hug | `!hug fr` |
+| `!8ball <question> [fr\|es]` | Magic 8-ball 🎱 | `!8ball Will I win?` |
+| `!dice [faces]` | Roll a die (6 sides default, max 1000) | `!dice 20` |
+| `!conspiracy [topic]` | Generate an absurd AI conspiracy theory | `!conspiracy the moon` |
 
 ---
 
-### 🎮 Mini-jeux
+### 🎮 Mini-games
 
-| Commande | Description |
+| Command | Description |
 |---|---|
-| `!minesweeper [easy\|medium\|hard]` | Démineur — grille révélée avec spoilers Discord |
-| `!geo [easy\|medium\|hard]` | GeoGuessr — devine le pays d'une ville |
-| `!geo stop` | Abandonne la partie GeoGuessr en cours |
-| `!trivia` | Quiz culture générale généré par IA (4 choix, 30s) |
-| `!guessnumber` | Devine un nombre entre 1 et 100 (7 essais) |
-| `!connect4 [1-7]` | Puissance 4 multijoueur — joue une colonne |
-| `!connect4 solo` | Puissance 4 contre le bot |
+| `!minesweeper [easy\|medium\|hard]` | Minesweeper — board revealed with Discord spoiler tags |
+| `!geo [easy\|medium\|hard]` | GeoGuessr — guess the country of a city |
+| `!geo stop` | Abandon the current GeoGuessr game |
+| `!trivia` | AI-generated general knowledge quiz (4 choices, 30s) |
+| `!guessnumber` | Guess a number between 1 and 100 (7 attempts) |
+| `!connect4 [1-7]` | Connect 4 multiplayer — play a column |
+| `!connect4 solo` | Connect 4 against the bot |
 
-**Difficultés Démineur :**
+**Minesweeper difficulties:**
 - `easy` — 8×8, 10 mines
-- `medium` — 9×9, 15 mines *(par défaut)*
+- `medium` — 9×9, 15 mines *(default)*
 - `hard` — 10×10, 20 mines
 
 ---
 
-### 🎵 Musique — Suno AI
+### 📻 Radio
 
-| Commande | Description |
+The bot joins your current voice channel and streams live radio. You must be in a voice channel to use radio commands.
+
+| Command | Description |
 |---|---|
-| `!music generator <prompt>` | Génère une chanson (~30-60s) via Suno AI |
-| `!music prompt` | Affiche des exemples de prompts par style musical |
-| `!balance` | Affiche les crédits Suno restants |
+| `!radio list` | Show all available radio stations |
+| `!radio <station>` | Start playing a radio station |
+| `!radio leave` | Stop the radio and disconnect |
 
-**Exemples de styles :**
+**Available stations:**
+
+| Key | Station | Genre |
+|---|---|---|
+| `nrj` | NRJ 🔥 | Pop / Hits |
+| `fun` | Fun Radio 🎉 | Dance / Electronic |
+| `rtl` | RTL 📻 | News / Variety |
+| `europe1` | Europe 1 🌍 | News / Talk |
+| `skyrock` | Skyrock 🎤 | Hip-Hop / R&B |
+| `franceinter` | France Inter 🎙️ | Culture / Talk |
+| `musique` | France Musique 🎼 | Classical |
+| `virgin` | Virgin Radio 🎸 | Rock / Alternative |
+| `nostalgie` | Nostalgie 🕰️ | Oldies / French classics |
+| `cherie` | Chérie FM 💕 | Pop / Love songs |
+
+**Examples:** `!radio nrj` · `!radio skyrock` · `!radio franceinter`
+
+---
+
+### 🎬 YouTube
+
+Stream the audio of any YouTube video directly in a voice channel. You must be in a voice channel first.
+
+| Command | Description |
+|---|---|
+| `!youtube <url>` | Play the audio of a YouTube video |
+
+**Example:** `!youtube https://www.youtube.com/watch?v=dQw4w9WgXcQ`
+
+---
+
+### 🎵 Music — Suno AI
+
+| Command | Description |
+|---|---|
+| `!music generator <prompt>` | Generate a song (~30-60s) via Suno AI |
+| `!music prompt` | Show prompt examples by music style |
+| `!balance` | Show remaining Suno credits |
+
+**Style examples:**
 - `lo-fi hip hop beats, rainy day, chill, vinyl crackle`
 - `upbeat rock anthem, electric guitar riffs, powerful drums`
 - `dark synthwave, neon lights, midnight drive, 80s retro`
@@ -92,77 +133,79 @@ Toutes ces commandes acceptent un suffixe de langue : `fr` (français) ou `es` (
 
 ---
 
-### 🎙️ Vocal — Google TTS + Groq Whisper STT
+### 🎙️ Voice — Google TTS + Groq Whisper STT
 
-| Commande | Description |
+| Command | Description |
 |---|---|
-| `!join` | Le bot rejoint ton salon vocal, écoute et répond en voix |
-| `!leave` | Le bot quitte le salon vocal |
-| `!voice say <texte>` | Le bot lit un texte à voix haute |
-| `!voice stop` | Passe en mode sous-titres uniquement (sans parole) |
-| `!voice resume` | Réactive le mode vocal complet |
-| `!subtitles` | Active/désactive la transcription live en temps réel |
+| `!join` | Bot joins your voice channel, listens and replies by voice |
+| `!leave` | Bot leaves the voice channel |
+| `!voice say <text>` | Bot reads a text aloud |
+| `!voice stop` | Switch to subtitles-only mode (no speech) |
+| `!voice resume` | Re-enable full voice mode |
+| `!subtitles` | Toggle live real-time transcription |
 
-> Quand le bot est dans un salon vocal, il transcrit automatiquement ce que vous dites et répond en voix si on le mentionne avec `@bot`.
+> When the bot is in a voice channel, it automatically transcribes what you say and replies by voice when mentioned with `@bot`.
 
 ---
 
-### ⚔️ Bataille IA
+### ⚔️ AI Battle
 
-| Commande | Description |
+| Command | Description |
 |---|---|
-| `!ai battle <sujet>` | Lance un débat en 3 rounds entre deux bots IA |
-| `!ai stop` | Arrête le débat en cours |
+| `!ai battle <topic>` | Start a 3-round debate between two AI bots |
+| `!ai stop` | Stop the ongoing debate |
 
-- 🔵 **Bot 1** argumente **POUR** le sujet
-- 🔴 **Bot 2** argumente **CONTRE** le sujet
-- Un **juge IA** désigne le vainqueur à la fin
-- Nécessite `DISCORD_TOKEN_2` et `GROQ_API_KEY`
+- 🔵 **Bot 1** argues **FOR** the topic
+- 🔴 **Bot 2** argues **AGAINST** the topic
+- An **AI judge** announces the winner at the end
+- Requires `DISCORD_TOKEN_2` and `GROQ_API_KEY`
 
 ---
 
-## 🛠️ Stack technique
+## 🛠️ Tech Stack
 
-| Composant | Technologie |
+| Component | Technology |
 |---|---|
 | Runtime | Node.js 24 + TypeScript 5.9 |
 | Bot | discord.js v14 |
-| Serveur API | Express 5 |
-| IA conversationnelle | Meta LLaMA 3.1 via Groq |
-| Génération musicale | Suno AI (sunoapi.org) |
-| Génération d'images | HuggingFace FLUX.1-schnell |
+| API Server | Express 5 |
+| AI Chat | Meta LLaMA 3.1 via Groq |
+| Music generation | Suno AI (sunoapi.org) |
+| Image generation | HuggingFace FLUX.1-schnell |
 | Text-to-Speech | Google Translate TTS |
 | Speech-to-Text | Groq Whisper |
-| Vocal Discord | @discordjs/voice + prism-media |
-| Build | esbuild (bundle ESM) |
+| Radio / YouTube | play-dl + ffmpeg-static |
+| Discord voice | @discordjs/voice + prism-media |
+| Build | esbuild (ESM bundle) |
 | Monorepo | pnpm workspaces |
 
 ---
 
-## 📁 Structure du projet
+## 📁 Project Structure
 
 ```
 artifacts/
   api-server/
     src/
-      bot.ts          — Logique principale du bot et commandes
-      app.ts          — Serveur Express
-      index.ts        — Point d'entrée
-      games.ts        — Mini-jeux (Minesweeper, GeoGuessr, Trivia…)
+      bot.ts            — Main bot logic and commands
+      app.ts            — Express server
+      index.ts          — Entry point
+      games.ts          — Mini-games (Minesweeper, GeoGuessr, Trivia…)
       discord/
-        voice.ts      — Module vocal (TTS/STT)
+        voice.ts        — Voice module (TTS/STT)
+        radio.ts        — Radio & YouTube streaming
       lib/
-        suno-client.ts — Client Suno AI
-        logger.ts     — Logger Pino
-      routes/         — Routes API Express
+        suno-client.ts  — Suno AI client
+        logger.ts       — Pino logger
+      routes/           — Express API routes
 lib/
-  db/                 — Schéma Drizzle ORM
-  api-spec/           — Spécifications OpenAPI
-  api-zod/            — Schémas Zod générés
+  db/                   — Drizzle ORM schema
+  api-spec/             — OpenAPI specifications
+  api-zod/              — Generated Zod schemas
 ```
 
 ---
 
-## 👨‍💻 Créateur
+## 👨‍💻 Credits
 
-Fait avec ❤️ par **Maxime**
+Made with ❤️ by **Maxime**
