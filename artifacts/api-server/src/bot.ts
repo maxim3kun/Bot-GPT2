@@ -2,7 +2,7 @@ import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
-import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice } from "./discord/voice";
+import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 
 const PREFIX = "!";
@@ -166,12 +166,12 @@ const HUGS_ES = [
 
 const MUSIC_PROMPT_EXAMPLES = [
   { category: "🌊 Lo-Fi / Chill", prompt: "lo-fi hip hop beats, rainy day, chill, vinyl crackle, mellow piano" },
-  { category: "🎸 Rock Énergique", prompt: "upbeat rock anthem, electric guitar riffs, powerful drums, energetic chorus" },
+  { category: "🎸 Energetic Rock", prompt: "upbeat rock anthem, electric guitar riffs, powerful drums, energetic chorus" },
   { category: "🌙 Night Vibes", prompt: "dark synthwave, neon lights, midnight drive, 80s retro, pulsing bass" },
-  { category: "🎹 Piano Cinématique", prompt: "emotional piano solo, cinematic, melancholic, slow tempo, orchestral strings" },
+  { category: "🎹 Cinematic Piano", prompt: "emotional piano solo, cinematic, melancholic, slow tempo, orchestral strings" },
   { category: "🔥 Trap / Rap", prompt: "hard trap beat, 808 bass, hi-hats, dark melody, aggressive, street" },
   { category: "🌸 J-Pop / Anime", prompt: "anime opening, upbeat J-pop, catchy melody, japanese style, energetic" },
-  { category: "🌿 Méditation", prompt: "peaceful meditation music, nature sounds, flute, soft drums, zen atmosphere" },
+  { category: "🌿 Meditation", prompt: "peaceful meditation music, nature sounds, flute, soft drums, zen atmosphere" },
   { category: "🎺 Jazz", prompt: "smooth jazz, saxophone, late night club, soft brushed drums, warm bass" },
 ];
 
@@ -257,10 +257,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
         value: fr
-          ? "`!join` — Rejoins ton salon vocal 🔊\n`!leave` — Quitte le salon 👋\n`!voice say <texte>` — Je parle dans le vocal 🗣️\n`!voice stop` / `!voice resume` — Silence / Reprendre"
+          ? "`!join` 🔊 `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
           : es
-          ? "`!join` — Únete al canal de voz 🔊\n`!leave` — Salir del canal 👋\n`!voice say <texto>` — Hablo en el canal de voz 🗣️\n`!voice stop` / `!voice resume` — Silencio / Reanudar"
-          : "`!join` — Join your voice channel 🔊\n`!leave` — Leave the channel 👋\n`!voice say <text>` — I speak in voice 🗣️\n`!voice stop` / `!voice resume` — Mute / Resume",
+          ? "`!join` 🔊 `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
+          : "`!join` 🔊 `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Live captions (bot + you)",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -374,9 +374,9 @@ async function runAiBattle(
 
   await channel.send(
     `⚔️ **AI BATTLE** ⚔️\n\n**Topic:** ${topic}\n\n` +
-    `🔵 **${bot1Name}** argumente **POUR**\n` +
-    `🔴 **${bot2Name}** argumente **CONTRE**\n\n` +
-    `3 rounds — un message toutes les ~40s. Tape \`!ai stop\` pour arrêter. 🥊`,
+    `🔵 **${bot1Name}** argues **FOR**\n` +
+    `🔴 **${bot2Name}** argues **AGAINST**\n\n` +
+    `3 rounds — one message every ~40s. Type \`!ai stop\` to end. 🥊`,
   );
 
   await sleep(3000);
@@ -515,11 +515,11 @@ export function startBot(): void {
     // --- Image generation ---
     if (content.startsWith("/image ") || content.startsWith("!image ")) {
       const prompt = content.slice(content.indexOf(" ") + 1).trim();
-      if (!prompt) { await message.reply("🎨 Donne-moi une description ! ex. `!image un coucher de soleil sur Paris`"); return; }
+      if (!prompt) { await message.reply("🎨 Give me a description! e.g. `!image a sunset over Paris`"); return; }
       const hfToken = process.env["HUGGINGFACE_TOKEN"];
-      if (!hfToken) { await message.reply("❌ La génération d'images n'est pas configurée (HUGGINGFACE_TOKEN manquant)."); return; }
+      if (!hfToken) { await message.reply("❌ Image generation is not configured (HUGGINGFACE_TOKEN missing)."); return; }
       try {
-        const waitMsg = await message.reply("🎨 Génération en cours, patiente quelques secondes...");
+        const waitMsg = await message.reply("🎨 Generating your image, please wait a few seconds...");
         const response = await fetch(
           "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
           {
@@ -530,7 +530,7 @@ export function startBot(): void {
         );
         if (!response.ok) {
           logger.error({ status: response.status }, "HuggingFace image error");
-          await waitMsg.edit("❌ Échec de la génération. Réessaie plus tard !");
+          await waitMsg.edit("❌ Generation failed. Try again later!");
           return;
         }
         const buffer = Buffer.from(await response.arrayBuffer());
@@ -540,7 +540,7 @@ export function startBot(): void {
         }
       } catch (err) {
         logger.error({ err }, "Image generation error");
-        await message.reply("❌ Erreur lors de la génération. Réessaie !");
+        await message.reply("❌ Error during image generation. Try again!");
       }
       return;
     }
@@ -548,9 +548,9 @@ export function startBot(): void {
     // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
     if (isDm && !content.startsWith(PREFIX)) {
-      if (!openai) { await message.reply("❌ L'IA n'est pas configurée (GROQ_API_KEY manquant)."); return; }
+      if (!openai) { await message.reply("❌ AI is not configured (GROQ_API_KEY missing)."); return; }
       const userText = content.trim();
-      if (!userText) { await message.reply("Hey ! 👋 Envoie-moi un message et je ferai de mon mieux !"); return; }
+      if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -562,13 +562,13 @@ export function startBot(): void {
             ...getHistory(message.channelId),
           ],
         });
-        const reply = response.choices[0]?.message?.content ?? "Désolé, je n'ai pas pu répondre ! 😅";
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
       } catch (err) {
         logger.error({ err }, "DM AI error");
-        await message.reply("Oops, quelque chose s'est mal passé ! 😅 Réessaie dans un instant.");
+        await message.reply("Oops, something went wrong! 😅 Try again in a moment.");
       }
       return;
     }
@@ -576,7 +576,7 @@ export function startBot(): void {
     // --- @mention AI chat ---
     if (openai && !isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
-      if (!userText) { await message.reply("Hey ! 👋 Mentionne-moi avec un message et je t'aide !"); return; }
+      if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -588,17 +588,18 @@ export function startBot(): void {
             ...getHistory(message.channelId),
           ],
         });
-        const reply = response.choices[0]?.message?.content ?? "Désolé, je n'ai pas pu répondre ! 😅";
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {
-          speakText(message.guildId, reply, "fr").catch(() => null);
+          const botName = client.user?.username;
+          speakText(message.guildId, reply, "en", botName).catch(() => null);
         }
       } catch (err) {
         logger.error({ err }, "Mention AI error");
-        await message.reply("Oops, quelque chose s'est mal passé ! 😅 Réessaie dans un instant.");
+        await message.reply("Oops, something went wrong! 😅 Try again in a moment.");
       }
       return;
     }
@@ -616,7 +617,7 @@ export function startBot(): void {
         case "say": {
           const text = args.join(" ");
           if (!text) {
-            await message.reply("❓ Dis-moi quoi dire ! ex. `!say Bonjour tout le monde`");
+            await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`");
           } else {
             await message.delete();
             if (isSendable(message.channel)) await message.channel.send(text);
@@ -628,7 +629,7 @@ export function startBot(): void {
         case "salut":
         case "hello":
         case "hi": {
-          await message.reply(`Bonjour ${message.author.displayName} ! 👋 Ravi de te voir ici ! Comment tu vas ? 😊`);
+          await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
           break;
         }
 
@@ -667,10 +668,10 @@ export function startBot(): void {
           if (lang !== "en") args.shift();
           const question = args.join(" ");
           if (!question) {
-            await message.reply("🎱 Pose-moi une question ! ex. `!8ball Est-ce que ça va bien aller ?`");
+            await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`");
           } else {
             const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : EIGHT_BALL_RESPONSES;
-            await message.reply(`🎱 **Question :** ${question}\n**Réponse :** ${getRandom(answers)}`);
+            await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(answers)}`);
           }
           break;
         }
@@ -680,12 +681,12 @@ export function startBot(): void {
           const faces = parseInt(args[0] ?? "6");
           const nb = isNaN(faces) || faces < 2 ? 6 : Math.min(faces, 1000);
           const result = Math.floor(Math.random() * nb) + 1;
-          await message.reply(`🎲 Dé à ${nb} faces — résultat : **${result}** !`);
+          await message.reply(`🎲 You rolled a ${nb}-sided die and got: **${result}**!`);
           break;
         }
 
         case "conspiracy": {
-          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
+          if (!openai) { await message.reply("❌ AI is not configured."); break; }
           try {
             const topic = args.join(" ").trim();
             if (isSendable(message.channel)) await message.channel.sendTyping();
@@ -696,15 +697,15 @@ export function startBot(): void {
               model: "llama-3.1-8b-instant",
               max_completion_tokens: 300,
               messages: [
-                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used. If no topic, use French. Be creative, funny, absurd — never harmful." },
+                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used. If no topic, use English. Be creative, funny, absurd — never harmful." },
                 { role: "user", content: prompt },
               ],
             });
-            const theory = response.choices[0]?.message?.content ?? "La vérité est trop dangereuse à révéler... 🤫";
-            await message.reply(`🕵️ **THÉORIE DÉVOILÉE** 🕵️\n\n${theory}`);
+            const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
+            await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
           } catch (err) {
             logger.error({ err }, "Conspiracy error");
-            await message.reply("❌ Le gouvernement a bloqué cette théorie. Réessaie !");
+            await message.reply("❌ The government blocked this theory. Try again!");
           }
           break;
         }
@@ -722,15 +723,15 @@ export function startBot(): void {
           if (sub === "stop") {
             if (isGeoActive(message.channelId)) {
               stopGeoguessr(message.channelId);
-              await message.reply("🏳️ Partie de GeoGuessr abandonnée !");
+              await message.reply("🏳️ GeoGuessr game abandoned!");
             } else {
-              await message.reply("🤷 Aucune partie en cours.");
+              await message.reply("🤷 No game in progress.");
             }
             break;
           }
           const difficulty = sub || "easy";
           if (!["easy", "medium", "hard"].includes(difficulty)) {
-            await message.reply("❓ Mode invalide. Utilise `!geo easy`, `!geo medium` ou `!geo hard`.");
+            await message.reply("❓ Invalid mode. Use `!geo easy`, `!geo medium` or `!geo hard`.");
             break;
           }
           playGeoguessr(message, difficulty as "easy" | "medium" | "hard").catch((err) => logger.error({ err }, "GeoGuessr error"));
@@ -738,7 +739,7 @@ export function startBot(): void {
         }
 
         case "trivia": {
-          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
+          if (!openai) { await message.reply("❌ AI is not configured."); break; }
           playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
           break;
         }
@@ -760,14 +761,14 @@ export function startBot(): void {
 
           if (sub === "generator") {
             const prompt = args.join(" ").trim();
-            if (!prompt) { await message.reply("❌ Donne-moi un prompt ! ex. `!music generator lo-fi hip hop beats chill`"); break; }
-            if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno non configuré (SUNO_API_KEY manquant)."); break; }
+            if (!prompt) { await message.reply("❌ Give me a prompt! e.g. `!music generator lo-fi hip hop beats chill`"); break; }
+            if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
 
             const startEmbed = new EmbedBuilder()
               .setColor(0x5865f2)
-              .setTitle("🎵 Génération en cours…")
-              .setDescription(`**Prompt :** ${prompt}`)
-              .setFooter({ text: "Suno génère ta piste, environ 30-60 secondes ⏳" });
+              .setTitle("🎵 Generating your track…")
+              .setDescription(`**Prompt:** ${prompt}`)
+              .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
             const reply = await message.reply({ embeds: [startEmbed] });
 
             let taskId: string;
@@ -775,7 +776,7 @@ export function startBot(): void {
               taskId = await generateSong({ prompt });
             } catch (err) {
               logger.error({ err }, "Suno generate error");
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Erreur").setDescription(`Impossible de démarrer : ${String(err)}`)] });
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start generation: ${String(err)}`)] });
               break;
             }
 
@@ -788,55 +789,55 @@ export function startBot(): void {
 
               const st = result.status.toUpperCase();
               if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
-                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Génération échouée").setDescription("Suno a retourné une erreur. Essaie un autre prompt.").addFields({ name: "Task ID", value: taskId })] });
+                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.").addFields({ name: "Task ID", value: taskId })] });
                 break;
               }
               if (result.done && result.clips.length > 0) {
                 const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
                   const e = new EmbedBuilder()
                     .setColor(0x57f287)
-                    .setTitle(`🎶 ${clip.title ?? "Piste générée"}`)
-                    .setDescription(`**Prompt :** ${clip.prompt ?? prompt}`)
-                    .addFields({ name: "🎵 Écouter", value: clip.audio_url! })
-                    .setFooter({ text: `Task ID : ${taskId}` })
+                    .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
+                    .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
+                    .addFields({ name: "🎵 Listen", value: clip.audio_url! })
+                    .setFooter({ text: `Task ID: ${taskId}` })
                     .setTimestamp();
                   if (clip.image_url) e.setThumbnail(clip.image_url);
-                  if (clip.duration) e.addFields({ name: "⏱ Durée", value: `${Math.round(clip.duration)}s`, inline: true });
+                  if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
                   if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
                   return e;
                 });
                 if (embeds.length > 0) { await reply.edit({ embeds }); break; }
               }
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Génération en cours…").setDescription(`**Prompt :** ${prompt}`).addFields({ name: "Statut", value: result.status, inline: true }, { name: "Tentative", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno travaille ⏳" })] });
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your track…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
             }
 
           } else if (sub === "prompt") {
             const embed = new EmbedBuilder()
               .setColor(0x5865f2)
-              .setTitle("💡 Exemples de prompts musicaux")
-              .setDescription("Copie un prompt et utilise-le avec `!music generator <prompt>`\n\u200b");
+              .setTitle("💡 Music Prompt Examples")
+              .setDescription("Copy a prompt and use it with `!music generator <prompt>`\n\u200b");
             for (const { category, prompt } of MUSIC_PROMPT_EXAMPLES) embed.addFields({ name: category, value: `\`${prompt}\`` });
-            embed.setFooter({ text: "💡 Combine plusieurs styles pour des résultats uniques !" });
+            embed.setFooter({ text: "💡 Tip: combine multiple styles for unique results!" });
             await message.reply({ embeds: [embed] });
 
           } else {
-            await message.reply("❓ Commande inconnue. Essaie `!music generator <prompt>` ou `!music prompt`.");
+            await message.reply("❓ Unknown subcommand. Try `!music generator <prompt>` or `!music prompt`.");
           }
           break;
         }
 
         case "balance": {
-          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno non configuré (SUNO_API_KEY manquant)."); break; }
+          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
           try {
             const credits = await getCredits();
             const embed = new EmbedBuilder()
               .setColor(credits > 10 ? 0x57f287 : credits > 0 ? 0xfee75c : 0xed4245)
-              .setTitle("💳 Crédits Suno")
-              .addFields({ name: "Crédits restants", value: `${credits}`, inline: true })
-              .setFooter({ text: "Chaque génération consomme des crédits sunoapi.org" });
+              .setTitle("💳 Suno Credits")
+              .addFields({ name: "Remaining credits", value: `${credits}`, inline: true })
+              .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
             await message.reply({ embeds: [embed] });
           } catch (err) {
-            await message.reply(`❌ Impossible de récupérer les crédits : ${String(err)}`);
+            await message.reply(`❌ Could not fetch credits: ${String(err)}`);
           }
           break;
         }
@@ -860,16 +861,22 @@ export function startBot(): void {
             await voiceResume(message);
           } else if (voiceSub === "say") {
             const text = args.slice(1).join(" ").trim();
-            if (!text) { await message.reply("❓ Donne-moi un texte ! ex. `!voice say Bonjour tout le monde`"); break; }
+            if (!text) { await message.reply("❓ Give me some text! e.g. `!voice say Hello everyone`"); break; }
             if (!message.guildId || !isInVoice(message.guildId)) {
-              await message.reply("❌ Je ne suis pas dans un salon vocal. Utilise `!join` d'abord.");
+              await message.reply("❌ I'm not in a voice channel. Use `!join` first.");
               break;
             }
-            const ok = await speakText(message.guildId, text, "fr");
-            if (!ok) await message.reply("❌ Impossible de parler en ce moment (mode silencieux ?)");
+            const botName = client.user?.username;
+            const ok = await speakText(message.guildId, text, "en", botName);
+            if (!ok) await message.reply("❌ Can't speak right now (muted mode?)");
           } else {
-            await message.reply("❓ Utilise `!voice say <texte>`, `!voice stop` ou `!voice resume`.");
+            await message.reply("❓ Use `!voice say <text>`, `!voice stop` or `!voice resume`.");
           }
+          break;
+        }
+
+        case "subtitles": {
+          await toggleSubtitles(message);
           break;
         }
 
@@ -879,23 +886,23 @@ export function startBot(): void {
 
           if (subcommand === "stop") {
             if (!activeBattles.has(message.channelId)) {
-              await message.reply("🤷 Aucune bataille en cours dans ce salon.");
+              await message.reply("🤷 No battle running in this channel.");
             } else {
               stoppedBattles.add(message.channelId);
-              await message.reply("🛑 Arrêt de la bataille après le message en cours...");
+              await message.reply("🛑 Stopping the battle after the current message...");
             }
             break;
           }
 
           if (subcommand !== "battle") break;
-          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
-          if (!client2) { await message.reply("❌ Bot 2 non connecté. Ajoute `DISCORD_TOKEN_2` aux secrets."); break; }
+          if (!openai) { await message.reply("❌ AI is not configured."); break; }
+          if (!client2) { await message.reply("❌ Bot 2 not connected. Add `DISCORD_TOKEN_2` to secrets."); break; }
           if (!isSendable(message.channel)) break;
 
-          const topic = args.join(" ").trim() || "L'ananas sur la pizza, bonne ou mauvaise idée ?";
+          const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";
 
           if (activeBattles.has(message.channelId)) {
-            await message.reply("⚔️ Une bataille est déjà en cours ! Tape `!ai stop` pour l'arrêter.");
+            await message.reply("⚔️ A battle is already running! Type `!ai stop` to end it.");
             break;
           }
 
@@ -905,7 +912,7 @@ export function startBot(): void {
           runAiBattle(topic, message.channel, openai, bot1Name, client2)
             .catch(async (err) => {
               logger.error({ err }, "AI battle error");
-              await message.reply("❌ La bataille a planté !");
+              await message.reply("❌ The battle crashed unexpectedly!");
             })
             .finally(() => {
               activeBattles.delete(message.channelId);
@@ -917,17 +924,17 @@ export function startBot(): void {
         // ── Credits ──────────────────────────────────────────────────────────────
         case "credits": {
           const embed = new EmbedBuilder()
-            .setTitle("✨ Crédits du projet")
+            .setTitle("✨ Project Credits")
             .setColor(0x5865f2)
-            .setDescription("Ce bot n'existerait pas sans ces technologies et ces personnes. Merci à tous ! 🙏")
+            .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
             .addFields(
-              { name: "👨‍💻 Créateur", value: "**Maxime** — Conception, développement et idées", inline: false },
-              { name: "🤖 Intelligence Artificielle", value: "**Meta LLaMA** — Modèle IA (via Groq)\n**Suno AI** — Génération musicale", inline: false },
-              { name: "🔊 Voix & Images", value: "**Google Traduction** — Synthèse vocale (TTS gratuit)\n**HuggingFace / FLUX** — Génération d'images", inline: false },
-              { name: "🚀 Infrastructure", value: "**Railway** — Hébergement & déploiement\n**Replit** — Développement & environnement\n**GitHub** — Contrôle de version & collaboration", inline: false },
-              { name: "🛠️ Technologies", value: "**discord.js** — API Discord\n**Node.js + TypeScript** — Runtime & langage\n**Express** — Serveur API", inline: false },
+              { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
+              { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
+              { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
+              { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment\n**GitHub** — Version control & collaboration", inline: false },
+              { name: "🛠️ Technologies", value: "**discord.js** — Discord API\n**Node.js + TypeScript** — Runtime & language\n**Express** — API server", inline: false },
             )
-            .setFooter({ text: "Fait avec ❤️ par Maxime · !help pour les commandes" })
+            .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" })
             .setTimestamp();
           await message.reply({ embeds: [embed] });
           break;
