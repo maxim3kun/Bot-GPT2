@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "mrhE4PIX9sRZ_p7_B4dXE"
+uri = "file://README.md"
+type = "text"
+title = "README — Bot Discord"
