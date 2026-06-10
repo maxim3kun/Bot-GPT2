@@ -6,6 +6,7 @@ import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, to
 import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
+import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
 
 const PREFIX = "!";
 
@@ -1045,6 +1046,13 @@ export function startBot(): void {
           break;
         }
 
+        // ── Anniversaire ──────────────────────────────────────────────────────────
+        case "anniversaire":
+        case "birthday": {
+          await handleBirthday(message, args);
+          break;
+        }
+
         // ── Sondage ───────────────────────────────────────────────────────────────
         case "sondage":
         case "poll": {
@@ -1086,6 +1094,10 @@ export function startBot(): void {
     } catch (err) {
       logger.error({ err, command }, "Command error");
     }
+  });
+
+  client.once("clientReady", () => {
+    startBirthdayScheduler(client);
   });
 
   client.login(token).catch((err) => {

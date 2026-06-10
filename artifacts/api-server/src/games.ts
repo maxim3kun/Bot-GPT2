@@ -757,6 +757,7 @@ type Connect4Game = {
   player1: { id: string; name: string };
   player2: { id: string; name: string } | null;
   currentTurn: 1 | 2;
+  lastMove?: { col: number; byBot: boolean };
 };
 
 const activeConnect4Games = new Map<string, Connect4Game>();
@@ -824,18 +825,33 @@ function chooseBotColumn(board: number[][]): number {
 function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
   const p1 = game.player1.name;
   const p2 = game.player2?.name ?? "🤖 Bot";
-  const turnName = game.currentTurn === 1 ? p1 : (game.player2?.name ?? "Bot");
   const turnToken = game.currentTurn === 1 ? "🔴" : "🟡";
+  const turnName = game.currentTurn === 1 ? p1 : (game.player2?.name ?? "Bot");
 
-  const desc =
-    (status ? `${status}\n\n` : `${turnToken} **${turnName}'s turn** — click a column reaction!\n\n`) +
-    renderConnect4Board(game.board);
+  let title: string;
+  let description: string;
+
+  if (status) {
+    title = status.trim();
+    description = `🔴 **${p1}** vs 🟡 **${p2}**`;
+  } else if (game.lastMove) {
+    const { col, byBot } = game.lastMove;
+    const actor = byBot ? "🤖 Le bot" : `${game.currentTurn === 2 ? "🔴" : "🟡"} **${game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1)}**`;
+    title = `À ton tour ! ${turnToken} **${turnName}**`;
+    description = `${actor} a joué en colonne **${col + 1}**. Réagis avec 1️⃣–7️⃣ pour jouer.`;
+  } else {
+    title = `🔴 **${p1}** vs 🟡 **${p2}**`;
+    description = `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣ pour jouer.\n\`!connect4 stop\` pour quitter.`;
+  }
+
+  const header = CONNECT4_COL_EMOJIS.join("");
+  const body = game.board.map(row => row.map(cell => CONNECT4_TOKENS[cell]).join("")).join("\n");
 
   return new EmbedBuilder()
-    .setTitle(game.mode === "pvp" ? `🔴 ${p1}  vs  ${p2} 🟡` : `🔴 ${p1}  vs  🤖 Bot`)
-    .setDescription(desc)
-    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f)
-    .setFooter({ text: "React 1️⃣–7️⃣ to play • !connect4 stop to quit" });
+    .setTitle(title)
+    .setDescription(description)
+    .addFields({ name: "Plateau", value: `${header}\n${body}` })
+    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
 }
 
 export async function playConnect4(message: Message, arg?: string): Promise<void> {
@@ -938,12 +954,13 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
 
     const token = g.currentTurn;
     g.board[row][colIndex] = token;
+    g.lastMove = { col: colIndex, byBot: userId === "bot" };
 
     if (checkConnect4(g.board, token)) {
       const winnerName = token === 1 ? g.player1.name : (g.player2?.name ?? "Bot");
       const winnerToken = token === 1 ? "🔴" : "🟡";
       await gameMsg
-        .edit({ embeds: [buildConnect4Embed(g, `🏆 **${winnerToken} ${winnerName} wins!** Congratulations!\n\n`)] })
+        .edit({ embeds: [buildConnect4Embed(g, `🏆 ${winnerToken} **${winnerName} gagne !** Félicitations !`)] })
         .catch(() => null);
       activeConnect4Games.delete(channel.id);
       collector.stop("win");
@@ -952,7 +969,7 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
 
     if (isBoardFull(g.board)) {
       await gameMsg
-        .edit({ embeds: [buildConnect4Embed(g, "🤝 **It's a draw!** The board is full.\n\n")] })
+        .edit({ embeds: [buildConnect4Embed(g, "🤝 **Égalité !** Le plateau est plein.")] })
         .catch(() => null);
       activeConnect4Games.delete(channel.id);
       collector.stop("draw");
