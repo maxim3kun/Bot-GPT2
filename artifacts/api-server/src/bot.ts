@@ -302,7 +302,7 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
   const filter = (reaction: MessageReaction, user: User) =>
     HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
 
-  const collector = helpMessage.createReactionCollector({ filter });
+  const collector = helpMessage.createReactionCollector({ filter, idle: 10 * 60 * 1000 });
 
   collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
