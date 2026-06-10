@@ -7,7 +7,7 @@ import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIO
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, showQuestProfile, resetQuests } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders } from "./discord/quests";
 
 const PREFIX = "!";
 
@@ -280,10 +280,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎯 Quêtes & Niveaux" : es ? "🎯 Misiones & Niveles" : "🎯 Quests & Levels",
         value: fr
-          ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest list` — Voir tes quêtes en cours\n`!quest done <n>` — Cocher une quête ✅\n`!quest profile` — Ton niveau & XP 🏆\n`!quest reset` — Réinitialiser"
+          ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest list` — Voir tes quêtes en cours\n`!quest done <n>` — Cocher une quête ✅\n`!quest profile` — Ton niveau & XP 🏆\n`!quest bully on/off` — 🔥 Mode motivation brutal\n`!quest reset` — Réinitialiser\n> ⏰ Rappels auto : 10h · 15h · 18h UTC"
           : es
-          ? "`!quest start` — Crea misiones con IA 🤖\n`!quest list` — Ver misiones activas\n`!quest done <n>` — Marcar misión ✅\n`!quest profile` — Tu nivel & XP 🏆\n`!quest reset` — Reiniciar"
-          : "`!quest start` — Create quests via AI 🤖\n`!quest list` — View active quests\n`!quest done <n>` — Check off a quest ✅\n`!quest profile` — Your level & XP 🏆\n`!quest reset` — Reset all",
+          ? "`!quest start` — Crea misiones con IA 🤖\n`!quest list` — Ver misiones activas\n`!quest done <n>` — Marcar misión ✅\n`!quest profile` — Tu nivel & XP 🏆\n`!quest bully on/off` — 🔥 Modo motivación brutal\n`!quest reset` — Reiniciar\n> ⏰ Recordatorios: 10h · 15h · 18h UTC"
+          : "`!quest start` — Create quests via AI 🤖\n`!quest list` — View active quests\n`!quest done <n>` — Check off a quest ✅\n`!quest profile` — Your level & XP 🏆\n`!quest bully on/off` — 🔥 Brutal accountability mode\n`!quest reset` — Reset all\n> ⏰ Auto-reminders: 10h · 15h · 18h UTC",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -1105,8 +1105,13 @@ export function startBot(): void {
             await showQuestProfile(message);
           } else if (sub === "reset") {
             await resetQuests(message);
+          } else if (sub === "bully") {
+            const toggle = args[1]?.toLowerCase();
+            if (toggle === "on") await setBullyMode(message, true);
+            else if (toggle === "off") await setBullyMode(message, false);
+            else await message.reply("❓ Usage: `!quest bully on` or `!quest bully off`");
           } else {
-            await message.reply("❓ Commands: `!quest start` `!quest list` `!quest done <n>` `!quest profile` `!quest reset`");
+            await message.reply("❓ Commands: `!quest start` `!quest list` `!quest done <n>` `!quest profile` `!quest bully on/off` `!quest reset`");
           }
           break;
         }
@@ -1130,6 +1135,7 @@ export function startBot(): void {
 
   client.once("clientReady", () => {
     startBirthdayScheduler(client);
+    startQuestReminders(client, openai);
   });
 
   client.login(token).catch((err) => {

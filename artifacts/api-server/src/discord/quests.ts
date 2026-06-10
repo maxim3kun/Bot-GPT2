@@ -1,4 +1,4 @@
-import { type Message, EmbedBuilder, type TextChannel } from "discord.js";
+import { type Client, type Message, EmbedBuilder, type TextChannel } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -28,6 +28,11 @@ export interface UserProfile {
   totalPoints: number;
   completedCount: number;
   createdAt: string;
+  notifyChannelId?: string;
+  notifyGuildId?: string;
+  bullying?: boolean;
+  lastRemindedDate?: string;
+  lastRemindedHour?: number;
 }
 
 type QuestStore = Record<string, UserProfile>;
@@ -97,7 +102,37 @@ function getProfile(userId: string, username: string): UserProfile {
   return store[userId]!;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+function recordChannel(profile: UserProfile, message: Message) {
+  if (message.guildId && message.channelId) {
+    profile.notifyChannelId = message.channelId;
+    profile.notifyGuildId = message.guildId;
+  }
+}
+
+// ── Reminder messages ─────────────────────────────────────────────────────────
+
+const NORMAL_REMINDERS = [
+  (name: string, n: number) => `Hey ${name}! 👋 You still have **${n} quest${n > 1 ? "s" : ""}** pending. You got this! 💪`,
+  (name: string, n: number) => `📋 Reminder for ${name}: **${n} quest${n > 1 ? "s" : ""}** are waiting for you. Small steps, big results! 🚀`,
+  (name: string, n: number) => `⏰ ${name}, just a friendly nudge — **${n} quest${n > 1 ? "s" : ""}** left to complete today. Keep going! 🌟`,
+  (name: string, n: number) => `✨ ${name}, your goals don't complete themselves! **${n} quest${n > 1 ? "s" : ""}** still pending — let's get to it! 🎯`,
+];
+
+const BULLY_REMINDERS = [
+  (name: string, n: number) => `${name}. **${n} quest${n > 1 ? "s" : ""}** still untouched. Nobody's going to do them for you. Get off your ass.`,
+  (name: string, n: number) => `Still **${n} quest${n > 1 ? "s" : ""}** pending, ${name}? Every hour you wait is an hour you'll never get back. Tick tock.`,
+  (name: string, n: number) => `${name}, your future self is watching you right now. They're not impressed. **${n} quest${n > 1 ? "s" : ""}** still undone.`,
+  (name: string, n: number) => `Reminder for ${name}: **${n} quest${n > 1 ? "s" : ""}** left. Excuses are free. Results cost effort. Which one are you choosing?`,
+  (name: string, n: number) => `${name}. **${n} quest${n > 1 ? "s" : ""}**. Still waiting. The version of you that actually does things is embarrassed right now.`,
+  (name: string, n: number) => `Hey ${name} — **${n} thing${n > 1 ? "s" : ""}** you said mattered to you. Still not done. Funny how that works.`,
+  (name: string, n: number) => `${name}, you set these goals yourself. Nobody forced you. **${n} quest${n > 1 ? "s" : ""}** pending. Don't betray your own ambitions.`,
+];
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]!;
+}
+
+// ── Embed builder ─────────────────────────────────────────────────────────────
 
 const DIFF_EMOJI: Record<string, string> = { easy: "🟢", medium: "🟡", hard: "🔴" };
 const QUEST_NUMS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
@@ -130,17 +165,20 @@ function buildQuestEmbed(profile: UserProfile): EmbedBuilder {
     { name: "Done", value: `${done}/${profile.quests.length}`, inline: true },
   );
 
+  const bullyStatus = profile.bullying ? "🔥 Bully mode ON" : "💬 Normal reminders";
   if (lvl.next) {
     const range = lvl.next.threshold - lvl.threshold;
     const progress = Math.min(10, Math.round(((profile.totalPoints - lvl.threshold) / range) * 10));
     const bar = "█".repeat(progress) + "░".repeat(10 - progress);
-    embed.setFooter({ text: `[${bar}] ${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title}` });
+    embed.setFooter({ text: `[${bar}] ${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title} · ${bullyStatus}` });
   } else {
-    embed.setFooter({ text: "🌌 Max level reached!" });
+    embed.setFooter({ text: `🌌 Max level reached! · ${bullyStatus}` });
   }
 
   return embed;
 }
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 function awardQuest(profile: UserProfile, idx: number): { leveledUp: boolean; newLevel: ReturnType<typeof getLevelInfo> } {
   const quest = profile.quests[idx]!;
@@ -186,6 +224,82 @@ function attachReactionCollector(questMsg: Message, profile: UserProfile, channe
   });
 }
 
+// ── Scheduler (10:00 / 15:00 / 18:00 UTC) ────────────────────────────────────
+
+const REMINDER_HOURS = [10, 15, 18];
+
+export function startQuestReminders(client: Client, openai: OpenAI | null): void {
+  // Check every 30 seconds; fire within the first minute of each target hour
+  setInterval(async () => {
+    const now = new Date();
+    const hour = now.getUTCHours();
+    const minute = now.getUTCMinutes();
+    const dateStr = now.toISOString().split("T")[0]!;
+
+    if (!REMINDER_HOURS.includes(hour) || minute > 1) return;
+
+    for (const profile of Object.values(store)) {
+      if (!profile.notifyChannelId) continue;
+
+      const pending = profile.quests.filter(q => !q.completed);
+      if (pending.length === 0) continue;
+
+      // Don't fire twice in the same hour
+      if (profile.lastRemindedDate === dateStr && profile.lastRemindedHour === hour) continue;
+
+      try {
+        const channel = await client.channels.fetch(profile.notifyChannelId).catch(() => null);
+        if (!channel?.isTextBased()) continue;
+
+        let text: string;
+
+        if (profile.bullying && openai) {
+          // AI-generated bully message for more variety
+          const questTitles = pending.map(q => q.title).join(", ");
+          try {
+            const res = await openai.chat.completions.create({
+              model: "llama-3.1-70b-versatile",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are a brutally honest, tough-love accountability coach. " +
+                    "Write ONE short punchy reminder (max 2 sentences, no hashtags) to push someone to complete their tasks. " +
+                    "Be direct, harsh but not cruel — like a drill sergeant who actually cares. No emojis except at the end. " +
+                    "Respond in the same language as the task names provided.",
+                },
+                {
+                  role: "user",
+                  content: `Name: ${profile.username}. Pending tasks: ${questTitles}`,
+                },
+              ],
+              temperature: 0.9,
+              max_tokens: 120,
+            });
+            text = `<@${profile.userId}> ${res.choices[0]?.message?.content?.trim() ?? pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+          } catch {
+            text = `<@${profile.userId}> ${pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+          }
+        } else if (profile.bullying) {
+          text = `<@${profile.userId}> ${pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+        } else {
+          text = `<@${profile.userId}> ${pickRandom(NORMAL_REMINDERS)(profile.username, pending.length)}`;
+        }
+
+        await (channel as TextChannel).send(text).catch(() => null);
+
+        profile.lastRemindedDate = dateStr;
+        profile.lastRemindedHour = hour;
+        saveStore();
+
+        logger.info({ userId: profile.userId, hour, bullying: !!profile.bullying }, "Quest reminder sent");
+      } catch (err) {
+        logger.error({ err, userId: profile.userId }, "Failed to send quest reminder");
+      }
+    }
+  }, 30_000);
+}
+
 // ── Public commands ───────────────────────────────────────────────────────────
 
 export async function startQuestSetup(message: Message, openai: OpenAI | null): Promise<void> {
@@ -195,6 +309,8 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
   }
 
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+  saveStore();
 
   const promptEmbed = new EmbedBuilder()
     .setTitle("🎯 Quest Setup")
@@ -284,6 +400,9 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
 export async function showQuestList(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+  saveStore();
+
   const embed = buildQuestEmbed(profile);
   const questMsg = await message.reply({ embeds: [embed] });
 
@@ -303,6 +422,7 @@ export async function showQuestList(message: Message): Promise<void> {
 
 export async function markQuestDone(message: Message, indexStr: string): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
   const idx = parseInt(indexStr, 10) - 1;
 
   if (isNaN(idx) || idx < 0 || idx >= profile.quests.length) {
@@ -334,6 +454,9 @@ export async function markQuestDone(message: Message, indexStr: string): Promise
 
 export async function showQuestProfile(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+  saveStore();
+
   const lvl = getLevelInfo(profile.totalPoints);
   const active = profile.quests.filter(q => !q.completed).length;
 
@@ -346,6 +469,8 @@ export async function showQuestProfile(message: Message): Promise<void> {
       { name: "✅ Completed", value: `${profile.completedCount} quests`, inline: true },
       { name: "📋 Active", value: `${active} quests`, inline: true },
       { name: "📅 Since", value: new Date(profile.createdAt).toLocaleDateString(), inline: true },
+      { name: "🔔 Reminders", value: profile.notifyChannelId ? "Active (10h / 15h / 18h UTC)" : "Not set — use any `!quest` command in a server channel", inline: false },
+      { name: "Mode", value: profile.bullying ? "🔥 Bully mode — ON" : "💬 Normal mode", inline: true },
     );
 
   if (lvl.next) {
@@ -358,6 +483,22 @@ export async function showQuestProfile(message: Message): Promise<void> {
   }
 
   await message.reply({ embeds: [embed] });
+}
+
+export async function setBullyMode(message: Message, enable: boolean): Promise<void> {
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+  profile.bullying = enable;
+  saveStore();
+
+  if (enable) {
+    await message.reply(
+      "🔥 **Bully mode activated.** No more gentle nudges — expect straight talk when you're slacking.\n" +
+      "*You asked for this. Own it.*",
+    );
+  } else {
+    await message.reply("💬 **Normal mode restored.** Reminders will be friendly from now on.");
+  }
 }
 
 export async function resetQuests(message: Message): Promise<void> {
