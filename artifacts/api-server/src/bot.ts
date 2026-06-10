@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
+import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
@@ -272,6 +273,14 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           : es
           ? "`!radio list` 📋  `!radio <nombre>` (ej: `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Ahora\n`!radio leave` — Desconectar\n`!playlist add <nombre> <url>`  `!playlist play <nombre>` 🎵"
           : "`!radio list` 📋  `!radio <name>` (e.g. `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Now playing\n`!radio leave` — Disconnect\n`!playlist add <name> <url>`  `!playlist play <name>` 🎵",
+      },
+      {
+        name: "🎤 Karaoke",
+        value: fr
+          ? "`!karaoke <artiste chanson>` 🎵 — Paroles synchronisées en live\n`!karaoke stop` — Arrêter le karaoké"
+          : es
+          ? "`!karaoke <artista canción>` 🎵 — Letra sincronizada en vivo\n`!karaoke stop` — Parar karaoke"
+          : "`!karaoke <artist song>` 🎵 — Synced live lyrics\n`!karaoke stop` — Stop karaoke",
       },
     );
   } else {
@@ -1118,6 +1127,21 @@ export function startBot(): void {
           } else {
             await message.reply({ embeds: [npEmbed] });
           }
+          break;
+        }
+
+        // ── Karaoke ──────────────────────────────────────────────────────────────
+        case "karaoke": {
+          if (!message.guildId) break;
+          const sub = args[0]?.toLowerCase();
+
+          if (sub === "stop") {
+            await stopKaraoke(message);
+            break;
+          }
+
+          const karaokeQuery = args.join(" ").trim();
+          await startKaraoke(message, karaokeQuery);
           break;
         }
 

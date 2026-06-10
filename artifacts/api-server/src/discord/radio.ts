@@ -77,7 +77,7 @@ interface RadioState {
   guildId: string;
 }
 
-const radioStates = new Map<string, RadioState>();
+export const radioStates = new Map<string, RadioState>();
 
 // ── Queue playback (internal) ─────────────────────────────────────────────────
 
