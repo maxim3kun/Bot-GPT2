@@ -809,8 +809,7 @@ export function startBot(): void {
                     .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
                     .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
                     .addFields({ name: "🎵 Listen", value: clip.audio_url! })
-                    .setFooter({ text: `Task ID: ${taskId}` })
-                    .setTimestamp();
+                    .setFooter({ text: `Task ID: ${taskId}` });
                   if (clip.image_url) e.setThumbnail(clip.image_url);
                   if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
                   if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
@@ -1050,8 +1049,7 @@ export function startBot(): void {
               { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment\n**GitHub** — Version control & collaboration", inline: false },
               { name: "🛠️ Technologies", value: "**discord.js** — Discord API\n**Node.js + TypeScript** — Runtime & language\n**Express** — API server", inline: false },
             )
-            .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" })
-            .setTimestamp();
+            .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" });
           await message.reply({ embeds: [embed] });
           break;
         }
