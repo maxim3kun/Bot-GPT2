@@ -2,10 +2,12 @@ import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
-import { joinVoice, leaveVoice, toggleSubtitles, voiceStop, voiceResume } from "./discord/voice";
+import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice } from "./discord/voice";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 
 const PREFIX = "!";
+
+// ── Response pools ────────────────────────────────────────────────────────────
 
 const COMPLIMENTS = [
   "You are absolutely amazing! ✨",
@@ -19,7 +21,6 @@ const COMPLIMENTS = [
   "You deserve all the happiness in the world! 🌸",
   "Your efforts make a real difference! 💪",
 ];
-
 const COMPLIMENTS_FR = [
   "Tu es absolument incroyable ! ✨",
   "Ton sourire illumine la pièce ! ☀️",
@@ -32,7 +33,6 @@ const COMPLIMENTS_FR = [
   "Tu mérites tout le bonheur du monde ! 🌸",
   "Tes efforts font une vraie différence ! 💪",
 ];
-
 const COMPLIMENTS_ES = [
   "¡Eres absolutamente increíble! ✨",
   "¡Tu sonrisa ilumina la habitación! ☀️",
@@ -58,7 +58,6 @@ const JOKES = [
   "What do you call a fake noodle? An impasta! 🍝",
   "Why did the bicycle fall over? Because it was two-tired! 🚲",
 ];
-
 const JOKES_FR = [
   "Pourquoi les mathématiciens adorent les parcs d'attractions ? Parce qu'ils ont toujours des tangentes ! 🎢",
   "Pourquoi les squelettes ne se battent-ils jamais ? Ils n'ont pas le cran ! 💀",
@@ -71,7 +70,6 @@ const JOKES_FR = [
   "Pourquoi les tomates rougissent-elles ? Parce qu'elles ont vu la salade se déshabiller ! 🥗",
   "Pourquoi le livre de maths était triste ? Parce qu'il avait trop de problèmes ! 📚",
 ];
-
 const JOKES_ES = [
   "¿Por qué los pájaros no usan Facebook? Porque ya tienen Twitter. 🐦",
   "¿Qué hace una abeja en el gimnasio? ¡Zum-ba! 🐝",
@@ -97,7 +95,6 @@ const ENCOURAGEMENTS = [
   "You've already overcome so many obstacles. You'll get through this one too! 🌈",
   "Take care of yourself and keep going at your own pace! 🌺",
 ];
-
 const ENCOURAGEMENTS_FR = [
   "Tu peux le faire, je crois en toi ! 💪",
   "Chaque grand voyage commence par un petit pas. Continue ! 🚀",
@@ -110,7 +107,6 @@ const ENCOURAGEMENTS_FR = [
   "Tu as déjà surmonté tellement d'obstacles. Tu vas y arriver aussi ! 🌈",
   "Prends soin de toi et avance à ton rythme ! 🌺",
 ];
-
 const ENCOURAGEMENTS_ES = [
   "Puedes hacerlo, ¡creo en ti! 💪",
   "Cada gran viaje comienza con un solo paso. ¡Sigue adelante! 🚀",
@@ -125,57 +121,27 @@ const ENCOURAGEMENTS_ES = [
 ];
 
 const EIGHT_BALL_RESPONSES = [
-  "Yes, absolutely! ✅",
-  "It is certain! 🎯",
-  "Without a doubt! 💯",
-  "Yes, I think so! 👍",
-  "Signs point to yes! 🔮",
-  "Probably! 🤔",
-  "Outlook looks good! 🌟",
-  "Maybe... try again! 🎲",
-  "I'm not sure... 😕",
-  "Outlook not so good! 😬",
-  "Probably not! 👎",
-  "No, certainly not! ❌",
-  "My sources say no! 🚫",
-  "Very doubtful! 🌫️",
-  "Ask again later! ⏳",
+  "Yes, absolutely! ✅", "It is certain! 🎯", "Without a doubt! 💯",
+  "Yes, I think so! 👍", "Signs point to yes! 🔮", "Probably! 🤔",
+  "Outlook looks good! 🌟", "Maybe... try again! 🎲", "I'm not sure... 😕",
+  "Outlook not so good! 😬", "Probably not! 👎", "No, certainly not! ❌",
+  "My sources say no! 🚫", "Very doubtful! 🌫️", "Ask again later! ⏳",
 ];
 const EIGHT_BALL_RESPONSES_FR = [
-  "Oui, absolument ! ✅",
-  "C'est certain ! 🎯",
-  "Sans aucun doute ! 💯",
-  "Oui, je pense que oui ! 👍",
-  "Les signes indiquent oui ! 🔮",
-  "Probablement ! 🤔",
-  "Les perspectives sont bonnes ! 🌟",
-  "Peut-être... réessaie ! 🎲",
-  "Je ne suis pas sûr(e)... 😕",
-  "Les perspectives ne sont pas très bonnes... 😬",
-  "Probablement pas ! 👎",
-  "Non, certainement pas ! ❌",
-  "Mes sources disent non ! 🚫",
-  "Très douteux ! 🌫️",
-  "Demande à nouveau plus tard ! ⏳",
+  "Oui, absolument ! ✅", "C'est certain ! 🎯", "Sans aucun doute ! 💯",
+  "Oui, je pense que oui ! 👍", "Les signes indiquent oui ! 🔮", "Probablement ! 🤔",
+  "Les perspectives sont bonnes ! 🌟", "Peut-être... réessaie ! 🎲", "Je ne suis pas sûr(e)... 😕",
+  "Les perspectives ne sont pas très bonnes... 😬", "Probablement pas ! 👎", "Non, certainement pas ! ❌",
+  "Mes sources disent non ! 🚫", "Très douteux ! 🌫️", "Demande à nouveau plus tard ! ⏳",
+];
+const EIGHT_BALL_RESPONSES_ES = [
+  "¡Sí, absolutamente! ✅", "¡Es seguro! 🎯", "¡Sin lugar a dudas! 💯",
+  "Sí, creo que sí. 👍", "Las señales apuntan a que sí. 🔮", "Probablemente. 🤔",
+  "El panorama se ve bien. 🌟", "Quizás... ¡intenta de nuevo! 🎲", "No estoy seguro(a)... 😕",
+  "Las perspectivas no son tan buenas... 😬", "Probablemente no. 👎", "No, definitivamente no. ❌",
+  "Mis fuentes dicen que no. 🚫", "Muy dudoso. 🌫️", "Pregunta otra vez más tarde. ⏳",
 ];
 
-const EIGHT_BALL_RESPONSES_ES = [
-  "¡Sí, absolutamente! ✅",
-  "¡Es seguro! 🎯",
-  "¡Sin lugar a dudas! 💯",
-  "Sí, creo que sí. 👍",
-  "Las señales apuntan a que sí. 🔮",
-  "Probablemente. 🤔",
-  "El panorama se ve bien. 🌟",
-  "Quizás... ¡intenta de nuevo! 🎲",
-  "No estoy seguro(a)... 😕",
-  "Las perspectivas no son tan buenas... 😬",
-  "Probablemente no. 👎",
-  "No, definitivamente no. ❌",
-  "Mis fuentes dicen que no. 🚫",
-  "Muy dudoso. 🌫️",
-  "Pregunta otra vez más tarde. ⏳",
-];
 const HUGS = [
   "Here's a huge virtual hug for you! 🤗💕",
   "Sending you warmth and love! 🫂✨",
@@ -183,7 +149,6 @@ const HUGS = [
   "Here, take this well-deserved hug! 🤗🌸",
   "A soft and cozy hug, just for you! 🧸💝",
 ];
-
 const HUGS_FR = [
   "Voici un énorme câlin virtuel pour toi ! 🤗💕",
   "Je t'envoie de la chaleur et de l'amour ! 🫂✨",
@@ -191,7 +156,6 @@ const HUGS_FR = [
   "Tiens, ce câlin bien mérité ! 🤗🌸",
   "Un câlin doux et réconfortant, juste pour toi ! 🧸💝",
 ];
-
 const HUGS_ES = [
   "¡Aquí tienes un gran abrazo virtual! 🤗💕",
   "Te envío calor y amor. 🫂✨",
@@ -199,6 +163,19 @@ const HUGS_ES = [
   "Toma este abrazo bien merecido. 🤗🌸",
   "Un abrazo suave y acogedor, solo para ti. 🧸💝",
 ];
+
+const MUSIC_PROMPT_EXAMPLES = [
+  { category: "🌊 Lo-Fi / Chill", prompt: "lo-fi hip hop beats, rainy day, chill, vinyl crackle, mellow piano" },
+  { category: "🎸 Rock Énergique", prompt: "upbeat rock anthem, electric guitar riffs, powerful drums, energetic chorus" },
+  { category: "🌙 Night Vibes", prompt: "dark synthwave, neon lights, midnight drive, 80s retro, pulsing bass" },
+  { category: "🎹 Piano Cinématique", prompt: "emotional piano solo, cinematic, melancholic, slow tempo, orchestral strings" },
+  { category: "🔥 Trap / Rap", prompt: "hard trap beat, 808 bass, hi-hats, dark melody, aggressive, street" },
+  { category: "🌸 J-Pop / Anime", prompt: "anime opening, upbeat J-pop, catchy melody, japanese style, energetic" },
+  { category: "🌿 Méditation", prompt: "peaceful meditation music, nature sounds, flute, soft drums, zen atmosphere" },
+  { category: "🎺 Jazz", prompt: "smooth jazz, saxophone, late night club, soft brushed drums, warm bass" },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -215,112 +192,128 @@ function parseLanguage(arg?: string): Language {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+// ── Help system (3 pages) ─────────────────────────────────────────────────────
+
 type HelpLanguage = "en" | "fr" | "es";
-
-type HelpPage = 1 | 2;
-
+type HelpPage = 1 | 2 | 3;
 const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
 
-function getHelpPageData(lang: HelpLanguage) {
-  return {
-    title:
-      lang === "fr"
-        ? "Aide du bot 🇫🇷"
-        : lang === "es"
-        ? "Ayuda del bot 🇪🇸"
-        : "Bot Help",
-    description:
-      lang === "fr"
-        ? "Voici un guide rapide pour commencer avec les commandes du bot. Utilise les réactions pour naviguer entre les pages."
-        : lang === "es"
-        ? "Aquí tienes una guía rápida para comenzar con los comandos del bot. Usa las reacciones para navegar entre las páginas."
-        : "Here’s a quick guide to get started with the bot commands. Use the reactions to navigate between pages.",
-    general: lang === "fr" ? "Commandes principales" : lang === "es" ? "Comandos principales" : "Main commands",
-    fun: lang === "fr" ? "Divertissement" : lang === "es" ? "Diversión" : "Fun",
-    games: lang === "fr" ? "Mini-jeux" : lang === "es" ? "Juegos" : "Mini-games",
-    multilingual: lang === "fr" ? "Aide multilingue" : lang === "es" ? "Ayuda multilingüe" : "Multilingual help",
-    multilingualNote:
-      lang === "fr"
-        ? "🌍 `!help fr` | `!help es` — Utilise une seule fois pour afficher l'aide dans la langue choisie."
-        : lang === "es"
-        ? "🌍 `!help fr` | `!help es` — Úsalo solo una vez para mostrar la ayuda en el idioma elegido."
-        : "🌍 `!help fr` | `!help es` — Use once to show help in the chosen language.",
-    generalCommands:
-      lang === "fr"
-        ? "`@bot <message>` — Discute avec moi en tant qu'IA 🤖\n`/image <description>` — Génère une image 🎨\n`!say <message>` — Je le dis pour toi et supprime ton message\n`!hello` — Je te souhaite la bienvenue"
-        : lang === "es"
-        ? "`@bot <message>` — Chatea conmigo como IA 🤖\n`/image <description>` — Genera una imagen 🎨\n`!say <message>` — Lo digo por ti y borro tu mensaje\n`!hello` — Te doy una cálida bienvenida"
-        : "`@bot <message>` — Chat with me as an AI! 🤖\n`/image <description>` — Generate an image 🎨\n`!say <message>` — I'll say it for you and delete your message\n`!hello` — I'll welcome you warmly",
-    funCommands:
-      lang === "fr"
-        ? "`!compliment` — Reçois un compliment 💖\n`!joke` — Entends une blague 😄\n`!encouragement` — Message motivant 💪\n`!hug` — Reçois un câlin virtuel 🤗\n`!8ball <question>` — Demande à la boule magique 🎱\n`!dice [faces]` — Lance un dé (ex. `!dice 20`) 🎲\n`!conspiracy [topic]` — Génère une théorie farfelue 🕵️"
-        : lang === "es"
-        ? "`!compliment` — Recibe un cumplido 💖\n`!joke` — Escucha un chiste 😄\n`!encouragement` — Mensaje motivador 💪\n`!hug` — Recibe un abrazo virtual 🤗\n`!8ball <question>` — Pregunta a la bola mágica 🎱\n`!dice [faces]` — Lanza un dado (ej. `!dice 20`) 🎲\n`!conspiracy [topic]` — Genera una teoría divertida 🕵️"
-        : "`!compliment` — Get a heartfelt compliment 💖\n`!joke` — Hear a good joke 😄\n`!encouragement` — Get a motivating message 💪\n`!hug` — Receive a virtual hug 🤗\n`!8ball <question>` — Ask the magic 8-ball 🎱\n`!dice [faces]` — Roll a die (e.g. `!dice 20`) 🎲\n`!conspiracy [topic]` — Generate a wild conspiracy theory 🕵️",
-    gameCommands:
-      lang === "fr"
-        ? "`!minesweeper [easy|medium|hard]` — Démineur avec cases spoiler 💣\n`!geo [easy|medium|hard]` — Devine le pays à partir d'un indice 🌍\n`!geo stop` — Abandonne la partie GeoGuessr\n`!trivia` — Quiz de culture générale 🧠\n`!guessnumber` — Devine un nombre entre 1 et 100 🎯\n`!connect4 test` / `!connect4 solo` — Lance un test solo contre le bot 🔴🟡\n`!connect4 <1-7>` — Place un jeton dans une colonne"
-        : lang === "es"
-        ? "`!minesweeper [easy|medium|hard]` — Buscaminas con casillas spoiler 💣\n`!geo [easy|medium|hard]` — Adivina el país con una pista 🌍\n`!geo stop` — Rinde la partida de GeoGuessr\n`!trivia` — Quiz de cultura general 🧠\n`!guessnumber` — Adivina un número entre 1 y 100 🎯\n`!connect4 test` / `!connect4 solo` — Inicia una prueba en solitario contra el bot 🔴🟡\n`!connect4 <1-7>` — Coloca una ficha en una columna"
-        : "`!minesweeper [easy|medium|hard]` — Minesweeper with spoiler tiles 💣\n`!geo [easy|medium|hard]` — Guess the country from a photo + text clues 🌍\n`!geo stop` — Give up the current GeoGuessr game\n`!trivia` — General knowledge quiz 🧠\n`!guessnumber` — Guess the number between 1-100 🎯\n`!connect4 test` / `!connect4 solo` — Start a solo test vs the bot 🔴🟡\n`!connect4 <1-7>` — Drop a disc into a column",
-  };
-}
+function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
+  const fr = lang === "fr"; const es = lang === "es";
+  const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
+  const footer = fr ? `Page ${page}/3 — ⬅️ ➡️ pour naviguer`
+    : es ? `Página ${page}/3 — ⬅️ ➡️ para navegar`
+    : `Page ${page}/3 — ⬅️ ➡️ to navigate`;
 
-function renderHelpEmbed(lang: HelpLanguage, page: HelpPage) {
-  const data = getHelpPageData(lang);
-  const embedded = new EmbedBuilder()
-    .setTitle(data.title)
-    .setColor(lang === "fr" ? 0x3498db : lang === "es" ? 0xe74c3c : 0x1abc9c)
-    .setDescription(`${data.description}\n\n${lang === "fr" ? "Navigue avec ⬅️ et ➡️ pour voir toutes les commandes." : lang === "es" ? "Navega con ⬅️ y ➡️ para ver todos los comandos." : "Navigate with ⬅️ and ➡️ to browse all commands."}`)
-    .setFooter({ text: lang === "fr" ? `Page ${page}/2 • Utilise les réactions pour naviguer.` : lang === "es" ? `Página ${page}/2 • Usa las reacciones para navegar.` : `Page ${page}/2 • Use reactions to navigate.` })
+  const embed = new EmbedBuilder()
+    .setTitle(fr ? "📖 Aide du bot" : es ? "📖 Ayuda del bot" : "📖 Bot Help")
+    .setColor(color)
+    .setFooter({ text: footer })
     .setTimestamp();
 
   if (page === 1) {
-    embedded.addFields(
-      { name: data.general, value: data.generalCommands, inline: false },
-      { name: data.fun, value: data.funCommands, inline: false }
+    embed.setDescription(fr ? "Commandes générales et divertissement." : es ? "Comandos generales y diversión." : "General commands and fun.");
+    embed.addFields(
+      {
+        name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
+        value: fr
+          ? "`@bot <msg>` — Chat IA 🤖 · `!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi · `!hello` — Bienvenue 👋"
+          : es
+          ? "`@bot <msg>` — Chat IA 🤖 · `!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti · `!hello` — Bienvenida 👋"
+          : "`@bot <msg>` — AI chat 🤖 · `!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you · `!hello` — Welcome 👋",
+      },
+      {
+        name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
+        value: fr
+          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲 · `!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` après la commande : ex. `!joke fr`"
+          : es
+          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <pregunta>` 🎱 · `!dice [caras]` 🎲 · `!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` después del comando : ej. `!joke es`"
+          : "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲 · `!conspiracy [topic]` 🕵️\n> Append `fr` or `es` to the command : e.g. `!joke fr`",
+      },
+    );
+  } else if (page === 2) {
+    embed.setDescription(fr ? "Mini-jeux et génération musicale." : es ? "Mini-juegos y música." : "Mini-games and music generation.");
+    embed.addFields(
+      {
+        name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
+        value: fr
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡"
+          : es
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡",
+      },
+      {
+        name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
+        value: fr
+          ? "`!music generator <prompt>` — Génère une chanson (30-60s) 🎶\n`!music prompt` — Exemples de styles musicaux 💡\n`!balance` — Crédits Suno restants 💳"
+          : es
+          ? "`!music generator <prompt>` — Genera una canción (30-60s) 🎶\n`!music prompt` — Ejemplos de estilos musicales 💡\n`!balance` — Créditos Suno restantes 💳"
+          : "`!music generator <prompt>` — Generate a song (30-60s) 🎶\n`!music prompt` — Music style examples 💡\n`!balance` — Remaining Suno credits 💳",
+      },
     );
   } else {
-    embedded.addFields(
-      { name: data.games, value: data.gameCommands, inline: false },
-      { name: data.multilingual, value: data.multilingualNote, inline: false }
+    embed.setDescription(fr ? "Vocal, IA avancée et infos." : es ? "Voz, IA avanzada e info." : "Voice, advanced AI and info.");
+    embed.addFields(
+      {
+        name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
+        value: fr
+          ? "`!join` — Rejoins ton salon vocal 🔊\n`!leave` — Quitte le salon 👋\n`!voice say <texte>` — Je parle dans le vocal 🗣️\n`!voice stop` / `!voice resume` — Silence / Reprendre"
+          : es
+          ? "`!join` — Únete al canal de voz 🔊\n`!leave` — Salir del canal 👋\n`!voice say <texto>` — Hablo en el canal de voz 🗣️\n`!voice stop` / `!voice resume` — Silencio / Reanudar"
+          : "`!join` — Join your voice channel 🔊\n`!leave` — Leave the channel 👋\n`!voice say <text>` — I speak in voice 🗣️\n`!voice stop` / `!voice resume` — Mute / Resume",
+      },
+      {
+        name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
+        value: fr
+          ? "`!ai battle <sujet>` — Débat entre deux bots IA 🥊\n`!ai stop` — Arrêter le débat en cours"
+          : es
+          ? "`!ai battle <tema>` — Debate entre dos bots IA 🥊\n`!ai stop` — Detener el debate"
+          : "`!ai battle <topic>` — Debate between two AI bots 🥊\n`!ai stop` — Stop the ongoing debate",
+      },
+      {
+        name: fr ? "ℹ️ Info" : es ? "ℹ️ Info" : "ℹ️ Info",
+        value: fr
+          ? "`!credits` — Crédits du projet ✨\n`!help fr` / `!help es` — Aide dans ta langue"
+          : es
+          ? "`!credits` — Créditos del proyecto ✨\n`!help fr` / `!help es` — Ayuda en tu idioma"
+          : "`!credits` — Project credits ✨\n`!help fr` / `!help es` — Help in your language",
+      },
     );
   }
 
-  return embedded;
+  return embed;
 }
 
 async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
-  let currentPage: HelpPage = 1;
-  const helpMessage = await message.reply({ embeds: [renderHelpEmbed(lang, currentPage)] });
+  let page: HelpPage = 1;
+  const helpMessage = await message.reply({ embeds: [buildHelpEmbed(lang, page)] });
 
-  for (const emoji of HELP_PAGE_REACTIONS) {
-    await helpMessage.react(emoji).catch(() => null);
-  }
+  for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
 
-  const filter = (reaction: MessageReaction, user: User) => {
-    return HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
-  };
+  const filter = (reaction: MessageReaction, user: User) =>
+    HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
 
   const collector = helpMessage.createReactionCollector({ filter, time: 120000 });
 
   collector.on("collect", async (reaction, user) => {
     const emoji = reaction.emoji.name;
-    if (emoji === "➡️" && currentPage === 1) {
-      currentPage = 2;
-      await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage)] });
-    }
-    if (emoji === "⬅️" && currentPage === 2) {
-      currentPage = 1;
-      await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage)] });
-    }
+    if (emoji === "➡️" && page < 3) page = (page + 1) as HelpPage;
+    if (emoji === "⬅️" && page > 1) page = (page - 1) as HelpPage;
+    await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
 
   collector.on("end", async () => {
-    await helpMessage.edit({ embeds: [renderHelpEmbed(lang, currentPage).setFooter({ text: lang === "fr" ? `Page ${currentPage}/2 • Aide expirée.` : lang === "es" ? `Página ${currentPage}/2 • Ayuda caducada.` : `Page ${currentPage}/2 • Help expired.` })] }).catch(() => null);
+    const fr = lang === "fr"; const es = lang === "es";
+    await helpMessage.edit({
+      embeds: [buildHelpEmbed(lang, page).setFooter({
+        text: fr ? `Page ${page}/3 — Aide expirée.` : es ? `Página ${page}/3 — Ayuda caducada.` : `Page ${page}/3 — Help expired.`,
+      })],
+    }).catch(() => null);
   });
 }
+
+// ── Conversation history ──────────────────────────────────────────────────────
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
@@ -355,6 +348,8 @@ function isSendable(channel: unknown): channel is SendableChannel {
   return typeof channel === "object" && channel !== null && "send" in channel && "sendTyping" in channel;
 }
 
+// ── AI Battle ─────────────────────────────────────────────────────────────────
+
 const activeBattles = new Set<string>();
 const stoppedBattles = new Set<string>();
 
@@ -363,7 +358,7 @@ async function runAiBattle(
   channel: SendableChannel,
   openai: OpenAI,
   bot1Name: string,
-  bot2Client: Client
+  bot2Client: Client,
 ): Promise<void> {
   const ROUNDS = 3;
   const bot2Channel = await bot2Client.channels.fetch(channel.id).catch(() => null);
@@ -375,23 +370,21 @@ async function runAiBattle(
 
   const bot2SendableChannel = bot2Channel as unknown as SendableChannel;
   const bot2Name = bot2Client.user?.username ?? "Challenger";
-
   const channelId = channel.id;
 
   await channel.send(
-    `⚔️ **AI BATTLE** ⚔️\n\n` +
-    `**Topic:** ${topic}\n\n` +
-    `🔵 **${bot1Name}** will argue **FOR**\n` +
-    `🔴 **${bot2Name}** will argue **AGAINST**\n\n` +
-    `3 rounds — one message every ~40 seconds.\nType \`!ai stop\` to end the battle early. 🥊`
+    `⚔️ **AI BATTLE** ⚔️\n\n**Topic:** ${topic}\n\n` +
+    `🔵 **${bot1Name}** argumente **POUR**\n` +
+    `🔴 **${bot2Name}** argumente **CONTRE**\n\n` +
+    `3 rounds — un message toutes les ~40s. Tape \`!ai stop\` pour arrêter. 🥊`,
   );
 
   await sleep(3000);
 
   const battleHistory: { role: "user" | "assistant"; content: string }[] = [];
 
-  const systemFor = `You are ${bot1Name}, a passionate and eloquent AI debater. Your role is to argue STRONGLY FOR the following topic: "${topic}". Write a convincing argument of 150 to 200 words. Use vivid language, concrete examples, and end with a provocative rhetorical question or challenge aimed at your opponent. Respond in the same language as the topic.`;
-  const systemAgainst = `You are ${bot2Name}, a sharp and confident AI debater. Your role is to argue STRONGLY AGAINST the following topic: "${topic}". Write a convincing counter-argument of 150 to 200 words. Tear down your opponent's points with logic and wit, use real-world examples, and end with a strong closing statement. Respond in the same language as the topic.`;
+  const systemFor = `You are ${bot1Name}, a passionate and eloquent AI debater. Argue STRONGLY FOR: "${topic}". Write 150-200 words. Use vivid language, concrete examples, end with a provocative question for your opponent. Respond in the same language as the topic.`;
+  const systemAgainst = `You are ${bot2Name}, a sharp and confident AI debater. Argue STRONGLY AGAINST: "${topic}". Write 150-200 words. Tear down your opponent's arguments with logic and wit, use real-world examples, end with a strong closing statement. Respond in the same language as the topic.`;
 
   for (let round = 1; round <= ROUNDS; round++) {
     if (stoppedBattles.has(channelId)) {
@@ -400,11 +393,10 @@ async function runAiBattle(
       return;
     }
 
-    // Bot 1 argues FOR — show typing for ~10s to feel natural
     await channel.sendTyping();
     const forPrompt = round === 1
-      ? `Make your opening argument FOR: "${topic}". Write 150 to 200 words.`
-      : `Round ${round}: respond to your opponent's last argument and reinforce your position. Write 150 to 200 words.`;
+      ? `Opening argument FOR: "${topic}". Write 150-200 words.`
+      : `Round ${round}: respond to your opponent and reinforce your position. Write 150-200 words.`;
 
     battleHistory.push({ role: "user", content: forPrompt });
 
@@ -416,10 +408,8 @@ async function runAiBattle(
 
     const forArg = forResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "assistant", content: forArg });
-
     await channel.send(`🔵 **${bot1Name}** — Round ${round}:\n\n${forArg}`);
 
-    // Pause before bot 2 replies (~40s), refresh typing mid-wait
     await sleep(20000);
     if (stoppedBattles.has(channelId)) {
       await channel.send(`🛑 **Battle stopped mid-round ${round}.**`);
@@ -429,10 +419,8 @@ async function runAiBattle(
     await bot2SendableChannel.sendTyping();
     await sleep(20000);
 
-    // Bot 2 argues AGAINST
-    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}". Write 150 to 200 words.`;
-    const againstHistory = battleHistory.map((m) => ({ ...m }));
-    againstHistory.push({ role: "user", content: againstPrompt });
+    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}". Write 150-200 words.`;
+    const againstHistory = [...battleHistory, { role: "user" as const, content: againstPrompt }];
 
     const againstResponse = await openai.chat.completions.create({
       model: "llama-3.1-8b-instant",
@@ -442,10 +430,8 @@ async function runAiBattle(
 
     const againstArg = againstResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "user", content: againstArg });
-
     await bot2SendableChannel.send(`🔴 **${bot2Name}** — Round ${round}:\n\n${againstArg}`);
 
-    // Pause before next round
     if (round < ROUNDS) {
       await sleep(20000);
       if (stoppedBattles.has(channelId)) {
@@ -458,7 +444,6 @@ async function runAiBattle(
     }
   }
 
-  // Verdict
   const verdictResponse = await openai.chat.completions.create({
     model: "llama-3.1-8b-instant",
     max_completion_tokens: 200,
@@ -476,6 +461,8 @@ async function runAiBattle(
   await channel.send(`🏆 **VERDICT** 🏆\n\n${verdict}`);
 }
 
+// ── Bot entry point ───────────────────────────────────────────────────────────
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
   const token2 = process.env["DISCORD_TOKEN_2"];
@@ -490,9 +477,8 @@ export function startBot(): void {
     ? new OpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" })
     : null;
 
-  if (!openai) logger.warn("GROQ_API_KEY not set — AI features will be disabled");
+  if (!openai) logger.warn("GROQ_API_KEY not set — AI features disabled");
 
-  // Main bot (bot 1)
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -504,24 +490,21 @@ export function startBot(): void {
     partials: [Partials.Channel],
   });
 
-  // Second bot (bot 2) for AI battle
   let client2: Client | null = null;
   if (token2) {
     client2 = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
-    client2.once("clientReady", () => {
-      logger.info({ tag: client2!.user?.tag }, "Bot 2 connected");
-    });
-    client2.login(token2).catch((err) => {
-      logger.error({ err }, "Failed to connect bot 2");
-    });
+    client2.once("clientReady", () => logger.info({ tag: client2!.user?.tag }, "Bot 2 connected"));
+    client2.login(token2).catch((err) => logger.error({ err }, "Failed to connect bot 2"));
   } else {
-    logger.warn("DISCORD_TOKEN_2 not set — !ai battle will be disabled");
+    logger.warn("DISCORD_TOKEN_2 not set — !ai battle disabled");
   }
 
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
-    client.user?.setActivity("!help for commands", { type: ActivityType.Listening });
+    client.user?.setActivity("!help · !music · !join", { type: ActivityType.Listening });
   });
+
+  // ── Message handler ──────────────────────────────────────────────────────────
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
@@ -529,34 +512,25 @@ export function startBot(): void {
     const botId = client.user?.id ?? "";
     const content = message.content;
 
-    logger.info({ content, botId, mentioned: isBotMentioned(message, botId) }, "Message received");
-
-    // --- /image command ---
+    // --- Image generation ---
     if (content.startsWith("/image ") || content.startsWith("!image ")) {
       const prompt = content.slice(content.indexOf(" ") + 1).trim();
-      if (!prompt) {
-        await message.reply("🎨 Give me a description! e.g. `/image a sunset over Paris`");
-        return;
-      }
+      if (!prompt) { await message.reply("🎨 Donne-moi une description ! ex. `!image un coucher de soleil sur Paris`"); return; }
       const hfToken = process.env["HUGGINGFACE_TOKEN"];
-      if (!hfToken) {
-        await message.reply("❌ Image generation is not configured.");
-        return;
-      }
+      if (!hfToken) { await message.reply("❌ La génération d'images n'est pas configurée (HUGGINGFACE_TOKEN manquant)."); return; }
       try {
-        const waitMsg = await message.reply("🎨 Generating your image, please wait...");
+        const waitMsg = await message.reply("🎨 Génération en cours, patiente quelques secondes...");
         const response = await fetch(
           "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
           {
             method: "POST",
             headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
             body: JSON.stringify({ inputs: prompt }),
-          }
+          },
         );
         if (!response.ok) {
-          const err = await response.text();
-          logger.error({ err, status: response.status }, "HuggingFace image error");
-          await waitMsg.edit("❌ Failed to generate the image. Try again later!");
+          logger.error({ status: response.status }, "HuggingFace image error");
+          await waitMsg.edit("❌ Échec de la génération. Réessaie plus tard !");
           return;
         }
         const buffer = Buffer.from(await response.arrayBuffer());
@@ -565,28 +539,18 @@ export function startBot(): void {
           await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: "image.png" }] });
         }
       } catch (err) {
-        logger.error({ err }, "Error generating image");
-        await message.reply("❌ Failed to generate the image. Try again!");
+        logger.error({ err }, "Image generation error");
+        await message.reply("❌ Erreur lors de la génération. Réessaie !");
       }
       return;
     }
 
-    // --- @mention / DM → AI chat ---
+    // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
-
-    // DM flow: always acknowledge, even if AI is not configured
     if (isDm && !content.startsWith(PREFIX)) {
-      if (!openai) {
-        await message.reply("❌ L'IA n'est pas configurée.");
-        return;
-      }
-
+      if (!openai) { await message.reply("❌ L'IA n'est pas configurée (GROQ_API_KEY manquant)."); return; }
       const userText = content.trim();
-      if (!userText) {
-        await message.reply("Hey! 👋 Send me a message and I'll do my best to help you in private!");
-        return;
-      }
-
+      if (!userText) { await message.reply("Hey ! 👋 Envoie-moi un message et je ferai de mon mieux !"); return; }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -594,29 +558,25 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot. Keep your answers concise and conversational. Use a warm, casual tone. You can use emojis sparingly. Never break character. Respond in the same language the user writes in." },
+            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in." },
             ...getHistory(message.channelId),
           ],
         });
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't think of a response! 😅";
+        const reply = response.choices[0]?.message?.content ?? "Désolé, je n'ai pas pu répondre ! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
       } catch (err) {
-        logger.error({ err }, "Error calling Groq API");
-        await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
+        logger.error({ err }, "DM AI error");
+        await message.reply("Oops, quelque chose s'est mal passé ! 😅 Réessaie dans un instant.");
       }
       return;
     }
 
-    // Mention flow: only trigger if AI is configured
+    // --- @mention AI chat ---
     if (openai && !isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
-      if (!userText) {
-        await message.reply("Hey! 👋 Mention me with a message and I'll do my best to help you!");
-        return;
-      }
-
+      if (!userText) { await message.reply("Hey ! 👋 Mentionne-moi avec un message et je t'aide !"); return; }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -624,22 +584,26 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot. Keep your answers concise and conversational. Use a warm, casual tone. You can use emojis sparingly. Never break character. Respond in the same language the user writes in." },
+            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in." },
             ...getHistory(message.channelId),
           ],
         });
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't think of a response! 😅";
+        const reply = response.choices[0]?.message?.content ?? "Désolé, je n'ai pas pu répondre ! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
+        // Also speak in voice if bot is connected
+        if (message.guildId && isInVoice(message.guildId)) {
+          speakText(message.guildId, reply, "fr").catch(() => null);
+        }
       } catch (err) {
-        logger.error({ err }, "Error calling Groq API");
-        await message.reply("Oops, something went wrong while thinking! 😅 Try again in a moment.");
+        logger.error({ err }, "Mention AI error");
+        await message.reply("Oops, quelque chose s'est mal passé ! 😅 Réessaie dans un instant.");
       }
       return;
     }
 
-    // --- !prefix commands ---
+    // --- Prefix commands ---
     if (!content.startsWith(PREFIX)) return;
 
     const args = content.slice(PREFIX.length).trim().split(/\s+/);
@@ -647,10 +611,12 @@ export function startBot(): void {
 
     try {
       switch (command) {
+
+        // ── General ─────────────────────────────────────────────────────────────
         case "say": {
           const text = args.join(" ");
           if (!text) {
-            await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`");
+            await message.reply("❓ Dis-moi quoi dire ! ex. `!say Bonjour tout le monde`");
           } else {
             await message.delete();
             if (isSendable(message.channel)) await message.channel.send(text);
@@ -662,40 +628,37 @@ export function startBot(): void {
         case "salut":
         case "hello":
         case "hi": {
-          await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
+          await message.reply(`Bonjour ${message.author.displayName} ! 👋 Ravi de te voir ici ! Comment tu vas ? 😊`);
           break;
         }
 
+        // ── Fun ──────────────────────────────────────────────────────────────────
         case "compliment": {
           const lang = parseLanguage(args[0]);
-          if (lang !== "en") args.shift();
-          const compliments = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : COMPLIMENTS;
-          await message.reply(`${message.author.displayName}, ${getRandom(compliments)}`);
+          const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : COMPLIMENTS;
+          await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "joke": {
           const lang = parseLanguage(args[0]);
-          if (lang !== "en") args.shift();
-          const jokes = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : JOKES;
-          await message.reply(getRandom(jokes));
+          const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : JOKES;
+          await message.reply(getRandom(list));
           break;
         }
 
         case "encouragement":
         case "cheer": {
           const lang = parseLanguage(args[0]);
-          if (lang !== "en") args.shift();
-          const encouragements = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : ENCOURAGEMENTS;
-          await message.reply(`${message.author.displayName}, ${getRandom(encouragements)}`);
+          const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : ENCOURAGEMENTS;
+          await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "hug": {
           const lang = parseLanguage(args[0]);
-          if (lang !== "en") args.shift();
-          const hugs = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : HUGS;
-          await message.reply(`${message.author.displayName}, ${getRandom(hugs)}`);
+          const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : HUGS;
+          await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
@@ -704,10 +667,10 @@ export function startBot(): void {
           if (lang !== "en") args.shift();
           const question = args.join(" ");
           if (!question) {
-            await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`");
+            await message.reply("🎱 Pose-moi une question ! ex. `!8ball Est-ce que ça va bien aller ?`");
           } else {
             const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : EIGHT_BALL_RESPONSES;
-            await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(answers)}`);
+            await message.reply(`🎱 **Question :** ${question}\n**Réponse :** ${getRandom(answers)}`);
           }
           break;
         }
@@ -717,39 +680,39 @@ export function startBot(): void {
           const faces = parseInt(args[0] ?? "6");
           const nb = isNaN(faces) || faces < 2 ? 6 : Math.min(faces, 1000);
           const result = Math.floor(Math.random() * nb) + 1;
-          await message.reply(`🎲 You rolled a ${nb}-sided die and got: **${result}**!`);
+          await message.reply(`🎲 Dé à ${nb} faces — résultat : **${result}** !`);
           break;
         }
 
         case "conspiracy": {
-          if (!openai) { await message.reply("❌ AI is not configured."); break; }
+          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
           try {
             const topic = args.join(" ").trim();
             if (isSendable(message.channel)) await message.channel.sendTyping();
             const prompt = topic
-              ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`
-              : `Generate a short, absurd and funny random conspiracy theory. Keep it under 200 words. Be creative, dramatic and ridiculous. Start directly with the theory.`;
+              ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`
+              : `Generate a short, absurd and funny random conspiracy theory. Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`;
             const response = await openai.chat.completions.create({
               model: "llama-3.1-8b-instant",
               max_completion_tokens: 300,
               messages: [
-                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used in their message. If no topic is given, use English. Be creative, funny and absurd — never harmful." },
+                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used. If no topic, use French. Be creative, funny, absurd — never harmful." },
                 { role: "user", content: prompt },
               ],
             });
-            const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
-            await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
+            const theory = response.choices[0]?.message?.content ?? "La vérité est trop dangereuse à révéler... 🤫";
+            await message.reply(`🕵️ **THÉORIE DÉVOILÉE** 🕵️\n\n${theory}`);
           } catch (err) {
-            logger.error({ err }, "Error generating conspiracy");
-            await message.reply("❌ The government blocked this conspiracy. Try again!");
+            logger.error({ err }, "Conspiracy error");
+            await message.reply("❌ Le gouvernement a bloqué cette théorie. Réessaie !");
           }
           break;
         }
 
+        // ── Mini-games ───────────────────────────────────────────────────────────
         case "minesweeper":
         case "mine": {
-          const diff = args[0]?.toLowerCase();
-          const board = playMinesweeper(message, diff);
+          const board = playMinesweeper(message, args[0]?.toLowerCase());
           if (board) await message.reply(board);
           break;
         }
@@ -765,13 +728,11 @@ export function startBot(): void {
             }
             break;
           }
-
           const difficulty = sub || "easy";
           if (!["easy", "medium", "hard"].includes(difficulty)) {
-            await message.reply("❓ Invalid GeoGuessr mode. Use `!geo easy`, `!geo medium`, or `!geo hard`.\nExample: `!geo hard`");
+            await message.reply("❓ Mode invalide. Utilise `!geo easy`, `!geo medium` ou `!geo hard`.");
             break;
           }
-
           playGeoguessr(message, difficulty as "easy" | "medium" | "hard").catch((err) => logger.error({ err }, "GeoGuessr error"));
           break;
         }
@@ -793,140 +754,94 @@ export function startBot(): void {
           break;
         }
 
-        case "ai": {
-          const subcommand = args.shift()?.toLowerCase();
-
-          if (subcommand === "stop") {
-            if (!activeBattles.has(message.channelId)) {
-              await message.reply("🤷 No battle is running in this channel.");
-            } else {
-              stoppedBattles.add(message.channelId);
-              await message.reply("🛑 Stopping the battle after the current message...");
-            }
-            break;
-          }
-
-          if (subcommand !== "battle") break;
-
-          if (!openai) { await message.reply("❌ AI is not configured."); break; }
-          if (!client2) { await message.reply("❌ Bot 2 is not connected. Add `DISCORD_TOKEN_2` to the secrets."); break; }
-          if (!isSendable(message.channel)) break;
-
-          const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";
-
-          if (activeBattles.has(message.channelId)) {
-            await message.reply("⚔️ A battle is already happening in this channel! Type `!ai stop` to end it.");
-            break;
-          }
-
-          activeBattles.add(message.channelId);
-          const bot1Name = client.user?.username ?? "Defender";
-
-          runAiBattle(topic, message.channel, openai, bot1Name, client2)
-            .catch(async (err) => {
-              logger.error({ err }, "Error during AI battle");
-              await message.reply("❌ The battle crashed unexpectedly!");
-            })
-            .finally(() => {
-              activeBattles.delete(message.channelId);
-              stoppedBattles.delete(message.channelId);
-            });
-
-          break;
-        }
-
+        // ── Music — Suno AI ───────────────────────────────────────────────────────
         case "music": {
           const sub = args.shift()?.toLowerCase();
+
           if (sub === "generator") {
             const prompt = args.join(" ").trim();
-            if (!prompt) {
-              await message.reply("❌ You need to provide a prompt! Example: `!music generator lo-fi hip hop beats chill`");
-              break;
-            }
-            if (!process.env["SUNO_API_KEY"]) {
-              await message.reply("❌ Suno music generation is not configured (SUNO_API_KEY missing).");
-              break;
-            }
-            const POLL_INTERVAL = 8000;
-            const POLL_MAX = 15;
+            if (!prompt) { await message.reply("❌ Donne-moi un prompt ! ex. `!music generator lo-fi hip hop beats chill`"); break; }
+            if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno non configuré (SUNO_API_KEY manquant)."); break; }
+
             const startEmbed = new EmbedBuilder()
               .setColor(0x5865f2)
-              .setTitle("🎵 Generating your music…")
-              .setDescription(`**Prompt:** ${prompt}`)
-              .setFooter({ text: "Suno is generating your track, this takes ~30-60 seconds ⏳" });
+              .setTitle("🎵 Génération en cours…")
+              .setDescription(`**Prompt :** ${prompt}`)
+              .setFooter({ text: "Suno génère ta piste, environ 30-60 secondes ⏳" });
             const reply = await message.reply({ embeds: [startEmbed] });
+
             let taskId: string;
             try {
               taskId = await generateSong({ prompt });
             } catch (err) {
               logger.error({ err }, "Suno generate error");
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Error").setDescription(`Failed to start generation: ${String(err)}`)] });
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Erreur").setDescription(`Impossible de démarrer : ${String(err)}`)] });
               break;
             }
+
+            const POLL_INTERVAL = 8000;
+            const POLL_MAX = 15;
             for (let attempt = 1; attempt <= POLL_MAX; attempt++) {
               await new Promise((r) => setTimeout(r, POLL_INTERVAL));
               let result;
-              try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll error, retrying"); continue; }
-              const statusUp = result.status.toUpperCase();
-              if (statusUp === "ERROR" || statusUp === "FAILED" || statusUp === "FAILURE") {
-                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try again with a different prompt.").addFields({ name: "Task ID", value: taskId })] });
+              try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
+
+              const st = result.status.toUpperCase();
+              if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
+                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Génération échouée").setDescription("Suno a retourné une erreur. Essaie un autre prompt.").addFields({ name: "Task ID", value: taskId })] });
                 break;
               }
               if (result.done && result.clips.length > 0) {
                 const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
                   const e = new EmbedBuilder()
                     .setColor(0x57f287)
-                    .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
-                    .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
-                    .addFields({ name: "🎵 Listen", value: clip.audio_url! })
-                    .setFooter({ text: `Task ID: ${taskId}` })
+                    .setTitle(`🎶 ${clip.title ?? "Piste générée"}`)
+                    .setDescription(`**Prompt :** ${clip.prompt ?? prompt}`)
+                    .addFields({ name: "🎵 Écouter", value: clip.audio_url! })
+                    .setFooter({ text: `Task ID : ${taskId}` })
                     .setTimestamp();
                   if (clip.image_url) e.setThumbnail(clip.image_url);
-                  if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
+                  if (clip.duration) e.addFields({ name: "⏱ Durée", value: `${Math.round(clip.duration)}s`, inline: true });
                   if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
                   return e;
                 });
                 if (embeds.length > 0) { await reply.edit({ embeds }); break; }
               }
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your music…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
+              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Génération en cours…").setDescription(`**Prompt :** ${prompt}`).addFields({ name: "Statut", value: result.status, inline: true }, { name: "Tentative", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno travaille ⏳" })] });
             }
+
           } else if (sub === "prompt") {
-            const PROMPT_EXAMPLES = [
-              { category: "🌊 Lo-Fi / Chill", prompt: "lo-fi hip hop beats, rainy day, chill, vinyl crackle, mellow piano" },
-              { category: "🎸 Energetic Rock", prompt: "upbeat rock anthem, electric guitar riffs, powerful drums, energetic chorus" },
-              { category: "🌙 Night Vibes", prompt: "dark synthwave, neon lights, midnight drive, 80s retro, pulsing bass" },
-              { category: "🎹 Classical Piano", prompt: "emotional piano solo, cinematic, melancholic, slow tempo, orchestral strings" },
-              { category: "🔥 Trap / Rap", prompt: "hard trap beat, 808 bass, hi-hats, dark melody, aggressive, street" },
-              { category: "🌸 J-Pop / Anime", prompt: "anime opening, upbeat J-pop, catchy melody, japanese style, energetic" },
-              { category: "🌿 Meditation", prompt: "peaceful meditation music, nature sounds, flute, soft drums, zen atmosphere" },
-              { category: "🎺 Jazz", prompt: "smooth jazz, saxophone, late night club, soft brushed drums, warm bass" },
-            ];
-            const embed = new EmbedBuilder().setColor(0x5865f2).setTitle("💡 Music Prompt Examples").setDescription("Copy a prompt and use it with `!music generator [prompt]`\n\u200b");
-            for (const { category, prompt } of PROMPT_EXAMPLES) embed.addFields({ name: category, value: `\`${prompt}\`` });
-            embed.setFooter({ text: "💡 Tip: combine multiple styles for unique results!" });
+            const embed = new EmbedBuilder()
+              .setColor(0x5865f2)
+              .setTitle("💡 Exemples de prompts musicaux")
+              .setDescription("Copie un prompt et utilise-le avec `!music generator <prompt>`\n\u200b");
+            for (const { category, prompt } of MUSIC_PROMPT_EXAMPLES) embed.addFields({ name: category, value: `\`${prompt}\`` });
+            embed.setFooter({ text: "💡 Combine plusieurs styles pour des résultats uniques !" });
             await message.reply({ embeds: [embed] });
+
           } else {
-            await message.reply("❓ Unknown subcommand. Try `!music generator <prompt>` or `!music prompt`.");
+            await message.reply("❓ Commande inconnue. Essaie `!music generator <prompt>` ou `!music prompt`.");
           }
           break;
         }
 
-        case "credits": {
-          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno is not configured (SUNO_API_KEY missing)."); break; }
+        case "balance": {
+          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno non configuré (SUNO_API_KEY manquant)."); break; }
           try {
             const credits = await getCredits();
             const embed = new EmbedBuilder()
-              .setColor(credits > 10 ? 0x57f287 : 0xed4245)
-              .setTitle("💳 Suno Credits")
-              .addFields({ name: "Remaining credits", value: `${credits}`, inline: true })
-              .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
+              .setColor(credits > 10 ? 0x57f287 : credits > 0 ? 0xfee75c : 0xed4245)
+              .setTitle("💳 Crédits Suno")
+              .addFields({ name: "Crédits restants", value: `${credits}`, inline: true })
+              .setFooter({ text: "Chaque génération consomme des crédits sunoapi.org" });
             await message.reply({ embeds: [embed] });
           } catch (err) {
-            await message.reply(`❌ Unable to fetch credits: ${String(err)}`);
+            await message.reply(`❌ Impossible de récupérer les crédits : ${String(err)}`);
           }
           break;
         }
 
+        // ── Voice ────────────────────────────────────────────────────────────────
         case "join": {
           await joinVoice(message);
           break;
@@ -939,20 +854,90 @@ export function startBot(): void {
 
         case "voice": {
           const voiceSub = args[0]?.toLowerCase();
-          if (voiceSub === "stop") await voiceStop(message);
-          else if (voiceSub === "resume") await voiceResume(message);
-          else await message.reply("❓ Usage: `!voice stop` or `!voice resume`");
+          if (voiceSub === "stop") {
+            await voiceStop(message);
+          } else if (voiceSub === "resume") {
+            await voiceResume(message);
+          } else if (voiceSub === "say") {
+            const text = args.slice(1).join(" ").trim();
+            if (!text) { await message.reply("❓ Donne-moi un texte ! ex. `!voice say Bonjour tout le monde`"); break; }
+            if (!message.guildId || !isInVoice(message.guildId)) {
+              await message.reply("❌ Je ne suis pas dans un salon vocal. Utilise `!join` d'abord.");
+              break;
+            }
+            const ok = await speakText(message.guildId, text, "fr");
+            if (!ok) await message.reply("❌ Impossible de parler en ce moment (mode silencieux ?)");
+          } else {
+            await message.reply("❓ Utilise `!voice say <texte>`, `!voice stop` ou `!voice resume`.");
+          }
           break;
         }
 
-        case "subtitles": {
-          await toggleSubtitles(message);
+        // ── AI Battle ────────────────────────────────────────────────────────────
+        case "ai": {
+          const subcommand = args.shift()?.toLowerCase();
+
+          if (subcommand === "stop") {
+            if (!activeBattles.has(message.channelId)) {
+              await message.reply("🤷 Aucune bataille en cours dans ce salon.");
+            } else {
+              stoppedBattles.add(message.channelId);
+              await message.reply("🛑 Arrêt de la bataille après le message en cours...");
+            }
+            break;
+          }
+
+          if (subcommand !== "battle") break;
+          if (!openai) { await message.reply("❌ L'IA n'est pas configurée."); break; }
+          if (!client2) { await message.reply("❌ Bot 2 non connecté. Ajoute `DISCORD_TOKEN_2` aux secrets."); break; }
+          if (!isSendable(message.channel)) break;
+
+          const topic = args.join(" ").trim() || "L'ananas sur la pizza, bonne ou mauvaise idée ?";
+
+          if (activeBattles.has(message.channelId)) {
+            await message.reply("⚔️ Une bataille est déjà en cours ! Tape `!ai stop` pour l'arrêter.");
+            break;
+          }
+
+          activeBattles.add(message.channelId);
+          const bot1Name = client.user?.username ?? "Defender";
+
+          runAiBattle(topic, message.channel, openai, bot1Name, client2)
+            .catch(async (err) => {
+              logger.error({ err }, "AI battle error");
+              await message.reply("❌ La bataille a planté !");
+            })
+            .finally(() => {
+              activeBattles.delete(message.channelId);
+              stoppedBattles.delete(message.channelId);
+            });
           break;
         }
 
-        case "help": {
+        // ── Credits ──────────────────────────────────────────────────────────────
+        case "credits": {
+          const embed = new EmbedBuilder()
+            .setTitle("✨ Crédits du projet")
+            .setColor(0x5865f2)
+            .setDescription("Ce bot n'existerait pas sans ces technologies et ces personnes. Merci à tous ! 🙏")
+            .addFields(
+              { name: "👨‍💻 Créateur", value: "**Maxime** — Conception, développement et idées", inline: false },
+              { name: "🤖 Intelligence Artificielle", value: "**Meta LLaMA** — Modèle IA (via Groq)\n**Suno AI** — Génération musicale", inline: false },
+              { name: "🔊 Voix & Images", value: "**Google Traduction** — Synthèse vocale (TTS gratuit)\n**HuggingFace / FLUX** — Génération d'images", inline: false },
+              { name: "🚀 Infrastructure", value: "**Railway** — Hébergement & déploiement\n**Replit** — Développement & environnement\n**GitHub** — Contrôle de version & collaboration", inline: false },
+              { name: "🛠️ Technologies", value: "**discord.js** — API Discord\n**Node.js + TypeScript** — Runtime & langage\n**Express** — Serveur API", inline: false },
+            )
+            .setFooter({ text: "Fait avec ❤️ par Maxime · !help pour les commandes" })
+            .setTimestamp();
+          await message.reply({ embeds: [embed] });
+          break;
+        }
+
+        // ── Help ─────────────────────────────────────────────────────────────────
+        case "help":
+        case "aide": {
           const lang = args[0]?.toLowerCase();
-          const helpLang = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
+          const helpLang: HelpLanguage = lang === "fr" ? "fr" : lang === "es" ? "es" : "en";
           await sendPaginatedHelp(message, helpLang);
           break;
         }
@@ -961,7 +946,7 @@ export function startBot(): void {
           break;
       }
     } catch (err) {
-      logger.error({ err, command }, "Error handling command");
+      logger.error({ err, command }, "Command error");
     }
   });
 
