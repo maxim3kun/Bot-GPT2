@@ -3,7 +3,8 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, listRadios, playYoutube, RADIO_STATIONS } from "./discord/radio";
+import { playRadio, stopRadio, listRadios, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
+import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 
 const PREFIX = "!";
@@ -237,10 +238,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — réagis 1️⃣–7️⃣ 🔴🟡"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 [1-7]` / `!connect4 solo` 🔴🟡",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — reacciona 1️⃣–7️⃣ 🔴🟡"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` — react 1️⃣–7️⃣ to play 🔴🟡",
       },
       {
         name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
@@ -268,7 +269,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter une station (ex: `!radio nrj`)\n`!youtube <url>` — Lire l'audio d'une vidéo YouTube 🎬\n`!radio leave` — Déconnecter"
           : es
           ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar una estación (ej: `!radio nrj`)\n`!youtube <url>` — Reproducir audio de YouTube 🎬\n`!radio leave` — Desconectar"
-          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen to a station (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!radio leave` — Disconnect",
+          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen to a station (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing info\n`!radio leave` — Disconnect\n`!playlist add <name> <url>` / `!playlist play <name>` 🎵",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -917,6 +918,81 @@ export function startBot(): void {
             break;
           }
           await playYoutube(message, url);
+          break;
+        }
+
+        // ── Now Playing ──────────────────────────────────────────────────────────
+        case "np": {
+          if (!message.guildId) break;
+          const npEmbed = nowPlaying(message.guildId);
+          if (!npEmbed) {
+            await message.reply("🔇 Nothing is currently playing. Start with `!radio <station>` or `!youtube <url>`.");
+          } else {
+            await message.reply({ embeds: [npEmbed] });
+          }
+          break;
+        }
+
+        // ── Playlist ─────────────────────────────────────────────────────────────
+        case "playlist": {
+          if (!message.guildId) break;
+          const guildId = message.guildId;
+          const sub = args[0]?.toLowerCase();
+
+          if (!sub || sub === "list") {
+            await message.reply({ embeds: [await listPlaylists(guildId)] });
+            break;
+          }
+
+          if (sub === "add") {
+            const name = args[1];
+            const url = args[2];
+            if (!name || !url) {
+              await message.reply("❓ Usage: `!playlist add <name> <youtube-url>`\nExample: `!playlist add chill https://www.youtube.com/watch?v=...`");
+              break;
+            }
+            if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
+              await message.reply("❌ Please provide a valid YouTube URL.");
+              break;
+            }
+            const { index } = await addToPlaylist(guildId, name, url);
+            await message.reply(`✅ Added to playlist **${name}** (${index} video${index !== 1 ? "s" : ""} total).`);
+            break;
+          }
+
+          if (sub === "show") {
+            const name = args[1];
+            if (!name) { await message.reply("❓ Usage: `!playlist show <name>`"); break; }
+            const embed = await showPlaylist(guildId, name);
+            if (!embed) { await message.reply(`❌ Playlist **${name}** not found. Use \`!playlist list\` to see all playlists.`); break; }
+            await message.reply({ embeds: [embed] });
+            break;
+          }
+
+          if (sub === "play") {
+            const name = args[1];
+            if (!name) { await message.reply("❓ Usage: `!playlist play <name>`"); break; }
+            await playPlaylist(message, name);
+            break;
+          }
+
+          if (sub === "delete" || sub === "remove") {
+            const name = args[1];
+            if (!name) { await message.reply(`❓ Usage: \`!playlist ${sub} <name>\``); break; }
+            const deleted = await removePlaylist(guildId, name);
+            if (!deleted) { await message.reply(`❌ Playlist **${name}** not found.`); break; }
+            await message.reply(`🗑️ Playlist **${name}** deleted.`);
+            break;
+          }
+
+          await message.reply(
+            "❓ Unknown subcommand.\n" +
+            "`!playlist list` — see all playlists\n" +
+            "`!playlist add <name> <url>` — add a video\n" +
+            "`!playlist show <name>` — list videos in a playlist\n" +
+            "`!playlist play <name>` — play a playlist in voice\n" +
+            "`!playlist delete <name>` — remove a playlist"
+          );
           break;
         }
 

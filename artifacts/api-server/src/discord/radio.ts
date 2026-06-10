@@ -9,7 +9,7 @@ import {
   NoSubscriberBehavior,
   type AudioPlayer,
 } from "@discordjs/voice";
-import { type Message, EmbedBuilder } from "discord.js";
+import { type Message, type TextChannel, EmbedBuilder } from "discord.js";
 import { logger } from "../lib/logger";
 
 // ── Radio station list ────────────────────────────────────────────────────────
@@ -33,14 +33,68 @@ interface RadioState {
   player: AudioPlayer;
   stationKey: string | null;
   youtubeTitle: string | null;
+  youtubeUrl: string | null;
+  queue: string[];
+  queueName: string | null;
+  notifyChannel: TextChannel | null;
   guildId: string;
 }
 
 const radioStates = new Map<string, RadioState>();
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Queue playback (internal) ─────────────────────────────────────────────────
 
-async function ensureVoiceConnection(message: Message): Promise<boolean> {
+async function playNextFromQueue(guildId: string): Promise<void> {
+  const state = radioStates.get(guildId);
+  if (!state || state.queue.length === 0) return;
+
+  const url = state.queue.shift()!;
+
+  try {
+    const play = await import("play-dl");
+    const info = await play.video_info(url);
+    const title = info.video_details.title ?? "Unknown";
+    const duration = info.video_details.durationInSec ?? 0;
+    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
+
+    const stream = await play.stream(url, { quality: 2 });
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type as unknown as StreamType,
+    });
+
+    state.stationKey = null;
+    state.youtubeTitle = title;
+    state.youtubeUrl = url;
+    state.player.play(resource);
+
+    if (state.notifyChannel) {
+      const mins = Math.floor(duration / 60);
+      const secs = duration % 60;
+      const embed = new EmbedBuilder()
+        .setColor(0xed4245)
+        .setTitle("▶️ Now playing")
+        .setDescription(`**${title}**`)
+        .addFields(
+          { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+          { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining` : "Last video", inline: true },
+        );
+      if (thumbnail) embed.setThumbnail(thumbnail);
+      await state.notifyChannel.send({ embeds: [embed] }).catch(() => null);
+    }
+  } catch (err) {
+    logger.error({ err, url }, "Queue playback error");
+    if (state.queue.length > 0) {
+      await playNextFromQueue(guildId);
+    } else {
+      radioStates.delete(guildId);
+      getVoiceConnection(guildId)?.destroy();
+    }
+  }
+}
+
+// ── Voice connection helper ───────────────────────────────────────────────────
+
+export async function ensureVoiceConnection(message: Message): Promise<boolean> {
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
     await message.reply("❌ You need to be in a voice channel first!");
@@ -64,13 +118,30 @@ async function ensureVoiceConnection(message: Message): Promise<boolean> {
     });
   }
 
-  // Create or reuse player
   if (!radioStates.has(guildId)) {
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
     connection.subscribe(player);
-    radioStates.set(guildId, { player, stationKey: null, youtubeTitle: null, guildId });
+
+    // Persistent queue handler — fires when a YouTube track ends
+    player.on(AudioPlayerStatus.Idle, () => {
+      const s = radioStates.get(guildId);
+      if (!s || s.stationKey) return; // Radio playing — don't touch
+      if (s.queue.length > 0) {
+        playNextFromQueue(guildId).catch((err) => logger.error({ err }, "Auto-queue error"));
+      }
+    });
+
+    radioStates.set(guildId, {
+      player,
+      stationKey: null,
+      youtubeTitle: null,
+      youtubeUrl: null,
+      queue: [],
+      queueName: null,
+      notifyChannel: null,
+      guildId,
+    });
   } else {
-    // Resubscribe in case connection changed
     connection.subscribe(radioStates.get(guildId)!.player);
   }
 
@@ -81,6 +152,40 @@ async function ensureVoiceConnection(message: Message): Promise<boolean> {
 
 export function isRadioActive(guildId: string): boolean {
   return radioStates.has(guildId);
+}
+
+export function nowPlaying(guildId: string): EmbedBuilder | null {
+  const state = radioStates.get(guildId);
+  if (!state) return null;
+
+  if (state.stationKey) {
+    const station = RADIO_STATIONS[state.stationKey];
+    if (!station) return null;
+    return new EmbedBuilder()
+      .setColor(0x57f287)
+      .setTitle("📻 Now Playing — Radio")
+      .setDescription(`${station.emoji} **${station.name}**`)
+      .addFields(
+        { name: "Genre", value: station.genre, inline: true },
+        { name: "Switch", value: `\`!radio <key>\``, inline: true },
+        { name: "Stop", value: "`!radio leave`", inline: true },
+      );
+  }
+
+  if (state.youtubeTitle) {
+    const embed = new EmbedBuilder()
+      .setColor(0xed4245)
+      .setTitle("▶️ Now Playing — YouTube")
+      .setDescription(`**${state.youtubeTitle}**`);
+    if (state.youtubeUrl) embed.setFooter({ text: state.youtubeUrl });
+    if (state.queue.length > 0) {
+      embed.addFields({ name: "Queue", value: `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining`, inline: true });
+      if (state.queueName) embed.addFields({ name: "Playlist", value: state.queueName, inline: true });
+    }
+    return embed;
+  }
+
+  return null;
 }
 
 export function listRadios(): EmbedBuilder {
@@ -116,6 +221,8 @@ export async function playRadio(message: Message, stationKey: string): Promise<v
   const state = radioStates.get(guildId)!;
   state.stationKey = stationKey.toLowerCase();
   state.youtubeTitle = null;
+  state.youtubeUrl = null;
+  state.queue = [];
 
   try {
     const resource = createAudioResource(station.url, { inputType: StreamType.Arbitrary });
@@ -153,18 +260,17 @@ export async function stopRadio(message: Message): Promise<void> {
   const state = radioStates.get(guildId);
 
   if (!state) {
-    await message.reply("❌ No radio is currently playing.");
+    await message.reply("❌ Nothing is currently playing.");
     return;
   }
 
   state.player.stop();
   radioStates.delete(guildId);
   getVoiceConnection(guildId)?.destroy();
-  await message.reply("👋 Radio stopped and disconnected.");
+  await message.reply("👋 Stopped and disconnected.");
 }
 
 export async function playYoutube(message: Message, url: string): Promise<void> {
-  // Validate URL roughly
   if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
     await message.reply("❌ Please provide a valid YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
     return;
@@ -175,16 +281,16 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
 
   const guildId = message.guildId!;
   const state = radioStates.get(guildId)!;
+  state.queue = [];
+  state.queueName = null;
 
   const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait...");
 
   try {
-    // Dynamically import play-dl to avoid bundling issues
     const play = await import("play-dl");
-
     const info = await play.video_info(url);
     const title = info.video_details.title ?? "Unknown";
-    const duration = info.video_details.durationInSec;
+    const duration = info.video_details.durationInSec ?? 0;
     const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
 
     const stream = await play.stream(url, { quality: 2 });
@@ -192,16 +298,17 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
       inputType: stream.type as unknown as StreamType,
     });
 
-    state.player.play(resource);
     state.stationKey = null;
     state.youtubeTitle = title;
+    state.youtubeUrl = url;
+    state.player.play(resource);
 
     state.player.once(AudioPlayerStatus.Playing, async () => {
       const mins = Math.floor(duration / 60);
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0xed4245)
-        .setTitle(`▶️ Now playing`)
+        .setTitle("▶️ Now playing")
         .setDescription(`**${title}**`)
         .addFields(
           { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
@@ -210,13 +317,6 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
         .setFooter({ text: url });
       if (thumbnail) embed.setThumbnail(thumbnail);
       await waitMsg.edit({ content: "", embeds: [embed] });
-    });
-
-    state.player.once(AudioPlayerStatus.Idle, async () => {
-      if (state.youtubeTitle === title) {
-        radioStates.delete(guildId);
-        getVoiceConnection(guildId)?.destroy();
-      }
     });
 
     state.player.once("error", async (err) => {
@@ -231,5 +331,64 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
     await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
+  }
+}
+
+export async function startQueue(message: Message, urls: string[], playlistName?: string): Promise<void> {
+  if (urls.length === 0) {
+    await message.reply("❌ The playlist is empty.");
+    return;
+  }
+
+  const ready = await ensureVoiceConnection(message);
+  if (!ready) return;
+
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId)!;
+  state.stationKey = null;
+  state.queue = urls.slice(1); // Rest of the queue after first video
+  state.queueName = playlistName ?? null;
+  state.notifyChannel = message.channel as TextChannel;
+
+  const firstUrl = urls[0];
+  const waitMsg = await message.reply(
+    `🎵 Loading playlist **${playlistName ?? "queue"}** (${urls.length} video${urls.length !== 1 ? "s" : ""})...`,
+  );
+
+  try {
+    const play = await import("play-dl");
+    const info = await play.video_info(firstUrl);
+    const title = info.video_details.title ?? "Unknown";
+    const duration = info.video_details.durationInSec ?? 0;
+    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
+
+    const stream = await play.stream(firstUrl, { quality: 2 });
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type as unknown as StreamType,
+    });
+
+    state.youtubeTitle = title;
+    state.youtubeUrl = firstUrl;
+    state.player.play(resource);
+
+    const mins = Math.floor(duration / 60);
+    const secs = duration % 60;
+    const embed = new EmbedBuilder()
+      .setColor(0xed4245)
+      .setTitle(`▶️ Now playing — ${playlistName ? `Playlist: ${playlistName}` : "Queue"}`)
+      .setDescription(`**${title}**`)
+      .addFields(
+        { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+        { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} after this` : "Last video", inline: true },
+      );
+    if (thumbnail) embed.setThumbnail(thumbnail);
+    await waitMsg.edit({ content: "", embeds: [embed] });
+
+  } catch (err) {
+    logger.error({ err, firstUrl }, "Playlist first video error");
+    await waitMsg.edit("❌ Failed to load the first video. Skipping...");
+    if (state.queue.length > 0) {
+      await playNextFromQueue(guildId);
+    }
   }
 }

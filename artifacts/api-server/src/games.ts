@@ -1,4 +1,4 @@
-import { Message, EmbedBuilder } from "discord.js";
+import { Message, EmbedBuilder, MessageReaction, User } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 
@@ -748,23 +748,23 @@ export async function playGuessNumber(message: Message): Promise<void> {
 
 const CONNECT4_ROWS = 6;
 const CONNECT4_COLS = 7;
-const CONNECT4_TOKENS = ["⚪", "🔴", "🟡"];
-const CONNECT4_COLUMNS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"];
-const CONNECT4_USER = 1;
-const CONNECT4_BOT = 2;
+const CONNECT4_TOKENS = ["⚪", "🔴", "🟡"] as const;
+const CONNECT4_COL_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣"] as const;
 
 type Connect4Game = {
   board: number[][];
+  mode: "solo" | "pvp";
+  player1: { id: string; name: string };
+  player2: { id: string; name: string } | null;
+  currentTurn: 1 | 2;
 };
 
 const activeConnect4Games = new Map<string, Connect4Game>();
 
 function renderConnect4Board(board: number[][]): string {
-  // Render a nicer monospace board for Discord
-  const rows = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" "));
-  const header = CONNECT4_COLUMNS.join(" ");
-  const body = rows.join("\n");
-  return `\n\`\`\`\n${header}\n${body}\n\`\`\``;
+  const header = CONNECT4_COL_EMOJIS.join(" ");
+  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" ")).join("\n");
+  return `${header}\n${body}`;
 }
 
 function getDropRow(board: number[][], col: number): number {
@@ -782,22 +782,14 @@ function checkConnect4(board: number[][], token: number): boolean {
   for (let row = 0; row < CONNECT4_ROWS; row++) {
     for (let col = 0; col < CONNECT4_COLS; col++) {
       if (board[row][col] !== token) continue;
-
-      const directions = [
-        { dr: 0, dc: 1 },
-        { dr: 1, dc: 0 },
-        { dr: 1, dc: 1 },
-        { dr: 1, dc: -1 },
-      ];
-
+      const directions = [{ dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 }];
       for (const { dr, dc } of directions) {
         let count = 0;
         for (let step = 0; step < 4; step++) {
-          const r = row + dr * step;
-          const c = col + dc * step;
+          const r = row + dr * step, c = col + dc * step;
           if (r < 0 || r >= CONNECT4_ROWS || c < 0 || c >= CONNECT4_COLS) break;
           if (board[r][c] !== token) break;
-          count += 1;
+          count++;
         }
         if (count === 4) return true;
       }
@@ -819,135 +811,209 @@ function findWinningColumn(board: number[][], token: number): number | null {
 }
 
 function chooseBotColumn(board: number[][]): number {
-  const winMove = findWinningColumn(board, CONNECT4_BOT);
-  if (winMove !== null) return winMove;
-
-  const blockMove = findWinningColumn(board, CONNECT4_USER);
-  if (blockMove !== null) return blockMove;
-
-  const priorities = [3, 2, 4, 1, 5, 0, 6];
-  for (const col of priorities) {
+  const win = findWinningColumn(board, 2);
+  if (win !== null) return win;
+  const block = findWinningColumn(board, 1);
+  if (block !== null) return block;
+  for (const col of [3, 2, 4, 1, 5, 0, 6]) {
     if (getDropRow(board, col) !== -1) return col;
   }
   return -1;
+}
+
+function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
+  const p1 = game.player1.name;
+  const p2 = game.player2?.name ?? "🤖 Bot";
+  const turnName = game.currentTurn === 1 ? p1 : (game.player2?.name ?? "Bot");
+  const turnToken = game.currentTurn === 1 ? "🔴" : "🟡";
+
+  const desc =
+    (status ? `${status}\n\n` : `${turnToken} **${turnName}'s turn** — click a column reaction!\n\n`) +
+    renderConnect4Board(game.board);
+
+  return new EmbedBuilder()
+    .setTitle(game.mode === "pvp" ? `🔴 ${p1}  vs  ${p2} 🟡` : `🔴 ${p1}  vs  🤖 Bot`)
+    .setDescription(desc)
+    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f)
+    .setFooter({ text: "React 1️⃣–7️⃣ to play • !connect4 stop to quit" });
 }
 
 export async function playConnect4(message: Message, arg?: string): Promise<void> {
   const channel = toSendable(message.channel);
   if (!channel) return;
 
-  const normalized = (arg ?? "").toLowerCase();
+  const normalized = (arg ?? "").toLowerCase().trim();
   const active = activeConnect4Games.get(channel.id);
 
+  // ── Stop ──────────────────────────────────────────────────────────────────
   if (normalized === "stop") {
     if (!active) {
-      await channel.send("🤷 Pas de partie Connect4 en cours. Lance `!connect4 test` pour commencer.");
+      await channel.send("🤷 No Connect4 game in progress here.");
       return;
     }
     activeConnect4Games.delete(channel.id);
-    await channel.send("⛔ Partie Connect4 arrêtée. Recommence quand tu veux avec `!connect4 test`.\n");
+    await channel.send("⛔ Connect4 game stopped.");
     return;
   }
 
-  if (normalized === "test" || normalized === "solo") {
-    if (active) {
-      await channel.send("Une partie est déjà en cours. Joue avec `!connect4 1` à `!connect4 7` ou arrête avec `!connect4 stop`.\n");
+  if (active) {
+    await channel.send("⚠️ A Connect4 game is already running here! Use `!connect4 stop` to end it.");
+    return;
+  }
+
+  // ── Determine mode & players ──────────────────────────────────────────────
+  const mention = message.mentions.users.first();
+  let player2: { id: string; name: string } | null = null;
+  let mode: "solo" | "pvp" = "solo";
+
+  if (mention) {
+    if (mention.bot) {
+      await channel.send("❌ You can't challenge a bot! Use `!connect4 solo` to play against me.");
       return;
     }
-
-    const board = Array.from({ length: CONNECT4_ROWS }, () => Array(CONNECT4_COLS).fill(0));
-    activeConnect4Games.set(channel.id, { board });
-
-    const embed = new EmbedBuilder()
-      .setTitle("🔴 Connect4 — Mode Solo")
-      .setDescription("Tu joues en rouge. Envoie `!connect4 1` à `!connect4 7` pour poser un jeton. Le bot répondra automatiquement. Astuce : utilise `!connect4 stop` pour terminer la partie.")
-      .addFields({ name: "Plateau", value: renderConnect4Board(board), inline: false })
-      .setColor(0xf39c12)
-      .setFooter({ text: "Tape !connect4 solo pour relancer une partie en solo." })
-      .setTimestamp();
-
-    await channel.send({ embeds: [embed] });
-    return;
+    if (mention.id === message.author.id) {
+      await channel.send("❌ You can't challenge yourself!");
+      return;
+    }
+    mode = "pvp";
+    const member = (message as Message).guild?.members.cache.get(mention.id);
+    player2 = { id: mention.id, name: member?.displayName ?? mention.username };
   }
 
-  if (!active) {
-    await channel.send("🤷 Aucune partie active. Commence avec `!connect4 test` pour jouer en solo contre le bot.");
-    return;
+  const authorMember = (message as Message).guild?.members.cache.get(message.author.id);
+  const player1 = { id: message.author.id, name: authorMember?.displayName ?? message.author.username };
+
+  const board: number[][] = Array.from({ length: CONNECT4_ROWS }, () => Array(CONNECT4_COLS).fill(0));
+  const game: Connect4Game = { board, mode, player1, player2, currentTurn: 1 };
+  activeConnect4Games.set(channel.id, game);
+
+  // ── Send game message ─────────────────────────────────────────────────────
+  const startNote =
+    mode === "pvp"
+      ? `Game started! 🔴 **${player1.name}** vs 🟡 **${player2!.name}** — it's ${player1.name}'s turn first!\n\n`
+      : undefined;
+
+  const gameMsg = await (channel as { send: (opts: unknown) => Promise<Message> }).send({
+    embeds: [buildConnect4Embed(game, startNote)],
+  });
+
+  // Add number reactions (small delay to avoid rate limit)
+  for (const emoji of CONNECT4_COL_EMOJIS) {
+    await gameMsg.react(emoji).catch(() => null);
+    await new Promise((r) => setTimeout(r, 250));
   }
 
-  const colNumber = parseInt(normalized, 10);
-  if (isNaN(colNumber) || colNumber < 1 || colNumber > CONNECT4_COLS) {
-    await channel.send("❓ Choisis une colonne valide entre 1 et 7. Par exemple : `!connect4 4`.\n");
-    return;
+  // Show proper turn description once reactions are added
+  if (startNote) {
+    await gameMsg.edit({ embeds: [buildConnect4Embed(game)] }).catch(() => null);
   }
 
-  const playerCol = colNumber - 1;
-  const playerRow = getDropRow(active.board, playerCol);
-  if (playerRow === -1) {
-    await channel.send("Cette colonne est pleine. Choisis-en une autre !");
-    return;
-  }
+  // ── Reaction collector ─────────────────────────────────────────────────────
+  const collector = (gameMsg as unknown as {
+    createReactionCollector: (opts: {
+      filter: (r: MessageReaction, u: User) => boolean;
+      time: number;
+    }) => {
+      on: (event: string, cb: (r: MessageReaction, u: User) => void) => void;
+      stop: (reason?: string) => void;
+    };
+  }).createReactionCollector({
+    filter: (reaction: MessageReaction, user: User) => {
+      if (user.bot) return false;
+      return (CONNECT4_COL_EMOJIS as readonly string[]).includes(reaction.emoji.name ?? "");
+    },
+    time: 10 * 60 * 1000,
+  });
 
-  active.board[playerRow][playerCol] = CONNECT4_USER;
-  if (checkConnect4(active.board, CONNECT4_USER)) {
-    const embed = new EmbedBuilder()
-      .setTitle("🎉 Tu as gagné !")
-      .setDescription(`Alignement parfait — bravo !`)
-      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
-      .setColor(0x2ecc71);
+  const doMove = async (colIndex: number, userId: string): Promise<"continue" | "end"> => {
+    const g = activeConnect4Games.get(channel.id);
+    if (!g) return "end";
 
-    activeConnect4Games.delete(channel.id);
-    await channel.send({ embeds: [embed] });
-    return;
-  }
+    const expectedId =
+      g.currentTurn === 1 ? g.player1.id : g.player2?.id ?? null;
+    if (expectedId !== null && userId !== expectedId) return "continue";
 
-  if (isBoardFull(active.board)) {
-    const embed = new EmbedBuilder()
-      .setTitle("🤝 Match nul")
-      .setDescription("Le plateau est plein et personne n'a aligné quatre jetons.")
-      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
-      .setColor(0x95a5a6);
+    const row = getDropRow(g.board, colIndex);
+    if (row === -1) return "continue";
 
-    activeConnect4Games.delete(channel.id);
-    await channel.send({ embeds: [embed] });
-    return;
-  }
+    const token = g.currentTurn;
+    g.board[row][colIndex] = token;
 
-  const botCol = chooseBotColumn(active.board);
-  const botRow = botCol === -1 ? -1 : getDropRow(active.board, botCol);
-  if (botRow !== -1) {
-    active.board[botRow][botCol] = CONNECT4_BOT;
-  }
+    if (checkConnect4(g.board, token)) {
+      const winnerName = token === 1 ? g.player1.name : (g.player2?.name ?? "Bot");
+      const winnerToken = token === 1 ? "🔴" : "🟡";
+      await gameMsg
+        .edit({ embeds: [buildConnect4Embed(g, `🏆 **${winnerToken} ${winnerName} wins!** Congratulations!\n\n`)] })
+        .catch(() => null);
+      activeConnect4Games.delete(channel.id);
+      collector.stop("win");
+      return "end";
+    }
 
-  if (botRow !== -1 && checkConnect4(active.board, CONNECT4_BOT)) {
-    const embed = new EmbedBuilder()
-      .setTitle("😢 Le bot a gagné")
-      .setDescription(`Le bot a joué en colonne ${botCol + 1}.`) 
-      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
-      .setColor(0xe74c3c);
+    if (isBoardFull(g.board)) {
+      await gameMsg
+        .edit({ embeds: [buildConnect4Embed(g, "🤝 **It's a draw!** The board is full.\n\n")] })
+        .catch(() => null);
+      activeConnect4Games.delete(channel.id);
+      collector.stop("draw");
+      return "end";
+    }
 
-    activeConnect4Games.delete(channel.id);
-    await channel.send({ embeds: [embed] });
-    return;
-  }
+    g.currentTurn = g.currentTurn === 1 ? 2 : 1;
+    return "continue";
+  };
 
-  if (isBoardFull(active.board)) {
-    const embed = new EmbedBuilder()
-      .setTitle("🤝 Match nul")
-      .setDescription("Le plateau est plein — personne n'a pu aligner quatre jetons.")
-      .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
-      .setColor(0x95a5a6);
+  collector.on("collect", async (reaction: MessageReaction, user: User) => {
+    const g = activeConnect4Games.get(channel.id);
+    if (!g) { collector.stop(); return; }
 
-    activeConnect4Games.delete(channel.id);
-    await channel.send({ embeds: [embed] });
-    return;
-  }
+    const emojiName = reaction.emoji.name ?? "";
+    const colIndex = (CONNECT4_COL_EMOJIS as readonly string[]).indexOf(emojiName);
+    if (colIndex === -1) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle("🔁 À ton tour !")
-    .setDescription(`Le bot a joué en colonne ${botCol + 1}. Continue avec \`!connect4 1\` à \`!connect4 7\`.`)
-    .addFields({ name: "Plateau", value: renderConnect4Board(active.board), inline: false })
-    .setColor(0xf39c12);
+    // Remove the reaction so the board stays clean
+    await (reaction.users as unknown as { remove: (id: string) => Promise<void> })
+      .remove(user.id)
+      .catch(() => null);
 
-  await channel.send({ embeds: [embed] });
+    const expectedId =
+      g.currentTurn === 1 ? g.player1.id : g.player2?.id ?? null;
+    if (expectedId !== null && user.id !== expectedId) return; // wrong player's turn
+
+    const result = await doMove(colIndex, user.id);
+    if (result === "end") return;
+
+    const g2 = activeConnect4Games.get(channel.id);
+    if (!g2) return;
+
+    await gameMsg.edit({ embeds: [buildConnect4Embed(g2)] }).catch(() => null);
+
+    // Bot turn in solo mode
+    if (g2.mode === "solo" && g2.currentTurn === 2) {
+      await new Promise((r) => setTimeout(r, 800));
+
+      const botCol = chooseBotColumn(g2.board);
+      if (botCol === -1) return;
+
+      const botResult = await doMove(botCol, "bot");
+      if (botResult === "end") return;
+
+      const g3 = activeConnect4Games.get(channel.id);
+      if (g3) {
+        await gameMsg.edit({ embeds: [buildConnect4Embed(g3)] }).catch(() => null);
+      }
+    }
+  });
+
+  collector.on("end", async (_: unknown, reason: string) => {
+    if (reason === "time") {
+      const g = activeConnect4Games.get(channel.id);
+      if (g) {
+        activeConnect4Games.delete(channel.id);
+        await gameMsg
+          .edit({ embeds: [buildConnect4Embed(g, "⏱️ **Time's up!** Game ended due to inactivity.\n\n")] })
+          .catch(() => null);
+      }
+    }
+  });
 }
