@@ -218,18 +218,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi\n`!hello` — Bienvenue 👋"
+          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Image IA 🎨\n`!say <msg>` — Je parle pour toi\n`!hello` — Bienvenue 👋\n`!sondage <question> | <choix1> | <choix2>...` — 📊 Sondage"
           : es
-          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti\n`!hello` — Bienvenida 👋"
-          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋",
+          ? "`@bot <msg>` — Chat IA 🤖\n`!image <desc>` — Imagen IA 🎨\n`!say <msg>` — Hablo por ti\n`!hello` — Bienvenida 👋\n`!sondage <pregunta> | <op1> | <op2>...` — 📊 Encuesta"
+          : "`@bot <msg>` — AI chat 🤖\n`!image <desc>` — AI image 🎨\n`!say <msg>` — I speak for you\n`!hello` — Welcome 👋\n`!sondage <question> | <choice1> | <choice2>...` — 📊 Poll",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
         value: fr
-          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` : ex. `!joke fr`"
+          ? "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <question>` 🎱\n`!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` : ex. `!joke fr`"
           : es
-          ? "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <pregunta>` 🎱 · `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` : ej. `!joke es`"
-          : "`!compliment` 💖 · `!joke` 😄 · `!encouragement` 💪 · `!hug` 🤗\n`!8ball <question>` 🎱 · `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` : e.g. `!joke fr`",
+          ? "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <pregunta>` 🎱\n`!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` : ej. `!joke es`"
+          : "`!compliment` 💖\n`!joke` 😄\n`!encouragement` 💪\n`!hug` 🤗\n`!8ball <question>` 🎱\n`!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` : e.g. `!joke fr`",
       },
     );
   } else if (page === 2) {
@@ -238,18 +238,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Abandon\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Abandon\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Rendirse\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 · `!geo stop` — Quit\n`!trivia` 🧠 · `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Rendirse\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍\n`!geo stop` — Quit\n`!trivia` 🧠\n`!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
       },
       {
         name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
         value: fr
-          ? "`!music generator <prompt>` — Génère une chanson (30-60s) 🎶\n`!music prompt` — Exemples de styles musicaux 💡\n`!balance` — Crédits Suno restants 💳"
+          ? "`!music generator <prompt>` — Génère une chanson 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
           : es
-          ? "`!music generator <prompt>` — Genera una canción (30-60s) 🎶\n`!music prompt` — Ejemplos de estilos musicales 💡\n`!balance` — Créditos Suno restantes 💳"
-          : "`!music generator <prompt>` — Generate a song (30-60s) 🎶\n`!music prompt` — Music style examples 💡\n`!balance` — Remaining Suno credits 💳",
+          ? "`!music generator <prompt>` — Genera una canción 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
+          : "`!music generator <prompt>` — Generate a song 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
       },
     );
   } else {
@@ -258,18 +258,18 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
       {
         name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
         value: fr
-          ? "`!join` 🔊 · `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
+          ? "`!join` 🔊\n`!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Sous-titres live"
           : es
-          ? "`!join` 🔊 · `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
-          : "`!join` 🔊 · `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` · `!voice resume`\n`!subtitles` — 📝 Live captions",
+          ? "`!join` 🔊\n`!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
+          : "`!join` 🔊\n`!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop`\n`!voice resume`\n`!subtitles` — 📝 Live captions",
       },
       {
         name: fr ? "📻 Radio & YouTube" : es ? "📻 Radio & YouTube" : "📻 Radio & YouTube",
         value: fr
-          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter (ex: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — En cours · `!radio leave` — Déconnecter\n`!playlist add <nom> <url>` · `!playlist play <nom>` 🎵"
+          ? "`!radio list` — Stations disponibles 📋\n`!radio <nom>` — Écouter (ex: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — En cours\n`!radio leave` — Déconnecter\n`!playlist add <nom> <url>`\n`!playlist play <nom>` 🎵"
           : es
-          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar (ej: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — Ahora · `!radio leave` — Desconectar\n`!playlist add <nom> <url>` · `!playlist play <nom>` 🎵"
-          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing · `!radio leave` — Disconnect\n`!playlist add <name> <url>` · `!playlist play <name>` 🎵",
+          ? "`!radio list` — Estaciones disponibles 📋\n`!radio <nombre>` — Escuchar (ej: `!radio nrj`)\n`!youtube <url>` — Audio YouTube 🎬\n`!np` — Ahora\n`!radio leave` — Desconectar\n`!playlist add <nombre> <url>`\n`!playlist play <nombre>` 🎵"
+          : "`!radio list` — Available stations 📋\n`!radio <name>` — Listen (e.g. `!radio nrj`)\n`!youtube <url>` — Play YouTube audio 🎬\n`!np` — Now playing\n`!radio leave` — Disconnect\n`!playlist add <name> <url>`\n`!playlist play <name>` 🎵",
       },
       {
         name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
@@ -1042,6 +1042,32 @@ export function startBot(): void {
             )
             .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" });
           await message.reply({ embeds: [embed] });
+          break;
+        }
+
+        // ── Sondage ───────────────────────────────────────────────────────────────
+        case "sondage":
+        case "poll": {
+          const POLL_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣"];
+          const raw = args.join(" ");
+          const parts = raw.split("|").map(s => s.trim()).filter(Boolean);
+          if (parts.length < 3) {
+            await message.reply("❌ Format : `!sondage <question> | <choix1> | <choix2> ...` *(2 choix minimum)*");
+            break;
+          }
+          const question = parts[0]!;
+          const choices = parts.slice(1, 10);
+          const description = choices.map((c, i) => `${POLL_EMOJIS[i]} ${c}`).join("\n");
+          const embed = new EmbedBuilder()
+            .setTitle(`📊 ${question}`)
+            .setDescription(description)
+            .setColor(0x5865f2)
+            .setFooter({ text: `Sondage de ${message.author.displayName ?? message.author.username}` });
+          const pollMsg = await message.channel.send({ embeds: [embed] });
+          for (let i = 0; i < choices.length; i++) {
+            await pollMsg.react(POLL_EMOJIS[i]!).catch(() => null);
+          }
+          await message.delete().catch(() => null);
           break;
         }
 
