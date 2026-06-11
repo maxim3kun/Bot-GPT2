@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
@@ -823,7 +823,7 @@ export function startBot(): void {
 
         case "music": {
           const prompt = interaction.options.getString("prompt", true);
-          if (!process.env["SUNO_API_KEY"]) { await interaction.editReply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
+          if (!process.env["SUNO_API_KEY"]) { await interaction.editReply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
 
           const startEmbed = new EmbedBuilder()
             .setColor(0x5865f2)
@@ -875,7 +875,7 @@ export function startBot(): void {
         case "image": {
           const desc = interaction.options.getString("description", true);
           const hfToken = process.env["HUGGINGFACE_TOKEN"];
-          if (!hfToken) { await interaction.editReply("❌ Image generation is not configured (HUGGINGFACE_TOKEN missing)."); break; }
+          if (!hfToken) { await interaction.editReply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
           try {
             const response = await fetch(
@@ -928,7 +928,7 @@ export function startBot(): void {
       const prompt = content.slice(content.indexOf(" ") + 1).trim();
       if (!prompt) { await message.reply("🎨 Give me a description! e.g. `!image a sunset over Paris`"); return; }
       const hfToken = process.env["HUGGINGFACE_TOKEN"];
-      if (!hfToken) { await message.reply("❌ Image generation is not configured (HUGGINGFACE_TOKEN missing)."); return; }
+      if (!hfToken) { await message.reply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
       try {
         const waitMsg = await message.reply("🎨 Generating your image, please wait a few seconds...");
         const response = await fetch(
@@ -959,7 +959,7 @@ export function startBot(): void {
     // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
     if (isDm && !content.startsWith(PREFIX)) {
-      if (!openai) { await message.reply("❌ AI is not configured (GROQ_API_KEY missing)."); return; }
+      if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
       try {
@@ -1097,7 +1097,7 @@ export function startBot(): void {
         }
 
         case "conspiracy": {
-          if (!openai) { await message.reply("❌ AI is not configured."); break; }
+          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           try {
             const topic = args.join(" ").trim();
             if (isSendable(message.channel)) await message.channel.sendTyping();
@@ -1150,7 +1150,7 @@ export function startBot(): void {
         }
 
         case "trivia": {
-          if (!openai) { await message.reply("❌ AI is not configured."); break; }
+          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
           break;
         }
@@ -1173,7 +1173,7 @@ export function startBot(): void {
           if (sub === "generator") {
             const prompt = args.join(" ").trim();
             if (!prompt) { await message.reply("❌ Give me a prompt! e.g. `!music generator lo-fi hip hop beats chill`"); break; }
-            if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
+            if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
 
             const startEmbed = new EmbedBuilder()
               .setColor(0x5865f2)
@@ -1236,8 +1236,66 @@ export function startBot(): void {
           break;
         }
 
+        // ── !generator music <prompt> — alias for !music generator ───────────────
+        case "generator": {
+          const genSub = args.shift()?.toLowerCase();
+          if (genSub !== "music") {
+            await message.reply("❓ Did you mean `!generator music <prompt>`?");
+            break;
+          }
+          const genPrompt = args.join(" ").trim();
+          if (!genPrompt) { await message.reply("❌ Give me a prompt! e.g. `!generator music lo-fi hip hop beats chill`"); break; }
+          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+
+          const genStartEmbed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle("🎵 Generating your track…")
+            .setDescription(`**Prompt:** ${genPrompt}`)
+            .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
+          const genReply = await message.reply({ embeds: [genStartEmbed] });
+
+          let genTaskId: string;
+          try {
+            genTaskId = await generateSong({ prompt: genPrompt });
+          } catch (err) {
+            logger.error({ err }, "Suno generate error (!generator music)");
+            await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start generation: ${String(err)}`)] });
+            break;
+          }
+
+          const GEN_POLL_INTERVAL = 8000;
+          const GEN_POLL_MAX = 15;
+          for (let attempt = 1; attempt <= GEN_POLL_MAX; attempt++) {
+            await new Promise((r) => setTimeout(r, GEN_POLL_INTERVAL));
+            let genResult;
+            try { genResult = await pollSong(genTaskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
+            const gst = genResult.status.toUpperCase();
+            if (gst === "ERROR" || gst === "FAILED" || gst === "FAILURE") {
+              await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.").addFields({ name: "Task ID", value: genTaskId })] });
+              break;
+            }
+            if (genResult.done && genResult.clips.length > 0) {
+              const genEmbeds = genResult.clips.filter((c) => c.audio_url).map((clip) => {
+                const e = new EmbedBuilder()
+                  .setColor(0x57f287)
+                  .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
+                  .setDescription(`**Prompt:** ${clip.prompt ?? genPrompt}`)
+                  .addFields({ name: "🎵 Listen", value: clip.audio_url! })
+                  .setFooter({ text: `Task ID: ${genTaskId}` });
+                if (clip.image_url) e.setThumbnail(clip.image_url);
+                if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
+                if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
+                return e;
+              });
+              if (genEmbeds.length > 0) { await genReply.edit({ embeds: genEmbeds }); break; }
+            }
+            await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your track…").setDescription(`**Prompt:** ${genPrompt}`).addFields({ name: "Status", value: genResult.status, inline: true }, { name: "Attempt", value: `${attempt}/${GEN_POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
+          }
+          break;
+        }
+
         case "balance": {
-          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
+          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           try {
             const credits = await getCredits();
             const embed = new EmbedBuilder()
@@ -1248,6 +1306,68 @@ export function startBot(): void {
             await message.reply({ embeds: [embed] });
           } catch (err) {
             await message.reply(`❌ Could not fetch credits: ${String(err)}`);
+          }
+          break;
+        }
+
+        // ── Mode d'emploi — moderator-only setup guide ───────────────────────────
+        case "mode": {
+          if (args[0]?.toLowerCase() !== "d'emploi") {
+            await message.reply("❓ Did you mean `!mode d'emploi`?");
+            break;
+          }
+          const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+            || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+          if (!isMod) {
+            await message.reply("🔒 This command is for moderators only.");
+            break;
+          }
+          const guideEmbed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle("🔧 Bot Setup Guide — Moderators Only")
+            .setDescription(
+              "Add the following **environment secrets** in your Replit project to unlock each feature.\n" +
+              "Go to **Replit → Secrets** (the 🔒 lock icon in the left sidebar), then click **+ New Secret**.\n\u200b"
+            )
+            .addFields(
+              {
+                name: "🤖 `DISCORD_TOKEN`",
+                value: "**Required** — Main bot token.\nGet it at **discord.com/developers/applications** → Your App → Bot → Reset Token.",
+                inline: false,
+              },
+              {
+                name: "🧠 `GROQ_API_KEY`",
+                value: "Enables AI features: `@mention` chat, DMs, `!conspiracy`, `!trivia`, `!ai battle`, voice AI.\nGet it **free** at **console.groq.com** → API Keys.",
+                inline: false,
+              },
+              {
+                name: "🎵 `SUNO_API_KEY`",
+                value: "Enables `!music generator` and `!credits`.\nGet it at **sunoapi.org** → API Key.",
+                inline: false,
+              },
+              {
+                name: "🖼️ `HUGGINGFACE_TOKEN`",
+                value: "Enables `!image` and `/image` (AI image generation).\nGet it **free** at **huggingface.co/settings/tokens** → New Token (Read).",
+                inline: false,
+              },
+              {
+                name: "🎤 `AUDD_API_KEY`",
+                value: "Enables `!shazam` song identification.\nGet it **free** at **audd.io** → sign up → copy your API token.",
+                inline: false,
+              },
+              {
+                name: "🤖2️ `DISCORD_TOKEN_2`",
+                value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.",
+                inline: false,
+              },
+            )
+            .setFooter({ text: "⚠️ Never share these tokens publicly — always store them in Replit Secrets, never in code." });
+
+          try {
+            await message.author.send({ embeds: [guideEmbed] });
+            await message.reply("📬 Setup guide sent to your DMs!");
+          } catch {
+            await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [guideEmbed] });
           }
           break;
         }
@@ -1509,8 +1629,8 @@ export function startBot(): void {
           }
 
           if (subcommand !== "battle") break;
-          if (!openai) { await message.reply("❌ AI is not configured."); break; }
-          if (!client2) { await message.reply("❌ Bot 2 not connected. Add `DISCORD_TOKEN_2` to secrets."); break; }
+          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          if (!client2) { await message.reply("❌ The second bot is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           if (!isSendable(message.channel)) break;
 
           const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";

@@ -110,7 +110,7 @@ async function queryAudd(apiKey: string, audioBuffer: Buffer): Promise<AuddResul
 export async function shazam(message: Message): Promise<void> {
   const apiKey = process.env["AUDD_API_KEY"];
   if (!apiKey) {
-    await message.reply("❌ Shazam is not configured — add `AUDD_API_KEY` to your environment secrets.");
+    await message.reply("❌ Shazam is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions.");
     return;
   }
 
