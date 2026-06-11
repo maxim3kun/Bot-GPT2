@@ -764,7 +764,7 @@ const activeConnect4Games = new Map<string, Connect4Game>();
 
 function renderConnect4Board(board: number[][]): string {
   const header = CONNECT4_COL_EMOJIS.join("  ");
-  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join("  ")).join("\n\n");
+  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join("  ")).join("\n");
   return `${header}\n${body}`;
 }
 
