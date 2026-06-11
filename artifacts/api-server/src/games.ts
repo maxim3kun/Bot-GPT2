@@ -844,13 +844,12 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
     description = `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣ pour jouer.\n\`!connect4 stop\` pour quitter.`;
   }
 
-  const header = CONNECT4_COL_EMOJIS.join("");
-  const body = game.board.map(row => row.map(cell => CONNECT4_TOKENS[cell]).join("")).join("\n");
+  const boardText = renderConnect4Board(game.board);
 
   return new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .addFields({ name: "Plateau", value: `${header}\n${body}` })
+    .addFields({ name: "Plateau", value: boardText })
     .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
 }
 
