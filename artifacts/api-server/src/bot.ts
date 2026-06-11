@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
@@ -9,6 +9,8 @@ import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylis
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
 import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats } from "./discord/quests";
+import { shazam } from "./discord/shazam";
+import { registerSlashCommands } from "./discord/slash";
 
 const PREFIX = "!";
 
@@ -517,6 +519,36 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
   });
 }
 
+async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, lang: HelpLanguage) {
+  let page: HelpPage = 1;
+  await interaction.editReply({ embeds: [buildHelpEmbed(lang, page)] });
+  const helpMessage = await interaction.fetchReply();
+
+  for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
+
+  const filter = (reaction: MessageReaction, user: User) =>
+    HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === interaction.user.id;
+
+  const collector = helpMessage.createReactionCollector({ filter, idle: 10 * 60 * 1000 });
+
+  collector.on("collect", async (reaction, user) => {
+    if (reaction.emoji.name === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
+    if (reaction.emoji.name === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
+    await interaction.editReply({ embeds: [buildHelpEmbed(lang, page)] });
+    await reaction.users.remove(user.id).catch(() => null);
+  });
+
+  collector.on("end", async () => {
+    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help Expired";
+    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`/help\` pour naviguer`
+      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`/help\` de nuevo para navegar`
+      : `Page ${page}/4 — ${expiredLabel} · Run \`/help\` again to navigate`;
+    const expiredEmbed = buildHelpEmbed(lang, page).setFooter({ text: expiredFooter });
+    await interaction.editReply({ embeds: [expiredEmbed] }).catch(() => null);
+    await helpMessage.reactions.removeAll().catch(() => null);
+  });
+}
+
 // ── Conversation history ──────────────────────────────────────────────────────
 
 const conversationHistory = new Map<string, ChatMessage[]>();
@@ -729,6 +761,158 @@ export function startBot(): void {
 
     const humanCount = botChannel.members.filter((m) => !m.user.bot).size;
     onVoiceAloneChange(guildId, humanCount === 0);
+  });
+
+  // ── Slash command handler ─────────────────────────────────────────────────────
+
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
+    try {
+      await interaction.deferReply();
+
+      // Fetch full GuildMember for voice-state access
+      const member = interaction.member instanceof GuildMember
+        ? interaction.member
+        : interaction.guild
+          ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+          : null;
+
+      // Minimal Message adapter so existing functions can be reused unchanged
+      const fakeMsg = {
+        guildId:   interaction.guildId,
+        channelId: interaction.channelId,
+        channel:   interaction.channel,
+        author: {
+          id:          interaction.user.id,
+          displayName: interaction.user.displayName,
+          username:    interaction.user.username,
+          bot:         false,
+        },
+        member,
+        content: "",
+        reply:   (content: unknown) => interaction.editReply(content as Parameters<typeof interaction.editReply>[0]),
+        delete:  () => Promise.resolve(),
+        react:   () => Promise.resolve(null),
+      } as unknown as Message;
+
+      switch (interaction.commandName) {
+
+        case "help": {
+          const lang = (interaction.options.getString("lang") ?? "en") as HelpLanguage;
+          await sendPaginatedHelpSlash(interaction, lang);
+          break;
+        }
+
+        case "radio": {
+          const station = interaction.options.getString("station")?.toLowerCase();
+          if (!station) {
+            await interaction.editReply({ embeds: [buildRadioListEmbed(1)] });
+          } else {
+            await playRadio(fakeMsg, station);
+          }
+          break;
+        }
+
+        case "karaoke": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const query = interaction.options.getString("song", true);
+          await startKaraoke(fakeMsg, query);
+          break;
+        }
+
+        case "music": {
+          const prompt = interaction.options.getString("prompt", true);
+          if (!process.env["SUNO_API_KEY"]) { await interaction.editReply("❌ Suno not configured (SUNO_API_KEY missing)."); break; }
+
+          const startEmbed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle("🎵 Generating your track…")
+            .setDescription(`**Prompt:** ${prompt}`)
+            .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
+          await interaction.editReply({ embeds: [startEmbed] });
+
+          let taskId: string;
+          try {
+            taskId = await generateSong({ prompt });
+          } catch (err) {
+            logger.error({ err }, "Suno /music error");
+            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start: ${String(err)}`)] });
+            break;
+          }
+
+          const SL_POLL_INTERVAL = 8000;
+          const SL_POLL_MAX = 15;
+          for (let attempt = 1; attempt <= SL_POLL_MAX; attempt++) {
+            await new Promise((r) => setTimeout(r, SL_POLL_INTERVAL));
+            let result;
+            try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
+            const st = result.status.toUpperCase();
+            if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
+              await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.")] });
+              break;
+            }
+            if (result.done && result.clips.length > 0) {
+              const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
+                const e = new EmbedBuilder()
+                  .setColor(0x57f287)
+                  .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
+                  .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
+                  .addFields({ name: "🎵 Listen", value: clip.audio_url! })
+                  .setFooter({ text: `Task ID: ${taskId}` });
+                if (clip.image_url) e.setThumbnail(clip.image_url);
+                if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
+                if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
+                return e;
+              });
+              if (embeds.length > 0) { await interaction.editReply({ embeds }); break; }
+            }
+            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${SL_POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
+          }
+          break;
+        }
+
+        case "image": {
+          const desc = interaction.options.getString("description", true);
+          const hfToken = process.env["HUGGINGFACE_TOKEN"];
+          if (!hfToken) { await interaction.editReply("❌ Image generation is not configured (HUGGINGFACE_TOKEN missing)."); break; }
+          await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
+          try {
+            const response = await fetch(
+              "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
+              { method: "POST", headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ inputs: desc }) },
+            );
+            if (!response.ok) { logger.error({ status: response.status }, "HuggingFace image error"); await interaction.editReply("❌ Generation failed. Try again later!"); break; }
+            const buffer = Buffer.from(await response.arrayBuffer());
+            await interaction.editReply({ content: `🖼️ **${desc}**`, files: [{ attachment: buffer, name: "image.png" }] });
+          } catch (err) {
+            logger.error({ err }, "/image error");
+            await interaction.editReply("❌ Error during image generation. Try again!");
+          }
+          break;
+        }
+
+        case "quest": {
+          const action = interaction.options.getString("action") ?? "start";
+          if      (action === "list")    await showQuestList(fakeMsg);
+          else if (action === "profile") await showQuestProfile(fakeMsg);
+          else if (action === "stats")   await showQuestStats(fakeMsg);
+          else if (action === "reset")   await resetQuests(fakeMsg);
+          else                           await startQuestSetup(fakeMsg, openai);
+          break;
+        }
+
+        case "shazam": {
+          await shazam(fakeMsg);
+          break;
+        }
+      }
+    } catch (err) {
+      logger.error({ err, command: interaction.commandName }, "Slash command error");
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply("❌ Something went wrong. Please try again!").catch(() => null);
+      }
+    }
   });
 
   // ── Message handler ──────────────────────────────────────────────────────────
@@ -1241,6 +1425,12 @@ export function startBot(): void {
           break;
         }
 
+        // ── Shazam ───────────────────────────────────────────────────────────────
+        case "shazam": {
+          await shazam(message);
+          break;
+        }
+
         // ── Playlist ─────────────────────────────────────────────────────────────
         case "playlist": {
           if (!message.guildId) break;
@@ -1469,6 +1659,10 @@ export function startBot(): void {
   client.once("clientReady", () => {
     startBirthdayScheduler(client);
     startQuestReminders(client, openai);
+    if (client.user) {
+      registerSlashCommands(client.user.id, token)
+        .catch((err) => logger.error({ err }, "Slash command registration failed"));
+    }
   });
 
   client.login(token).catch((err) => {
