@@ -763,8 +763,8 @@ type Connect4Game = {
 const activeConnect4Games = new Map<string, Connect4Game>();
 
 function renderConnect4Board(board: number[][]): string {
-  const header = CONNECT4_COL_EMOJIS.join("");
-  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join("")).join("\n");
+  const header = CONNECT4_COL_EMOJIS.join(" ");
+  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" ")).join("\n");
   return `${header}\n${body}`;
 }
 
@@ -836,18 +836,22 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
     description = `🔴 **${p1}** vs 🟡 **${p2}**`;
   } else if (game.lastMove) {
     const { col, byBot } = game.lastMove;
-    const actor = byBot ? "🤖 Bot" : `${game.currentTurn === 2 ? "🔴" : "🟡"} **${game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1)}**`;
-    title = `🔄 Your turn! ${turnToken} **${turnName}**`;
-    description = `${actor} played column **${col + 1}**. React with 1️⃣–7️⃣ to play.`;
+    const prevToken = game.currentTurn === 2 ? "🔴" : "🟡";
+    const prevName = game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1);
+    const actor = byBot ? "🤖 **Bot**" : `${prevToken} **${prevName}**`;
+    title = `${turnToken} Au tour de **${turnName}** !`;
+    description = `${actor} a joué colonne **${col + 1}**.\nRéagis avec 1️⃣–7️⃣ pour jouer.`;
   } else {
-    title = `🔴 **${p1}** vs 🟡 **${p2}**`;
-    description = `Let's go! ${turnToken} **${turnName}** goes first — react with 1️⃣–7️⃣ to play.\n\`!connect4 stop\` to quit.`;
+    title = `🎮 ${p1} 🔴 vs 🟡 ${p2}`;
+    description = `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣.\n\`!connect4 stop\` pour quitter.`;
   }
 
   const boardText = renderConnect4Board(game.board);
 
   return new EmbedBuilder()
-    .setDescription(`${description}\n\n${boardText}`)
+    .setTitle(title)
+    .setDescription(description)
+    .addFields({ name: "\u200b", value: boardText })
     .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
 }
 
