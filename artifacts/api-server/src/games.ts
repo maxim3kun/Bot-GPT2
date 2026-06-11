@@ -847,9 +847,7 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
   const boardText = renderConnect4Board(game.board);
 
   return new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(description)
-    .addFields({ name: "Board", value: boardText })
+    .setDescription(`${description}\n\n${boardText}`)
     .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
 }
 
