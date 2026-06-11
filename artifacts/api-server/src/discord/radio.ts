@@ -14,6 +14,7 @@ import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
+import { ytdlpInfo, ytdlpStream } from "../lib/ytdlp";
 
 // ── HTTP stream fetcher (follows redirects) ───────────────────────────────────
 
@@ -88,16 +89,10 @@ async function playNextFromQueue(guildId: string): Promise<void> {
   const url = state.queue.shift()!;
 
   try {
-    const play = await import("play-dl");
-    const info = await play.video_info(url);
-    const title = info.video_details.title ?? "Unknown";
-    const duration = info.video_details.durationInSec ?? 0;
-    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
-
-    const stream = await play.stream(url, { quality: 2 });
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type as unknown as StreamType,
-    });
+    const info = await ytdlpInfo(url);
+    const { title, duration, thumbnail } = info;
+    const audioStream = ytdlpStream(url);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
     state.stationKey = null;
     state.youtubeTitle = title;
@@ -353,16 +348,10 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait...");
 
   try {
-    const play = await import("play-dl");
-    const info = await play.video_info(url);
-    const title = info.video_details.title ?? "Unknown";
-    const duration = info.video_details.durationInSec ?? 0;
-    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
-
-    const stream = await play.stream(url, { quality: 2 });
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type as unknown as StreamType,
-    });
+    const info = await ytdlpInfo(url);
+    const { title, duration, thumbnail } = info;
+    const audioStream = ytdlpStream(url);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
     state.stationKey = null;
     state.youtubeTitle = title;
@@ -422,16 +411,10 @@ export async function startQueue(message: Message, urls: string[], playlistName?
   );
 
   try {
-    const play = await import("play-dl");
-    const info = await play.video_info(firstUrl);
-    const title = info.video_details.title ?? "Unknown";
-    const duration = info.video_details.durationInSec ?? 0;
-    const thumbnail = info.video_details.thumbnails?.[0]?.url ?? null;
-
-    const stream = await play.stream(firstUrl, { quality: 2 });
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type as unknown as StreamType,
-    });
+    const info = await ytdlpInfo(firstUrl);
+    const { title, duration, thumbnail } = info;
+    const audioStream = ytdlpStream(firstUrl);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
     state.youtubeTitle = title;
     state.youtubeUrl = firstUrl;
