@@ -11,8 +11,8 @@ import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
 import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
+import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 
-const PREFIX = "!";
 
 // ── Response pools ────────────────────────────────────────────────────────────
 
@@ -980,9 +980,10 @@ export function startBot(): void {
 
     const botId = client.user?.id ?? "";
     const content = message.content;
+    const guildPrefix = getPrefix(message.guildId);
 
     // --- Image generation ---
-    if (content.startsWith("/image ") || content.startsWith("!image ")) {
+    if (content.startsWith("/image ") || content.startsWith(`${guildPrefix}image `)) {
       const prompt = content.slice(content.indexOf(" ") + 1).trim();
       if (!prompt) { await message.reply("🎨 Give me a description! e.g. `!image a sunset over Paris`"); return; }
       const hfToken = process.env["HUGGINGFACE_TOKEN"];
@@ -1016,7 +1017,7 @@ export function startBot(): void {
 
     // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
-    if (isDm && !content.startsWith(PREFIX)) {
+    if (isDm && !content.startsWith(guildPrefix)) {
       if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
@@ -1074,9 +1075,9 @@ export function startBot(): void {
     }
 
     // --- Prefix commands ---
-    if (!content.startsWith(PREFIX)) return;
+    if (!content.startsWith(guildPrefix)) return;
 
-    const args = content.slice(PREFIX.length).trim().split(/\s+/);
+    const args = content.slice(guildPrefix.length).trim().split(/\s+/);
     const command = args.shift()?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
     try {
@@ -1383,6 +1384,52 @@ export function startBot(): void {
             break;
           }
           await sendModeratorGuide(message);
+          break;
+        }
+
+        // ── Prefix ───────────────────────────────────────────────────────────────
+        case "prefix": {
+          const currentPfx = getPrefix(message.guildId);
+
+          if (!args[0]) {
+            await message.reply(
+              `📌 Current prefix: \`${currentPfx}\`\n` +
+              `➤ Change it: \`${currentPfx}prefix <new>\` *(admin only, max 3 chars)*\n` +
+              `➤ Reset: \`${currentPfx}prefix reset\``,
+            );
+            break;
+          }
+
+          const isPrefixAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator)
+            || message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isPrefixAdmin) {
+            await message.reply("🔒 Only admins can change the prefix. (Requires **Manage Server** permission)");
+            break;
+          }
+
+          if (args[0].toLowerCase() === "reset") {
+            if (!message.guildId) break;
+            resetPrefix(message.guildId);
+            await message.reply("✅ Prefix reset to `!` (default).");
+            break;
+          }
+
+          const newPfx = args[0];
+          if (newPfx.length > 3) {
+            await message.reply("❌ Prefix must be 3 characters or less (e.g. `?`, `>>`, `$.`).");
+            break;
+          }
+          if (/\s/.test(newPfx)) {
+            await message.reply("❌ Prefix cannot contain spaces.");
+            break;
+          }
+
+          if (!message.guildId) break;
+          setPrefix(message.guildId, newPfx);
+          await message.reply(
+            `✅ Prefix changed to \`${newPfx}\`\n` +
+            `Example: \`${newPfx}help\`, \`${newPfx}radio nrj\`, \`${newPfx}music generator lo-fi\``,
+          );
           break;
         }
 
