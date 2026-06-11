@@ -38,3 +38,37 @@ export function ytdlpStream(url: string): Readable {
   proc.stderr.pipe(process.stderr);
   return proc.stdout as Readable;
 }
+
+export interface YtSearchResult {
+  title: string;
+  url: string;
+  duration: number;
+  channel: string | null;
+}
+
+export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchResult[]> {
+  const { stdout } = await execFileAsync(
+    "yt-dlp",
+    [
+      `ytsearch${count}:${query}`,
+      "--flat-playlist",
+      "--no-warnings",
+      "--print", "%(id)s\t%(title)s\t%(duration)s\t%(uploader)s",
+    ],
+    { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 },
+  );
+  const lines = stdout.trim().split("\n").filter(Boolean);
+  return lines.map((line) => {
+    const parts = line.split("\t");
+    const id = parts[0] ?? "";
+    const title = parts[1] ?? "Unknown";
+    const dur = parseInt(parts[2] ?? "0", 10);
+    const channel = parts[3] && parts[3] !== "NA" ? parts[3] : null;
+    return {
+      title,
+      url: `https://www.youtube.com/watch?v=${id}`,
+      duration: isNaN(dur) ? 0 : dur,
+      channel,
+    };
+  });
+}

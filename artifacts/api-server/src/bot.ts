@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed } from "./discord/radio";
 import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
@@ -1109,12 +1109,40 @@ export function startBot(): void {
         // ── YouTube ──────────────────────────────────────────────────────────────
         case "youtube":
         case "yt": {
-          const url = args[0];
-          if (!url) {
-            await message.reply("❓ Provide a YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
-            break;
+          const sub = args[0]?.toLowerCase();
+          if (sub === "search" || sub === "s") {
+            const query = args.slice(1).join(" ");
+            await searchAndQueue(message, query);
+          } else if (sub) {
+            await playYoutube(message, sub);
+          } else {
+            await message.reply(
+              "❓ Usage:\n" +
+              "`!youtube <url>` — play / add to queue\n" +
+              "`!youtube search <keywords>` — search and pick\n" +
+              "`!skip` — skip current track\n" +
+              "`!queue` — see what's queued"
+            );
           }
-          await playYoutube(message, url);
+          break;
+        }
+
+        // ── Skip ─────────────────────────────────────────────────────────────────
+        case "skip": {
+          await skipYoutube(message);
+          break;
+        }
+
+        // ── Queue ─────────────────────────────────────────────────────────────────
+        case "queue":
+        case "q": {
+          if (!message.guildId) break;
+          const qEmbed = getQueueEmbed(message.guildId);
+          if (!qEmbed) {
+            await message.reply("🔇 The queue is empty. Use `!youtube <url>` or `!youtube search <keywords>` to add tracks.");
+          } else {
+            await message.reply({ embeds: [qEmbed] });
+          }
           break;
         }
 
