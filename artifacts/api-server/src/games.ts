@@ -763,8 +763,8 @@ type Connect4Game = {
 const activeConnect4Games = new Map<string, Connect4Game>();
 
 function renderConnect4Board(board: number[][]): string {
-  const header = CONNECT4_COL_EMOJIS.join(" ");
-  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" ")).join("\n");
+  const header = CONNECT4_COL_EMOJIS.join("  ");
+  const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join("  ")).join("\n");
   return `${header}\n${body}`;
 }
 
@@ -850,7 +850,7 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
     .setTitle(title)
     .setDescription(description)
     .addFields({ name: "Board", value: boardText })
-    .setColor(0x1a4a9f);
+    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
 }
 
 export async function playConnect4(message: Message, arg?: string): Promise<void> {
