@@ -4,6 +4,8 @@ import type { Readable } from "stream";
 
 const execFileAsync = promisify(execFile);
 
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=android_vr,web_creator";
+
 export interface YtInfo {
   title: string;
   duration: number;
@@ -13,7 +15,7 @@ export interface YtInfo {
 export async function ytdlpInfo(url: string): Promise<YtInfo> {
   const { stdout } = await execFileAsync(
     "yt-dlp",
-    ["--print-json", "--skip-download", "--no-playlist", url],
+    ["--print-json", "--skip-download", "--no-playlist", YT_CLIENT_ARGS, url],
     { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
   );
   const data = JSON.parse(stdout.trim()) as Record<string, unknown>;
@@ -29,6 +31,7 @@ export function ytdlpStream(url: string): Readable {
     "-f", "bestaudio/best",
     "--no-playlist",
     "--quiet",
+    YT_CLIENT_ARGS,
     "-o", "-",
     url,
   ]);
