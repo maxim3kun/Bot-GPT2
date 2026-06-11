@@ -836,12 +836,12 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
     description = `🔴 **${p1}** vs 🟡 **${p2}**`;
   } else if (game.lastMove) {
     const { col, byBot } = game.lastMove;
-    const actor = byBot ? "🤖 Le bot" : `${game.currentTurn === 2 ? "🔴" : "🟡"} **${game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1)}**`;
-    title = `À ton tour ! ${turnToken} **${turnName}**`;
-    description = `${actor} a joué en colonne **${col + 1}**. Réagis avec 1️⃣–7️⃣ pour jouer.`;
+    const actor = byBot ? "🤖 Bot" : `${game.currentTurn === 2 ? "🔴" : "🟡"} **${game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1)}**`;
+    title = `🔄 Your turn! ${turnToken} **${turnName}**`;
+    description = `${actor} played column **${col + 1}**. React with 1️⃣–7️⃣ to play.`;
   } else {
     title = `🔴 **${p1}** vs 🟡 **${p2}**`;
-    description = `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣ pour jouer.\n\`!connect4 stop\` pour quitter.`;
+    description = `Let's go! ${turnToken} **${turnName}** goes first — react with 1️⃣–7️⃣ to play.\n\`!connect4 stop\` to quit.`;
   }
 
   const boardText = renderConnect4Board(game.board);
@@ -849,8 +849,8 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .addFields({ name: "Plateau", value: boardText })
-    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
+    .addFields({ name: "Board", value: boardText })
+    .setColor(0x1a4a9f);
 }
 
 export async function playConnect4(message: Message, arg?: string): Promise<void> {
@@ -959,7 +959,7 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
       const winnerName = token === 1 ? g.player1.name : (g.player2?.name ?? "Bot");
       const winnerToken = token === 1 ? "🔴" : "🟡";
       await gameMsg
-        .edit({ embeds: [buildConnect4Embed(g, `🏆 ${winnerToken} **${winnerName} gagne !** Félicitations !`)] })
+        .edit({ embeds: [buildConnect4Embed(g, `🏆 ${winnerToken} **${winnerName} wins!** Congratulations!`)] })
         .catch(() => null);
       activeConnect4Games.delete(channel.id);
       collector.stop("win");
@@ -968,7 +968,7 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
 
     if (isBoardFull(g.board)) {
       await gameMsg
-        .edit({ embeds: [buildConnect4Embed(g, "🤝 **Égalité !** Le plateau est plein.")] })
+        .edit({ embeds: [buildConnect4Embed(g, "🤝 **It's a draw!** The board is full.")] })
         .catch(() => null);
       activeConnect4Games.delete(channel.id);
       collector.stop("draw");
