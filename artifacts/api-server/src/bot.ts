@@ -505,6 +505,16 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
     await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
+
+  collector.on("end", async () => {
+    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help Expired";
+    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`!help\` pour naviguer`
+      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`!help\` de nuevo para navegar`
+      : `Page ${page}/4 — ${expiredLabel} · Run \`!help\` again to navigate`;
+    const expiredEmbed = buildHelpEmbed(lang, page).setFooter({ text: expiredFooter });
+    await helpMessage.edit({ embeds: [expiredEmbed] }).catch(() => null);
+    await helpMessage.reactions.removeAll().catch(() => null);
+  });
 }
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1100,7 +1110,7 @@ export function startBot(): void {
         case "radio": {
           const sub = args[0]?.toLowerCase();
 
-          if (!sub || sub === "list" || sub === "liste") {
+          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche") {
             let page = langToPage(args[1]?.toLowerCase()) as 1 | 2 | 3;
             const radioMsg = await message.reply({ embeds: [buildRadioListEmbed(page)] });
             await radioMsg.react("⬅️").catch(() => null);
@@ -1128,9 +1138,37 @@ export function startBot(): void {
           break;
         }
 
+        // ── Radio shortcut !r ────────────────────────────────────────────────────
+        case "r": {
+          const sub = args[0]?.toLowerCase();
+          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche") {
+            let page = langToPage(args[1]?.toLowerCase()) as 1 | 2 | 3;
+            const radioMsg = await message.reply({ embeds: [buildRadioListEmbed(page)] });
+            await radioMsg.react("⬅️").catch(() => null);
+            await radioMsg.react("➡️").catch(() => null);
+            const collector = radioMsg.createReactionCollector({
+              filter: (rx, u) => ["⬅️", "➡️"].includes(rx.emoji.name ?? "") && !u.bot && u.id === message.author.id,
+              idle: 5 * 60 * 1000,
+            });
+            collector.on("collect", async (reaction, user) => {
+              if (reaction.emoji.name === "➡️") page = (page === 3 ? 1 : page + 1) as 1 | 2 | 3;
+              if (reaction.emoji.name === "⬅️") page = (page === 1 ? 3 : page - 1) as 1 | 2 | 3;
+              await radioMsg.edit({ embeds: [buildRadioListEmbed(page)] });
+              await reaction.users.remove(user.id).catch(() => null);
+            });
+          } else if (sub === "leave" || sub === "stop") {
+            await stopRadio(message);
+          } else {
+            await playRadio(message, sub);
+          }
+          break;
+        }
+
         // ── YouTube ──────────────────────────────────────────────────────────────
         case "youtube":
-        case "yt": {
+        case "yt":
+        case "y":
+        case "yb": {
           const sub = args[0]?.toLowerCase();
           if (sub === "search" || sub === "s") {
             const query = args.slice(1).join(" ");
@@ -1188,6 +1226,7 @@ export function startBot(): void {
         }
 
         // ── Karaoke ──────────────────────────────────────────────────────────────
+        case "k":
         case "karaoke": {
           if (!message.guildId) break;
           const sub = args[0]?.toLowerCase();
@@ -1414,8 +1453,13 @@ export function startBot(): void {
           break;
         }
 
-        default:
+        default: {
+          // Direct radio station shortcut — e.g. !nrj, !heart, !kexp
+          if (command && command in RADIO_STATIONS) {
+            await playRadio(message, command);
+          }
           break;
+        }
       }
     } catch (err) {
       logger.error({ err, command }, "Command error");

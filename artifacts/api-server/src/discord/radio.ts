@@ -55,14 +55,21 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   dial:        { name: "Cadena Dial",    url: "https://25773.live.streamtheworld.com/CADENADIAL_SC",               emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
   rock_es:     { name: "Rock FM ES",     url: "https://25773.live.streamtheworld.com/ROCKFM_SC",                   emoji: "🤘", genre: "Rock",                      lang: "es" },
   cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                           emoji: "📢", genre: "News / Talk",              lang: "es" },
-  // 🇬🇧 English (geo-free streams only — BBC is UK-only)
+  // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                       emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
-  heart:       { name: "Heart FM",       url: "https://icecast.thisisdax.com/HeartFMMP3",                          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://icecast.thisisdax.com/AbsoluteRadioMP3",                    emoji: "🎸", genre: "Classic Rock",             lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartFMMP3",                       emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://media-ice.musicradio.com/AbsoluteRadioMP3",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
+  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3",                        emoji: "📻", genre: "Rock / Indie",             lang: "en" },
+  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                     emoji: "🎼", genre: "Classical",                lang: "en" },
+  magic:       { name: "Magic Radio",    url: "https://media-ice.musicradio.com/MagicMP3",                         emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
+  kiss:        { name: "Kiss FM UK",     url: "https://media-ice.musicradio.com/KISSFMMP3",                        emoji: "💋", genre: "Dance / RnB",              lang: "en" },
+  planetrock:  { name: "Planet Rock",    url: "https://media-ice.musicradio.com/PlanetRockMP3",                    emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
+  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3",                        emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
   kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                  emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
   groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",                        emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
   lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                               emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
-  jazz24:      { name: "Jazz24",         url: "https://live.wostreaming.net/direct/ppm-jazz24mp3-ibc1",            emoji: "🎷", genre: "Jazz",                     lang: "en" },
+  jazz24:      { name: "Jazz24",         url: "https://jazz24.org/stream",                                         emoji: "🎷", genre: "Jazz",                     lang: "en" },
+  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                             emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -112,7 +119,7 @@ function startIdleTimer(guildId: string): void {
   state.idleTimer = setTimeout(() => {
     const cur = radioStates.get(guildId);
     if (!cur || cur.stationKey || cur.queue.length > 0 || cur.youtubeTitle) return;
-    autoDisconnect(guildId, "😴 Inactif depuis 2 minutes — je quitte le salon vocal.");
+    autoDisconnect(guildId, "😴 Inactive for 2 minutes — leaving the voice channel.");
   }, IDLE_TIMEOUT_MS);
 }
 
@@ -123,7 +130,7 @@ export function onVoiceAloneChange(guildId: string, isAlone: boolean): void {
   if (isAlone) {
     if (!state.aloneTimer) {
       state.aloneTimer = setTimeout(() => {
-        autoDisconnect(guildId, "😶 Seul dans le salon depuis 5 minutes — je me déconnecte.");
+        autoDisconnect(guildId, "😶 Alone in the channel for 5 minutes — disconnecting.");
       }, ALONE_TIMEOUT_MS);
     }
   } else {
