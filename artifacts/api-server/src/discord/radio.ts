@@ -591,6 +591,125 @@ export async function skipYoutube(message: Message): Promise<void> {
   }
 }
 
+// ── Vote skip ─────────────────────────────────────────────────────────────────
+
+const activeVoteSkips = new Set<string>(); // one vote per guild at a time
+
+export async function startVoteSkip(message: Message): Promise<void> {
+  const guildId = message.guildId;
+  if (!guildId) return;
+
+  const state = radioStates.get(guildId);
+  if (!state?.youtubeTitle) {
+    await message.reply("❌ Rien n'est en cours de lecture.");
+    return;
+  }
+
+  if (activeVoteSkips.has(guildId)) {
+    await message.reply("🗳️ Un vote est déjà en cours, attends qu'il se termine !");
+    return;
+  }
+
+  const voiceChannel = message.member?.voice.channel;
+  if (!voiceChannel) {
+    await message.reply("❌ Tu dois être dans le salon vocal pour lancer un vote.");
+    return;
+  }
+
+  const humanMembers = voiceChannel.members.filter((m) => !m.user.bot);
+  const totalHumans = humanMembers.size;
+
+  if (totalHumans === 0) {
+    await message.reply("❌ Personne dans le salon vocal.");
+    return;
+  }
+
+  // Only one person in the channel — instant skip, no vote needed
+  if (totalHumans === 1) {
+    const skipped = state.youtubeTitle;
+    state.youtubeTitle = null;
+    state.youtubeUrl = null;
+    state.player.stop();
+    const msg = state.queue.length > 0 ? "chargement de la suivante…" : "file vide.";
+    await message.reply(`⏭️ Skip instantané — **${skipped}** (seul dans le salon). ${msg}`);
+    return;
+  }
+
+  const needed = Math.ceil(totalHumans / 2);
+  const trackTitle = state.youtubeTitle;
+  activeVoteSkips.add(guildId);
+
+  const buildEmbed = (votes: number, color: number, title: string, desc?: string) =>
+    new EmbedBuilder()
+      .setColor(color)
+      .setTitle(title)
+      .setDescription(desc ?? `Skip **${trackTitle}** ?`)
+      .addFields(
+        { name: "Votes", value: `${votes}/${needed} nécessaires`, inline: true },
+        { name: "Présents", value: `${totalHumans} humains`, inline: true },
+      )
+      .setFooter({ text: "Réagis ✅ pour voter  •  30 secondes" });
+
+  const voteMsg = await message.reply({ embeds: [buildEmbed(0, 0xfee75c, "🗳️ Vote Skip")] });
+  await voteMsg.react("✅").catch(() => null);
+
+  const voted = new Set<string>();
+
+  const collector = (voteMsg as unknown as {
+    createReactionCollector: (opts: {
+      filter: (r: { emoji: { name: string | null } }, u: { id: string; bot: boolean }) => boolean;
+      time: number;
+    }) => {
+      on: (event: string, cb: (...args: unknown[]) => void) => void;
+      stop: (reason?: string) => void;
+    };
+  }).createReactionCollector({
+    filter: (r: { emoji: { name: string | null } }, u: { id: string; bot: boolean }) => {
+      if (u.bot || r.emoji.name !== "✅") return false;
+      return voiceChannel.members.has(u.id);
+    },
+    time: 30_000,
+  });
+
+  collector.on("collect", async (...args: unknown[]) => {
+    const u = args[1] as { id: string };
+    voted.add(u.id);
+    // Update the embed live
+    await voteMsg.edit({ embeds: [buildEmbed(voted.size, 0xfee75c, "🗳️ Vote Skip")] }).catch(() => null);
+    if (voted.size >= needed) {
+      (collector as unknown as { stop: (r: string) => void }).stop("passed");
+    }
+  });
+
+  collector.on("end", async (...args: unknown[]) => {
+    const reason = args[1] as string;
+    activeVoteSkips.delete(guildId);
+    const cur = radioStates.get(guildId);
+
+    if (reason === "passed" && cur?.youtubeTitle === trackTitle) {
+      cur.youtubeTitle = null;
+      cur.youtubeUrl = null;
+      cur.player.stop();
+      const next = cur.queue.length > 0 ? " — chargement de la suivante…" : " — file vide.";
+      await voteMsg.edit({
+        embeds: [buildEmbed(
+          voted.size, 0x57f287,
+          "✅ Vote accepté !",
+          `**${trackTitle}** skippée par ${voted.size}/${totalHumans} vote${voted.size > 1 ? "s" : ""}.${next}`,
+        )],
+      }).catch(() => null);
+    } else if (reason === "time") {
+      await voteMsg.edit({
+        embeds: [buildEmbed(
+          voted.size, 0xed4245,
+          "❌ Vote échoué",
+          `Pas assez de votes pour skipper **${trackTitle}** (${voted.size}/${needed} obtenus).`,
+        )],
+      }).catch(() => null);
+    }
+  });
+}
+
 export function getQueueEmbed(guildId: string): EmbedBuilder | null {
   const state = radioStates.get(guildId);
   if (!state || (!state.youtubeTitle && state.queue.length === 0)) return null;
