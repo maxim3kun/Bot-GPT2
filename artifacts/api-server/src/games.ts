@@ -765,7 +765,7 @@ const activeConnect4Games = new Map<string, Connect4Game>();
 function renderConnect4Board(board: number[][]): string {
   const header = CONNECT4_COL_EMOJIS.join(" ");
   const body = board.map((row) => row.map((cell) => CONNECT4_TOKENS[cell]).join(" ")).join("\n");
-  return `${header}\n${body}`;
+  return `\`\`\`\n${header}\n${body}\n\`\`\``;
 }
 
 function getDropRow(board: number[][], col: number): number {
@@ -827,32 +827,48 @@ function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {
   const p2 = game.player2?.name ?? "🤖 Bot";
   const turnToken = game.currentTurn === 1 ? "🔴" : "🟡";
   const turnName = game.currentTurn === 1 ? p1 : (game.player2?.name ?? "Bot");
+  const isSolo = game.mode === "solo";
 
   let title: string;
   let description: string;
+  let color: number;
 
   if (status) {
     title = status.trim();
-    description = `🔴 **${p1}** vs 🟡 **${p2}**`;
+    description = isSolo
+      ? `🔴 **${p1}** vs 🤖 **Bot**`
+      : `🔴 **${p1}** vs 🟡 **${p2}**`;
+    color = 0x95a5a6;
   } else if (game.lastMove) {
     const { col, byBot } = game.lastMove;
-    const prevToken = game.currentTurn === 2 ? "🔴" : "🟡";
-    const prevName = game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1);
-    const actor = byBot ? "🤖 **Bot**" : `${prevToken} **${prevName}**`;
-    title = `${turnToken} Au tour de **${turnName}** !`;
-    description = `${actor} a joué colonne **${col + 1}**.\nRéagis avec 1️⃣–7️⃣ pour jouer.`;
+    const actor = byBot
+      ? "🤖 **Bot**"
+      : `${game.currentTurn === 2 ? "🔴" : "🟡"} **${game.currentTurn === 2 ? p1 : (game.player2?.name ?? p1)}**`;
+    title = `🔁 À ton tour !`;
+    description = `${actor} a joué en colonne **${col + 1}**.\nRéagis avec 1️⃣–7️⃣ pour poser ton jeton.`;
+    color = game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f;
   } else {
-    title = `🎮 ${p1} 🔴 vs 🟡 ${p2}`;
-    description = `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣.\n\`!connect4 stop\` pour quitter.`;
+    title = isSolo
+      ? "🔴 Connect4 — Mode Solo"
+      : `🎮 Connect4 — ${p1} 🔴 vs 🟡 ${p2}`;
+    description = isSolo
+      ? `Tu joues en rouge 🔴. Réagis avec 1️⃣–7️⃣ pour poser un jeton. Le bot répondra automatiquement.\nAstuce : utilise \`!connect4 stop\` pour terminer la partie.`
+      : `C'est parti ! ${turnToken} **${turnName}** commence — réagis avec 1️⃣–7️⃣ pour jouer.\n\`!connect4 stop\` pour quitter.`;
+    color = 0xf39c12;
   }
 
   const boardText = renderConnect4Board(game.board);
+  const footerText = isSolo
+    ? "Tape !connect4 solo ou !connect4 test pour relancer une partie."
+    : `🔴 ${p1} vs 🟡 ${p2}`;
 
   return new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .addFields({ name: "\u200b", value: boardText })
-    .setColor(status ? 0x95a5a6 : game.currentTurn === 1 ? 0xe74c3c : 0xf1c40f);
+    .addFields({ name: "Plateau", value: boardText, inline: false })
+    .setColor(color)
+    .setFooter({ text: footerText })
+    .setTimestamp();
 }
 
 export async function playConnect4(message: Message, arg?: string): Promise<void> {
@@ -865,16 +881,16 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
   // ── Stop ──────────────────────────────────────────────────────────────────
   if (normalized === "stop") {
     if (!active) {
-      await channel.send("🤷 No Connect4 game in progress here.");
+      await channel.send("🤷 Pas de partie Connect4 en cours. Lance `!connect4 solo` ou `!connect4 test` pour commencer.");
       return;
     }
     activeConnect4Games.delete(channel.id);
-    await channel.send("⛔ Connect4 game stopped.");
+    await channel.send("⛔ Partie Connect4 arrêtée. Recommence quand tu veux avec `!connect4 test` !");
     return;
   }
 
   if (active) {
-    await channel.send("⚠️ A Connect4 game is already running here! Use `!connect4 stop` to end it.");
+    await channel.send("⚠️ Une partie est déjà en cours ici ! Utilise `!connect4 stop` pour l'arrêter.");
     return;
   }
 
@@ -885,11 +901,11 @@ export async function playConnect4(message: Message, arg?: string): Promise<void
 
   if (mention) {
     if (mention.bot) {
-      await channel.send("❌ You can't challenge a bot! Use `!connect4 solo` to play against me.");
+      await channel.send("❌ Tu ne peux pas défier un bot ! Utilise `!connect4 solo` ou `!connect4 test` pour jouer contre moi.");
       return;
     }
     if (mention.id === message.author.id) {
-      await channel.send("❌ You can't challenge yourself!");
+      await channel.send("❌ Tu ne peux pas te défier toi-même !");
       return;
     }
     mode = "pvp";
