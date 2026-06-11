@@ -205,7 +205,7 @@ type HelpLanguage = "en" | "fr" | "es";
 type HelpPage = 1 | 2 | 3 | 4;
 const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
 
-function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
+function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
   const fr = lang === "fr"; const es = lang === "es";
   const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
   const footer = fr ? `Page ${page}/4 — ⬅️ ➡️ pour naviguer`
@@ -323,6 +323,11 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
     );
   }
 
+  if (prefix !== "!") {
+    for (const f of embed.data.fields ?? []) {
+      f.value = f.value.replaceAll("`!", `\`${prefix}`);
+    }
+  }
   return embed;
 }
 
@@ -356,7 +361,7 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
   return { topic: match.topic, lang: langOverride ?? match.lang };
 }
 
-function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
+function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
   const fr = lang === "fr"; const es = lang === "es";
   const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
   const embed = new EmbedBuilder().setColor(color);
@@ -494,12 +499,18 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage): EmbedBuilder {
             : "`!conspiracy [topic]` 🕵️ — AI conspiracy theory\n`!trivia` 🧠 — AI general knowledge quiz" },
       ); break;
   }
+  if (prefix !== "!") {
+    for (const f of embed.data.fields ?? []) {
+      f.value = f.value.replaceAll("`!", `\`${prefix}`);
+    }
+  }
   return embed;
 }
 
 async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
+  const pfx = getPrefix(message.guildId);
   let page: HelpPage = 1;
-  const helpMessage = await message.reply({ embeds: [buildHelpEmbed(lang, page)] });
+  const helpMessage = await message.reply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
 
   for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
 
@@ -512,24 +523,25 @@ async function sendPaginatedHelp(message: Message, lang: HelpLanguage) {
     const emoji = reaction.emoji.name;
     if (emoji === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
     if (emoji === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
-    await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page)] });
+    await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page, pfx)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
 
   collector.on("end", async () => {
     const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help Expired";
-    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`!help\` pour naviguer`
-      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`!help\` de nuevo para navegar`
-      : `Page ${page}/4 — ${expiredLabel} · Run \`!help\` again to navigate`;
-    const expiredEmbed = buildHelpEmbed(lang, page).setFooter({ text: expiredFooter });
+    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`${pfx}help\` pour naviguer`
+      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`${pfx}help\` de nuevo para navegar`
+      : `Page ${page}/4 — ${expiredLabel} · Run \`${pfx}help\` again to navigate`;
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
     await helpMessage.edit({ embeds: [expiredEmbed] }).catch(() => null);
     await helpMessage.reactions.removeAll().catch(() => null);
   });
 }
 
 async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, lang: HelpLanguage) {
+  const pfx = getPrefix(interaction.guildId);
   let page: HelpPage = 1;
-  await interaction.editReply({ embeds: [buildHelpEmbed(lang, page)] });
+  await interaction.editReply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
   const helpMessage = await interaction.fetchReply();
 
   for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
@@ -542,7 +554,7 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
   collector.on("collect", async (reaction, user) => {
     if (reaction.emoji.name === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
     if (reaction.emoji.name === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
-    await interaction.editReply({ embeds: [buildHelpEmbed(lang, page)] });
+    await interaction.editReply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
     await reaction.users.remove(user.id).catch(() => null);
   });
 
@@ -551,7 +563,7 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
     const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`/help\` pour naviguer`
       : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`/help\` de nuevo para navegar`
       : `Page ${page}/4 — ${expiredLabel} · Run \`/help\` again to navigate`;
-    const expiredEmbed = buildHelpEmbed(lang, page).setFooter({ text: expiredFooter });
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
     await interaction.editReply({ embeds: [expiredEmbed] }).catch(() => null);
     await helpMessage.reactions.removeAll().catch(() => null);
   });
@@ -1839,7 +1851,7 @@ export function startBot(): void {
           // Topic-specific help
           const detected = detectTopicAndLang(arg0, arg1 || undefined);
           if (detected) {
-            await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang)] });
+            await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
           } else {
             await sendPaginatedHelp(message, "en");
           }
