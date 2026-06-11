@@ -549,6 +549,64 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
   });
 }
 
+// ── Moderator setup guide helper ─────────────────────────────────────────────
+
+async function sendModeratorGuide(message: Message): Promise<void> {
+  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+  if (!isMod) {
+    await message.reply("🔒 This command is for moderators only.");
+    return;
+  }
+  const guideEmbed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🔧 Bot Setup Guide — Moderators Only")
+    .setDescription(
+      "Add the following **environment secrets** in your Replit project to unlock each feature.\n" +
+      "Go to **Replit → Secrets** (the 🔒 lock icon in the left sidebar), then click **+ New Secret**.\n\u200b"
+    )
+    .addFields(
+      {
+        name: "🤖 `DISCORD_TOKEN`",
+        value: "**Required** — Main bot token.\nGet it at **discord.com/developers/applications** → Your App → Bot → Reset Token.",
+        inline: false,
+      },
+      {
+        name: "🧠 `GROQ_API_KEY`",
+        value: "Enables AI features: `@mention` chat, DMs, `!conspiracy`, `!trivia`, `!ai battle`, voice AI.\nGet it **free** at **console.groq.com** → API Keys.",
+        inline: false,
+      },
+      {
+        name: "🎵 `SUNO_API_KEY`",
+        value: "Enables `!music generator` and `!credits`.\nGet it at **sunoapi.org** → API Key.",
+        inline: false,
+      },
+      {
+        name: "🖼️ `HUGGINGFACE_TOKEN`",
+        value: "Enables `!image` and `/image` (AI image generation).\nGet it **free** at **huggingface.co/settings/tokens** → New Token (Read).",
+        inline: false,
+      },
+      {
+        name: "🎤 `AUDD_API_KEY`",
+        value: "Enables `!shazam` song identification.\nGet it **free** at **audd.io** → sign up → copy your API token.",
+        inline: false,
+      },
+      {
+        name: "🤖2️ `DISCORD_TOKEN_2`",
+        value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.",
+        inline: false,
+      },
+    )
+    .setFooter({ text: "⚠️ Never share these tokens publicly — always store them in Replit Secrets, never in code." });
+
+  try {
+    await message.author.send({ embeds: [guideEmbed] });
+    await message.reply("📬 Setup guide sent to your DMs!");
+  } catch {
+    await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [guideEmbed] });
+  }
+}
+
 // ── Conversation history ──────────────────────────────────────────────────────
 
 const conversationHistory = new Map<string, ChatMessage[]>();
@@ -1310,65 +1368,21 @@ export function startBot(): void {
           break;
         }
 
-        // ── Mode d'emploi — moderator-only setup guide ───────────────────────────
+        // ── Moderator setup guide — multiple command aliases ──────────────────────
+        case "instruction":
+        case "guide":
+        case "guia":
+        case "guía": {
+          await sendModeratorGuide(message);
+          break;
+        }
+
         case "mode": {
           if (args[0]?.toLowerCase() !== "d'emploi") {
             await message.reply("❓ Did you mean `!mode d'emploi`?");
             break;
           }
-          const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
-            || message.member?.permissions.has(PermissionFlagsBits.Administrator);
-          if (!isMod) {
-            await message.reply("🔒 This command is for moderators only.");
-            break;
-          }
-          const guideEmbed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle("🔧 Bot Setup Guide — Moderators Only")
-            .setDescription(
-              "Add the following **environment secrets** in your Replit project to unlock each feature.\n" +
-              "Go to **Replit → Secrets** (the 🔒 lock icon in the left sidebar), then click **+ New Secret**.\n\u200b"
-            )
-            .addFields(
-              {
-                name: "🤖 `DISCORD_TOKEN`",
-                value: "**Required** — Main bot token.\nGet it at **discord.com/developers/applications** → Your App → Bot → Reset Token.",
-                inline: false,
-              },
-              {
-                name: "🧠 `GROQ_API_KEY`",
-                value: "Enables AI features: `@mention` chat, DMs, `!conspiracy`, `!trivia`, `!ai battle`, voice AI.\nGet it **free** at **console.groq.com** → API Keys.",
-                inline: false,
-              },
-              {
-                name: "🎵 `SUNO_API_KEY`",
-                value: "Enables `!music generator` and `!credits`.\nGet it at **sunoapi.org** → API Key.",
-                inline: false,
-              },
-              {
-                name: "🖼️ `HUGGINGFACE_TOKEN`",
-                value: "Enables `!image` and `/image` (AI image generation).\nGet it **free** at **huggingface.co/settings/tokens** → New Token (Read).",
-                inline: false,
-              },
-              {
-                name: "🎤 `AUDD_API_KEY`",
-                value: "Enables `!shazam` song identification.\nGet it **free** at **audd.io** → sign up → copy your API token.",
-                inline: false,
-              },
-              {
-                name: "🤖2️ `DISCORD_TOKEN_2`",
-                value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.",
-                inline: false,
-              },
-            )
-            .setFooter({ text: "⚠️ Never share these tokens publicly — always store them in Replit Secrets, never in code." });
-
-          try {
-            await message.author.send({ embeds: [guideEmbed] });
-            await message.reply("📬 Setup guide sent to your DMs!");
-          } catch {
-            await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [guideEmbed] });
-          }
+          await sendModeratorGuide(message);
           break;
         }
 
@@ -1745,6 +1759,12 @@ export function startBot(): void {
         case "aide": {
           const arg0 = (args[0] ?? "").toLowerCase();
           const arg1 = (args[1] ?? "").toLowerCase();
+
+          // Moderator admin guide — !help admin
+          if (arg0 === "admin") {
+            await sendModeratorGuide(message);
+            break;
+          }
 
           // Plain `!help`, `!help fr`, `!help es` → paginated 4-page help
           if (!arg0 || arg0 === "fr" || arg0 === "es" || arg0 === "en") {
