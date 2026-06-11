@@ -946,7 +946,7 @@ export function startBot(): void {
         }
 
         case "connect4": {
-          await playConnect4(message, args[0]);
+          await playConnect4(message, args);
           break;
         }
 
