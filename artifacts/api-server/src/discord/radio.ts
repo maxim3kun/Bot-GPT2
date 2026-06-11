@@ -76,9 +76,60 @@ interface RadioState {
   queueName: string | null;
   notifyChannel: TextChannel | null;
   guildId: string;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  aloneTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export const radioStates = new Map<string, RadioState>();
+
+// ── Auto-disconnect helpers ────────────────────────────────────────────────────
+
+const IDLE_TIMEOUT_MS   = 2 * 60 * 1000; // 2 min — nothing playing
+const ALONE_TIMEOUT_MS  = 5 * 60 * 1000; // 5 min — bot alone in channel
+
+function clearIdleTimer(state: RadioState): void {
+  if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
+}
+
+function clearAloneTimer(state: RadioState): void {
+  if (state.aloneTimer) { clearTimeout(state.aloneTimer); state.aloneTimer = null; }
+}
+
+function autoDisconnect(guildId: string, reason: string): void {
+  const state = radioStates.get(guildId);
+  if (!state) return;
+  clearIdleTimer(state);
+  clearAloneTimer(state);
+  state.player.stop();
+  radioStates.delete(guildId);
+  getVoiceConnection(guildId)?.destroy();
+  state.notifyChannel?.send(reason).catch(() => null);
+}
+
+function startIdleTimer(guildId: string): void {
+  const state = radioStates.get(guildId);
+  if (!state || state.idleTimer) return;
+  state.idleTimer = setTimeout(() => {
+    const cur = radioStates.get(guildId);
+    if (!cur || cur.stationKey || cur.queue.length > 0 || cur.youtubeTitle) return;
+    autoDisconnect(guildId, "😴 Inactif depuis 2 minutes — je quitte le salon vocal.");
+  }, IDLE_TIMEOUT_MS);
+}
+
+/** Called from bot.ts voiceStateUpdate — pass true when bot is alone, false when users are present. */
+export function onVoiceAloneChange(guildId: string, isAlone: boolean): void {
+  const state = radioStates.get(guildId);
+  if (!state) return;
+  if (isAlone) {
+    if (!state.aloneTimer) {
+      state.aloneTimer = setTimeout(() => {
+        autoDisconnect(guildId, "😶 Seul dans le salon depuis 5 minutes — je me déconnecte.");
+      }, ALONE_TIMEOUT_MS);
+    }
+  } else {
+    clearAloneTimer(state);
+  }
+}
 
 // ── Queue playback (internal) ─────────────────────────────────────────────────
 
@@ -181,7 +232,13 @@ export async function ensureVoiceConnection(message: Message): Promise<boolean> 
 
       if (s.queue.length > 0) {
         playNextFromQueue(guildId).catch((err) => logger.error({ err }, "Auto-queue error"));
+        return;
       }
+
+      // Nothing left to play — start the idle auto-disconnect timer
+      s.youtubeTitle = null;
+      s.youtubeUrl = null;
+      startIdleTimer(guildId);
     });
 
     radioStates.set(guildId, {
@@ -193,6 +250,8 @@ export async function ensureVoiceConnection(message: Message): Promise<boolean> 
       queueName: null,
       notifyChannel: null,
       guildId,
+      idleTimer: null,
+      aloneTimer: null,
     });
   } else {
     connection.subscribe(radioStates.get(guildId)!.player);
@@ -279,6 +338,7 @@ export async function playRadio(message: Message, stationKey: string): Promise<v
 
   const guildId = message.guildId!;
   const state = radioStates.get(guildId)!;
+  clearIdleTimer(state);
   state.stationKey = stationKey.toLowerCase();
   state.youtubeTitle = null;
   state.youtubeUrl = null;
@@ -325,6 +385,8 @@ export async function stopRadio(message: Message): Promise<void> {
     return;
   }
 
+  clearIdleTimer(state);
+  clearAloneTimer(state);
   state.player.stop();
   radioStates.delete(guildId);
   getVoiceConnection(guildId)?.destroy();
@@ -345,6 +407,7 @@ async function execPlayYoutube(
   const audioStream = ytdlpStream(url);
   const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
+  clearIdleTimer(state);
   state.stationKey = null;
   state.youtubeTitle = title;
   state.youtubeUrl = url;

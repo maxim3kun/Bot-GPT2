@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange } from "./discord/radio";
 import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
@@ -697,6 +697,28 @@ export function startBot(): void {
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
     client.user?.setActivity("!help · !music · !join", { type: ActivityType.Listening });
+  });
+
+  // ── Voice state — auto-disconnect when bot is alone ──────────────────────────
+
+  client.on("voiceStateUpdate", (oldState, newState) => {
+    const guildId = oldState.guild.id;
+    const botId = client.user?.id;
+    if (!botId) return;
+
+    // Find the bot's current voice channel
+    const botVoiceState = oldState.guild.members.cache.get(botId)?.voice;
+    const botChannelId = botVoiceState?.channelId;
+    if (!botChannelId) return;
+
+    // Only react if the change happened in the bot's channel
+    if (oldState.channelId !== botChannelId && newState.channelId !== botChannelId) return;
+
+    const botChannel = botVoiceState.channel;
+    if (!botChannel) return;
+
+    const humanCount = botChannel.members.filter((m) => !m.user.bot).size;
+    onVoiceAloneChange(guildId, humanCount === 0);
   });
 
   // ── Message handler ──────────────────────────────────────────────────────────
