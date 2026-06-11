@@ -312,6 +312,14 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage): EmbedBuilder {
           ? "`!credits` ✨  `!help fr` / `!help es`"
           : "`!credits` ✨  `!help fr` / `!help es`",
       },
+      {
+        name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
+        value: fr
+          ? "`!help admin` — Guide de configuration *(Gérer le serveur requis)*\n`!prefix <nouveau>` — Changer le préfixe  `!prefix reset` — Réinitialiser"
+          : es
+          ? "`!help admin` — Guía de configuración *(Gestionar servidor requerido)*\n`!prefix <nuevo>` — Cambiar prefijo  `!prefix reset` — Restablecer"
+          : "`!help admin` — Setup guide *(Manage Server required)*\n`!prefix <new>` — Change prefix  `!prefix reset` — Reset to `!`",
+      },
     );
   }
 
@@ -594,6 +602,14 @@ async function sendModeratorGuide(message: Message): Promise<void> {
       {
         name: "🤖2️ `DISCORD_TOKEN_2`",
         value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.",
+        inline: false,
+      },
+      {
+        name: "⚙️ Admin commands",
+        value:
+          "`!prefix <new>` — Change the bot prefix for this server *(max 3 chars)*\n" +
+          "`!prefix reset` — Restore the default `!` prefix\n" +
+          "`!help admin` / `!Guide` / `!Instruction` / `!Guía` / `!mode d'emploi` — Show this guide",
         inline: false,
       },
     )
