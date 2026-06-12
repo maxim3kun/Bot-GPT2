@@ -137,9 +137,12 @@ export async function handleUnknownCommand(
   // ── Opted out: stay silent ────────────────────────────────────────────────
   if (pref === false) return;
 
-  // ── Opted in: show suggestion directly ───────────────────────────────────
+  // ── Opted in: show suggestion or fallback to !help ───────────────────────
   if (pref === true) {
-    if (!match) return;
+    if (!match) {
+      await showHelpFallback(message, wrongCmd, prefix, onConfirm);
+      return;
+    }
     await showSuggestion(message, wrongCmd, prefix, match, onConfirm);
     return;
   }
@@ -291,6 +294,63 @@ async function showSuggestion(
       await reply.edit({ content: `▶️ Running \`${correctedCmd}\`…`, components: [] });
       try { await onConfirm(match); } catch {
         await reply.edit({ content: `❌ Something went wrong running \`${correctedCmd}\`.`, components: [] }).catch(() => null);
+      }
+    } else {
+      await reply.edit({ content: "👍 No problem.", components: [] });
+    }
+  });
+
+  collector.on("end", async (col) => {
+    if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
+  });
+}
+
+// ── No-match fallback: propose !help ─────────────────────────────────────────
+
+async function showHelpFallback(
+  message: Message,
+  wrongCmd: string,
+  prefix: string,
+  onConfirm: (match: CommandEntry) => Promise<void>,
+): Promise<void> {
+  const userId  = message.author.id;
+  const helpCmd = `${prefix}help`;
+  const yesId   = `sughelp_yes_${message.id}`;
+  const noId    = `sughelp_no_${message.id}`;
+
+  const helpEntry = COMMANDS.find(c => c.cmd === "help")!;
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(yesId)
+      .setLabel(`✅  Yes, show ${helpCmd}`)
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(noId)
+      .setLabel("No")
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  const reply = await message.reply({
+    content:
+      `❓ No command found for \`${prefix}${wrongCmd}\`.\n` +
+      `Would you like to see the full command list with \`${helpCmd}\`?`,
+    components: [row],
+  });
+
+  const collector = reply.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    filter: (i) => i.user.id === userId,
+    time: 30_000,
+    max: 1,
+  });
+
+  collector.on("collect", async (interaction) => {
+    await interaction.deferUpdate();
+    if (interaction.customId === yesId) {
+      await reply.edit({ content: `▶️ Running \`${helpCmd}\`…`, components: [] });
+      try { await onConfirm(helpEntry); } catch {
+        await reply.edit({ content: `❌ Something went wrong.`, components: [] }).catch(() => null);
       }
     } else {
       await reply.edit({ content: "👍 No problem.", components: [] });
