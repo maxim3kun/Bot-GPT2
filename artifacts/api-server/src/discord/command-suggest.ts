@@ -5,6 +5,7 @@ import {
   ButtonStyle,
   ComponentType,
 } from "discord.js";
+import { getSuggestPref, setSuggestPref } from "./suggest-prefs";
 
 // ── Command registry ──────────────────────────────────────────────────────────
 
@@ -16,44 +17,44 @@ export interface CommandEntry {
 }
 
 export const COMMANDS: CommandEntry[] = [
-  { cmd: "hello",         aliases: ["bonjour", "salut", "hi"],          emoji: "👋",  desc: "Salutation" },
-  { cmd: "say",                                                          emoji: "💬",  desc: "Répète un message" },
-  { cmd: "compliment",                                                   emoji: "✨",  desc: "Compliment aléatoire" },
-  { cmd: "joke",                                                         emoji: "😂",  desc: "Blague aléatoire" },
-  { cmd: "encouragement", aliases: ["cheer"],                            emoji: "💪",  desc: "Mot d'encouragement" },
-  { cmd: "hug",                                                          emoji: "🤗",  desc: "Câlin virtuel" },
-  { cmd: "8ball",                                                        emoji: "🎱",  desc: "Boule magique" },
-  { cmd: "dice",          aliases: ["roll"],                             emoji: "🎲",  desc: "Lance un dé" },
-  { cmd: "conspiracy",                                                   emoji: "🕵️", desc: "Théorie du complot (IA)" },
-  { cmd: "minesweeper",   aliases: ["mine"],                             emoji: "💣",  desc: "Démineur" },
-  { cmd: "geo",                                                          emoji: "🌍",  desc: "GeoGuessr" },
-  { cmd: "trivia",                                                       emoji: "🧠",  desc: "Quiz culture générale" },
-  { cmd: "guessnumber",   aliases: ["guess"],                            emoji: "🔢",  desc: "Devine un nombre" },
-  { cmd: "connect4",                                                     emoji: "🔴",  desc: "Puissance 4" },
-  { cmd: "music",                                                        emoji: "🎵",  desc: "Génère une chanson (Suno)" },
-  { cmd: "credits",                                                      emoji: "💰",  desc: "Crédits Suno restants" },
-  { cmd: "radio",         aliases: ["r"],                                emoji: "📻",  desc: "Lance une radio en direct" },
-  { cmd: "youtube",       aliases: ["yt", "y", "yb"],                   emoji: "▶️",  desc: "Joue une vidéo YouTube" },
-  { cmd: "skip",                                                         emoji: "⏭️",  desc: "Passe à la piste suivante" },
-  { cmd: "voteskip",      aliases: ["vs"],                               emoji: "🗳️",  desc: "Vote pour passer la piste" },
-  { cmd: "queue",         aliases: ["q"],                                emoji: "📋",  desc: "Voir la file d'attente" },
-  { cmd: "np",                                                           emoji: "🎶",  desc: "Piste en cours de lecture" },
-  { cmd: "join",                                                         emoji: "🎤",  desc: "Rejoindre le salon vocal" },
-  { cmd: "leave",                                                        emoji: "🚪",  desc: "Quitter le salon vocal" },
-  { cmd: "voice",                                                        emoji: "🔊",  desc: "Commandes vocales (stop/resume)" },
-  { cmd: "subtitles",                                                    emoji: "📝",  desc: "Activer/désactiver sous-titres" },
-  { cmd: "karaoke",       aliases: ["k"],                                emoji: "🎤",  desc: "Mode karaoké" },
-  { cmd: "shazam",                                                       emoji: "🎵",  desc: "Identifier la chanson en cours" },
-  { cmd: "playlist",                                                     emoji: "📁",  desc: "Gérer les playlists" },
-  { cmd: "ai",                                                           emoji: "🤖",  desc: "Battle IA entre deux bots" },
-  { cmd: "image",                                                        emoji: "🖼️",  desc: "Générer une image IA" },
-  { cmd: "help",          aliases: ["aide"],                             emoji: "❓",  desc: "Aide et liste des commandes" },
-  { cmd: "guide",         aliases: ["instruction", "guia"],              emoji: "📖",  desc: "Guide de configuration modérateur" },
-  { cmd: "birthday",      aliases: ["anniversaire"],                     emoji: "🎂",  desc: "Gérer les anniversaires" },
-  { cmd: "poll",          aliases: ["sondage"],                          emoji: "📊",  desc: "Créer un sondage" },
-  { cmd: "quest",                                                        emoji: "⚔️",  desc: "Système de quêtes" },
-  { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Changer le préfixe du bot" },
-  { cmd: "balance",                                                      emoji: "🏦",  desc: "Voir le solde de crédits" },
+  { cmd: "hello",         aliases: ["bonjour", "salut", "hi"],          emoji: "👋",  desc: "Send a greeting" },
+  { cmd: "say",                                                          emoji: "💬",  desc: "Repeat a message" },
+  { cmd: "compliment",                                                   emoji: "✨",  desc: "Random compliment" },
+  { cmd: "joke",                                                         emoji: "😂",  desc: "Random joke" },
+  { cmd: "encouragement", aliases: ["cheer"],                            emoji: "💪",  desc: "Word of encouragement" },
+  { cmd: "hug",                                                          emoji: "🤗",  desc: "Virtual hug" },
+  { cmd: "8ball",                                                        emoji: "🎱",  desc: "Magic 8-ball" },
+  { cmd: "dice",          aliases: ["roll"],                             emoji: "🎲",  desc: "Roll a die" },
+  { cmd: "conspiracy",                                                   emoji: "🕵️", desc: "AI conspiracy theory" },
+  { cmd: "minesweeper",   aliases: ["mine"],                             emoji: "💣",  desc: "Minesweeper game" },
+  { cmd: "geo",                                                          emoji: "🌍",  desc: "GeoGuessr game" },
+  { cmd: "trivia",                                                       emoji: "🧠",  desc: "General knowledge quiz" },
+  { cmd: "guessnumber",   aliases: ["guess"],                            emoji: "🔢",  desc: "Guess the number" },
+  { cmd: "connect4",                                                     emoji: "🔴",  desc: "Connect 4 game" },
+  { cmd: "music",                                                        emoji: "🎵",  desc: "Generate a song (Suno AI)" },
+  { cmd: "credits",                                                      emoji: "✨",  desc: "Project credits" },
+  { cmd: "balance",                                                      emoji: "💰",  desc: "Suno credits remaining" },
+  { cmd: "radio",         aliases: ["r"],                                emoji: "📻",  desc: "Play a live radio station" },
+  { cmd: "youtube",       aliases: ["yt", "y", "yb"],                   emoji: "▶️",  desc: "Play a YouTube video" },
+  { cmd: "skip",                                                         emoji: "⏭️",  desc: "Skip current track" },
+  { cmd: "voteskip",      aliases: ["vs"],                               emoji: "🗳️",  desc: "Vote to skip current track" },
+  { cmd: "queue",         aliases: ["q"],                                emoji: "📋",  desc: "View the play queue" },
+  { cmd: "np",                                                           emoji: "🎶",  desc: "Now playing" },
+  { cmd: "join",                                                         emoji: "🎤",  desc: "Join your voice channel" },
+  { cmd: "leave",                                                        emoji: "🚪",  desc: "Leave the voice channel" },
+  { cmd: "voice",                                                        emoji: "🔊",  desc: "Voice commands (stop/resume)" },
+  { cmd: "subtitles",                                                    emoji: "📝",  desc: "Toggle subtitles" },
+  { cmd: "karaoke",       aliases: ["k"],                                emoji: "🎤",  desc: "Karaoke mode" },
+  { cmd: "shazam",                                                       emoji: "🎵",  desc: "Identify the current song" },
+  { cmd: "playlist",                                                     emoji: "📁",  desc: "Manage playlists" },
+  { cmd: "ai",                                                           emoji: "🤖",  desc: "AI battle between two bots" },
+  { cmd: "image",                                                        emoji: "🖼️",  desc: "Generate an AI image" },
+  { cmd: "help",          aliases: ["aide"],                             emoji: "❓",  desc: "Help & command list" },
+  { cmd: "guide",         aliases: ["instruction", "guia"],              emoji: "📖",  desc: "Moderator setup guide" },
+  { cmd: "birthday",      aliases: ["anniversaire"],                     emoji: "🎂",  desc: "Manage birthdays" },
+  { cmd: "poll",          aliases: ["sondage"],                          emoji: "📊",  desc: "Create a poll" },
+  { cmd: "quest",                                                        emoji: "⚔️",  desc: "Quest system" },
+  { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Change the bot prefix" },
 ];
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────
@@ -97,36 +98,166 @@ export function findClosestCommand(input: string): CommandEntry | null {
       continue;
     }
 
-    const minDist = Math.min(...names.map(nm => levenshtein(n, nm)));
+    const minDist  = Math.min(...names.map(nm => levenshtein(n, nm)));
     const shortest = Math.min(...names.map(nm => nm.length));
-    const maxLen = Math.max(n.length, shortest);
-    const similarity = 1 - minDist / maxLen;
+    const maxLen   = Math.max(n.length, shortest);
+    const score    = 1 - minDist / maxLen;
 
-    if ((similarity >= 0.55 || minDist <= 2) && (!best || similarity > best.score)) {
-      best = { entry, score: similarity };
+    if ((score >= 0.55 || minDist <= 2) && (!best || score > best.score)) {
+      best = { entry, score };
     }
   }
 
   return best?.entry ?? null;
 }
 
-// ── Button suggestion UI ──────────────────────────────────────────────────────
+// ── Main entry point ──────────────────────────────────────────────────────────
 
 /**
- * Shows a fuzzy-match suggestion with a green "Oui" button.
- * Pass the pre-resolved `match` from findClosestCommand().
- * onConfirm() is called when the user clicks "Oui".
+ * Called whenever an unrecognised command is typed.
+ *
+ * Behaviour:
+ *  - User never asked  → show opt-in prompt ("want suggestions?")
+ *    → Yes: save pref, then show the suggestion with a run-button
+ *    → No:  save pref, stay silent from now on
+ *  - User opted IN  → show suggestion + run-button directly
+ *  - User opted OUT → do nothing
  */
-export async function suggestCommand(
+export async function handleUnknownCommand(
+  message: Message,
+  wrongCmd: string,
+  prefix: string,
+  onConfirm: (match: CommandEntry) => Promise<void>,
+): Promise<void> {
+  const userId = message.author.id;
+  const pref   = getSuggestPref(userId);
+  const match  = findClosestCommand(wrongCmd);
+
+  // ── Opted out: stay silent ────────────────────────────────────────────────
+  if (pref === false) return;
+
+  // ── Opted in: show suggestion directly ───────────────────────────────────
+  if (pref === true) {
+    if (!match) return;
+    await showSuggestion(message, wrongCmd, prefix, match, onConfirm);
+    return;
+  }
+
+  // ── Never asked: show opt-in prompt ──────────────────────────────────────
+  const yesOptId = `sugoptin_yes_${message.id}`;
+  const noOptId  = `sugoptin_no_${message.id}`;
+
+  const optRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(yesOptId)
+      .setLabel("✅  Yes, help me")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(noOptId)
+      .setLabel("No thanks")
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  const reply = await message.reply({
+    content:
+      `❓ Unknown command \`${prefix}${wrongCmd}\`.\n` +
+      `Would you like me to suggest corrections when you mistype a command?`,
+    components: [optRow],
+  });
+
+  const optCollector = reply.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    filter: (i) => i.user.id === userId,
+    time: 30_000,
+    max: 1,
+  });
+
+  optCollector.on("collect", async (interaction) => {
+    await interaction.deferUpdate();
+
+    if (interaction.customId === yesOptId) {
+      setSuggestPref(userId, true);
+
+      if (!match) {
+        await reply.edit({
+          content: `✅ Got it! I'll suggest corrections from now on.\nUse \`${prefix}help\` to see all available commands.`,
+          components: [],
+        });
+        return;
+      }
+
+      // Show the suggestion in the same message
+      const correctedCmd = `${prefix}${match.cmd}`;
+      const yesRunId = `sugrun_yes_${message.id}`;
+      const noRunId  = `sugrun_no_${message.id}`;
+
+      const runRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(yesRunId)
+          .setLabel(`✅  Yes, run ${correctedCmd}`)
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(noRunId)
+          .setLabel("No")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await reply.edit({
+        content:
+          `✅ Enabled! Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
+        components: [runRow],
+      });
+
+      const runCollector = reply.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        filter: (i) => i.user.id === userId,
+        time: 30_000,
+        max: 1,
+      });
+
+      runCollector.on("collect", async (i2) => {
+        await i2.deferUpdate();
+        if (i2.customId === yesRunId) {
+          await reply.edit({ content: `▶️ Running \`${correctedCmd}\`…`, components: [] });
+          try { await onConfirm(match); } catch {
+            await reply.edit({ content: `❌ Something went wrong running \`${correctedCmd}\`.`, components: [] }).catch(() => null);
+          }
+        } else {
+          await reply.edit({ content: "👍 No problem.", components: [] });
+        }
+      });
+
+      runCollector.on("end", async (col) => {
+        if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
+      });
+
+    } else {
+      setSuggestPref(userId, false);
+      await reply.edit({
+        content: `👍 No problem — I won't suggest corrections.\nUse \`${prefix}help\` to see all available commands.`,
+        components: [],
+      });
+    }
+  });
+
+  optCollector.on("end", async (col) => {
+    if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
+  });
+}
+
+// ── Direct suggestion (for opted-in users) ───────────────────────────────────
+
+async function showSuggestion(
   message: Message,
   wrongCmd: string,
   prefix: string,
   match: CommandEntry,
-  onConfirm: () => Promise<void>,
+  onConfirm: (match: CommandEntry) => Promise<void>,
 ): Promise<void> {
+  const userId       = message.author.id;
   const correctedCmd = `${prefix}${match.cmd}`;
-  const yesId = `cmdsuggest_yes_${message.id}`;
-  const noId  = `cmdsuggest_no_${message.id}`;
+  const yesId        = `sug_yes_${message.id}`;
+  const noId         = `sug_no_${message.id}`;
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -148,7 +279,7 @@ export async function suggestCommand(
 
   const collector = reply.createMessageComponentCollector({
     componentType: ComponentType.Button,
-    filter: (i) => i.user.id === message.author.id,
+    filter: (i) => i.user.id === userId,
     time: 30_000,
     max: 1,
   });
@@ -156,28 +287,16 @@ export async function suggestCommand(
   collector.on("collect", async (interaction) => {
     await interaction.deferUpdate();
     if (interaction.customId === yesId) {
-      await reply.edit({
-        content: `▶️ Lancement de \`${correctedCmd}\`…`,
-        components: [],
-      });
-      try {
-        await onConfirm();
-      } catch {
-        await reply.edit({
-          content: `❌ Une erreur s'est produite pour \`${correctedCmd}\`.`,
-          components: [],
-        }).catch(() => null);
+      await reply.edit({ content: `▶️ Running \`${correctedCmd}\`…`, components: [] });
+      try { await onConfirm(match); } catch {
+        await reply.edit({ content: `❌ Something went wrong running \`${correctedCmd}\`.`, components: [] }).catch(() => null);
       }
     } else {
-      await reply.edit({ content: "❌ Annulé.", components: [] });
+      await reply.edit({ content: "👍 No problem.", components: [] });
     }
   });
 
-  collector.on("end", async (collected) => {
-    if (collected.size === 0) {
-      await reply.edit({ components: [] }).catch(() => null);
-    }
+  collector.on("end", async (col) => {
+    if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
   });
-
-  return true;
 }

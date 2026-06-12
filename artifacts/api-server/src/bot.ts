@@ -12,7 +12,7 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { findClosestCommand, suggestCommand } from "./discord/command-suggest";
+import { handleUnknownCommand } from "./discord/command-suggest";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1872,13 +1872,11 @@ export function startBot(): void {
             break;
           }
 
-          // Fuzzy command suggestion with confirmation button
+          // Fuzzy command suggestion (with opt-in preference per user)
           if (!command) break;
-          const cmdMatch = findClosestCommand(command);
-          if (!cmdMatch) break;
 
-          await suggestCommand(message, command, guildPrefix, cmdMatch, async () => {
-            switch (cmdMatch.cmd) {
+          await handleUnknownCommand(message, command, guildPrefix, async (match) => {
+            switch (match.cmd) {
               case "hello":
                 await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
                 break;
