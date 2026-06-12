@@ -1407,7 +1407,8 @@ export function startBot(): void {
         }
 
         case "mode": {
-          if (args[0]?.toLowerCase() !== "d'emploi") {
+          const modeRest = args.join(" ").toLowerCase().replace(/['\u2019\u02BC]/g, "'");
+          if (!modeRest.includes("emploi")) {
             await message.reply("❓ Did you mean `!mode d'emploi`?");
             break;
           }
@@ -1526,8 +1527,8 @@ export function startBot(): void {
             break;
           }
 
-          // !radio <stationKey>
-          await playRadio(message, sub);
+          // !radio <stationKey or multi-word name>
+          await playRadio(message, args.join(" "));
           break;
         }
 
@@ -1552,7 +1553,7 @@ export function startBot(): void {
           } else if (sub === "leave" || sub === "stop") {
             await stopRadio(message);
           } else {
-            await playRadio(message, sub);
+            await playRadio(message, args.join(" "));
           }
           break;
         }

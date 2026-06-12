@@ -56,20 +56,20 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   rock_es:     { name: "Rock FM ES",     url: "https://25773.live.streamtheworld.com/ROCKFM_SC",                   emoji: "🤘", genre: "Rock",                      lang: "es" },
   cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                           emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
-  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                       emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
-  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartFMMP3",                       emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://media-ice.musicradio.com/AbsoluteRadioMP3",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
-  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3",                        emoji: "📻", genre: "Rock / Indie",             lang: "en" },
-  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                     emoji: "🎼", genre: "Classical",                lang: "en" },
-  magic:       { name: "Magic Radio",    url: "https://media-ice.musicradio.com/MagicMP3",                         emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
-  kiss:        { name: "Kiss FM UK",     url: "https://media-ice.musicradio.com/KISSFMMP3",                        emoji: "💋", genre: "Dance / RnB",              lang: "en" },
-  planetrock:  { name: "Planet Rock",    url: "https://media-ice.musicradio.com/PlanetRockMP3",                    emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
-  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3",                        emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
-  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                  emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
-  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",                        emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
-  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                               emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
-  jazz24:      { name: "Jazz24",         url: "https://jazz24.org/stream",                                         emoji: "🎷", genre: "Jazz",                     lang: "en" },
-  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                             emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
+  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                                                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3",                                                          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ABSOLUTE_RADIO_SC",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
+  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3",                                                         emoji: "📻", genre: "Rock / Indie",             lang: "en" },
+  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                                                      emoji: "🎼", genre: "Classical",                lang: "en" },
+  magic:       { name: "Magic Radio",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/MAGIC_RADIO_SC",                    emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
+  kiss:        { name: "Kiss FM UK",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/KISS_SC",                           emoji: "💋", genre: "Dance / RnB",              lang: "en" },
+  planetrock:  { name: "Planet Rock",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/PLANET_ROCK_SC",                    emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
+  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3",                                                         emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
+  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                                                   emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
+  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",                                                         emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
+  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                                                                emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
+  jazz24:      { name: "Jazz24",         url: "https://live.amperwave.net/direct/ppm-jazz24mp3-ibc1",                                               emoji: "🎷", genre: "Jazz",                     lang: "en" },
+  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                                                              emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -332,13 +332,93 @@ export function buildRadioListEmbed(page: 1 | 2 | 3): EmbedBuilder {
     .setFooter({ text: `Page ${page}/3 · ⬅️ ➡️ to navigate · !radio <key> to play · !radio leave to stop` });
 }
 
-export async function playRadio(message: Message, stationKey: string): Promise<void> {
-  const station = RADIO_STATIONS[stationKey.toLowerCase()];
-  if (!station) {
-    const keys = Object.keys(RADIO_STATIONS).join("`, `");
-    await message.reply(`❌ Unknown station. Available: \`${keys}\`\nSee the full list with \`!radio list\`.`);
+// ── Fuzzy station matching ────────────────────────────────────────────────────
+
+function normalizeForSearch(s: string): string {
+  return s.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+/**
+ * Resolve a raw user input to a RADIO_STATIONS key.
+ * Returns the key if found, or null.
+ * Also returns fuzzy suggestions when not found.
+ */
+function resolveStation(input: string): { key: string } | { suggestions: string[] } {
+  const norm = normalizeForSearch(input);
+  if (!norm) return { suggestions: [] };
+
+  for (const [key, station] of Object.entries(RADIO_STATIONS)) {
+    if (normalizeForSearch(key) === norm || normalizeForSearch(station.name) === norm) {
+      return { key };
+    }
+  }
+
+  const scored: { key: string; score: number }[] = [];
+  for (const [key, station] of Object.entries(RADIO_STATIONS)) {
+    const keyNorm  = normalizeForSearch(key);
+    const nameNorm = normalizeForSearch(station.name);
+
+    if (keyNorm.includes(norm) || norm.includes(keyNorm) ||
+        nameNorm.includes(norm) || norm.includes(nameNorm)) {
+      scored.push({ key, score: 0.9 });
+      continue;
+    }
+
+    const distKey  = levenshtein(norm, keyNorm);
+    const distName = levenshtein(norm, nameNorm);
+    const dist     = Math.min(distKey, distName);
+    const maxLen   = Math.max(norm.length, Math.min(keyNorm.length, nameNorm.length));
+    const similarity = 1 - dist / maxLen;
+
+    if (similarity >= 0.55 || dist <= 2) {
+      scored.push({ key, score: similarity });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return { suggestions: scored.slice(0, 3).map(r => r.key) };
+}
+
+export async function playRadio(message: Message, stationInput: string): Promise<void> {
+  const resolved = resolveStation(stationInput);
+
+  let stationKey: string;
+  if ("key" in resolved) {
+    stationKey = resolved.key;
+  } else {
+    if (resolved.suggestions.length === 0) {
+      await message.reply(
+        `❌ No station found for \`${stationInput}\`.\nSee the full list with \`!radio list\`.`,
+      );
+    } else {
+      const list = resolved.suggestions
+        .map(k => `${RADIO_STATIONS[k]!.emoji} \`${k}\` — **${RADIO_STATIONS[k]!.name}**`)
+        .join("\n");
+      await message.reply(
+        `❓ Station \`${stationInput}\` not found. Did you mean:\n${list}\n\nFull list: \`!radio list\``,
+      );
+    }
     return;
   }
+
+  const station = RADIO_STATIONS[stationKey]!;
 
   const ready = await ensureVoiceConnection(message);
   if (!ready) return;
@@ -346,7 +426,7 @@ export async function playRadio(message: Message, stationKey: string): Promise<v
   const guildId = message.guildId!;
   const state = radioStates.get(guildId)!;
   clearIdleTimer(state);
-  state.stationKey = stationKey.toLowerCase();
+  state.stationKey = stationKey;
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.queue = [];
