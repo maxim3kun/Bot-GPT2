@@ -12,6 +12,7 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
+import { findClosestCommand, suggestCommand } from "./discord/command-suggest";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1863,7 +1864,198 @@ export function startBot(): void {
           // Direct radio station shortcut — e.g. !nrj, !heart, !kexp
           if (command && command in RADIO_STATIONS) {
             await playRadio(message, command);
+            break;
           }
+
+          // Fuzzy command suggestion with confirmation button
+          if (!command) break;
+          const cmdMatch = findClosestCommand(command);
+          if (!cmdMatch) break;
+
+          await suggestCommand(message, command, guildPrefix, cmdMatch, async () => {
+            switch (cmdMatch.cmd) {
+              case "hello":
+                await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
+                break;
+              case "say": {
+                const text = args.join(" ");
+                if (!text) { await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`"); break; }
+                await message.delete().catch(() => null);
+                if (isSendable(message.channel)) await message.channel.send(text);
+                break;
+              }
+              case "compliment": {
+                const lang = parseLanguage(args[0]);
+                const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : COMPLIMENTS;
+                await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
+                break;
+              }
+              case "joke": {
+                const lang = parseLanguage(args[0]);
+                const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : JOKES;
+                await message.reply(getRandom(list));
+                break;
+              }
+              case "encouragement": {
+                const lang = parseLanguage(args[0]);
+                const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : ENCOURAGEMENTS;
+                await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
+                break;
+              }
+              case "hug": {
+                const lang = parseLanguage(args[0]);
+                const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : HUGS;
+                await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
+                break;
+              }
+              case "8ball": {
+                const question = args.join(" ");
+                if (!question) { await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`"); break; }
+                await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(EIGHT_BALL_RESPONSES)}`);
+                break;
+              }
+              case "dice": {
+                const faces = parseInt(args[0] ?? "6");
+                const nb = isNaN(faces) || faces < 2 ? 6 : Math.min(faces, 1000);
+                await message.reply(`🎲 You rolled a ${nb}-sided die and got: **${Math.floor(Math.random() * nb) + 1}**!`);
+                break;
+              }
+              case "conspiracy":
+                await message.reply(`🕵️ Type \`${guildPrefix}conspiracy ${args.join(" ")}\` to generate a theory!`);
+                break;
+              case "minesweeper": {
+                const board = playMinesweeper(message, args[0]?.toLowerCase());
+                if (board) await message.reply(board);
+                break;
+              }
+              case "geo":
+                playGeoguessr(message, (["easy","medium","hard"].includes(args[0] ?? "") ? args[0] : "easy") as "easy" | "medium" | "hard")
+                  .catch(() => null);
+                break;
+              case "trivia":
+                if (!openai) { await message.reply("❌ AI features not configured. Use `!mode d'emploi` for instructions."); break; }
+                playTrivia(message, openai).catch(() => null);
+                break;
+              case "guessnumber":
+                playGuessNumber(message).catch(() => null);
+                break;
+              case "connect4":
+                await playConnect4(message, args);
+                break;
+              case "music":
+                await message.reply(`🎵 Usage: \`${guildPrefix}music generator <description>\`\nExemple : \`${guildPrefix}music generator lo-fi chill beats\``);
+                break;
+              case "credits": {
+                const credEmbed = new EmbedBuilder()
+                  .setTitle("✨ Project Credits")
+                  .setColor(0x5865f2)
+                  .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
+                  .addFields(
+                    { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
+                    { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
+                    { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
+                    { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment", inline: false },
+                    { name: "🛠️ Technologies", value: "**discord.js** — Discord API\n**Node.js + TypeScript** — Runtime & language", inline: false },
+                  )
+                  .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" });
+                await message.reply({ embeds: [credEmbed] });
+                break;
+              }
+              case "balance":
+                if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured."); break; }
+                try {
+                  const bal = await getCredits();
+                  const balEmbed = new EmbedBuilder()
+                    .setColor(bal > 10 ? 0x57f287 : bal > 0 ? 0xfee75c : 0xed4245)
+                    .setTitle("💳 Suno Credits")
+                    .addFields({ name: "Remaining credits", value: `${bal}`, inline: true })
+                    .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
+                  await message.reply({ embeds: [balEmbed] });
+                } catch (err) {
+                  await message.reply(`❌ Could not fetch credits: ${String(err)}`);
+                }
+                break;
+              case "radio":
+                await playRadio(message, args.join(" ") || "list");
+                break;
+              case "youtube": {
+                if (args[0]?.toLowerCase() === "search") {
+                  await searchAndQueue(message, args.slice(1).join(" "));
+                } else {
+                  await playYoutube(message, args[0] ?? "");
+                }
+                break;
+              }
+              case "skip":
+                await skipYoutube(message);
+                break;
+              case "voteskip":
+                await startVoteSkip(message);
+                break;
+              case "queue": {
+                if (!message.guildId) break;
+                const qEmbed = getQueueEmbed(message.guildId);
+                if (!qEmbed) await message.reply("🔇 The queue is empty. Use `!youtube <url>` to add tracks.");
+                else await message.reply({ embeds: [qEmbed] });
+                break;
+              }
+              case "np": {
+                if (!message.guildId) break;
+                const npEmbed = nowPlaying(message.guildId);
+                if (!npEmbed) await message.reply("🔇 Nothing is currently playing.");
+                else await message.reply({ embeds: [npEmbed] });
+                break;
+              }
+              case "join":
+                await joinVoice(message);
+                break;
+              case "leave":
+                await leaveVoice(message);
+                break;
+              case "voice":
+                await message.reply(`❓ Use \`${guildPrefix}voice say <text>\`, \`${guildPrefix}voice stop\` or \`${guildPrefix}voice resume\`.`);
+                break;
+              case "subtitles":
+                await toggleSubtitles(message);
+                break;
+              case "karaoke":
+                if (!message.guildId) break;
+                await startKaraoke(message, args.join(" ").trim());
+                break;
+              case "shazam":
+                await shazam(message);
+                break;
+              case "playlist":
+                await message.reply(`📁 Usage: \`${guildPrefix}playlist add <nom> <url>\` · \`${guildPrefix}playlist play <nom>\` · \`${guildPrefix}playlist list\``);
+                break;
+              case "ai":
+                await message.reply(`🤖 Usage: \`${guildPrefix}ai battle <sujet>\` · \`${guildPrefix}ai stop\``);
+                break;
+              case "image":
+                await message.reply("🖼️ Utilise la commande slash `/image <description>` pour générer une image.");
+                break;
+              case "help":
+                await sendPaginatedHelp(message, "en");
+                break;
+              case "guide":
+                await sendModeratorGuide(message);
+                break;
+              case "birthday":
+                await handleBirthday(message, args);
+                break;
+              case "poll":
+                await message.reply(`📊 Usage: \`${guildPrefix}poll Question | Option 1 | Option 2 | ...\``);
+                break;
+              case "quest":
+                await message.reply(`⚔️ Usage: \`${guildPrefix}quest\` · \`${guildPrefix}quest list\` · \`${guildPrefix}quest done <n>\` · \`${guildPrefix}quest profile\``);
+                break;
+              case "prefix":
+                await message.reply(`⚙️ Préfixe actuel : \`${guildPrefix}\` · Changer : \`${guildPrefix}prefix <nouveau>\` (admin uniquement)`);
+                break;
+              default:
+                await message.reply(`❓ Utilise \`${guildPrefix}help\` pour voir toutes les commandes disponibles.`);
+            }
+          });
           break;
         }
       }
