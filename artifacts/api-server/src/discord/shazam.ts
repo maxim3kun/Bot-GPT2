@@ -14,11 +14,18 @@ const SAMPLE_BYTES = 160_000;
 
 // ── HTTP stream (follows redirects) ──────────────────────────────────────────
 
+const STREAM_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Icy-MetaData": "1",
+  "Connection": "keep-alive",
+  "Accept": "*/*",
+};
+
 async function openStream(url: string, hops = 0): Promise<IncomingMessage> {
   if (hops > 8) throw new Error("Too many redirects");
   return new Promise((resolve, reject) => {
     const getter = url.startsWith("https://") ? httpsGet : httpGet;
-    getter(url, (res) => {
+    getter(url, { headers: STREAM_HEADERS }, (res) => {
       const loc = res.headers.location;
       if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
         openStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
@@ -84,12 +91,40 @@ interface AuddResult {
 }
 
 async function queryAudd(apiKey: string, audioBuffer: Buffer): Promise<AuddResult | null> {
-  const form = new FormData();
-  form.append("api_token", apiKey);
-  form.append("return",    "spotify,apple_music");
-  form.append("audio", new Blob([audioBuffer], { type: "audio/mpeg" }), "sample.mp3");
+  // Build a raw multipart/form-data body — Node.js native FormData+Blob
+  // does not reliably send file parts to external APIs.
+  const boundary = `----FormBoundary${Date.now().toString(16)}`;
 
-  const res = await fetch("https://api.audd.io/", { method: "POST", body: form });
+  const bodyParts: Buffer[] = [
+    Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="api_token"\r\n\r\n` +
+      `${apiKey}\r\n`,
+    ),
+    Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="return"\r\n\r\n` +
+      `spotify,apple_music\r\n`,
+    ),
+    Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="audio"; filename="sample.mp3"\r\n` +
+      `Content-Type: audio/mpeg\r\n\r\n`,
+    ),
+    audioBuffer,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ];
+
+  const body = Buffer.concat(bodyParts);
+
+  const res = await fetch("https://api.audd.io/", {
+    method: "POST",
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      "Content-Length": String(body.length),
+    },
+    body,
+  });
   if (!res.ok) throw new Error(`AudD API HTTP ${res.status}`);
 
   const data = await res.json() as {

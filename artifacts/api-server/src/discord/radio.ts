@@ -18,11 +18,18 @@ import { ytdlpInfo, ytdlpStream, ytdlpSearch } from "../lib/ytdlp";
 
 // ── HTTP stream fetcher (follows redirects) ───────────────────────────────────
 
+const STREAM_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Icy-MetaData": "1",
+  "Connection": "keep-alive",
+  "Accept": "*/*",
+};
+
 async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
   if (hops > 8) throw new Error("Too many redirects");
   return new Promise((resolve, reject) => {
     const getter = url.startsWith("https://") ? httpsGet : httpGet;
-    getter(url, (res) => {
+    getter(url, { headers: STREAM_HEADERS }, (res) => {
       const loc = res.headers.location;
       if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
         fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
