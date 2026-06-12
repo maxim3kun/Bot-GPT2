@@ -55,6 +55,7 @@ export const COMMANDS: CommandEntry[] = [
   { cmd: "poll",          aliases: ["sondage"],                          emoji: "📊",  desc: "Create a poll" },
   { cmd: "quest",                                                        emoji: "⚔️",  desc: "Quest system" },
   { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Change the bot prefix" },
+  { cmd: "suggest",   aliases: ["suggestion", "sugerencia"],             emoji: "💡",  desc: "Turn command suggestions on or off" },
 ];
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────

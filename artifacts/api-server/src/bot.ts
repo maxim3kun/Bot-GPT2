@@ -13,6 +13,7 @@ import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { handleUnknownCommand } from "./discord/command-suggest";
+import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1463,6 +1464,31 @@ export function startBot(): void {
           break;
         }
 
+        // ── Suggest (on/off) ─────────────────────────────────────────────────────
+        case "suggest":
+        case "suggestion":
+        case "sugerencia": {
+          const sub = args[0]?.toLowerCase();
+          if (sub === "on" || sub === "off") {
+            const enabled = sub === "on";
+            setSuggestPref(message.author.id, enabled);
+            await message.reply(
+              enabled
+                ? "💡 **Suggestions enabled.** I'll help you correct typos from now on."
+                : "🔕 **Suggestions disabled.** I'll stay silent on unknown commands.\nUse `!help` to browse all commands.",
+            );
+          } else {
+            const current = getSuggestPref(message.author.id);
+            const status  = current === true ? "**on** ✅" : current === false ? "**off** 🔕" : "**not set yet**";
+            await message.reply(
+              `💡 Command suggestions are currently ${status}.\n` +
+              `➤ \`${guildPrefix}suggest on\` — enable\n` +
+              `➤ \`${guildPrefix}suggest off\` — disable`,
+            );
+          }
+          break;
+        }
+
         // ── Voice ────────────────────────────────────────────────────────────────
         case "join": {
           await joinVoice(message);
@@ -2053,10 +2079,22 @@ export function startBot(): void {
                 await message.reply(`⚔️ Usage: \`${guildPrefix}quest\` · \`${guildPrefix}quest list\` · \`${guildPrefix}quest done <n>\` · \`${guildPrefix}quest profile\``);
                 break;
               case "prefix":
-                await message.reply(`⚙️ Préfixe actuel : \`${guildPrefix}\` · Changer : \`${guildPrefix}prefix <nouveau>\` (admin uniquement)`);
+                await message.reply(`⚙️ Current prefix: \`${guildPrefix}\` · Change: \`${guildPrefix}prefix <new>\` (admin only)`);
                 break;
+              case "suggest":
+              case "suggestion":
+              case "sugerencia": {
+                const current = getSuggestPref(message.author.id);
+                const status  = current === true ? "**on** ✅" : current === false ? "**off** 🔕" : "**not set yet**";
+                await message.reply(
+                  `💡 Command suggestions are currently ${status}.\n` +
+                  `➤ \`${guildPrefix}suggest on\` — enable\n` +
+                  `➤ \`${guildPrefix}suggest off\` — disable`,
+                );
+                break;
+              }
               default:
-                await message.reply(`❓ Utilise \`${guildPrefix}help\` pour voir toutes les commandes disponibles.`);
+                await message.reply(`❓ Use \`${guildPrefix}help\` to see all available commands.`);
             }
           });
           break;
