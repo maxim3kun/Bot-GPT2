@@ -1,5 +1,5 @@
 import { type Message, EmbedBuilder } from "discord.js";
-import { get as httpsGet } from "https";
+import { get as httpsGet, request as httpsRequest } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { execFile } from "child_process";
@@ -91,53 +91,55 @@ interface AuddResult {
 }
 
 async function queryAudd(apiKey: string, audioBuffer: Buffer): Promise<AuddResult | null> {
-  // Build a raw multipart/form-data body — Node.js native FormData+Blob
-  // does not reliably send file parts to external APIs.
+  // Use https.request directly — Node.js fetch/FormData mangles multipart uploads.
   const boundary = `----FormBoundary${Date.now().toString(16)}`;
 
-  const bodyParts: Buffer[] = [
-    Buffer.from(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="api_token"\r\n\r\n` +
-      `${apiKey}\r\n`,
-    ),
-    Buffer.from(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="return"\r\n\r\n` +
-      `spotify,apple_music\r\n`,
-    ),
-    Buffer.from(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="audio"; filename="sample.mp3"\r\n` +
-      `Content-Type: audio/mpeg\r\n\r\n`,
-    ),
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="api_token"\r\n\r\n${apiKey}\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="return"\r\n\r\nspotify,apple_music\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="sample.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`),
     audioBuffer,
     Buffer.from(`\r\n--${boundary}--\r\n`),
-  ];
+  ]);
 
-  const body = Buffer.concat(bodyParts);
-
-  const res = await fetch("https://api.audd.io/", {
-    method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      "Content-Length": String(body.length),
-    },
-    body,
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      {
+        hostname: "api.audd.io",
+        path: "/",
+        method: "POST",
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": body.length,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          try {
+            const raw = Buffer.concat(chunks).toString("utf8");
+            const data = JSON.parse(raw) as {
+              status: string;
+              result?: AuddResult;
+              error?: { error_code: number; error_message: string };
+            };
+            if (data.status === "error") {
+              reject(new Error(data.error?.error_message ?? "AudD unknown error"));
+            } else {
+              resolve(data.result ?? null);
+            }
+          } catch (e) {
+            reject(e);
+          }
+        });
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
   });
-  if (!res.ok) throw new Error(`AudD API HTTP ${res.status}`);
-
-  const data = await res.json() as {
-    status: string;
-    result?: AuddResult;
-    error?:  { error_code: number; error_message: string };
-  };
-
-  if (data.status === "error") {
-    throw new Error(data.error?.error_message ?? "AudD unknown error");
-  }
-
-  return data.result ?? null;
 }
 
 // ── Public command ────────────────────────────────────────────────────────────
