@@ -90,7 +90,12 @@ export function findClosestCommand(input: string): CommandEntry | null {
   let best: { entry: CommandEntry; score: number } | null = null;
 
   for (const entry of COMMANDS) {
-    const names = [entry.cmd, ...(entry.aliases ?? [])].map(normalizeCmd);
+    const names    = [entry.cmd, ...(entry.aliases ?? [])].map(normalizeCmd);
+    const shortest = Math.min(...names.map(nm => nm.length));
+
+    // Reject immediately if the input is more than twice the command length —
+    // that can never be a real typo (e.g. "geyejdjd" vs "geo")
+    if (n.length > shortest * 2 + 1) continue;
 
     if (names.some(nm => nm === n)) return entry;
 
@@ -99,17 +104,40 @@ export function findClosestCommand(input: string): CommandEntry | null {
       continue;
     }
 
-    const minDist  = Math.min(...names.map(nm => levenshtein(n, nm)));
-    const shortest = Math.min(...names.map(nm => nm.length));
-    const maxLen   = Math.max(n.length, shortest);
-    const score    = 1 - minDist / maxLen;
+    const minDist = Math.min(...names.map(nm => levenshtein(n, nm)));
+    const maxLen  = Math.max(n.length, shortest);
+    const score   = 1 - minDist / maxLen;
 
-    if ((score >= 0.55 || minDist <= 2) && (!best || score > best.score)) {
+    // minDist ≤ 2 only counts when lengths are close (avoid false positives)
+    const lenClose = Math.abs(n.length - shortest) <= 2;
+    if ((score >= 0.60 || (minDist <= 2 && lenClose)) && (!best || score > best.score)) {
       best = { entry, score };
     }
   }
 
   return best?.entry ?? null;
+}
+
+// ── Anti-spam / troll tracker ─────────────────────────────────────────────────
+
+const trollTracker = new Map<string, { count: number; since: number }>();
+const TROLL_WINDOW_MS = 30_000;
+const TROLL_THRESHOLD = 3;
+
+/** Records one unknown-command hit for a user. Returns true if troll threshold reached. */
+function recordUnknown(userId: string): boolean {
+  const now   = Date.now();
+  const entry = trollTracker.get(userId);
+  if (!entry || now - entry.since > TROLL_WINDOW_MS) {
+    trollTracker.set(userId, { count: 1, since: now });
+    return false;
+  }
+  entry.count++;
+  if (entry.count >= TROLL_THRESHOLD) {
+    trollTracker.delete(userId); // reset so they can try again later
+    return true;
+  }
+  return false;
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -136,6 +164,14 @@ export async function handleUnknownCommand(
 
   // ── Opted out: stay silent ────────────────────────────────────────────────
   if (pref === false) return;
+
+  // ── Troll / spam detection ────────────────────────────────────────────────
+  if (recordUnknown(userId)) {
+    await message.reply(
+      `You're a troll 🧌\nIf you're genuinely lost, use \`${prefix}help\` to see all available commands.`,
+    );
+    return;
+  }
 
   // ── Opted in: show suggestion or fallback to !help ───────────────────────
   if (pref === true) {
