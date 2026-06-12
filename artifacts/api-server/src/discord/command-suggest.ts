@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
+  PermissionFlagsBits,
 } from "discord.js";
 import { getSuggestPref, setSuggestPref } from "./suggest-prefs";
 
@@ -56,6 +57,7 @@ export const COMMANDS: CommandEntry[] = [
   { cmd: "quest",                                                        emoji: "⚔️",  desc: "Quest system" },
   { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Change the bot prefix" },
   { cmd: "suggest",   aliases: ["suggestion", "sugerencia"],             emoji: "💡",  desc: "Turn command suggestions on or off" },
+  { cmd: "unblock",                                                      emoji: "🔓",  desc: "Unblock a user (admin only)" },
 ];
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────
@@ -93,10 +95,7 @@ export function findClosestCommand(input: string): CommandEntry | null {
     const names    = [entry.cmd, ...(entry.aliases ?? [])].map(normalizeCmd);
     const shortest = Math.min(...names.map(nm => nm.length));
 
-    // Reject immediately if the input is more than twice the command length —
-    // that can never be a real typo (e.g. "geyejdjd" vs "geo")
     if (n.length > shortest * 2 + 1) continue;
-
     if (names.some(nm => nm === n)) return entry;
 
     if (names.some(nm => nm.includes(n) || n.includes(nm))) {
@@ -108,7 +107,6 @@ export function findClosestCommand(input: string): CommandEntry | null {
     const maxLen  = Math.max(n.length, shortest);
     const score   = 1 - minDist / maxLen;
 
-    // minDist ≤ 2 only counts when lengths are close (avoid false positives)
     const lenClose = Math.abs(n.length - shortest) <= 2;
     if ((score >= 0.60 || (minDist <= 2 && lenClose)) && (!best || score > best.score)) {
       best = { entry, score };
@@ -118,13 +116,131 @@ export function findClosestCommand(input: string): CommandEntry | null {
   return best?.entry ?? null;
 }
 
-// ── Anti-spam / troll tracker ─────────────────────────────────────────────────
+// ── Escalating troll-ban system ───────────────────────────────────────────────
+//
+// Level 0 — warned (troll message shown, no block yet)
+// Level 1 — 3-min unknown-command block (real commands still work)
+// Level 2 — 12h unknown-command block (real commands still work)
+// Level 3 — 2h full block (ALL commands including !help) + admin notify
+// Level 4 — permanent full ban + admin notify
+
+interface BanRecord {
+  level: 0 | 1 | 2 | 3 | 4;
+  blockedUntil: number;   // epoch ms; 0 = not blocked; Infinity = permanent
+  levelSetAt: number;     // when this level was imposed
+  permanent: boolean;
+}
+
+export interface BlockStatus {
+  blocked: boolean;
+  fullBlock: boolean;   // true = all commands blocked (levels 3 & 4)
+  permanent: boolean;
+  remainingMs: number;  // ms until unblock; 0 if permanent
+  level: number;
+}
+
+const banMap = new Map<string, BanRecord>();
+
+const L1_DURATION  = 3  * 60 * 1000;               // 3 minutes
+const L2_DURATION  = 12 * 60 * 60 * 1000;           // 12 hours
+const L3_DURATION  = 2  * 60 * 60 * 1000;           // 2 hours
+const L1_WINDOW    = 6  * 60 * 60 * 1000;           // reoffend within 6h after L1 → L2
+const L2_WINDOW    = 12 * 60 * 60 * 1000;           // reoffend within 12h after L2 → L3
+const L3_WINDOW    = 3  * 24 * 60 * 60 * 1000;      // reoffend within 3 days after L3 → L4
+
+/** Returns the current full-block status (levels 3 & 4). Level 1/2 are handled inside handleUnknownCommand. */
+export function checkCommandBlock(userId: string): BlockStatus {
+  const rec = banMap.get(userId);
+  if (!rec) return { blocked: false, fullBlock: false, permanent: false, remainingMs: 0, level: 0 };
+
+  const now = Date.now();
+
+  if (rec.permanent) {
+    return { blocked: true, fullBlock: true, permanent: true, remainingMs: 0, level: 4 };
+  }
+
+  if (rec.level >= 3 && rec.blockedUntil > now) {
+    return { blocked: true, fullBlock: true, permanent: false, remainingMs: rec.blockedUntil - now, level: rec.level };
+  }
+
+  return { blocked: false, fullBlock: false, permanent: false, remainingMs: 0, level: rec.level };
+}
+
+/** Unblocks a user. Returns false if the user had no record. */
+export function unblockUser(userId: string): boolean {
+  if (!banMap.has(userId)) return false;
+  banMap.delete(userId);
+  return true;
+}
+
+/** Escalates the troll level for a user. Returns the new record. */
+function escalateTroll(userId: string): BanRecord {
+  const now = Date.now();
+  const rec = banMap.get(userId);
+
+  if (!rec) {
+    // First troll detection → warning (level 0, no block)
+    const newRec: BanRecord = { level: 0, blockedUntil: 0, levelSetAt: now, permanent: false };
+    banMap.set(userId, newRec);
+    return newRec;
+  }
+
+  if (rec.permanent) return rec;
+
+  const age = now - rec.levelSetAt;
+
+  switch (rec.level) {
+    case 0: {
+      // Was warned → 3-min unknown-command block
+      const newRec: BanRecord = { level: 1, blockedUntil: now + L1_DURATION, levelSetAt: now, permanent: false };
+      banMap.set(userId, newRec);
+      return newRec;
+    }
+    case 1: {
+      if (age <= L1_WINDOW) {
+        // Within 6h → 12h unknown-command block
+        const newRec: BanRecord = { level: 2, blockedUntil: now + L2_DURATION, levelSetAt: now, permanent: false };
+        banMap.set(userId, newRec);
+        return newRec;
+      }
+      // Window expired → reset to warning
+      const newRec: BanRecord = { level: 0, blockedUntil: 0, levelSetAt: now, permanent: false };
+      banMap.set(userId, newRec);
+      return newRec;
+    }
+    case 2: {
+      if (age <= L2_WINDOW) {
+        // Within 12h → 2h full block
+        const newRec: BanRecord = { level: 3, blockedUntil: now + L3_DURATION, levelSetAt: now, permanent: false };
+        banMap.set(userId, newRec);
+        return newRec;
+      }
+      const newRec: BanRecord = { level: 0, blockedUntil: 0, levelSetAt: now, permanent: false };
+      banMap.set(userId, newRec);
+      return newRec;
+    }
+    case 3: {
+      if (age <= L3_WINDOW) {
+        // Within 3 days → permanent ban
+        const newRec: BanRecord = { level: 4, blockedUntil: Infinity, levelSetAt: now, permanent: true };
+        banMap.set(userId, newRec);
+        return newRec;
+      }
+      const newRec: BanRecord = { level: 0, blockedUntil: 0, levelSetAt: now, permanent: false };
+      banMap.set(userId, newRec);
+      return newRec;
+    }
+    case 4:
+      return rec;
+  }
+}
+
+// ── Rapid-fire unknown tracker (initial troll detection gate) ─────────────────
 
 const trollTracker = new Map<string, { count: number; since: number }>();
-const TROLL_WINDOW_MS = 30_000;
-const TROLL_THRESHOLD = 3;
+const TROLL_WINDOW_MS  = 30_000;
+const TROLL_THRESHOLD  = 3;
 
-/** Records one unknown-command hit for a user. Returns true if troll threshold reached. */
 function recordUnknown(userId: string): boolean {
   const now   = Date.now();
   const entry = trollTracker.get(userId);
@@ -134,24 +250,103 @@ function recordUnknown(userId: string): boolean {
   }
   entry.count++;
   if (entry.count >= TROLL_THRESHOLD) {
-    trollTracker.delete(userId); // reset so they can try again later
+    trollTracker.delete(userId);
     return true;
   }
   return false;
 }
 
+// ── Formatting helpers ────────────────────────────────────────────────────────
+
+function fmtDuration(ms: number): string {
+  if (ms <= 0) return "a moment";
+  const totalSec = Math.ceil(ms / 1000);
+  if (totalSec < 60) return `${totalSec} second${totalSec !== 1 ? "s" : ""}`;
+  const totalMin = Math.ceil(totalSec / 60);
+  if (totalMin < 60) return `${totalMin} minute${totalMin !== 1 ? "s" : ""}`;
+  const totalHr = Math.ceil(totalMin / 60);
+  return `${totalHr} hour${totalHr !== 1 ? "s" : ""}`;
+}
+
+// ── Admin notify button helper ────────────────────────────────────────────────
+
+async function sendAdminNotify(
+  message: Message,
+  content: string,
+  buttonId: string,
+): Promise<void> {
+  const notifyId = `${buttonId}_${message.id}`;
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(notifyId)
+      .setLabel("🔔 Notify an Admin")
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  const reply = await message.reply({ content, components: [row] });
+
+  const collector = reply.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    time: 10 * 60 * 1000,
+    max: 1,
+  });
+
+  collector.on("collect", async (interaction) => {
+    await interaction.deferUpdate();
+
+    // Ping roles with Administrator or ManageGuild in this guild
+    let adminPing = "@here";
+    if (message.guild) {
+      const adminRoles = message.guild.roles.cache.filter(
+        (r) =>
+          r.permissions.has(PermissionFlagsBits.Administrator) ||
+          r.permissions.has(PermissionFlagsBits.ManageGuild),
+      );
+      if (adminRoles.size > 0) {
+        adminPing = adminRoles.map((r) => `<@&${r.id}>`).join(" ");
+      }
+    }
+
+    await reply.edit({ components: [] });
+    if (message.channel && "send" in message.channel) {
+      await (message.channel as { send: (c: string) => Promise<unknown> }).send(
+        `${adminPing} 🚨 **Admin action needed** — <@${message.author.id}> has been flagged by the bot's anti-troll system and needs an admin review. Use \`!unblock @${message.author.username}\` to lift the restriction if appropriate.`,
+      );
+    }
+  });
+
+  collector.on("end", async (col) => {
+    if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
+  });
+}
+
+// ── Full-block message (called from bot.ts for levels 3 & 4) ─────────────────
+
+export async function sendBlockedMessage(
+  message: Message,
+  status: BlockStatus,
+  prefix: string,
+): Promise<void> {
+  if (status.permanent) {
+    await sendAdminNotify(
+      message,
+      `⛔ **You are permanently banned** from using bot commands.\nYou have been flagged too many times for spamming junk commands.\nOnly an admin can free you with \`${prefix}unblock @${message.author.username}\`.`,
+      "admin_perma",
+    );
+    return;
+  }
+
+  const remaining = fmtDuration(status.remainingMs);
+  await sendAdminNotify(
+    message,
+    `🔒 **All commands are locked** for **${remaining}**.\nYou pushed it too far — even \`${prefix}help\` is off-limits until the timer expires.\nAn admin can unblock you early with \`${prefix}unblock @${message.author.username}\`.`,
+    "admin_fullblock",
+  );
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
-/**
- * Called whenever an unrecognised command is typed.
- *
- * Behaviour:
- *  - User never asked  → show opt-in prompt ("want suggestions?")
- *    → Yes: save pref, then show the suggestion with a run-button
- *    → No:  save pref, stay silent from now on
- *  - User opted IN  → show suggestion + run-button directly
- *  - User opted OUT → do nothing
- */
 export async function handleUnknownCommand(
   message: Message,
   wrongCmd: string,
@@ -159,43 +354,49 @@ export async function handleUnknownCommand(
   onConfirm: (match: CommandEntry) => Promise<void>,
 ): Promise<void> {
   const userId = message.author.id;
-  const pref   = getSuggestPref(userId);
-  const match  = findClosestCommand(wrongCmd);
+  const rec    = banMap.get(userId);
+  const now    = Date.now();
 
-  // ── Opted out: stay silent ────────────────────────────────────────────────
-  if (pref === false) return;
-
-  // ── Troll / spam detection ────────────────────────────────────────────────
-  if (recordUnknown(userId)) {
-    await message.reply(
-      `You're a troll 🧌\nIf you're genuinely lost, use \`${prefix}help\` to see all available commands.`,
-    );
+  // ── Active level-1 or level-2 block: escalate immediately ─────────────────
+  if (rec && !rec.permanent && (rec.level === 1 || rec.level === 2) && rec.blockedUntil > now) {
+    const escalated = escalateTroll(userId);
+    await handleEscalation(message, prefix, escalated);
     return;
   }
 
-  // ── Opted in: show suggestion or fallback to !help ───────────────────────
+  // ── Level 0 (warned): any further bad command escalates ───────────────────
+  if (rec && rec.level === 0) {
+    const escalated = escalateTroll(userId);
+    await handleEscalation(message, prefix, escalated);
+    return;
+  }
+
+  // ── No record (or expired block): use rapid-fire gate ─────────────────────
+  const pref  = getSuggestPref(userId);
+  if (pref === false) return;
+
+  const match = findClosestCommand(wrongCmd);
+
+  if (recordUnknown(userId)) {
+    const escalated = escalateTroll(userId);
+    await handleEscalation(message, prefix, escalated);
+    return;
+  }
+
+  // ── Normal suggestion flow ─────────────────────────────────────────────────
   if (pref === true) {
-    if (!match) {
-      await showHelpFallback(message, wrongCmd, prefix, onConfirm);
-      return;
-    }
+    if (!match) { await showHelpFallback(message, wrongCmd, prefix, onConfirm); return; }
     await showSuggestion(message, wrongCmd, prefix, match, onConfirm);
     return;
   }
 
-  // ── Never asked: show opt-in prompt ──────────────────────────────────────
+  // Never asked — opt-in prompt
   const yesOptId = `sugoptin_yes_${message.id}`;
   const noOptId  = `sugoptin_no_${message.id}`;
 
   const optRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(yesOptId)
-      .setLabel("✅  Yes, help me")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(noOptId)
-      .setLabel("No thanks")
-      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesOptId).setLabel("✅  Yes, help me").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noOptId).setLabel("No thanks").setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
@@ -219,32 +420,21 @@ export async function handleUnknownCommand(
       setSuggestPref(userId, true);
 
       if (!match) {
-        await reply.edit({
-          content: `✅ Got it! I'll suggest corrections from now on.\nUse \`${prefix}help\` to see all available commands.`,
-          components: [],
-        });
+        await reply.edit({ content: `✅ Got it! I'll suggest corrections from now on.\nUse \`${prefix}help\` to see all available commands.`, components: [] });
         return;
       }
 
-      // Show the suggestion in the same message
       const correctedCmd = `${prefix}${match.cmd}`;
       const yesRunId = `sugrun_yes_${message.id}`;
       const noRunId  = `sugrun_no_${message.id}`;
 
       const runRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(yesRunId)
-          .setLabel(`✅  Yes, run ${correctedCmd}`)
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(noRunId)
-          .setLabel("No")
-          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(yesRunId).setLabel(`✅  Yes, run ${correctedCmd}`).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(noRunId).setLabel("No").setStyle(ButtonStyle.Secondary),
       );
 
       await reply.edit({
-        content:
-          `✅ Enabled! Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
+        content: `✅ Enabled! Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
         components: [runRow],
       });
 
@@ -285,6 +475,64 @@ export async function handleUnknownCommand(
   });
 }
 
+// ── Escalation message dispatcher ────────────────────────────────────────────
+
+async function handleEscalation(message: Message, prefix: string, rec: BanRecord): Promise<void> {
+  const user = message.author.username;
+
+  switch (rec.level) {
+    case 0: {
+      // First troll warning
+      await message.reply(
+        `🧌 **You're a troll.**\n` +
+        `If you're genuinely lost, use \`${prefix}help\` to see all available commands.\n` +
+        `**Don't push it** — one more junk command and you'll be blocked for 3 minutes.`,
+      );
+      break;
+    }
+    case 1: {
+      // 3-min unknown-command block
+      await message.reply(
+        `⏱️ **3-minute restriction.** You had your warning.\n` +
+        `Junk commands are locked for **3 minutes** — real commands still work.\n` +
+        `Use \`${prefix}help\` to see what's actually available.`,
+      );
+      break;
+    }
+    case 2: {
+      // 12h unknown-command block
+      await message.reply(
+        `🚫 **12-hour restriction.** Still not getting it?\n` +
+        `You can't send unknown commands for **12 hours**. Real commands still work fine.\n` +
+        `Try \`${prefix}help\` if you want to see the full list.`,
+      );
+      break;
+    }
+    case 3: {
+      // 2h full block — send with admin notify button
+      await sendAdminNotify(
+        message,
+        `🔒 **2-hour full lockout, ${user}.**\n` +
+        `Every command — including \`${prefix}help\` — is disabled for **2 hours**.\n` +
+        `An admin can unblock you early with \`${prefix}unblock @${user}\`.`,
+        "admin_fullblock_esc",
+      );
+      break;
+    }
+    case 4: {
+      // Permanent ban
+      await sendAdminNotify(
+        message,
+        `⛔ **Permanent ban, ${user}.**\n` +
+        `You've repeatedly abused the bot after multiple warnings and lockouts.\n` +
+        `Only an admin can unblock you with \`${prefix}unblock @${user}\`.`,
+        "admin_perma_esc",
+      );
+      break;
+    }
+  }
+}
+
 // ── Direct suggestion (for opted-in users) ───────────────────────────────────
 
 async function showSuggestion(
@@ -300,14 +548,8 @@ async function showSuggestion(
   const noId         = `sug_no_${message.id}`;
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(yesId)
-      .setLabel(`✅  Yes, run ${correctedCmd}`)
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(noId)
-      .setLabel("No")
-      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesId).setLabel(`✅  Yes, run ${correctedCmd}`).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
@@ -357,14 +599,8 @@ async function showHelpFallback(
   const helpEntry = COMMANDS.find(c => c.cmd === "help")!;
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(yesId)
-      .setLabel(`✅  Yes, show ${helpCmd}`)
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(noId)
-      .setLabel("No")
-      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesId).setLabel(`✅  Yes, show ${helpCmd}`).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({

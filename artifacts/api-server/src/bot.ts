@@ -12,7 +12,7 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { handleUnknownCommand } from "./discord/command-suggest";
+import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 
 
@@ -317,10 +317,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
         value: fr
-          ? "`!help admin` — Guide de configuration *(Gérer le serveur requis)*\n`!prefix <nouveau>` — Changer le préfixe  `!prefix reset` — Réinitialiser"
+          ? "`!help admin` — Guide de configuration *(Gérer le serveur requis)*\n`!prefix <nouveau>` — Changer le préfixe  `!prefix reset` — Réinitialiser\n`!unblock @user` — Débloquer un utilisateur banni par l'anti-troll"
           : es
-          ? "`!help admin` — Guía de configuración *(Gestionar servidor requerido)*\n`!prefix <nuevo>` — Cambiar prefijo  `!prefix reset` — Restablecer"
-          : "`!help admin` — Setup guide *(Manage Server required)*\n`!prefix <new>` — Change prefix  `!prefix reset` — Reset to `!`",
+          ? "`!help admin` — Guía de configuración *(Gestionar servidor requerido)*\n`!prefix <nuevo>` — Cambiar prefijo  `!prefix reset` — Restablecer\n`!unblock @user` — Desbloquear un usuario baneado por el anti-troll"
+          : "`!help admin` — Setup guide *(Manage Server required)*\n`!prefix <new>` — Change prefix  `!prefix reset` — Reset to `!`\n`!unblock @user` — Unblock a user banned by the anti-troll system",
       },
     );
   }
@@ -623,7 +623,20 @@ async function sendModeratorGuide(message: Message): Promise<void> {
         value:
           "`!prefix <new>` — Change the bot prefix for this server *(max 3 chars)*\n" +
           "`!prefix reset` — Restore the default `!` prefix\n" +
+          "`!unblock @user` — Lift any bot restriction on a user *(can unblock yourself too)*\n" +
           "`!help admin` / `!Guide` / `!Instruction` / `!Guía` / `!mode d'emploi` — Show this guide",
+        inline: false,
+      },
+      {
+        name: "🛡️ Anti-troll escalation system",
+        value:
+          "The bot auto-escalates users who repeatedly send junk commands:\n" +
+          "**1st trigger** — Warning: *\"Don't push it\"*\n" +
+          "**2nd trigger** — 3-min unknown-command block *(real commands still work)*\n" +
+          "**3rd trigger** *(within 6h)* — 12h unknown-command block\n" +
+          "**4th trigger** *(within 12h)* — 2h **full** lockout *(all commands including !help)* + admin alert button\n" +
+          "**5th trigger** *(within 3 days)* — **Permanent ban** + admin alert button\n" +
+          "Use `!unblock @user` to release anyone at any stage.",
         inline: false,
       },
     )
@@ -1109,6 +1122,21 @@ export function startBot(): void {
 
     const args = content.slice(guildPrefix.length).trim().split(/\s+/);
     const command = args.shift()?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // ── Full-block gate (levels 3 & 4) ────────────────────────────────────────
+    // Admins can always use !unblock (including on themselves)
+    {
+      const isAdmin =
+        message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+        message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+
+      const blockStatus = checkCommandBlock(message.author.id);
+
+      if (blockStatus.blocked && !(isAdmin && command === "unblock")) {
+        await sendBlockedMessage(message, blockStatus, guildPrefix);
+        return;
+      }
+    }
 
     try {
       switch (command) {
@@ -1858,6 +1886,31 @@ export function startBot(): void {
             else await message.reply("❓ Usage: `!quest bully on` or `!quest bully off`");
           } else {
             await message.reply("❓ Commands: `!quest start` · `!quest add <goal>` · `!quest list` · `!quest done <n>` · `!quest profile` · `!quest reset`");
+          }
+          break;
+        }
+
+        // ── Unblock (admin only) ─────────────────────────────────────────────────
+        case "unblock": {
+          const isAdmin =
+            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isAdmin) {
+            await message.reply("🔒 Only admins can use this command.");
+            break;
+          }
+          // Get mentioned user from args — accept <@id> or <@!id>
+          const mentionMatch = args[0]?.match(/^<@!?(\d+)>$/);
+          const targetId = mentionMatch?.[1];
+          if (!targetId) {
+            await message.reply(`❓ Usage: \`${guildPrefix}unblock @user\``);
+            break;
+          }
+          const wasBanned = unblockUser(targetId);
+          if (wasBanned) {
+            await message.reply(`✅ <@${targetId}> has been unblocked and can use bot commands again.`);
+          } else {
+            await message.reply(`ℹ️ <@${targetId}> isn't currently blocked.`);
           }
           break;
         }
