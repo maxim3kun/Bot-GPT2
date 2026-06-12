@@ -1571,13 +1571,18 @@ export function startBot(): void {
           } else if (sub) {
             await playYoutube(message, sub);
           } else {
-            await message.reply(
-              "❓ Usage:\n" +
-              "`!youtube <url>` — play / add to queue\n" +
-              "`!youtube search <keywords>` — search and pick\n" +
-              "`!skip` — skip current track\n" +
-              "`!queue` — see what's queued"
-            );
+            const ytEmbed = new EmbedBuilder()
+              .setColor(0xed4245)
+              .setTitle("▶️ YouTube — How to use")
+              .addFields(
+                { name: "`!youtube <url>`",            value: "Play a video or add it to the queue",    inline: false },
+                { name: "`!youtube search <keywords>`", value: "Search YouTube and pick from results",   inline: false },
+                { name: "`!skip`",                     value: "Skip the current track",                 inline: false },
+                { name: "`!queue`",                    value: "See what's coming up in the queue",      inline: false },
+                { name: "`!np`",                       value: "Show the currently playing track",       inline: false },
+              )
+              .setFooter({ text: "Tip: !youtube search lo-fi beats • !radio list to browse radio" });
+            await message.reply({ embeds: [ytEmbed] });
           }
           break;
         }

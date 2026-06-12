@@ -131,18 +131,18 @@ export async function suggestCommand(
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(yesId)
-      .setLabel(`✅  Oui, lancer ${correctedCmd}`)
+      .setLabel(`✅  Yes, run ${correctedCmd}`)
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(noId)
-      .setLabel("Non")
+      .setLabel("No")
       .setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
     content:
-      `❓ Commande \`${prefix}${wrongCmd}\` introuvable.\n` +
-      `Voulais-tu dire ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}* ?`,
+      `❓ Unknown command \`${prefix}${wrongCmd}\`.\n` +
+      `Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
     components: [row],
   });
 
