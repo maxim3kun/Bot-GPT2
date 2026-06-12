@@ -317,10 +317,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
         value: fr
-          ? "`!help admin` — Guide de configuration *(Gérer le serveur requis)*\n`!prefix <nouveau>` — Changer le préfixe  `!prefix reset` — Réinitialiser\n`!unblock @user` — Débloquer un utilisateur banni par l'anti-troll"
+          ? "`!help admin` — Guide complet pour les modérateurs *(Gérer le serveur requis)*"
           : es
-          ? "`!help admin` — Guía de configuración *(Gestionar servidor requerido)*\n`!prefix <nuevo>` — Cambiar prefijo  `!prefix reset` — Restablecer\n`!unblock @user` — Desbloquear un usuario baneado por el anti-troll"
-          : "`!help admin` — Setup guide *(Manage Server required)*\n`!prefix <new>` — Change prefix  `!prefix reset` — Reset to `!`\n`!unblock @user` — Unblock a user banned by the anti-troll system",
+          ? "`!help admin` — Guía completa para moderadores *(Gestionar servidor requerido)*"
+          : "`!help admin` — Full guide for moderators *(Manage Server required)*",
       },
     );
   }
