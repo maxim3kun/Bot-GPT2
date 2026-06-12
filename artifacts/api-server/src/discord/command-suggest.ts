@@ -173,6 +173,30 @@ export function unblockUser(userId: string): boolean {
   return true;
 }
 
+export interface BanListEntry {
+  userId: string;
+  level: 0 | 1 | 2 | 3 | 4;
+  permanent: boolean;
+  remainingMs: number;   // 0 if permanent or level 0 (warned)
+  levelSetAt: number;
+}
+
+/** Returns all users with an active ban record (any level ≥ 0). */
+export function getBanList(): BanListEntry[] {
+  const now = Date.now();
+  const entries: BanListEntry[] = [];
+  for (const [userId, rec] of banMap) {
+    entries.push({
+      userId,
+      level: rec.level,
+      permanent: rec.permanent,
+      remainingMs: rec.permanent ? 0 : Math.max(0, rec.blockedUntil - now),
+      levelSetAt: rec.levelSetAt,
+    });
+  }
+  return entries.sort((a, b) => b.level - a.level);
+}
+
 /** Escalates the troll level for a user. Returns the new record. */
 function escalateTroll(userId: string): BanRecord {
   const now = Date.now();

@@ -12,7 +12,7 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser } from "./discord/command-suggest";
+import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 
 
@@ -624,6 +624,7 @@ async function sendModeratorGuide(message: Message): Promise<void> {
           "`!prefix <new>` — Change the bot prefix for this server *(max 3 chars)*\n" +
           "`!prefix reset` — Restore the default `!` prefix\n" +
           "`!unblock @user` — Lift any bot restriction on a user *(can unblock yourself too)*\n" +
+          "`!banlist` — View all users flagged by the anti-troll system with their status\n" +
           "`!help admin` / `!Guide` / `!Instruction` / `!Guía` / `!mode d'emploi` — Show this guide",
         inline: false,
       },
@@ -1912,6 +1913,96 @@ export function startBot(): void {
           } else {
             await message.reply(`ℹ️ <@${targetId}> isn't currently blocked.`);
           }
+          break;
+        }
+
+        // ── Ban list (admin only) ─────────────────────────────────────────────────
+        case "banlist": {
+          const isAdmin =
+            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isAdmin) {
+            await message.reply("🔒 Only admins can use this command.");
+            break;
+          }
+
+          const list = getBanList();
+          if (list.length === 0) {
+            await message.reply("✅ No users are currently flagged by the anti-troll system.");
+            break;
+          }
+
+          const LEVEL_LABELS: Record<number, string> = {
+            0: "⚠️ Warned",
+            1: "⏱️ 3-min block",
+            2: "🚫 12h block",
+            3: "🔒 2h full lock",
+            4: "⛔ Permanent ban",
+          };
+
+          function fmtRemaining(ms: number, permanent: boolean): string {
+            if (permanent) return "**Permanent**";
+            if (ms <= 0) return "Expired";
+            const totalMin = Math.ceil(ms / 60_000);
+            if (totalMin < 60) return `${totalMin} min left`;
+            const hr = Math.floor(totalMin / 60);
+            const min = totalMin % 60;
+            return min > 0 ? `${hr}h ${min}m left` : `${hr}h left`;
+          }
+
+          // Build a paginated embed — up to 15 users per page
+          const PAGE_SIZE = 15;
+          const pages = Math.ceil(list.length / PAGE_SIZE);
+          let page = 0;
+
+          function buildBanListEmbed(p: number): EmbedBuilder {
+            const slice = list.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
+            const lines = slice.map((e, idx) => {
+              const label = LEVEL_LABELS[e.level] ?? `Level ${e.level}`;
+              const timer = fmtRemaining(e.remainingMs, e.permanent);
+              return `${p * PAGE_SIZE + idx + 1}. <@${e.userId}> — ${label} · ${timer}`;
+            });
+            return new EmbedBuilder()
+              .setColor(0xe74c3c)
+              .setTitle(`🛡️ Anti-Troll Flagged Users (${list.length} total)`)
+              .setDescription(lines.join("\n"))
+              .setFooter({ text: `Page ${p + 1}/${pages} · Use ${guildPrefix}unblock @user to lift any restriction` });
+          }
+
+          if (pages === 1) {
+            await message.reply({ embeds: [buildBanListEmbed(0)] });
+            break;
+          }
+
+          // Multi-page with buttons
+          const prevId = `banlist_prev_${message.id}`;
+          const nextId = `banlist_next_${message.id}`;
+
+          function buildPageRow(p: number) {
+            return new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder().setCustomId(prevId).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(p === 0),
+              new ButtonBuilder().setCustomId(nextId).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(p === pages - 1),
+            );
+          }
+
+          const blReply = await message.reply({ embeds: [buildBanListEmbed(page)], components: [buildPageRow(page)] });
+
+          const blCollector = blReply.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            filter: (i) => i.user.id === message.author.id,
+            time: 120_000,
+          });
+
+          blCollector.on("collect", async (i) => {
+            await i.deferUpdate();
+            if (i.customId === nextId) page = Math.min(page + 1, pages - 1);
+            else page = Math.max(page - 1, 0);
+            await blReply.edit({ embeds: [buildBanListEmbed(page)], components: [buildPageRow(page)] });
+          });
+
+          blCollector.on("end", async () => {
+            await blReply.edit({ components: [] }).catch(() => null);
+          });
           break;
         }
 
