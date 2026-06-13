@@ -574,6 +574,12 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
 // ── Moderator setup guide helper ─────────────────────────────────────────────
 
 async function sendModeratorGuide(message: Message): Promise<void> {
+  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+  if (!isMod) {
+    await message.reply("🔒 This command is for moderators only.");
+    return;
+  }
   const guideEmbed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle("🔧 Bot Setup Guide — Moderators Only")
