@@ -695,18 +695,18 @@ export async function startVoteSkip(message: Message): Promise<void> {
 
   const state = radioStates.get(guildId);
   if (!state?.youtubeTitle) {
-    await message.reply("❌ Rien n'est en cours de lecture.");
+    await message.reply("❌ Nothing is currently playing.");
     return;
   }
 
   if (activeVoteSkips.has(guildId)) {
-    await message.reply("🗳️ Un vote est déjà en cours, attends qu'il se termine !");
+    await message.reply("🗳️ A vote is already in progress, wait for it to finish!");
     return;
   }
 
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await message.reply("❌ Tu dois être dans le salon vocal pour lancer un vote.");
+    await message.reply("❌ You must be in a voice channel to start a vote.");
     return;
   }
 
@@ -714,7 +714,7 @@ export async function startVoteSkip(message: Message): Promise<void> {
   const totalHumans = humanMembers.size;
 
   if (totalHumans === 0) {
-    await message.reply("❌ Personne dans le salon vocal.");
+    await message.reply("❌ Nobody in the voice channel.");
     return;
   }
 
@@ -724,8 +724,8 @@ export async function startVoteSkip(message: Message): Promise<void> {
     state.youtubeTitle = null;
     state.youtubeUrl = null;
     state.player.stop();
-    const msg = state.queue.length > 0 ? "chargement de la suivante…" : "file vide.";
-    await message.reply(`⏭️ Skip instantané — **${skipped}** (seul dans le salon). ${msg}`);
+    const msg = state.queue.length > 0 ? "loading next track…" : "queue is empty.";
+    await message.reply(`⏭️ Instant skip — **${skipped}** (only one in channel). ${msg}`);
     return;
   }
 

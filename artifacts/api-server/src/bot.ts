@@ -317,10 +317,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
         value: fr
-          ? "`!help admin` — Guide complet pour les modérateurs *(Gérer le serveur requis)*"
+          ? "`!help admin` — Guide complet pour les modérateurs"
           : es
-          ? "`!help admin` — Guía completa para moderadores *(Gestionar servidor requerido)*"
-          : "`!help admin` — Full guide for moderators *(Manage Server required)*",
+          ? "`!help admin` — Guía completa para moderadores"
+          : "`!help admin` — Full guide for moderators",
       },
     );
   }
@@ -574,12 +574,6 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
 // ── Moderator setup guide helper ─────────────────────────────────────────────
 
 async function sendModeratorGuide(message: Message): Promise<void> {
-  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
-    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
-  if (!isMod) {
-    await message.reply("🔒 This command is for moderators only.");
-    return;
-  }
   const guideEmbed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle("🔧 Bot Setup Guide — Moderators Only")
@@ -2205,7 +2199,7 @@ export function startBot(): void {
                 await message.reply(`🤖 Usage: \`${guildPrefix}ai battle <sujet>\` · \`${guildPrefix}ai stop\``);
                 break;
               case "image":
-                await message.reply("🖼️ Utilise la commande slash `/image <description>` pour générer une image.");
+                await message.reply("🖼️ Use the slash command `/image <description>` to generate an image.");
                 break;
               case "help":
                 await sendPaginatedHelp(message, "en");

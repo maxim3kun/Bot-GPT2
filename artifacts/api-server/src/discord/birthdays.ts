@@ -48,6 +48,11 @@ const MONTH_NAMES_FR = [
   "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 ];
 
+const MONTH_NAMES_EN = [
+  "", "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 const BIRTHDAY_GIFS = [
   "🎂", "🎉", "🎈", "🥳", "🎁", "🎊", "🍰", "✨",
 ];
@@ -62,12 +67,12 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
     case "ajouter": {
       const dateArg = args[1];
       if (!dateArg) {
-        await message.reply("❌ Usage : `!anniversaire add JJ/MM [@utilisateur]`");
+        await message.reply("❌ Usage: `!anniversaire add DD/MM [@user]`");
         return;
       }
       const parsed = parseDate(dateArg);
       if (!parsed) {
-        await message.reply("❌ Date invalide. Utilise le format `JJ/MM`, ex: `!anniversaire add 25/12`");
+        await message.reply("❌ Invalid date. Use the format `DD/MM`, e.g. `!anniversaire add 25/12`");
         return;
       }
 
@@ -82,7 +87,7 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       saveData(data);
 
       await message.reply(
-        `🎂 Anniversaire enregistré ! **${displayName}** — le **${parsed.day} ${MONTH_NAMES_FR[parsed.month]}** 🎉`
+        `🎂 Birthday saved! **${displayName}** — **${MONTH_NAMES_EN[parsed.month]} ${parsed.day}** 🎉`
       );
       break;
     }
@@ -91,7 +96,7 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
     case "list": {
       const data = loadData();
       if (data.birthdays.length === 0) {
-        await message.reply("📋 Aucun anniversaire enregistré pour l'instant !");
+        await message.reply("📋 No birthdays registered yet!");
         return;
       }
 
@@ -107,15 +112,15 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       const lines = sorted.map(b => {
         const isToday = b.day === today.day && b.month === today.month;
         const days = daysUntil(b.day, b.month);
-        const badge = isToday ? " 🎉 **AUJOURD'HUI !**" : days === 0 ? " 🎉 **AUJOURD'HUI !**" : ` *(dans ${days} jour${days > 1 ? "s" : ""})*`;
-        return `🎂 **${b.userName}** — ${b.day} ${MONTH_NAMES_FR[b.month]}${badge}`;
+        const badge = isToday ? " 🎉 **TODAY!**" : days === 0 ? " 🎉 **TODAY!**" : ` *(in ${days} day${days > 1 ? "s" : ""})*`;
+        return `🎂 **${b.userName}** — ${MONTH_NAMES_EN[b.month]} ${b.day}${badge}`;
       });
 
       const embed = new EmbedBuilder()
-        .setTitle("🎂 Anniversaires du serveur")
+        .setTitle("🎂 Server Birthdays")
         .setDescription(lines.join("\n"))
         .setColor(0xff6b9d)
-        .setFooter({ text: `${data.birthdays.length} anniversaire${data.birthdays.length > 1 ? "s" : ""} enregistré${data.birthdays.length > 1 ? "s" : ""}` });
+        .setFooter({ text: `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""} registered` });
 
       await message.reply({ embeds: [embed] });
       break;
@@ -127,7 +132,7 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       const data = loadData();
       data.announcementChannelId = channel.id;
       saveData(data);
-      await message.reply(`📢 Les anniversaires seront annoncés dans <#${channel.id}> !`);
+      await message.reply(`📢 Birthdays will be announced in <#${channel.id}>!`);
       break;
     }
 
@@ -138,24 +143,24 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       const data = loadData();
       const idx = data.birthdays.findIndex(b => b.userId === target.id);
       if (idx === -1) {
-        await message.reply("❌ Aucun anniversaire trouvé pour cet utilisateur.");
+        await message.reply("❌ No birthday found for this user.");
         return;
       }
       const removed = data.birthdays.splice(idx, 1)[0]!;
       saveData(data);
-      await message.reply(`🗑️ Anniversaire de **${removed.userName}** supprimé.`);
+      await message.reply(`🗑️ Birthday for **${removed.userName}** removed.`);
       break;
     }
 
     default: {
       const embed = new EmbedBuilder()
-        .setTitle("🎂 Commande anniversaire")
+        .setTitle("🎂 Birthday Command")
         .setColor(0xff6b9d)
         .setDescription(
-          "`!anniversaire add JJ/MM [@user]` — Enregistrer un anniversaire\n" +
-          "`!anniversaire liste` — Voir tous les anniversaires\n" +
-          "`!anniversaire canal [#salon]` — Définir le salon d'annonce\n" +
-          "`!anniversaire supprimer [@user]` — Supprimer un anniversaire"
+          "`!anniversaire add DD/MM [@user]` — Register a birthday\n" +
+          "`!anniversaire liste` — View all birthdays\n" +
+          "`!anniversaire canal [#channel]` — Set the announcement channel\n" +
+          "`!anniversaire supprimer [@user]` — Remove a birthday"
         );
       await message.reply({ embeds: [embed] });
     }
@@ -193,10 +198,10 @@ async function checkBirthdays(client: Client): Promise<void> {
   for (const b of todayBirthdays) {
     const emoji = BIRTHDAY_GIFS[Math.floor(Math.random() * BIRTHDAY_GIFS.length)];
     const embed = new EmbedBuilder()
-      .setTitle(`${emoji} Joyeux Anniversaire !`)
+      .setTitle(`${emoji} Happy Birthday!`)
       .setDescription(
-        `Toute l'équipe souhaite un très joyeux anniversaire à <@${b.userId}> ! 🎉\n\n` +
-        `**${b.userName}**, nous espérons que ta journée est remplie de bonheur ! 🎂`
+        `The whole team wishes a very happy birthday to <@${b.userId}>! 🎉\n\n` +
+        `**${b.userName}**, we hope your day is filled with joy! 🎂`
       )
       .setColor(0xff6b9d);
     await (channel as TextChannel).send({ embeds: [embed] }).catch(err =>
