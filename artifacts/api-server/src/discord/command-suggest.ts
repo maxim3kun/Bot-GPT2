@@ -4,7 +4,6 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
-  PermissionFlagsBits,
 } from "discord.js";
 import { getSuggestPref, setSuggestPref } from "./suggest-prefs";
 
@@ -58,6 +57,7 @@ export const COMMANDS: CommandEntry[] = [
   { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Change the bot prefix" },
   { cmd: "suggest",   aliases: ["suggestion", "sugerencia"],             emoji: "💡",  desc: "Turn command suggestions on or off" },
   { cmd: "unblock",                                                      emoji: "🔓",  desc: "Unblock a user (admin only)" },
+  { cmd: "admin",                                                        emoji: "⚙️",  desc: "Configure admin channel (admin only)" },
 ];
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────
@@ -292,81 +292,39 @@ function fmtDuration(ms: number): string {
   return `${totalHr} hour${totalHr !== 1 ? "s" : ""}`;
 }
 
-// ── Admin notify button helper ────────────────────────────────────────────────
+// ── Admin channel config (per guild, in-memory) ───────────────────────────────
 
-async function sendAdminNotify(
-  message: Message,
-  content: string,
-  buttonId: string,
-): Promise<void> {
-  const notifyId = `${buttonId}_${message.id}`;
+const adminChannelIds = new Map<string, string>(); // guildId → channelId
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(notifyId)
-      .setLabel("🔔 Notify an Admin")
-      .setStyle(ButtonStyle.Danger),
-  );
+export function setAdminChannel(guildId: string, channelId: string | null): void {
+  if (channelId === null) adminChannelIds.delete(guildId);
+  else adminChannelIds.set(guildId, channelId);
+}
 
-  const reply = await message.reply({ content, components: [row] });
+export function getAdminChannelId(guildId: string): string | null {
+  return adminChannelIds.get(guildId) ?? null;
+}
 
-  const collector = reply.createMessageComponentCollector({
-    componentType: ComponentType.Button,
-    time: 10 * 60 * 1000,
-    max: 1,
-  });
-
-  collector.on("collect", async (interaction) => {
-    await interaction.deferUpdate();
-
-    // Ping roles with Administrator or ManageGuild in this guild
-    let adminPing = "@here";
-    if (message.guild) {
-      const adminRoles = message.guild.roles.cache.filter(
-        (r) =>
-          r.permissions.has(PermissionFlagsBits.Administrator) ||
-          r.permissions.has(PermissionFlagsBits.ManageGuild),
-      );
-      if (adminRoles.size > 0) {
-        adminPing = adminRoles.map((r) => `<@&${r.id}>`).join(" ");
-      }
-    }
-
-    await reply.edit({ components: [] });
-    if (message.channel && "send" in message.channel) {
-      await (message.channel as { send: (c: string) => Promise<unknown> }).send(
-        `${adminPing} 🚨 **Admin action needed** — <@${message.author.id}> has been flagged by the bot's anti-troll system and needs an admin review. Use \`!unblock @${message.author.username}\` to lift the restriction if appropriate.`,
-      );
-    }
-  });
-
-  collector.on("end", async (col) => {
-    if (col.size === 0) await reply.edit({ components: [] }).catch(() => null);
-  });
+async function notifyAdminChannel(message: Message, content: string): Promise<boolean> {
+  const guildId = message.guildId;
+  if (!guildId) return false;
+  const channelId = adminChannelIds.get(guildId);
+  if (!channelId) return false;
+  const ch = message.client.channels.cache.get(channelId);
+  if (!ch || !("send" in ch)) return false;
+  await (ch as { send: (c: string) => Promise<unknown> }).send(content).catch(() => null);
+  return true;
 }
 
 // ── Full-block message (called from bot.ts for levels 3 & 4) ─────────────────
+// During an active full lockout, silently delete the message — no reply.
 
 export async function sendBlockedMessage(
   message: Message,
-  status: BlockStatus,
-  prefix: string,
+  _status: BlockStatus,
+  _prefix: string,
 ): Promise<void> {
-  if (status.permanent) {
-    await sendAdminNotify(
-      message,
-      `⛔ **You are permanently banned** from using bot commands.\nYou have been flagged too many times for spamming junk commands.\nOnly an admin can free you with \`${prefix}unblock @${message.author.username}\`.`,
-      "admin_perma",
-    );
-    return;
-  }
-
-  const remaining = fmtDuration(status.remainingMs);
-  await sendAdminNotify(
-    message,
-    `🔒 **All commands are locked** for **${remaining}**.\nYou pushed it too far — even \`${prefix}help\` is off-limits until the timer expires.\nAn admin can unblock you early with \`${prefix}unblock @${message.author.username}\`.`,
-    "admin_fullblock",
-  );
+  await message.delete().catch(() => null);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -381,10 +339,10 @@ export async function handleUnknownCommand(
   const rec    = banMap.get(userId);
   const now    = Date.now();
 
-  // ── Active level-1 or level-2 block: escalate immediately ─────────────────
+  // ── Active level-1 or level-2 block: silently ignore junk commands ──────────
+  // Real commands still work (handled before this point in bot.ts).
+  // No response, no escalation during the active block window.
   if (rec && !rec.permanent && (rec.level === 1 || rec.level === 2) && rec.blockedUntil > now) {
-    const escalated = escalateTroll(userId);
-    await handleEscalation(message, prefix, escalated);
     return;
   }
 
@@ -533,25 +491,31 @@ async function handleEscalation(message: Message, prefix: string, rec: BanRecord
       break;
     }
     case 3: {
-      // 2h full block — send with admin notify button
-      await sendAdminNotify(
+      // 2h full block — delete message, notify admin channel (no @here, no button)
+      await message.delete().catch(() => null);
+      const notified3 = await notifyAdminChannel(
         message,
-        `🔒 **2-hour full lockout, ${user}.**\n` +
-        `Every command — including \`${prefix}help\` — is disabled for **2 hours**.\n` +
-        `An admin can unblock you early with \`${prefix}unblock @${user}\`.`,
-        "admin_fullblock_esc",
+        `🚨 **Anti-troll** — <@${message.author.id}> (\`${user}\`) has been put on a **2-hour full lockout** after repeated junk commands. Use \`${prefix}unblock @${user}\` to lift it early.`,
       );
+      if (!notified3 && message.channel && "send" in message.channel) {
+        await (message.channel as { send: (c: string) => Promise<unknown> }).send(
+          `🔒 <@${message.author.id}> You've been locked out for **2 hours** — all commands are disabled. Contact an admin to lift it early.`,
+        ).catch(() => null);
+      }
       break;
     }
     case 4: {
-      // Permanent ban
-      await sendAdminNotify(
+      // Permanent ban — delete message, notify admin channel (no @here, no button)
+      await message.delete().catch(() => null);
+      const notified4 = await notifyAdminChannel(
         message,
-        `⛔ **Permanent ban, ${user}.**\n` +
-        `You've repeatedly abused the bot after multiple warnings and lockouts.\n` +
-        `Only an admin can unblock you with \`${prefix}unblock @${user}\`.`,
-        "admin_perma_esc",
+        `🚨 **Anti-troll** — <@${message.author.id}> (\`${user}\`) has been **permanently banned** from bot commands after exhausting all escalation levels. Use \`${prefix}unblock @${user}\` to lift it.`,
       );
+      if (!notified4 && message.channel && "send" in message.channel) {
+        await (message.channel as { send: (c: string) => Promise<unknown> }).send(
+          `⛔ <@${message.author.id}> You are permanently banned from using bot commands. Contact an admin to be unblocked.`,
+        ).catch(() => null);
+      }
       break;
     }
   }

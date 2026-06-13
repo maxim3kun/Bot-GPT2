@@ -12,7 +12,7 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList } from "./discord/command-suggest";
+import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 
 
@@ -2003,6 +2003,40 @@ export function startBot(): void {
           blCollector.on("end", async () => {
             await blReply.edit({ components: [] }).catch(() => null);
           });
+          break;
+        }
+
+        // ── Admin channel config ──────────────────────────────────────────────────
+        case "admin": {
+          const isAdmin =
+            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isAdmin) {
+            await message.reply("🔒 Only admins can use this command.");
+            break;
+          }
+          const sub = (args[0] ?? "").toLowerCase();
+          if (sub === "channel") {
+            const guildId = message.guildId;
+            if (!guildId) break;
+            const reset = (args[1] ?? "").toLowerCase() === "reset";
+            if (reset) {
+              setAdminChannel(guildId, null);
+              await message.reply("✅ Admin channel removed. Alerts will be sent in the current channel if needed.");
+            } else {
+              const ch = message.mentions.channels.first() ?? message.channel;
+              setAdminChannel(guildId, ch.id);
+              await message.reply(`✅ Admin alert channel set to <#${ch.id}>. Anti-troll alerts will be sent there.`);
+            }
+          } else {
+            const chId = message.guildId ? getAdminChannelId(message.guildId) : null;
+            const current = chId ? `<#${chId}>` : "*(not configured)*";
+            await message.reply(
+              `⚙️ **Admin channel:** ${current}\n` +
+              `\`${guildPrefix}admin channel #salon\` — Set the alert channel\n` +
+              `\`${guildPrefix}admin channel reset\` — Remove it`
+            );
+          }
           break;
         }
 
