@@ -5,8 +5,6 @@ import {
   getVoiceConnection,
   createAudioResource,
 } from "@discordjs/voice";
-import { get as httpsGet } from "https";
-import type { IncomingMessage } from "http";
 import { ensureVoiceConnection, radioStates } from "./radio";
 import { isInVoice, resubscribeVoicePlayer } from "./voice";
 import { logger } from "../lib/logger";
@@ -519,101 +517,59 @@ async function runStaticLyricsMode(
   });
 }
 
-// ── SoundCloud audio search & stream ─────────────────────────────────────────
+// ── YouTube audio search & stream (via play-dl) ───────────────────────────────
 
-const SC_HEADERS = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
-let scClientId = "QNR5nrdLOvApYERC8AOUr3VjRfHnLjle";
-
-async function refreshScClientId(): Promise<boolean> {
-  try {
-    const html = await fetch("https://soundcloud.com/", { headers: SC_HEADERS }).then(r => r.text());
-    const jsUrls = [...html.matchAll(/https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js/g)].map(m => m[0]).slice(0, 6);
-    for (const url of jsUrls) {
-      const js = await fetch(url, { headers: SC_HEADERS, signal: AbortSignal.timeout(6000) }).then(r => r.text()).catch(() => "");
-      const m = js.match(/client_id:"([^"]{20,})"/) ?? js.match(/clientId:"([^"]{20,})"/) ?? js.match(/"client_id","([^"]{20,})"/);
-      if (m?.[1]) {
-        scClientId = m[1];
-        logger.info({ scClientId }, "SoundCloud client_id refreshed");
-        return true;
-      }
-    }
-    const candidates = [...html.matchAll(/[a-zA-Z0-9]{32}/g)].map(m => m[0]);
-    for (const cid of candidates) {
-      const r = await fetch(`https://api-v2.soundcloud.com/search/tracks?q=test&limit=1&client_id=${cid}`, { headers: SC_HEADERS, signal: AbortSignal.timeout(5000) }).catch(() => null);
-      if (r?.ok) { scClientId = cid; return true; }
-    }
-  } catch (err) {
-    logger.warn({ err }, "SoundCloud client_id refresh failed");
-  }
-  return false;
+// play-dl is imported dynamically to avoid top-level ESM issues with esbuild
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _play: any = null;
+async function getPlay() {
+  if (!_play) _play = (await import("play-dl")).default ?? (await import("play-dl"));
+  return _play;
 }
 
-interface ScTrack {
+interface YtTrack {
   url: string;
   title: string;
   durationMs: number;
   thumbnail: string;
-  streamUrl: string;
 }
 
-async function searchSoundCloud(query: string, minDurationMs = 60_000): Promise<ScTrack | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const r = await fetch(
-        `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&limit=10&client_id=${scClientId}`,
-        { headers: SC_HEADERS, signal: AbortSignal.timeout(10000) },
-      );
-      if (r.status === 401 || r.status === 403) {
-        logger.warn("SoundCloud client_id expired, refreshing…");
-        await refreshScClientId();
-        continue;
-      }
-      if (!r.ok) return null;
-      const data = await r.json() as { collection: Array<{
-        title: string;
-        permalink_url: string;
-        duration: number;
-        artwork_url: string | null;
-        media: { transcodings: Array<{ url: string; format: { protocol: string; mime_type: string } }> };
-      }> };
-
-      // Pick the first track that meets the minimum duration (skip short previews)
-      const tracks = (data.collection ?? []).filter(t => t.duration >= minDurationMs);
-      const track = tracks[0] ?? data.collection?.[0];
-      if (!track) return null;
-
-      const progressive = track.media.transcodings.find(t => t.format.protocol === "progressive");
-      const hls = track.media.transcodings.find(t => t.format.protocol === "hls" && t.format.mime_type.includes("mpeg"));
-      const transcoding = progressive ?? hls ?? track.media.transcodings[0];
-      if (!transcoding) return null;
-
-      const sr = await fetch(`${transcoding.url}?client_id=${scClientId}`, { headers: SC_HEADERS, signal: AbortSignal.timeout(8000) });
-      if (!sr.ok) return null;
-      const { url: streamUrl } = await sr.json() as { url: string };
-      if (!streamUrl) return null;
-
-      return {
-        url: track.permalink_url,
-        title: track.title,
-        durationMs: track.duration,
-        thumbnail: track.artwork_url?.replace("-large", "-t500x500") ?? "",
-        streamUrl,
-      };
-    } catch (err) {
-      logger.warn({ err, attempt }, "SoundCloud search error");
-      if (attempt === 0) await refreshScClientId();
-    }
+async function searchYouTube(query: string, minDurationSec = 60): Promise<YtTrack | null> {
+  try {
+    const play = await getPlay();
+    const results = await play.search(query, { source: { youtube: "video" }, limit: 5 });
+    if (!results?.length) return null;
+    const filtered = results.filter((v: any) => !v.durationInSec || v.durationInSec >= minDurationSec);
+    const video = filtered[0] ?? results[0];
+    if (!video?.url) return null;
+    return {
+      url: video.url as string,
+      title: (video.title as string) ?? query,
+      durationMs: ((video.durationInSec as number) ?? 0) * 1000,
+      thumbnail: (video.thumbnails?.[0]?.url as string) ?? "",
+    };
+  } catch (err) {
+    logger.warn({ err }, "YouTube search error");
+    return null;
   }
-  return null;
 }
 
-function fetchHttpStream(url: string): Promise<IncomingMessage> {
-  return new Promise((resolve, reject) => {
-    httpsGet(url, (res) => {
-      if (res.statusCode === 200) { resolve(res); return; }
-      reject(new Error(`HTTP ${res.statusCode}`));
-    }).on("error", reject);
-  });
+async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStream; type: StreamType } | null> {
+  try {
+    const play = await getPlay();
+    const result = await play.stream(url, { quality: 2 });
+    if (!result?.stream) return null;
+    // play-dl returns "opus", "webm/opus", "ogg/opus", or "arbitrary"
+    const typeStr: string = result.type ?? "";
+    let djsType = StreamType.Arbitrary;
+    if (typeStr === "webm/opus") djsType = StreamType.WebmOpus;
+    else if (typeStr === "ogg/opus") djsType = StreamType.OggOpus;
+    else if (typeStr === "opus") djsType = StreamType.Opus;
+    return { stream: result.stream as NodeJS.ReadableStream, type: djsType };
+  } catch (err) {
+    logger.warn({ err }, "YouTube stream error");
+    return null;
+  }
 }
 
 // ── Session state ─────────────────────────────────────────────────────────────
@@ -946,7 +902,7 @@ async function launchKaraoke(
     return;
   }
 
-  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on SoundCloud…`, "Searching for the best audio source…")] });
+  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on YouTube…`, "Searching for the best audio source…")] });
 
   const ready = await ensureVoiceConnection(message);
   if (!ready) { await waitMsg.edit("❌ You need to be in a voice channel first!"); return; }
@@ -954,12 +910,12 @@ async function launchKaraoke(
   const radioState = radioStates.get(guildId);
   if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }
 
-  const scQueries = [`${lrcData.artist} ${lrcData.title}`, `${lrcData.artist} ${lrcData.title} official`, originalQuery];
-  let scTrack: ScTrack | null = null;
-  for (const q of scQueries) { scTrack = await searchSoundCloud(q); if (scTrack) break; }
+  const ytQueries = [`${lrcData.artist} ${lrcData.title} official audio`, `${lrcData.artist} ${lrcData.title}`, originalQuery];
+  let ytTrack: YtTrack | null = null;
+  for (const q of ytQueries) { ytTrack = await searchYouTube(q); if (ytTrack) break; }
 
-  if (!scTrack) {
-    logger.warn({ originalQuery }, "SoundCloud not found — falling back to reaction sync");
+  if (!ytTrack) {
+    logger.warn({ originalQuery }, "YouTube not found — falling back to reaction sync");
     radioState.player.stop();
     radioStates.delete(guildId);
     if (!isInVoice(guildId)) getVoiceConnection(guildId)?.destroy();
@@ -970,12 +926,13 @@ async function launchKaraoke(
   }
 
   try {
-    const httpStream = await fetchHttpStream(scTrack.streamUrl);
-    const resource = createAudioResource(httpStream, { inputType: StreamType.Arbitrary });
+    const ytStream = await streamYouTube(ytTrack.url);
+    if (!ytStream) throw new Error("YouTube stream returned null");
+    const resource = createAudioResource(ytStream.stream, { inputType: ytStream.type });
 
     radioState.stationKey = null;
     radioState.youtubeTitle = `🎤 ${lrcData.title}`;
-    radioState.youtubeUrl = scTrack.url;
+    radioState.youtubeUrl = ytTrack.url;
     radioState.queue = [];
     radioState.player.play(resource);
 
