@@ -163,33 +163,43 @@ function normalizeForDedup(str: string): string {
 
 /**
  * Dedup key for lrclib results.
- * Normalises subtitle FORMAT so "(Pilule bleue)" ≡ "- Pilule bleue" collapse
- * into the same slot, but a track WITH a subtitle stays distinct from one WITHOUT.
+ * Strips ALL parentheticals and dash-suffixes from the title so variations like
+ *   "Est-ce que tu m'aimes? (Pilule bleue)"
+ *   "Est-ce que tu m'aimes ? (Pilule bleue) - Song, GIMS"
+ * both collapse to the same key.
  */
 function lrclibDedupKey(trackName: string, artistName: string): string {
-  // 1. Extract subtitle from parentheses: "Title (Sub)" → main="Title", sub="Sub"
-  const parenMatch = trackName.match(/^(.*?)\s*[\(\[]([^)\]]+)[\)\]]\s*$/);
-  let main = parenMatch ? parenMatch[1]! : trackName;
-  let subtitle = parenMatch ? parenMatch[2]! : "";
+  const core = trackName
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")  // strip ALL (…) […] groups
+    .replace(/\s*-\s+.*$/g, "")              // strip everything after " - "
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
-  // 2. If no paren subtitle, extract from " - ": "Title - Sub" → main="Title", sub="Sub"
-  if (!subtitle) {
-    const dashIdx = main.indexOf(" - ");
-    if (dashIdx !== -1) {
-      subtitle = main.slice(dashIdx + 3);
-      main = main.slice(0, dashIdx);
-    }
-  }
-
-  // 3. Normalize artist: collapse GIMS / Maître Gims / Maitre Gims → "gims"
+  // Normalize artist: first credited artist only, strip "maître"
   const artist = artistName
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/ma[i]?tre\s*/g, "")
     .replace(/\s*[,;&×x]\s*.*/i, "")
+    .replace(/\s*feat\.?\s+.*/i, "")
     .replace(/[^a-z0-9]/g, "");
 
-  return `${normalizeStr(main)}::${normalizeStr(subtitle)}::${artist}`;
+  return `${core}::${artist}`;
+}
+
+/**
+ * Returns a clean display title for the picker.
+ * Keeps feat/remix/live tags (useful to distinguish versions) but strips
+ * pure album/edition tags like "(Pilule bleue)" or "- Song, GIMS".
+ */
+const KEEP_TAG = /\b(feat|ft\.?|featuring|avec|remix|live|acoustic|version|cover|radio edit|extended)\b/i;
+function cleanDisplayTitle(trackName: string): string {
+  return trackName
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, (m) => KEEP_TAG.test(m) ? m : "")
+    .replace(/\s*-\s+(?!\s*(feat|ft\.?|featuring))[^-]*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function deduplicateCandidates(candidates: LrclibResult[]): LrclibResult[] {
@@ -221,6 +231,41 @@ function sortCandidatesByOriginality(candidates: LrclibResult[]): LrclibResult[]
     const aV = isVersionedTrack(a.trackName) ? 1 : 0;
     const bV = isVersionedTrack(b.trackName) ? 1 : 0;
     return aV - bV;
+  });
+}
+
+/** Return only the primary (first-credited) artist, normalised. */
+function primaryArtistNorm(artistName: string): string {
+  return artistName
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ma[i]?tre\s*/g, "")      // strip "maître "
+    .replace(/\s*[,;&×x+]\s*.*/i, "")  // first artist before comma/&/×
+    .replace(/\s*feat\.?\s+.*/i, "")   // first artist before feat.
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * When the query matches an artist name, sort so songs where the query term
+ * appears in the PRIMARY artist slot come before songs where it only appears
+ * as a featured guest (e.g. "Arhbo" by Ozuna feat. GIMS moves to the end).
+ */
+function sortByPrimaryArtistRelevance(candidates: LrclibResult[], query: string): LrclibResult[] {
+  const qNorm = query
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ma[i]?tre\s*/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim();
+
+  if (qNorm.length < 2) return candidates;
+
+  return [...candidates].sort((a, b) => {
+    const aPrimary = primaryArtistNorm(a.artistName).includes(qNorm.replace(/\s+/g, "")) ? 0 : 1;
+    const bPrimary = primaryArtistNorm(b.artistName).includes(qNorm.replace(/\s+/g, "")) ? 0 : 1;
+    if (aPrimary !== bPrimary) return aPrimary - bPrimary;
+    // Secondary: non-versioned before versioned
+    return (isVersionedTrack(a.trackName) ? 1 : 0) - (isVersionedTrack(b.trackName) ? 1 : 0);
   });
 }
 
@@ -627,7 +672,7 @@ async function startKaraokeFromQueue(message: Message, query: string, guildId: s
   const notifyMsg = await message.channel.send({ embeds: [buildWaitEmbed(`🎵 Up next — searching **${query}**…`)] }) as Message;
 
   const { synced: rawSynced } = await searchCandidates(query);
-  const candidates = sortCandidatesByOriginality(deduplicateCandidates(rawSynced));
+  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(deduplicateCandidates(rawSynced)), query);
 
   if (candidates.length === 0) {
     const remaining = karaokeQueues.get(guildId)?.length ?? 0;
@@ -794,8 +839,9 @@ async function runKaraokePicker(
   const buildEmbed = (p: number) => {
     const items = getPageItems(p);
     const list  = items.map((r, i) => {
+      const display = cleanDisplayTitle(r.trackName);
       const tag = isVersionedTrack(r.trackName) ? " ↪" : "";
-      return `${numberEmojis[i]}${tag} **${r.trackName}** — *${r.artistName}*`;
+      return `${numberEmojis[i]}${tag} **${display}** — *${r.artistName}*`;
     }).join("\n");
     const nav   = totalPages > 1 ? ` · ◀️ ▶️ to navigate` : "";
     return new EmbedBuilder()
@@ -1058,7 +1104,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
 
   // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
   const { synced: rawSynced, geniusHits } = await searchCandidates(query);
-  const candidates = sortCandidatesByOriginality(deduplicateCandidates(rawSynced));
+  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(deduplicateCandidates(rawSynced)), query);
 
   if (candidates.length === 0) {
     // No synced lyrics — if Genius found songs, show them as a picker first
