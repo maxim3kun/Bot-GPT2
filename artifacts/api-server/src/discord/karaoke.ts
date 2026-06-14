@@ -966,7 +966,7 @@ async function launchKaraoke(
   await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on YouTube…`, "Searching for the best audio source…")] });
 
   const ready = await ensureVoiceConnection(message);
-  if (!ready) { await waitMsg.edit("❌ You need to be in a voice channel first!"); return; }
+  if (!ready) { await waitMsg.edit({ content: "❌ You need to be in a voice channel first! Join one and retry `!karaoke`.", components: [] }); return; }
 
   const radioState = radioStates.get(guildId);
   if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }

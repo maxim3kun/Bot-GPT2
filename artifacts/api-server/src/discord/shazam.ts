@@ -25,7 +25,7 @@ async function getYoutubeDirectUrl(youtubeUrl: string): Promise<string> {
 
 // ── Capture audio bytes from a URL (follows redirects, collects ~12 s) ────────
 
-const CAPTURE_BYTES    = 192 * 1024;   // ~12 s at 128 kbps
+const CAPTURE_BYTES    = 400 * 1024;   // ~25 s at 128 kbps
 const STREAM_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   "Icy-MetaData": "0",

@@ -11,6 +11,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import { type Message, type TextChannel, type GuildMember } from "discord.js";
+import { replyNotInVoice } from "./radio.js";
 import { Readable } from "stream";
 import prism from "prism-media";
 import { logger } from "../lib/logger";
@@ -178,7 +179,7 @@ export function resubscribeVoicePlayer(guildId: string): void {
 export async function joinVoice(message: Message): Promise<void> {
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await message.reply("❌ You need to be in a voice channel first! Join one and try again.");
+    await replyNotInVoice(message);
     return;
   }
 

@@ -9,7 +9,7 @@ import {
   NoSubscriberBehavior,
   type AudioPlayer,
 } from "@discordjs/voice";
-import { type Message, type TextChannel, EmbedBuilder } from "discord.js";
+import { type Message, type TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } from "discord.js";
 import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
@@ -47,10 +47,10 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   // 🇫🇷 French
   nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
   fun:         { name: "Fun Radio",      url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
-  skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
-  franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
-  franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
-  musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
+  skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_192k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
+  franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-hifi.mp3",               emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
+  franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-hifi.mp3",                emoji: "📰", genre: "News / Info",              lang: "fr" },
+  musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-hifi.mp3",             emoji: "🎼", genre: "Classical",                lang: "fr" },
   ouifm:       { name: "OÜI FM",         url: "https://stream.ouifm.fr/ouifm-high.mp3",                           emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
   virgin:      { name: "Virgin Radio",   url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
@@ -189,12 +189,55 @@ async function playNextFromQueue(guildId: string): Promise<void> {
   }
 }
 
+// ── Voice channel picker (sent when user isn't in a channel) ─────────────────
+
+export async function replyNotInVoice(message: Message): Promise<void> {
+  const guild = message.guild;
+  if (!guild) {
+    await message.reply("❌ You need to be in a voice channel first!");
+    return;
+  }
+
+  const voiceChannels = [...guild.channels.cache.values()]
+    .filter(c => c.type === ChannelType.GuildVoice)
+    .slice(0, 20);
+
+  if (voiceChannels.length === 0) {
+    await message.reply("❌ You need to be in a voice channel first!");
+    return;
+  }
+
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  let current = new ActionRowBuilder<ButtonBuilder>();
+
+  for (const ch of voiceChannels) {
+    if (current.components.length >= 5) {
+      rows.push(current);
+      if (rows.length >= 4) break;
+      current = new ActionRowBuilder<ButtonBuilder>();
+    }
+    current.addComponents(
+      new ButtonBuilder()
+        .setLabel(ch.name.slice(0, 80))
+        .setStyle(ButtonStyle.Link)
+        .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`)
+        .setEmoji("🔊"),
+    );
+  }
+  if (current.components.length > 0) rows.push(current);
+
+  await message.reply({
+    content: "❌ You need to be in a voice channel first! Click one to join:",
+    components: rows,
+  });
+}
+
 // ── Voice connection helper ───────────────────────────────────────────────────
 
 export async function ensureVoiceConnection(message: Message): Promise<boolean> {
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await message.reply("❌ You need to be in a voice channel first!");
+    await replyNotInVoice(message);
     return false;
   }
 
