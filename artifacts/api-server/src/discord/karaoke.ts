@@ -78,6 +78,8 @@ function normalizeForDedup(str: string): string {
     .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")   // remove (feat. ...) [feat. ...]
     .replace(/\s*feat\.?\s+.*/i, "")           // feat. at end
     .replace(/\s*ft\.?\s+.*/i, "")             // ft. at end
+    .replace(/\s*avec\s+.*/i, "")              // French "avec" collaborator
+    .replace(/\s*[,;&×x]\s*.*/i, "")           // strip after , ; & × (collaborators)
     .replace(/[^a-z0-9]/g, "")                 // only alphanumeric
     .trim();
 }
@@ -93,28 +95,29 @@ function deduplicateCandidates(candidates: LrclibResult[]): LrclibResult[] {
 }
 
 async function searchLrcLibMultiple(query: string, limit = 20): Promise<LrclibResult[]> {
+  // Fire both strategies in parallel to reduce latency
   const words = query.trim().split(/\s+/);
-  const strategies: Record<string, string>[] = [
-    { q: query },
-    ...(words.length > 1 ? [{ artist_name: words[0]!, track_name: words.slice(1).join(" ") }] : []),
-    { artist_name: query },
+  const [byQ, byArtist] = await Promise.allSettled([
+    lrclibFetch({ q: query }),
+    words.length > 1
+      ? lrclibFetch({ artist_name: words[0]!, track_name: words.slice(1).join(" ") })
+      : Promise.resolve([] as LrclibResult[]),
+  ]);
+
+  const combined: LrclibResult[] = [
+    ...(byQ.status === "fulfilled" ? byQ.value : []),
+    ...(byArtist.status === "fulfilled" ? byArtist.value : []),
   ];
+
+  // First pass: exact-key dedup
   const seen = new Set<string>();
   const out: LrclibResult[] = [];
-  for (const params of strategies) {
-    try {
-      const results = await lrclibFetch(params);
-      for (const r of results) {
-        if (!r.syncedLyrics || r.syncedLyrics.trim().length === 0) continue;
-        const key = `${r.artistName.toLowerCase()}::${r.trackName.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(r);
-        if (out.length >= limit) return out;
-      }
-    } catch (err) {
-      logger.warn({ err, params }, "lrclib multi-search strategy failed");
-    }
+  for (const r of combined) {
+    if (!r.syncedLyrics || r.syncedLyrics.trim().length === 0) continue;
+    const key = `${r.artistName.toLowerCase()}::${r.trackName.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
     if (out.length >= limit) break;
   }
   return out;
@@ -572,6 +575,25 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
         );
       if (scTrack!.thumbnail) embed.setThumbnail(scTrack!.thumbnail);
       await waitMsg.edit({ content: "", embeds: [embed] }).catch(() => null);
+
+      // Add ⏹ stop reaction so anyone can stop the session
+      await waitMsg.react("⏹").catch(() => null);
+
+      const stopCollector = waitMsg.createReactionCollector({
+        filter: (r: MessageReaction, u: User) => r.emoji.name === "⏹" && !u.bot,
+        time: 90 * 60 * 1000,
+        max: 1,
+      });
+      stopCollector.on("collect", () => {
+        const s = karaokeSessions.get(guildId);
+        if (!s || s.stopped) return;
+        stopKaraokeSession(guildId);
+        radioStates.get(guildId)?.player.stop();
+        radioStates.delete(guildId);
+        getVoiceConnection(guildId)?.destroy();
+        waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
+      });
+
       startLyricsLoop(session);
     });
 
