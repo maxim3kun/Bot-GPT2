@@ -73,6 +73,14 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
 
 // ── Deduplication ─────────────────────────────────────────────────────────────
 
+function normalizeStr(str: string): string {
+  return str
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
 function normalizeForDedup(str: string): string {
   return str
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents (é→e, î→i …)
@@ -83,15 +91,45 @@ function normalizeForDedup(str: string): string {
     .replace(/\s*ft\.?\s+.*/i, "")                     // ft. at end
     .replace(/\s*avec\s+.*/i, "")                      // French "avec" collaborator
     .replace(/\s*[,;&×x]\s*.*/i, "")                   // strip after , ; & ×
-    .replace(/\s+-\s+.+$/, "")                         // strip subtitle after " - "
     .replace(/[^a-z0-9]/g, "")                         // only alphanumeric
     .trim();
+}
+
+/**
+ * Dedup key for lrclib results.
+ * Normalises subtitle FORMAT so "(Pilule bleue)" ≡ "- Pilule bleue" collapse
+ * into the same slot, but a track WITH a subtitle stays distinct from one WITHOUT.
+ */
+function lrclibDedupKey(trackName: string, artistName: string): string {
+  // 1. Extract subtitle from parentheses: "Title (Sub)" → main="Title", sub="Sub"
+  const parenMatch = trackName.match(/^(.*?)\s*[\(\[]([^)\]]+)[\)\]]\s*$/);
+  let main = parenMatch ? parenMatch[1]! : trackName;
+  let subtitle = parenMatch ? parenMatch[2]! : "";
+
+  // 2. If no paren subtitle, extract from " - ": "Title - Sub" → main="Title", sub="Sub"
+  if (!subtitle) {
+    const dashIdx = main.indexOf(" - ");
+    if (dashIdx !== -1) {
+      subtitle = main.slice(dashIdx + 3);
+      main = main.slice(0, dashIdx);
+    }
+  }
+
+  // 3. Normalize artist: collapse GIMS / Maître Gims / Maitre Gims → "gims"
+  const artist = artistName
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ma[i]?tre\s*/g, "")
+    .replace(/\s*[,;&×x]\s*.*/i, "")
+    .replace(/[^a-z0-9]/g, "");
+
+  return `${normalizeStr(main)}::${normalizeStr(subtitle)}::${artist}`;
 }
 
 function deduplicateCandidates(candidates: LrclibResult[]): LrclibResult[] {
   const seen = new Set<string>();
   return candidates.filter(r => {
-    const key = `${normalizeForDedup(r.trackName)}::${normalizeForDedup(r.artistName)}`;
+    const key = lrclibDedupKey(r.trackName, r.artistName);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
