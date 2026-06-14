@@ -70,6 +70,34 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
   return null;
 }
 
+async function searchLrcLibMultiple(query: string, limit = 8): Promise<LrclibResult[]> {
+  const words = query.trim().split(/\s+/);
+  const strategies: Record<string, string>[] = [
+    { q: query },
+    ...(words.length > 1 ? [{ artist_name: words[0]!, track_name: words.slice(1).join(" ") }] : []),
+    { artist_name: query },
+  ];
+  const seen = new Set<string>();
+  const out: LrclibResult[] = [];
+  for (const params of strategies) {
+    try {
+      const results = await lrclibFetch(params);
+      for (const r of results) {
+        if (!r.syncedLyrics || r.syncedLyrics.trim().length === 0) continue;
+        const key = `${r.artistName.toLowerCase()}::${r.trackName.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+        if (out.length >= limit) return out;
+      }
+    } catch (err) {
+      logger.warn({ err, params }, "lrclib multi-search strategy failed");
+    }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 // ── SoundCloud audio search & stream ─────────────────────────────────────────
 
 const SC_HEADERS = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
@@ -345,24 +373,90 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
 
   stopKaraokeSession(guildId);
 
-  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching lyrics for **${query}**…`)] });
+  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Recherche de **${query}**…`)] });
 
-  // 1 — Lyrics
-  const lrcData = await searchLrcLib(query);
-  if (!lrcData) {
+  // 1 — Fetch multiple results and let user pick
+  const candidates = await searchLrcLibMultiple(query);
+
+  if (candidates.length === 0) {
     await waitMsg.edit({
       embeds: [new EmbedBuilder()
-        .setColor(0xed4245).setTitle("🎤 No lyrics found")
+        .setColor(0xed4245).setTitle("🎤 Aucune parole trouvée")
         .setDescription(
-          `❌ No synchronized lyrics found for **${query}**.\n\n` +
-          "**Tips:**\n• Use `!karaoke <Artist> <Song title>` — e.g. `!karaoke Indila Dernière danse`\n" +
-          "• Try the English or original title\n• Popular songs work best",
+          `❌ Aucune parole synchronisée trouvée pour **${query}**.\n\n` +
+          "**Astuces :**\n• Utilise `!karaoke <Artiste> <Titre>` — ex: `!karaoke Orelsan Basique`\n" +
+          "• Essaie le titre original\n• Les chansons populaires fonctionnent mieux",
         )],
     });
     return;
   }
 
-  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ Lyrics found — **${lrcData.title}** by ${lrcData.artist}\n🎵 Searching audio on SoundCloud…`, "Searching for best audio source…")] });
+  // If only one result, skip the picker
+  let chosenCandidate = candidates[0]!;
+
+  if (candidates.length > 1) {
+    // Build a numbered song list embed
+    const listLines = candidates
+      .map((r, i) => `**${i + 1}.** ${r.trackName} — *${r.artistName}*`)
+      .join("\n");
+
+    await waitMsg.edit({
+      embeds: [new EmbedBuilder()
+        .setColor(0x9b59b6)
+        .setTitle("🎤 Quelle chanson ?")
+        .setDescription(`${listLines}\n\n**Réponds avec un numéro (1–${candidates.length}) ou \`annuler\`**`)
+        .setFooter({ text: "Tu as 30 secondes pour choisir" })],
+    });
+
+    // Wait for user reply
+    const collected = await message.channel.awaitMessages({
+      filter: (m) => m.author.id === message.author.id,
+      max: 1,
+      time: 30_000,
+      errors: [],
+    });
+
+    const reply = collected.first();
+    if (!reply) {
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Annulé").setDescription("Aucune réponse reçue. Utilise `!karaoke <artiste titre>` pour réessayer.")] });
+      return;
+    }
+
+    reply.delete().catch(() => null);
+
+    const text = reply.content.trim().toLowerCase();
+    if (text === "annuler" || text === "cancel") {
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Annulé").setDescription("Karaoke annulé.")] });
+      return;
+    }
+
+    const choice = parseInt(text, 10);
+    if (isNaN(choice) || choice < 1 || choice > candidates.length) {
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Choix invalide").setDescription(`Réponds avec un numéro entre 1 et ${candidates.length}, ou \`annuler\`.`)] });
+      return;
+    }
+
+    chosenCandidate = candidates[choice - 1]!;
+  }
+
+  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${chosenCandidate.trackName}** — *${chosenCandidate.artistName}*\n🎵 Recherche audio sur SoundCloud…`, "Recherche de la meilleure source audio…")] });
+
+  // Parse lyrics from chosen candidate
+  const lrcData = {
+    lines: parseLrc(chosenCandidate.syncedLyrics!),
+    title: chosenCandidate.trackName,
+    artist: chosenCandidate.artistName,
+    duration: chosenCandidate.duration ?? 0,
+  };
+
+  if (lrcData.lines.length === 0) {
+    await waitMsg.edit({
+      embeds: [new EmbedBuilder()
+        .setColor(0xed4245).setTitle("🎤 Paroles introuvables")
+        .setDescription(`❌ Les paroles de **${lrcData.title}** semblent vides. Essaie une autre chanson.`)],
+    });
+    return;
+  }
 
   // 2 — Join voice
   const ready = await ensureVoiceConnection(message);
