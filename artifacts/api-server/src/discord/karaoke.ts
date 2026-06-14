@@ -70,7 +70,29 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
   return null;
 }
 
-async function searchLrcLibMultiple(query: string, limit = 8): Promise<LrclibResult[]> {
+// ── Deduplication ─────────────────────────────────────────────────────────────
+
+function normalizeForDedup(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")   // remove (feat. ...) [feat. ...]
+    .replace(/\s*feat\.?\s+.*/i, "")           // feat. at end
+    .replace(/\s*ft\.?\s+.*/i, "")             // ft. at end
+    .replace(/[^a-z0-9]/g, "")                 // only alphanumeric
+    .trim();
+}
+
+function deduplicateCandidates(candidates: LrclibResult[]): LrclibResult[] {
+  const seen = new Set<string>();
+  return candidates.filter(r => {
+    const key = `${normalizeForDedup(r.trackName)}::${normalizeForDedup(r.artistName)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function searchLrcLibMultiple(query: string, limit = 20): Promise<LrclibResult[]> {
   const words = query.trim().split(/\s+/);
   const strategies: Record<string, string>[] = [
     { q: query },
@@ -116,7 +138,6 @@ async function refreshScClientId(): Promise<boolean> {
         return true;
       }
     }
-    // Fallback: look for 32-char alphanumeric token on the homepage itself
     const candidates = [...html.matchAll(/[a-zA-Z0-9]{32}/g)].map(m => m[0]);
     for (const cid of candidates) {
       const r = await fetch(`https://api-v2.soundcloud.com/search/tracks?q=test&limit=1&client_id=${cid}`, { headers: SC_HEADERS, signal: AbortSignal.timeout(5000) }).catch(() => null);
@@ -160,13 +181,11 @@ async function searchSoundCloud(query: string): Promise<ScTrack | null> {
       const track = data.collection?.[0];
       if (!track) return null;
 
-      // Prefer progressive (direct MP3) over HLS
       const progressive = track.media.transcodings.find(t => t.format.protocol === "progressive");
       const hls = track.media.transcodings.find(t => t.format.protocol === "hls" && t.format.mime_type.includes("mpeg"));
       const transcoding = progressive ?? hls ?? track.media.transcodings[0];
       if (!transcoding) return null;
 
-      // Resolve stream URL
       const sr = await fetch(`${transcoding.url}?client_id=${scClientId}`, { headers: SC_HEADERS, signal: AbortSignal.timeout(8000) });
       if (!sr.ok) return null;
       const { url: streamUrl } = await sr.json() as { url: string };
@@ -331,6 +350,70 @@ function startReactionSync(waitMsg: Message, lrcData: { lines: LrcLine[]; title:
   });
 }
 
+// ── Reaction-based paginated song picker ─────────────────────────────────────
+
+const NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
+const PAGE_SIZE = 5;
+
+async function runKaraokePicker(
+  message: Message,
+  pickMsg: Message,
+  candidates: LrclibResult[],
+): Promise<LrclibResult | null> {
+  let page = 0;
+  const totalPages = Math.ceil(candidates.length / PAGE_SIZE);
+
+  while (true) {
+    const pageItems = candidates.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    const hasPrev = page > 0;
+    const hasNext = page < totalPages - 1;
+
+    const listLines = pageItems
+      .map((r, i) => `${NUMBER_EMOJIS[i]} **${r.trackName}** — *${r.artistName}*`)
+      .join("\n");
+
+    const embed = new EmbedBuilder()
+      .setColor(0x9b59b6)
+      .setTitle("🎤 Which song?")
+      .setDescription(listLines)
+      .setFooter({ text: `Page ${page + 1}/${totalPages} · React to choose · ❌ to cancel · 60s timeout` });
+
+    await pickMsg.edit({ embeds: [embed] });
+
+    // Clear old reactions then add fresh ones for this page
+    try { await pickMsg.reactions.removeAll(); } catch { /* needs Manage Messages */ }
+
+    for (let i = 0; i < pageItems.length; i++) {
+      await pickMsg.react(NUMBER_EMOJIS[i]!).catch(() => null);
+    }
+    if (hasPrev) await pickMsg.react("◀️").catch(() => null);
+    if (hasNext) await pickMsg.react("▶️").catch(() => null);
+    await pickMsg.react("❌").catch(() => null);
+
+    // Wait for one reaction from the command author
+    const collected = await pickMsg.awaitReactions({
+      filter: (r, u) => u.id === message.author.id && !u.bot,
+      max: 1,
+      time: 60_000,
+      errors: [],
+    });
+
+    // Clear reactions for a clean look on next page (best-effort)
+    pickMsg.reactions.removeAll().catch(() => null);
+
+    const emoji = collected.first()?.emoji.name ?? null;
+
+    if (!emoji || emoji === "❌") return null;
+    if (emoji === "▶️" && hasNext) { page++; continue; }
+    if (emoji === "◀️" && hasPrev) { page--; continue; }
+
+    const idx = (NUMBER_EMOJIS as readonly string[]).indexOf(emoji);
+    if (idx === -1 || idx >= pageItems.length) return null;
+
+    return pageItems[idx] ?? null;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function stopKaraokeSession(guildId: string): boolean {
@@ -367,81 +450,48 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   const guildId = message.guildId;
 
   if (!query.trim()) {
-    await message.reply("❓ Usage: `!karaoke <artist song name>`\nExamples: `!karaoke Indila SOS` · `!karaoke Guims NINAO`");
+    await message.reply("❓ Usage: `!karaoke <artist song name>`\nExamples: `!karaoke Indila SOS` · `!karaoke Kendji Girac Andalouse`");
     return;
   }
 
   stopKaraokeSession(guildId);
 
-  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Recherche de **${query}**…`)] });
+  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${query}**…`)] });
 
-  // 1 — Fetch multiple results and let user pick
-  const candidates = await searchLrcLibMultiple(query);
+  // 1 — Fetch, deduplicate and let user pick
+  const rawCandidates = await searchLrcLibMultiple(query);
+  const candidates = deduplicateCandidates(rawCandidates);
 
   if (candidates.length === 0) {
     await waitMsg.edit({
       embeds: [new EmbedBuilder()
-        .setColor(0xed4245).setTitle("🎤 Aucune parole trouvée")
+        .setColor(0xed4245).setTitle("🎤 No lyrics found")
         .setDescription(
-          `❌ Aucune parole synchronisée trouvée pour **${query}**.\n\n` +
-          "**Astuces :**\n• Utilise `!karaoke <Artiste> <Titre>` — ex: `!karaoke Orelsan Basique`\n" +
-          "• Essaie le titre original\n• Les chansons populaires fonctionnent mieux",
+          `❌ No synchronized lyrics found for **${query}**.\n\n` +
+          "**Tips:**\n• Use `!karaoke <Artist> <Song title>` — e.g. `!karaoke Kendji Girac Andalouse`\n" +
+          "• Try the original title\n• Popular songs work best",
         )],
     });
     return;
   }
 
-  // If only one result, skip the picker
-  let chosenCandidate = candidates[0]!;
+  // Single result → skip picker
+  let chosenCandidate: LrclibResult;
 
-  if (candidates.length > 1) {
-    // Build a numbered song list embed
-    const listLines = candidates
-      .map((r, i) => `**${i + 1}.** ${r.trackName} — *${r.artistName}*`)
-      .join("\n");
-
-    await waitMsg.edit({
-      embeds: [new EmbedBuilder()
-        .setColor(0x9b59b6)
-        .setTitle("🎤 Quelle chanson ?")
-        .setDescription(`${listLines}\n\n**Réponds avec un numéro (1–${candidates.length}) ou \`annuler\`**`)
-        .setFooter({ text: "Tu as 30 secondes pour choisir" })],
-    });
-
-    // Wait for user reply
-    const collected = await message.channel.awaitMessages({
-      filter: (m) => m.author.id === message.author.id,
-      max: 1,
-      time: 30_000,
-      errors: [],
-    });
-
-    const reply = collected.first();
-    if (!reply) {
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Annulé").setDescription("Aucune réponse reçue. Utilise `!karaoke <artiste titre>` pour réessayer.")] });
+  if (candidates.length === 1) {
+    chosenCandidate = candidates[0]!;
+  } else {
+    const picked = await runKaraokePicker(message, waitMsg, candidates);
+    if (!picked) {
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Cancelled").setDescription("Karaoke cancelled. Use `!karaoke <song>` to try again.")] });
       return;
     }
-
-    reply.delete().catch(() => null);
-
-    const text = reply.content.trim().toLowerCase();
-    if (text === "annuler" || text === "cancel") {
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Annulé").setDescription("Karaoke annulé.")] });
-      return;
-    }
-
-    const choice = parseInt(text, 10);
-    if (isNaN(choice) || choice < 1 || choice > candidates.length) {
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Choix invalide").setDescription(`Réponds avec un numéro entre 1 et ${candidates.length}, ou \`annuler\`.`)] });
-      return;
-    }
-
-    chosenCandidate = candidates[choice - 1]!;
+    chosenCandidate = picked;
   }
 
-  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${chosenCandidate.trackName}** — *${chosenCandidate.artistName}*\n🎵 Recherche audio sur SoundCloud…`, "Recherche de la meilleure source audio…")] });
+  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${chosenCandidate.trackName}** — *${chosenCandidate.artistName}*\n🎵 Searching audio on SoundCloud…`, "Searching for the best audio source…")] });
 
-  // Parse lyrics from chosen candidate
+  // Parse lyrics
   const lrcData = {
     lines: parseLrc(chosenCandidate.syncedLyrics!),
     title: chosenCandidate.trackName,
@@ -452,8 +502,8 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   if (lrcData.lines.length === 0) {
     await waitMsg.edit({
       embeds: [new EmbedBuilder()
-        .setColor(0xed4245).setTitle("🎤 Paroles introuvables")
-        .setDescription(`❌ Les paroles de **${lrcData.title}** semblent vides. Essaie une autre chanson.`)],
+        .setColor(0xed4245).setTitle("🎤 Empty lyrics")
+        .setDescription(`❌ The lyrics for **${lrcData.title}** appear empty. Try another song.`)],
     });
     return;
   }
@@ -468,7 +518,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   const radioState = radioStates.get(guildId);
   if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }
 
-  // 3 — SoundCloud search (try a few queries)
+  // 3 — SoundCloud search
   const scQueries = [
     `${lrcData.artist} ${lrcData.title}`,
     `${lrcData.artist} ${lrcData.title} official`,
@@ -481,7 +531,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     if (scTrack) break;
   }
 
-  // 4 — If SoundCloud failed, fall back to reaction sync
+  // 4 — SoundCloud failed → reaction sync fallback
   if (!scTrack) {
     logger.warn({ query }, "SoundCloud not found — falling back to reaction sync");
     radioState.player.stop();
@@ -545,7 +595,6 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     stopKaraokeSession(guildId);
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
-    // Fallback to reaction mode
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
     await waitMsg.react("▶️").catch(() => null);
     await waitMsg.react("⏹").catch(() => null);
