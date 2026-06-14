@@ -124,6 +124,77 @@ async function searchLrcLibMultiple(query: string, limit = 20): Promise<LrclibRe
   return out;
 }
 
+// ── Genius search (additional song candidates) ────────────────────────────────
+
+interface GeniusHit {
+  trackName: string;
+  artistName: string;
+}
+
+async function searchGenius(query: string): Promise<GeniusHit[]> {
+  try {
+    const url = `https://genius.com/api/search/song?q=${encodeURIComponent(query)}&per_page=10`;
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; DiscordBot/1.0)" },
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json() as {
+      response?: {
+        sections?: Array<{
+          hits?: Array<{ result?: { title?: string; primary_artist?: { name?: string } } }>;
+        }>;
+      };
+    };
+    const hits = data?.response?.sections?.[0]?.hits ?? [];
+    return hits
+      .map(h => ({ trackName: h.result?.title ?? "", artistName: h.result?.primary_artist?.name ?? "" }))
+      .filter(h => h.trackName && h.artistName);
+  } catch (err) {
+    logger.warn({ err }, "Genius search failed");
+    return [];
+  }
+}
+
+/** Search lrclib enhanced with Genius suggestions for broader coverage */
+async function searchCandidates(query: string): Promise<LrclibResult[]> {
+  const MAX_TOTAL = 20;
+
+  const [lrclibBase, geniusHits] = await Promise.allSettled([
+    searchLrcLibMultiple(query, MAX_TOTAL),
+    searchGenius(query),
+  ]);
+
+  const base: LrclibResult[] = lrclibBase.status === "fulfilled" ? lrclibBase.value : [];
+  const existingKeys = new Set(base.map(r => `${r.artistName.toLowerCase()}::${r.trackName.toLowerCase()}`));
+
+  if (geniusHits.status === "fulfilled" && geniusHits.value.length > 0) {
+    const novel = geniusHits.value
+      .filter(g => !existingKeys.has(`${g.artistName.toLowerCase()}::${g.trackName.toLowerCase()}`))
+      .slice(0, 8);
+
+    if (novel.length > 0) {
+      const extras = await Promise.allSettled(
+        novel.map(g => lrclibFetch({ artist_name: g.artistName, track_name: g.trackName })),
+      );
+      for (const r of extras) {
+        if (r.status !== "fulfilled") continue;
+        for (const item of r.value) {
+          if (!item.syncedLyrics || item.syncedLyrics.trim().length === 0) continue;
+          const key = `${item.artistName.toLowerCase()}::${item.trackName.toLowerCase()}`;
+          if (existingKeys.has(key)) continue;
+          existingKeys.add(key);
+          base.push(item);
+          if (base.length >= MAX_TOTAL) break;
+        }
+        if (base.length >= MAX_TOTAL) break;
+      }
+    }
+  }
+
+  return base;
+}
+
 // ── Plain lyrics fallback (lrclib plain + lyrics.ovh) ────────────────────────
 
 interface PlainLyricsResult {
@@ -225,8 +296,9 @@ async function runStaticLyricsMode(
 
   await displayMsg.edit({ content: "", embeds: [buildEmbed(page)] });
 
-  // Add navigation reactions
-  if (page < pages.length - 1) await displayMsg.react("▶️").catch(() => null);
+  // Add all navigation reactions upfront once — no removeAll/re-add on navigation
+  if (pages.length > 1) await displayMsg.react("◀️").catch(() => null);
+  if (pages.length > 1) await displayMsg.react("▶️").catch(() => null);
   await displayMsg.react("⏹").catch(() => null);
 
   const collector = displayMsg.createReactionCollector({
@@ -235,8 +307,14 @@ async function runStaticLyricsMode(
     time: 30 * 60 * 1000,
   });
 
-  collector.on("collect", async (reaction: MessageReaction) => {
+  collector.on("collect", async (reaction: MessageReaction, user: User) => {
     const emoji = reaction.emoji.name;
+
+    // Remove only the user's reaction — keep all others (no removeAll)
+    await (reaction.users as unknown as { remove: (id: string) => Promise<void> })
+      .remove(user.id)
+      .catch(() => null);
+
     if (emoji === "⏹") {
       collector.stop("stopped");
       await displayMsg.edit({
@@ -247,15 +325,7 @@ async function runStaticLyricsMode(
     if (emoji === "▶️" && page < pages.length - 1) page++;
     if (emoji === "◀️" && page > 0) page--;
 
-    // Remove user's reaction (best-effort) and update embed
-    reaction.users.remove(reaction.users.cache.find(u => !u.bot)?.id).catch(() => null);
     await displayMsg.edit({ embeds: [buildEmbed(page)] }).catch(() => null);
-
-    // Update nav reactions
-    displayMsg.reactions.removeAll().catch(() => null);
-    if (page > 0) await displayMsg.react("◀️").catch(() => null);
-    if (page < pages.length - 1) await displayMsg.react("▶️").catch(() => null);
-    await displayMsg.react("⏹").catch(() => null);
   });
 
   collector.on("end", (_c, reason) => {
@@ -499,66 +569,103 @@ function startReactionSync(waitMsg: Message, lrcData: { lines: LrcLine[]; title:
 
 // ── Reaction-based paginated song picker ─────────────────────────────────────
 
-const NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
-const PAGE_SIZE = 5;
+const MAX_SINGLE_PAGE = 6;
+const PAGE_SIZE_MULTI = 4;
+const MAX_PAGES = 5;
+const EMOJIS_6 = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"] as const;
+const EMOJIS_4 = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"] as const;
 
 async function runKaraokePicker(
   message: Message,
   pickMsg: Message,
   candidates: LrclibResult[],
 ): Promise<LrclibResult | null> {
+  const isSinglePage = candidates.length <= MAX_SINGLE_PAGE;
+  const pageSize   = isSinglePage ? MAX_SINGLE_PAGE : PAGE_SIZE_MULTI;
+  const maxItems   = isSinglePage ? MAX_SINGLE_PAGE : MAX_PAGES * PAGE_SIZE_MULTI;
+  const capped     = candidates.slice(0, maxItems);
+  const totalPages = isSinglePage ? 1 : Math.min(MAX_PAGES, Math.ceil(capped.length / PAGE_SIZE_MULTI));
+  const numberEmojis: readonly string[] = isSinglePage ? EMOJIS_6 : EMOJIS_4;
+
   let page = 0;
-  const totalPages = Math.ceil(candidates.length / PAGE_SIZE);
 
-  while (true) {
-    const pageItems = candidates.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-    const hasPrev = page > 0;
-    const hasNext = page < totalPages - 1;
+  const getPageItems = (p: number) => capped.slice(p * pageSize, (p + 1) * pageSize);
 
-    const listLines = pageItems
-      .map((r, i) => `${NUMBER_EMOJIS[i]} **${r.trackName}** — *${r.artistName}*`)
-      .join("\n");
-
-    const embed = new EmbedBuilder()
+  const buildEmbed = (p: number) => {
+    const items = getPageItems(p);
+    const list  = items.map((r, i) => `${numberEmojis[i]} **${r.trackName}** — *${r.artistName}*`).join("\n");
+    const nav   = totalPages > 1 ? ` · ◀️ ▶️ to navigate` : "";
+    return new EmbedBuilder()
       .setColor(0x9b59b6)
       .setTitle("🎤 Which song?")
-      .setDescription(listLines)
-      .setFooter({ text: `Page ${page + 1}/${totalPages} · React to choose · ❌ to cancel · 60s timeout` });
+      .setDescription(list)
+      .setFooter({ text: `Page ${p + 1}/${totalPages}${nav} · ❌ to cancel · 60s timeout` });
+  };
 
-    await pickMsg.edit({ embeds: [embed] });
+  await pickMsg.edit({ embeds: [buildEmbed(page)] });
 
-    // Clear old reactions then add fresh ones for this page
-    try { await pickMsg.reactions.removeAll(); } catch { /* needs Manage Messages */ }
+  // Add all reactions once — no removeAll/re-add on navigation
+  const firstPage = getPageItems(0);
+  for (let i = 0; i < firstPage.length; i++) {
+    await pickMsg.react(numberEmojis[i]!).catch(() => null);
+  }
+  if (totalPages > 1) {
+    await pickMsg.react("◀️").catch(() => null);
+    await pickMsg.react("▶️").catch(() => null);
+  }
+  await pickMsg.react("❌").catch(() => null);
 
-    for (let i = 0; i < pageItems.length; i++) {
-      await pickMsg.react(NUMBER_EMOJIS[i]!).catch(() => null);
-    }
-    if (hasPrev) await pickMsg.react("◀️").catch(() => null);
-    if (hasNext) await pickMsg.react("▶️").catch(() => null);
-    await pickMsg.react("❌").catch(() => null);
+  return new Promise<LrclibResult | null>((resolve) => {
+    let resolved = false;
 
-    // Wait for one reaction from the command author
-    const collected = await pickMsg.awaitReactions({
+    const collector = pickMsg.createReactionCollector({
       filter: (r, u) => u.id === message.author.id && !u.bot,
-      max: 1,
       time: 60_000,
-      errors: [],
     });
 
-    // Clear reactions for a clean look on next page (best-effort)
-    pickMsg.reactions.removeAll().catch(() => null);
+    collector.on("collect", async (reaction, user) => {
+      // Remove only the user's reaction — keep all others (no removeAll)
+      await (reaction.users as unknown as { remove: (id: string) => Promise<void> })
+        .remove(user.id)
+        .catch(() => null);
 
-    const emoji = collected.first()?.emoji.name ?? null;
+      const emoji = reaction.emoji.name ?? "";
 
-    if (!emoji || emoji === "❌") return null;
-    if (emoji === "▶️" && hasNext) { page++; continue; }
-    if (emoji === "◀️" && hasPrev) { page--; continue; }
+      if (emoji === "❌") {
+        resolved = true;
+        collector.stop("cancelled");
+        resolve(null);
+        return;
+      }
 
-    const idx = (NUMBER_EMOJIS as readonly string[]).indexOf(emoji);
-    if (idx === -1 || idx >= pageItems.length) return null;
+      if (emoji === "▶️" && page < totalPages - 1) {
+        page++;
+        await pickMsg.edit({ embeds: [buildEmbed(page)] }).catch(() => null);
+        return;
+      }
 
-    return pageItems[idx] ?? null;
-  }
+      if (emoji === "◀️" && page > 0) {
+        page--;
+        await pickMsg.edit({ embeds: [buildEmbed(page)] }).catch(() => null);
+        return;
+      }
+
+      const idx = (numberEmojis as string[]).indexOf(emoji);
+      const items = getPageItems(page);
+      if (idx !== -1 && idx < items.length) {
+        resolved = true;
+        collector.stop("selected");
+        resolve(items[idx] ?? null);
+      }
+    });
+
+    collector.on("end", (_c, reason) => {
+      if (!resolved) resolve(null);
+      if (reason !== "selected" && reason !== "cancelled") {
+        pickMsg.reactions.removeAll().catch(() => null);
+      }
+    });
+  });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -605,8 +712,8 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
 
   const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${query}**…`)] });
 
-  // 1 — Fetch, deduplicate and let user pick
-  const rawCandidates = await searchLrcLibMultiple(query);
+  // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
+  const rawCandidates = await searchCandidates(query);
   const candidates = deduplicateCandidates(rawCandidates);
 
   if (candidates.length === 0) {
