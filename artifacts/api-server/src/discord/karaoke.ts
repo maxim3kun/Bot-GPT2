@@ -131,29 +131,55 @@ interface GeniusHit {
   artistName: string;
 }
 
-async function searchGenius(query: string): Promise<GeniusHit[]> {
+async function searchITunes(query: string): Promise<GeniusHit[]> {
   try {
-    const url = `https://genius.com/api/search/song?q=${encodeURIComponent(query)}&per_page=10`;
-    const resp = await fetch(url, {
-      signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; DiscordBot/1.0)" },
-    });
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=10`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!resp.ok) return [];
-    const data = await resp.json() as {
-      response?: {
-        sections?: Array<{
-          hits?: Array<{ result?: { title?: string; primary_artist?: { name?: string } } }>;
-        }>;
-      };
-    };
-    const hits = data?.response?.sections?.[0]?.hits ?? [];
-    return hits
-      .map(h => ({ trackName: h.result?.title ?? "", artistName: h.result?.primary_artist?.name ?? "" }))
-      .filter(h => h.trackName && h.artistName);
+    const data = await resp.json() as { results?: Array<{ trackName?: string; artistName?: string }> };
+    return (data.results ?? [])
+      .map(r => ({ trackName: r.trackName ?? "", artistName: r.artistName ?? "" }))
+      .filter(r => r.trackName && r.artistName);
   } catch (err) {
-    logger.warn({ err }, "Genius search failed");
+    logger.warn({ err }, "iTunes search failed");
     return [];
   }
+}
+
+async function searchDeezer(query: string): Promise<GeniusHit[]> {
+  try {
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=10`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return [];
+    const data = await resp.json() as { data?: Array<{ title?: string; artist?: { name?: string } }> };
+    return (data.data ?? [])
+      .map(r => ({ trackName: r.title ?? "", artistName: r.artist?.name ?? "" }))
+      .filter(r => r.trackName && r.artistName);
+  } catch (err) {
+    logger.warn({ err }, "Deezer search failed");
+    return [];
+  }
+}
+
+/** Search iTunes + Deezer in parallel for song suggestions (replaces Genius which is geo-blocked) */
+async function searchSongSuggestions(query: string): Promise<GeniusHit[]> {
+  const [itunesRes, deezerRes] = await Promise.allSettled([
+    searchITunes(query),
+    searchDeezer(query),
+  ]);
+
+  const seen = new Set<string>();
+  const out: GeniusHit[] = [];
+
+  for (const r of [itunesRes, deezerRes]) {
+    if (r.status !== "fulfilled") continue;
+    for (const hit of r.value) {
+      const key = `${hit.artistName.toLowerCase()}::${hit.trackName.toLowerCase()}`;
+      if (!seen.has(key)) { seen.add(key); out.push(hit); }
+    }
+  }
+
+  return out.slice(0, 10);
 }
 
 interface CandidateSearchResult {
@@ -167,7 +193,7 @@ async function searchCandidates(query: string): Promise<CandidateSearchResult> {
 
   const [lrclibBase, geniusResult] = await Promise.allSettled([
     searchLrcLibMultiple(query, MAX_TOTAL),
-    searchGenius(query),
+    searchSongSuggestions(query),
   ]);
 
   const base: LrclibResult[] = lrclibBase.status === "fulfilled" ? lrclibBase.value : [];
