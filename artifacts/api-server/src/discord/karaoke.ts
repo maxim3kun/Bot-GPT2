@@ -156,43 +156,47 @@ async function searchGenius(query: string): Promise<GeniusHit[]> {
   }
 }
 
+interface CandidateSearchResult {
+  synced: LrclibResult[];
+  geniusHits: GeniusHit[];
+}
+
 /** Search lrclib enhanced with Genius suggestions for broader coverage */
-async function searchCandidates(query: string): Promise<LrclibResult[]> {
+async function searchCandidates(query: string): Promise<CandidateSearchResult> {
   const MAX_TOTAL = 20;
 
-  const [lrclibBase, geniusHits] = await Promise.allSettled([
+  const [lrclibBase, geniusResult] = await Promise.allSettled([
     searchLrcLibMultiple(query, MAX_TOTAL),
     searchGenius(query),
   ]);
 
   const base: LrclibResult[] = lrclibBase.status === "fulfilled" ? lrclibBase.value : [];
+  const rawGenius: GeniusHit[] = geniusResult.status === "fulfilled" ? geniusResult.value : [];
   const existingKeys = new Set(base.map(r => `${r.artistName.toLowerCase()}::${r.trackName.toLowerCase()}`));
 
-  if (geniusHits.status === "fulfilled" && geniusHits.value.length > 0) {
-    const novel = geniusHits.value
-      .filter(g => !existingKeys.has(`${g.artistName.toLowerCase()}::${g.trackName.toLowerCase()}`))
-      .slice(0, 8);
+  const novel = rawGenius
+    .filter(g => !existingKeys.has(`${g.artistName.toLowerCase()}::${g.trackName.toLowerCase()}`))
+    .slice(0, 8);
 
-    if (novel.length > 0) {
-      const extras = await Promise.allSettled(
-        novel.map(g => lrclibFetch({ artist_name: g.artistName, track_name: g.trackName })),
-      );
-      for (const r of extras) {
-        if (r.status !== "fulfilled") continue;
-        for (const item of r.value) {
-          if (!item.syncedLyrics || item.syncedLyrics.trim().length === 0) continue;
-          const key = `${item.artistName.toLowerCase()}::${item.trackName.toLowerCase()}`;
-          if (existingKeys.has(key)) continue;
-          existingKeys.add(key);
-          base.push(item);
-          if (base.length >= MAX_TOTAL) break;
-        }
+  if (novel.length > 0) {
+    const extras = await Promise.allSettled(
+      novel.map(g => lrclibFetch({ artist_name: g.artistName, track_name: g.trackName })),
+    );
+    for (const r of extras) {
+      if (r.status !== "fulfilled") continue;
+      for (const item of r.value) {
+        if (!item.syncedLyrics || item.syncedLyrics.trim().length === 0) continue;
+        const key = `${item.artistName.toLowerCase()}::${item.trackName.toLowerCase()}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        base.push(item);
         if (base.length >= MAX_TOTAL) break;
       }
+      if (base.length >= MAX_TOTAL) break;
     }
   }
 
-  return base;
+  return { synced: base, geniusHits: rawGenius };
 }
 
 // ── Plain lyrics fallback (lrclib plain + lyrics.ovh) ────────────────────────
@@ -668,6 +672,133 @@ async function runKaraokePicker(
   });
 }
 
+// ── Genius picker — converts GeniusHit[] to the shared picker UI ─────────────
+
+async function runGeniusPicker(message: Message, pickMsg: Message, hits: GeniusHit[]): Promise<GeniusHit | null> {
+  const pseudo: LrclibResult[] = hits.map(h => ({
+    trackName: h.trackName,
+    artistName: h.artistName,
+    syncedLyrics: null,
+    plainLyrics: null,
+    duration: 0,
+  }));
+  const picked = await runKaraokePicker(message, pickMsg, pseudo);
+  if (!picked) return null;
+  return hits.find(h => h.trackName === picked.trackName && h.artistName === picked.artistName) ?? null;
+}
+
+// ── Shared karaoke launch (SoundCloud search + audio streaming) ───────────────
+
+async function launchKaraoke(
+  message: Message,
+  waitMsg: Message,
+  lrcData: { lines: LrcLine[]; title: string; artist: string; duration: number },
+  guildId: string,
+  originalQuery: string,
+): Promise<void> {
+  if (lrcData.lines.length === 0) {
+    await waitMsg.edit({
+      embeds: [new EmbedBuilder()
+        .setColor(0xed4245).setTitle("🎤 Empty lyrics")
+        .setDescription(`❌ The lyrics for **${lrcData.title}** appear empty. Try another song.`)],
+    });
+    return;
+  }
+
+  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on SoundCloud…`, "Searching for the best audio source…")] });
+
+  const ready = await ensureVoiceConnection(message);
+  if (!ready) { await waitMsg.edit("❌ You need to be in a voice channel first!"); return; }
+
+  const radioState = radioStates.get(guildId);
+  if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }
+
+  const scQueries = [`${lrcData.artist} ${lrcData.title}`, `${lrcData.artist} ${lrcData.title} official`, originalQuery];
+  let scTrack: ScTrack | null = null;
+  for (const q of scQueries) { scTrack = await searchSoundCloud(q); if (scTrack) break; }
+
+  if (!scTrack) {
+    logger.warn({ originalQuery }, "SoundCloud not found — falling back to reaction sync");
+    radioState.player.stop();
+    radioStates.delete(guildId);
+    getVoiceConnection(guildId)?.destroy();
+    await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
+    await waitMsg.react("▶️").catch(() => null);
+    await waitMsg.react("⏹").catch(() => null);
+    startReactionSync(waitMsg, lrcData, guildId);
+    return;
+  }
+
+  try {
+    const httpStream = await fetchHttpStream(scTrack.streamUrl);
+    const resource = createAudioResource(httpStream, { inputType: StreamType.Arbitrary });
+
+    radioState.stationKey = null;
+    radioState.youtubeTitle = `🎤 ${lrcData.title}`;
+    radioState.youtubeUrl = scTrack.url;
+    radioState.queue = [];
+    radioState.player.play(resource);
+
+    radioState.player.once(AudioPlayerStatus.Playing, async () => {
+      const session: KaraokeSession = {
+        guildId, lines: lrcData.lines, embedMessage: waitMsg,
+        startTime: Date.now(), intervalId: null, stopped: false,
+        songTitle: lrcData.title, artistName: lrcData.artist, lastEditedIdx: -1,
+      };
+      karaokeSessions.set(guildId, session);
+
+      const dur = Math.floor(scTrack!.durationMs / 1000);
+      const embed = buildLyricsEmbed(session, 0).addFields(
+        { name: "🎵 Source", value: "SoundCloud", inline: true },
+        { name: "⏱ Duration", value: `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, "0")}`, inline: true },
+      );
+      if (scTrack!.thumbnail) embed.setThumbnail(scTrack!.thumbnail);
+      await waitMsg.edit({ content: "", embeds: [embed] }).catch(() => null);
+      await waitMsg.react("⏹").catch(() => null);
+
+      const stopCollector = waitMsg.createReactionCollector({
+        filter: (r: MessageReaction, u: User) => r.emoji.name === "⏹" && !u.bot,
+        time: 90 * 60 * 1000, max: 1,
+      });
+      stopCollector.on("collect", () => {
+        const s = karaokeSessions.get(guildId);
+        if (!s || s.stopped) return;
+        stopKaraokeSession(guildId);
+        radioStates.get(guildId)?.player.stop();
+        radioStates.delete(guildId);
+        getVoiceConnection(guildId)?.destroy();
+        waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
+      });
+      startLyricsLoop(session);
+    });
+
+    radioState.player.once("error", async (err) => {
+      logger.error({ err }, "Karaoke SoundCloud playback error");
+      stopKaraokeSession(guildId);
+      radioStates.delete(guildId);
+      getVoiceConnection(guildId)?.destroy();
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Playback error").setDescription("❌ Audio playback failed. Please try again.")] });
+    });
+
+    radioState.player.once(AudioPlayerStatus.Idle, () => {
+      const s = karaokeSessions.get(guildId);
+      if (!s || s.stopped) return;
+      stopKaraokeSession(guildId);
+      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nGreat singing! 🌟`).setFooter({ text: "Use !karaoke <song> to start another!" })] }).catch(() => null);
+    });
+
+  } catch (err) {
+    logger.error({ err }, "Karaoke stream start error");
+    stopKaraokeSession(guildId);
+    radioStates.delete(guildId);
+    getVoiceConnection(guildId)?.destroy();
+    await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
+    await waitMsg.react("▶️").catch(() => null);
+    await waitMsg.react("⏹").catch(() => null);
+    startReactionSync(waitMsg, lrcData, guildId);
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function stopKaraokeSession(guildId: string): boolean {
@@ -713,11 +844,60 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${query}**…`)] });
 
   // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
-  const rawCandidates = await searchCandidates(query);
-  const candidates = deduplicateCandidates(rawCandidates);
+  const { synced: rawSynced, geniusHits } = await searchCandidates(query);
+  const candidates = deduplicateCandidates(rawSynced);
 
   if (candidates.length === 0) {
-    // No synced lyrics — try plain lyrics fallback sources
+    // No synced lyrics — if Genius found songs, show them as a picker first
+    if (geniusHits.length > 0) {
+      await waitMsg.edit({ embeds: [buildWaitEmbed(
+        `⚠️ No synced lyrics found for **${query}**\n\n🎵 Found ${geniusHits.length} song(s) on Genius — pick one to continue:`,
+        "React to choose a song",
+      )] });
+
+      const picked = await runGeniusPicker(message, waitMsg, geniusHits);
+      if (!picked) {
+        await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Cancelled").setDescription("Karaoke cancelled. Use `!karaoke <song>` to try again.")] });
+        return;
+      }
+
+      const targetQuery = `${picked.artistName} ${picked.trackName}`;
+      await waitMsg.edit({ embeds: [buildWaitEmbed(`🔍 Searching synced lyrics for **${picked.trackName}** — *${picked.artistName}*…`)] });
+
+      // Try to find synced lyrics for the chosen song
+      const syncedForPick = await searchLrcLib(targetQuery);
+      if (syncedForPick) {
+        // Run full karaoke with synced lyrics
+        await launchKaraoke(message, waitMsg, syncedForPick, guildId, query);
+        return;
+      }
+
+      // Synced not found — try plain lyrics for the specific picked song
+      await waitMsg.edit({ embeds: [buildWaitEmbed(`⚠️ No synced lyrics — searching plain lyrics for **${picked.trackName}**…`)] });
+      const plain = await fetchPlainLyrics(targetQuery, picked.artistName, picked.trackName);
+      if (plain) {
+        await waitMsg.edit({
+          embeds: [new EmbedBuilder()
+            .setColor(0xf0a030).setTitle("🎤 Plain lyrics only")
+            .setDescription(
+              `⚠️ No synced lyrics — showing plain lyrics for **${plain.title}** by *${plain.artist}*.\n` +
+              `Source: **${plain.source}**\n\nReact ▶️/◀️ to scroll · ⏹ to stop`,
+            )],
+        });
+        await new Promise(r => setTimeout(r, 1200));
+        await runStaticLyricsMode(message, waitMsg, plain);
+        return;
+      }
+
+      await waitMsg.edit({
+        embeds: [new EmbedBuilder()
+          .setColor(0xed4245).setTitle("🎤 No lyrics found")
+          .setDescription(`❌ No lyrics found for **${picked.trackName}** by *${picked.artistName}* on any source.\nTry another song with \`!karaoke <Artist> <Song title>\`.`)],
+      });
+      return;
+    }
+
+    // No synced lyrics and no Genius results — try plain lyrics fallback
     await waitMsg.edit({ embeds: [buildWaitEmbed(`⚠️ No synced lyrics found for **${query}**\n🔍 Searching for plain lyrics on other sources…`)] });
 
     const words = query.trim().split(/\s+/);
@@ -767,9 +947,6 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     chosenCandidate = picked;
   }
 
-  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${chosenCandidate.trackName}** — *${chosenCandidate.artistName}*\n🎵 Searching audio on SoundCloud…`, "Searching for the best audio source…")] });
-
-  // Parse lyrics
   const lrcData = {
     lines: parseLrc(chosenCandidate.syncedLyrics!),
     title: chosenCandidate.trackName,
@@ -777,124 +954,5 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     duration: chosenCandidate.duration ?? 0,
   };
 
-  if (lrcData.lines.length === 0) {
-    await waitMsg.edit({
-      embeds: [new EmbedBuilder()
-        .setColor(0xed4245).setTitle("🎤 Empty lyrics")
-        .setDescription(`❌ The lyrics for **${lrcData.title}** appear empty. Try another song.`)],
-    });
-    return;
-  }
-
-  // 2 — Join voice
-  const ready = await ensureVoiceConnection(message);
-  if (!ready) {
-    await waitMsg.edit("❌ You need to be in a voice channel first!");
-    return;
-  }
-
-  const radioState = radioStates.get(guildId);
-  if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }
-
-  // 3 — SoundCloud search
-  const scQueries = [
-    `${lrcData.artist} ${lrcData.title}`,
-    `${lrcData.artist} ${lrcData.title} official`,
-    query,
-  ];
-
-  let scTrack: ScTrack | null = null;
-  for (const q of scQueries) {
-    scTrack = await searchSoundCloud(q);
-    if (scTrack) break;
-  }
-
-  // 4 — SoundCloud failed → reaction sync fallback
-  if (!scTrack) {
-    logger.warn({ query }, "SoundCloud not found — falling back to reaction sync");
-    radioState.player.stop();
-    radioStates.delete(guildId);
-    getVoiceConnection(guildId)?.destroy();
-
-    await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
-    await waitMsg.react("▶️").catch(() => null);
-    await waitMsg.react("⏹").catch(() => null);
-    startReactionSync(waitMsg, lrcData, guildId);
-    return;
-  }
-
-  // 5 — Stream audio from SoundCloud
-  try {
-    const httpStream = await fetchHttpStream(scTrack.streamUrl);
-    const resource = createAudioResource(httpStream, { inputType: StreamType.Arbitrary });
-
-    radioState.stationKey = null;
-    radioState.youtubeTitle = `🎤 ${lrcData.title}`;
-    radioState.youtubeUrl = scTrack.url;
-    radioState.queue = [];
-    radioState.player.play(resource);
-
-    radioState.player.once(AudioPlayerStatus.Playing, async () => {
-      const session: KaraokeSession = {
-        guildId, lines: lrcData.lines, embedMessage: waitMsg,
-        startTime: Date.now(), intervalId: null, stopped: false,
-        songTitle: lrcData.title, artistName: lrcData.artist, lastEditedIdx: -1,
-      };
-      karaokeSessions.set(guildId, session);
-
-      const dur = Math.floor(scTrack!.durationMs / 1000);
-      const embed = buildLyricsEmbed(session, 0)
-        .addFields(
-          { name: "🎵 Source", value: "SoundCloud", inline: true },
-          { name: "⏱ Duration", value: `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, "0")}`, inline: true },
-        );
-      if (scTrack!.thumbnail) embed.setThumbnail(scTrack!.thumbnail);
-      await waitMsg.edit({ content: "", embeds: [embed] }).catch(() => null);
-
-      // Add ⏹ stop reaction so anyone can stop the session
-      await waitMsg.react("⏹").catch(() => null);
-
-      const stopCollector = waitMsg.createReactionCollector({
-        filter: (r: MessageReaction, u: User) => r.emoji.name === "⏹" && !u.bot,
-        time: 90 * 60 * 1000,
-        max: 1,
-      });
-      stopCollector.on("collect", () => {
-        const s = karaokeSessions.get(guildId);
-        if (!s || s.stopped) return;
-        stopKaraokeSession(guildId);
-        radioStates.get(guildId)?.player.stop();
-        radioStates.delete(guildId);
-        getVoiceConnection(guildId)?.destroy();
-        waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
-      });
-
-      startLyricsLoop(session);
-    });
-
-    radioState.player.once("error", async (err) => {
-      logger.error({ err }, "Karaoke SoundCloud playback error");
-      stopKaraokeSession(guildId);
-      radioStates.delete(guildId);
-      getVoiceConnection(guildId)?.destroy();
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Playback error").setDescription("❌ Audio playback failed. Please try again.")] });
-    });
-
-    radioState.player.once(AudioPlayerStatus.Idle, () => {
-      const s = karaokeSessions.get(guildId);
-      if (!s || s.stopped) return;
-      stopKaraokeSession(guildId);
-      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nGreat singing! 🌟`).setFooter({ text: "Use !karaoke <song> to start another!" })] }).catch(() => null);
-    });
-
-  } catch (err) {
-    logger.error({ err }, "Karaoke stream start error");
-    stopKaraokeSession(guildId);
-    radioStates.delete(guildId);
-    getVoiceConnection(guildId)?.destroy();
-    await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
-    await waitMsg.react("▶️").catch(() => null);
-    await waitMsg.react("⏹").catch(() => null);
-    startReactionSync(waitMsg, lrcData, guildId);
-  }
+  await launchKaraoke(message, waitMsg, lrcData, guildId, query);
 }
