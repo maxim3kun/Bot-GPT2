@@ -1,5 +1,6 @@
 import { type Message, EmbedBuilder } from "discord.js";
-import { request as httpsRequest } from "https";
+import { request as httpsRequest, get as httpsGet } from "https";
+import { get as httpGet } from "http";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { radioStates, RADIO_STATIONS } from "./radio";
@@ -22,7 +23,52 @@ async function getYoutubeDirectUrl(youtubeUrl: string): Promise<string> {
   return url;
 }
 
-// ── AudD.io API — URL-based identification ────────────────────────────────────
+// ── Capture audio bytes from a URL (follows redirects, collects ~12 s) ────────
+
+const CAPTURE_BYTES    = 192 * 1024;   // ~12 s at 128 kbps
+const STREAM_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "Icy-MetaData": "0",
+  "Connection": "close",
+  "Accept": "*/*",
+};
+
+async function captureAudioBytes(url: string, hops = 0): Promise<Buffer> {
+  if (hops > 8) throw new Error("Too many redirects");
+  return new Promise((resolve, reject) => {
+    const getter = url.startsWith("https://") ? httpsGet : httpGet;
+    const req = getter(url, { headers: STREAM_HEADERS }, (res) => {
+      const loc = res.headers.location;
+      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
+        const next = loc.startsWith("http") ? loc : new URL(loc, url).toString();
+        captureAudioBytes(next, hops + 1).then(resolve).catch(reject);
+        res.resume();
+        return;
+      }
+      if (res.statusCode && res.statusCode >= 400) {
+        res.resume();
+        reject(new Error(`Stream returned HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let total = 0;
+      res.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+        total += chunk.length;
+        if (total >= CAPTURE_BYTES) {
+          req.destroy();
+          resolve(Buffer.concat(chunks).subarray(0, CAPTURE_BYTES));
+        }
+      });
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.setTimeout(20_000, () => { req.destroy(new Error("Stream capture timed out")); });
+  });
+}
+
+// ── AudD.io API — file-upload identification ──────────────────────────────────
 
 interface AuddResult {
   title:        string;
@@ -38,14 +84,15 @@ interface AuddResult {
   apple_music?: { url?: string };
 }
 
-async function queryAuddByUrl(apiKey: string, audioUrl: string): Promise<AuddResult | null> {
+async function queryAuddByFile(apiKey: string, audioBytes: Buffer): Promise<AuddResult | null> {
   const boundary = `----FormBoundary${Date.now().toString(16)}`;
 
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="api_token"\r\n\r\n${apiKey}\r\n`),
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="return"\r\n\r\nspotify,apple_music\r\n`),
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="url"\r\n\r\n${audioUrl}\r\n`),
-    Buffer.from(`--${boundary}--\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`),
+    audioBytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);
 
   return new Promise((resolve, reject) => {
@@ -107,32 +154,29 @@ export async function shazam(message: Message): Promise<void> {
     return;
   }
 
-  // ── Determine source URL ──────────────────────────────────────────────────
-
-  let audioUrl: string;
-  let sourceLabel: string;
-
   if (state.stationKey) {
     const station = RADIO_STATIONS[state.stationKey];
     if (!station) { await message.reply("❌ Can't identify: unknown station."); return; }
-    audioUrl    = station.url;
-    sourceLabel = station.name;
 
-    const waitMsg = await message.reply(`🎵 Identifying song on **${sourceLabel}**…`);
+    const waitMsg = await message.reply(`🎵 Identifying song on **${station.name}**…`);
     try {
-      const result = await queryAuddByUrl(apiKey, audioUrl);
-      await buildAndSendResult(waitMsg, result, sourceLabel);
+      logger.debug({ url: station.url }, "Shazam: capturing audio from radio stream");
+      const audioBytes = await captureAudioBytes(station.url);
+      logger.debug({ bytes: audioBytes.length }, "Shazam: audio captured, querying AudD");
+      const result = await queryAuddByFile(apiKey, audioBytes);
+      await buildAndSendResult(waitMsg, result, station.name);
     } catch (err) {
       logger.error({ err }, "Shazam error (radio)");
       await waitMsg.edit("❌ Something went wrong while identifying the song. Please try again!");
     }
 
   } else {
-    // YouTube — need direct URL from yt-dlp first
+    // YouTube — get direct stream URL via yt-dlp, then capture bytes
     const waitMsg = await message.reply(`🔗 Getting audio stream from **${state.youtubeTitle ?? "YouTube"}**…`);
-    sourceLabel = state.youtubeTitle ?? "YouTube";
+    const sourceLabel = state.youtubeTitle ?? "YouTube";
+    let directUrl: string;
     try {
-      audioUrl = await getYoutubeDirectUrl(state.youtubeUrl!);
+      directUrl = await getYoutubeDirectUrl(state.youtubeUrl!);
     } catch (err) {
       logger.error({ err }, "Shazam: failed to get YouTube direct URL");
       await waitMsg.edit("❌ Couldn't get the audio stream from YouTube. Try again.");
@@ -141,7 +185,8 @@ export async function shazam(message: Message): Promise<void> {
 
     await waitMsg.edit(`🔍 Identifying the song…`);
     try {
-      const result = await queryAuddByUrl(apiKey, audioUrl);
+      const audioBytes = await captureAudioBytes(directUrl);
+      const result = await queryAuddByFile(apiKey, audioBytes);
       await buildAndSendResult(waitMsg, result, sourceLabel);
     } catch (err) {
       logger.error({ err }, "Shazam error (youtube)");

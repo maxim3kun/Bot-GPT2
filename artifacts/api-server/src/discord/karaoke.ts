@@ -579,13 +579,28 @@ interface YtTrack {
   thumbnail: string;
 }
 
-async function searchYouTube(query: string, minDurationSec = 60): Promise<YtTrack | null> {
+const UNWANTED_VIDEO_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d audio|bass[\s-]boosted)\b/i;
+
+function scoreYouTubeResult(video: { title?: string; channel?: { name?: string } }, lrcTitle: string): number {
+  const vTitle = (video.title ?? "").toLowerCase();
+  const lrcTitleLower = lrcTitle.toLowerCase();
+  let score = 0;
+  if (UNWANTED_VIDEO_PATTERN.test(vTitle) && !UNWANTED_VIDEO_PATTERN.test(lrcTitleLower)) score -= 10;
+  if (/\b(official\s*(audio|video|music\s*video|lyric\s*video))\b/i.test(vTitle)) score += 5;
+  if (/\bvevo\b/i.test(video.channel?.name ?? "")) score += 3;
+  if (/\bofficial\b/i.test(video.channel?.name ?? "")) score += 2;
+  return score;
+}
+
+async function searchYouTube(query: string, minDurationSec = 60, lrcTitle = ""): Promise<YtTrack | null> {
   try {
     const play = await getPlay();
-    const results = await play.search(query, { source: { youtube: "video" }, limit: 5 });
+    const results = await play.search(query, { source: { youtube: "video" }, limit: 8 });
     if (!results?.length) return null;
     const filtered = results.filter((v: any) => !v.durationInSec || v.durationInSec >= minDurationSec);
-    const video = filtered[0] ?? results[0];
+    const candidates = (filtered.length > 0 ? filtered : results) as any[];
+    candidates.sort((a: any, b: any) => scoreYouTubeResult(b, lrcTitle) - scoreYouTubeResult(a, lrcTitle));
+    const video = candidates[0];
     if (!video?.url) return null;
     return {
       url: video.url as string,
@@ -958,7 +973,7 @@ async function launchKaraoke(
 
   const ytQueries = [`${lrcData.artist} ${lrcData.title} official audio`, `${lrcData.artist} ${lrcData.title}`, originalQuery];
   let ytTrack: YtTrack | null = null;
-  for (const q of ytQueries) { ytTrack = await searchYouTube(q); if (ytTrack) break; }
+  for (const q of ytQueries) { ytTrack = await searchYouTube(q, 60, lrcData.title); if (ytTrack) break; }
 
   if (!ytTrack) {
     logger.warn({ originalQuery }, "YouTube not found — falling back to reaction sync");
@@ -990,12 +1005,12 @@ async function launchKaraoke(
       };
       karaokeSessions.set(guildId, session);
 
-      const dur = Math.floor(scTrack!.durationMs / 1000);
+      const dur = Math.floor(ytTrack!.durationMs / 1000);
       const embed = buildLyricsEmbed(session, 0).addFields(
-        { name: "🎵 Source", value: "SoundCloud", inline: true },
+        { name: "🎵 Source", value: "YouTube", inline: true },
         { name: "⏱ Duration", value: `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, "0")}`, inline: true },
       );
-      if (scTrack!.thumbnail) embed.setThumbnail(scTrack!.thumbnail);
+      if (ytTrack!.thumbnail) embed.setThumbnail(ytTrack!.thumbnail);
       await waitMsg.edit({ content: "", embeds: [embed] }).catch(() => null);
       await waitMsg.react("⏹").catch(() => null);
 
