@@ -59,7 +59,7 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
       resolve(res);
     });
     req.on("error", reject);
-    req.setTimeout(15_000, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
+    req.setTimeout(8_000, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
   });
 }
 
@@ -509,6 +509,9 @@ export async function playRadio(message: Message, stationInput: string): Promise
   state.youtubeUrl = null;
   state.queue = [];
 
+  // Immediate feedback — user sees this while we open the TCP stream
+  const loadMsg = await message.reply(`⏳ Connecting to **${station.name}**…`);
+
   try {
     const stream = await fetchStream(station.url);
     const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
@@ -523,19 +526,19 @@ export async function playRadio(message: Message, stationInput: string): Promise
           { name: "Stop", value: "`!radio leave`", inline: true },
         )
         .setFooter({ text: "Switch station anytime with !radio <key>" });
-      await message.reply({ embeds: [embed] });
+      await loadMsg.edit({ content: "", embeds: [embed] });
     });
 
     state.player.once("error", async (err) => {
       logger.error({ err, stationKey }, "Radio stream error");
-      await message.reply(`❌ Stream error for **${station.name}**. Try another station with \`!radio list\`.`);
+      await loadMsg.edit(`❌ Stream error for **${station.name}**. Try another station with \`!radio list\`.`);
       radioStates.delete(guildId);
       getVoiceConnection(guildId)?.destroy();
     });
 
   } catch (err) {
     logger.error({ err, stationKey }, "Radio play error");
-    await message.reply("❌ Failed to start the radio stream. Try again!");
+    await loadMsg.edit("❌ Failed to start the radio stream. Try another with `!radio list`.");
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
   }
