@@ -174,12 +174,33 @@ async function searchSongSuggestions(query: string): Promise<GeniusHit[]> {
   for (const r of [itunesRes, deezerRes]) {
     if (r.status !== "fulfilled") continue;
     for (const hit of r.value) {
-      const key = `${hit.artistName.toLowerCase()}::${hit.trackName.toLowerCase()}`;
+      const key = normalizeSuggestionKey(hit.trackName, hit.artistName);
       if (!seen.has(key)) { seen.add(key); out.push(hit); }
     }
   }
 
   return out.slice(0, 10);
+}
+
+/** Normalize a track+artist pair to a dedup key — collapses subtitle/punctuation/artist-name variants */
+function normalizeSuggestionKey(trackName: string, artistName: string): string {
+  const track = trackName
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")   // strip (subtitle) [subtitle]
+    .replace(/\s*-\s+.+$/, "")                // strip "- subtitle" at end
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // strip accents
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 30);                             // first 30 chars enough for a unique key
+
+  const artist = artistName
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/ma[îi]?tre\s*/g, "")            // "maître " / "maitre " → strip
+    .replace(/\s*[,;&×x+]\s*.*/i, "")         // first credited artist only
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 20);
+
+  return `${track}::${artist}`;
 }
 
 interface CandidateSearchResult {
