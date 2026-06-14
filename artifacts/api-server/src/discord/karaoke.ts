@@ -75,13 +75,16 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
 
 function normalizeForDedup(str: string): string {
   return str
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents (é→e, î→i …)
     .toLowerCase()
-    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")   // remove (feat. ...) [feat. ...]
-    .replace(/\s*feat\.?\s+.*/i, "")           // feat. at end
-    .replace(/\s*ft\.?\s+.*/i, "")             // ft. at end
-    .replace(/\s*avec\s+.*/i, "")              // French "avec" collaborator
-    .replace(/\s*[,;&×x]\s*.*/i, "")           // strip after , ; & × (collaborators)
-    .replace(/[^a-z0-9]/g, "")                 // only alphanumeric
+    .replace(/ma[i]?tre\s*/g, "")                     // maître/maitre → strip
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")            // remove (feat. ...) [feat. ...]
+    .replace(/\s*feat\.?\s+.*/i, "")                   // feat. at end
+    .replace(/\s*ft\.?\s+.*/i, "")                     // ft. at end
+    .replace(/\s*avec\s+.*/i, "")                      // French "avec" collaborator
+    .replace(/\s*[,;&×x]\s*.*/i, "")                   // strip after , ; & ×
+    .replace(/\s+-\s+.+$/, "")                         // strip subtitle after " - "
+    .replace(/[^a-z0-9]/g, "")                         // only alphanumeric
     .trim();
 }
 
