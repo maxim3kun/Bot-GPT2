@@ -35,6 +35,7 @@ interface LrclibResult {
   trackName: string;
   artistName: string;
   syncedLyrics: string | null;
+  plainLyrics?: string | null;
   duration?: number;
 }
 
@@ -121,6 +122,149 @@ async function searchLrcLibMultiple(query: string, limit = 20): Promise<LrclibRe
     if (out.length >= limit) break;
   }
   return out;
+}
+
+// ── Plain lyrics fallback (lrclib plain + lyrics.ovh) ────────────────────────
+
+interface PlainLyricsResult {
+  title: string;
+  artist: string;
+  lines: string[];
+  source: string;
+}
+
+/** Search lrclib.net for plain (unsynced) lyrics when no synced version exists */
+async function fetchPlainLyricsFromLrclib(query: string): Promise<PlainLyricsResult | null> {
+  const words = query.trim().split(/\s+/);
+  const strategies: Record<string, string>[] = [
+    { q: query },
+    ...(words.length > 1 ? [{ artist_name: words[0]!, track_name: words.slice(1).join(" ") }] : []),
+  ];
+  for (const params of strategies) {
+    try {
+      const results = await lrclibFetch(params);
+      // Accept a result with plain lyrics even without synced
+      const hit = results.find(r => r.plainLyrics && r.plainLyrics.trim().length > 0);
+      if (!hit?.plainLyrics) continue;
+      const lines = hit.plainLyrics
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+      if (lines.length === 0) continue;
+      return { title: hit.trackName, artist: hit.artistName, lines, source: "lrclib.net" };
+    } catch (err) {
+      logger.warn({ err, params }, "lrclib plain lyrics fetch failed");
+    }
+  }
+  return null;
+}
+
+/** Fetch lyrics from lyrics.ovh (free, no API key needed) */
+async function fetchLyricsOvh(artist: string, title: string): Promise<PlainLyricsResult | null> {
+  try {
+    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "DiscordBot/1.0" } });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { lyrics?: string; error?: string };
+    if (data.error || !data.lyrics) return null;
+    const lines = data.lyrics
+      .split("\n")
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+    if (lines.length === 0) return null;
+    return { title, artist, lines, source: "lyrics.ovh" };
+  } catch (err) {
+    logger.warn({ err }, "lyrics.ovh fetch failed");
+    return null;
+  }
+}
+
+/** Try all plain-lyrics sources in order, return first hit */
+async function fetchPlainLyrics(query: string, artist?: string, title?: string): Promise<PlainLyricsResult | null> {
+  // 1 — lrclib plain lyrics (parallel with lyrics.ovh if we have artist+title)
+  const tasks: Promise<PlainLyricsResult | null>[] = [fetchPlainLyricsFromLrclib(query)];
+  if (artist && title) tasks.push(fetchLyricsOvh(artist, title));
+
+  const results = await Promise.allSettled(tasks);
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) return r.value;
+  }
+
+  // 2 — If artist+title were already tried above, skip; otherwise try lyrics.ovh with parsed query
+  if (!artist || !title) {
+    const words = query.trim().split(/\s+/);
+    if (words.length >= 2) {
+      const fallback = await fetchLyricsOvh(words[0]!, words.slice(1).join(" ")).catch(() => null);
+      if (fallback) return fallback;
+    }
+  }
+  return null;
+}
+
+/** Show paginated plain lyrics (no timing) with ◀️▶️ reactions */
+async function runStaticLyricsMode(
+  message: Message,
+  displayMsg: Message,
+  plain: PlainLyricsResult,
+): Promise<void> {
+  const LINES_PER_PAGE = 8;
+  const pages: string[][] = [];
+  for (let i = 0; i < plain.lines.length; i += LINES_PER_PAGE) {
+    pages.push(plain.lines.slice(i, i + LINES_PER_PAGE));
+  }
+  if (pages.length === 0) return;
+
+  let page = 0;
+
+  const buildEmbed = (p: number) => new EmbedBuilder()
+    .setColor(0x9b59b6)
+    .setTitle(`🎤 ${plain.title}`)
+    .setAuthor({ name: `🎵 ${plain.artist}` })
+    .setDescription(pages[p]!.join("\n"))
+    .setFooter({ text: `Page ${p + 1}/${pages.length} · ◀️ ▶️ to navigate · ⏹ to stop · Source: ${plain.source}` });
+
+  await displayMsg.edit({ content: "", embeds: [buildEmbed(page)] });
+
+  // Add navigation reactions
+  if (page < pages.length - 1) await displayMsg.react("▶️").catch(() => null);
+  await displayMsg.react("⏹").catch(() => null);
+
+  const collector = displayMsg.createReactionCollector({
+    filter: (r: MessageReaction, u: User) =>
+      ["◀️", "▶️", "⏹"].includes(r.emoji.name ?? "") && !u.bot,
+    time: 30 * 60 * 1000,
+  });
+
+  collector.on("collect", async (reaction: MessageReaction) => {
+    const emoji = reaction.emoji.name;
+    if (emoji === "⏹") {
+      collector.stop("stopped");
+      await displayMsg.edit({
+        embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Stopped").setDescription(`Lyrics for **${plain.title}** closed.`)],
+      }).catch(() => null);
+      return;
+    }
+    if (emoji === "▶️" && page < pages.length - 1) page++;
+    if (emoji === "◀️" && page > 0) page--;
+
+    // Remove user's reaction (best-effort) and update embed
+    reaction.users.remove(reaction.users.cache.find(u => !u.bot)?.id).catch(() => null);
+    await displayMsg.edit({ embeds: [buildEmbed(page)] }).catch(() => null);
+
+    // Update nav reactions
+    displayMsg.reactions.removeAll().catch(() => null);
+    if (page > 0) await displayMsg.react("◀️").catch(() => null);
+    if (page < pages.length - 1) await displayMsg.react("▶️").catch(() => null);
+    await displayMsg.react("⏹").catch(() => null);
+  });
+
+  collector.on("end", (_c, reason) => {
+    if (reason !== "stopped") {
+      displayMsg.edit({
+        embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Session expired").setDescription("Use `!karaoke <song>` to try again.")],
+      }).catch(() => null);
+    }
+  });
 }
 
 // ── SoundCloud audio search & stream ─────────────────────────────────────────
@@ -466,15 +610,39 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   const candidates = deduplicateCandidates(rawCandidates);
 
   if (candidates.length === 0) {
+    // No synced lyrics — try plain lyrics fallback sources
+    await waitMsg.edit({ embeds: [buildWaitEmbed(`⚠️ No synced lyrics found for **${query}**\n🔍 Searching for plain lyrics on other sources…`)] });
+
+    const words = query.trim().split(/\s+/);
+    const guessArtist = words.length > 1 ? words[0] : undefined;
+    const guessTitle  = words.length > 1 ? words.slice(1).join(" ") : undefined;
+    const plain = await fetchPlainLyrics(query, guessArtist, guessTitle);
+
+    if (!plain) {
+      await waitMsg.edit({
+        embeds: [new EmbedBuilder()
+          .setColor(0xed4245).setTitle("🎤 No lyrics found")
+          .setDescription(
+            `❌ No lyrics found for **${query}** on any source.\n\n` +
+            "**Tips:**\n• Use `!karaoke <Artist> <Song title>` — e.g. `!karaoke Kendji Girac Andalouse`\n" +
+            "• Try the original title\n• Popular songs work best",
+          )],
+      });
+      return;
+    }
+
+    // Found plain lyrics — show in scrollable mode (no timing)
     await waitMsg.edit({
       embeds: [new EmbedBuilder()
-        .setColor(0xed4245).setTitle("🎤 No lyrics found")
+        .setColor(0xf0a030)
+        .setTitle("🎤 Plain lyrics only")
         .setDescription(
-          `❌ No synchronized lyrics found for **${query}**.\n\n` +
-          "**Tips:**\n• Use `!karaoke <Artist> <Song title>` — e.g. `!karaoke Kendji Girac Andalouse`\n" +
-          "• Try the original title\n• Popular songs work best",
+          `⚠️ No synced lyrics found — showing plain lyrics for **${plain.title}** by *${plain.artist}*.\n` +
+          `Source: **${plain.source}**\n\nReact ▶️/◀️ to scroll · ⏹ to stop`,
         )],
     });
+    await new Promise(r => setTimeout(r, 1500));
+    await runStaticLyricsMode(message, waitMsg, plain);
     return;
   }
 
