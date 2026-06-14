@@ -10,6 +10,73 @@ import type { IncomingMessage } from "http";
 import { ensureVoiceConnection, radioStates } from "./radio";
 import { logger } from "../lib/logger";
 
+// ── Finish messages ───────────────────────────────────────────────────────────
+
+const FINISH_MESSAGES = [
+  "Absolutely nailed it! 🎯",
+  "That was incredible! 🔥",
+  "You're a superstar! ⭐",
+  "Flawless performance! 💫",
+  "The crowd goes wild! 🙌",
+  "Pure talent right there! 🎶",
+  "Outstanding vocals! 🎤",
+  "You killed it! 🏆",
+  "Broadway is calling! 🎭",
+  "Legendary session! 🌟",
+];
+
+let _finishMsgIdx = Math.floor(Math.random() * FINISH_MESSAGES.length);
+
+function nextFinishMessage(): string {
+  const msg = FINISH_MESSAGES[_finishMsgIdx % FINISH_MESSAGES.length]!;
+  _finishMsgIdx = (_finishMsgIdx + 1) % FINISH_MESSAGES.length;
+  return msg;
+}
+
+// ── Auto-pick logic ───────────────────────────────────────────────────────────
+
+/**
+ * When the query has 2+ words (artist + title), try to auto-pick the best
+ * candidate by scoring artist and track matches. Returns the best candidate
+ * if the score is high enough, otherwise null (→ show picker).
+ */
+function tryAutoPick(query: string, candidates: LrclibResult[]): LrclibResult | null {
+  const words = query.trim().split(/\s+/);
+  if (words.length < 2 || candidates.length <= 1) return null;
+
+  const norm = (s: string) =>
+    s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const artistGuess = norm(words[0]!);
+  const titleGuess  = norm(words.slice(1).join(" "));
+  const fullGuess   = norm(query);
+
+  let bestScore = 0;
+  let bestCandidate: LrclibResult | null = null;
+
+  for (const c of candidates) {
+    const ca = norm(c.artistName);
+    const ct = norm(c.trackName);
+    let score = 0;
+
+    // Artist match
+    if (ca === artistGuess || ca.startsWith(artistGuess) || artistGuess.startsWith(ca)) score += 3;
+    else if (ca.includes(artistGuess) || artistGuess.includes(ca)) score += 2;
+
+    // Title match
+    if (ct === titleGuess || ct.startsWith(titleGuess) || titleGuess.startsWith(ct)) score += 3;
+    else if (ct.includes(titleGuess) || titleGuess.includes(ct)) score += 2;
+
+    // Full query match bonus
+    if ((ca + ct).includes(fullGuess) || fullGuess.includes(ca + ct.slice(0, 4))) score += 1;
+
+    if (score > bestScore) { bestScore = score; bestCandidate = c; }
+  }
+
+  // Only auto-pick if the match is confident (score ≥ 4 means both artist and title matched)
+  return bestScore >= 4 ? bestCandidate : null;
+}
+
 // ── LRC parser ────────────────────────────────────────────────────────────────
 
 interface LrcLine {
@@ -488,11 +555,11 @@ interface ScTrack {
   streamUrl: string;
 }
 
-async function searchSoundCloud(query: string): Promise<ScTrack | null> {
+async function searchSoundCloud(query: string, minDurationMs = 60_000): Promise<ScTrack | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await fetch(
-        `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&limit=5&client_id=${scClientId}`,
+        `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&limit=10&client_id=${scClientId}`,
         { headers: SC_HEADERS, signal: AbortSignal.timeout(10000) },
       );
       if (r.status === 401 || r.status === 403) {
@@ -509,7 +576,9 @@ async function searchSoundCloud(query: string): Promise<ScTrack | null> {
         media: { transcodings: Array<{ url: string; format: { protocol: string; mime_type: string } }> };
       }> };
 
-      const track = data.collection?.[0];
+      // Pick the first track that meets the minimum duration (skip short previews)
+      const tracks = (data.collection ?? []).filter(t => t.duration >= minDurationMs);
+      const track = tracks[0] ?? data.collection?.[0];
       if (!track) return null;
 
       const progressive = track.media.transcodings.find(t => t.format.protocol === "progressive");
@@ -644,7 +713,7 @@ function startLyricsLoop(session: KaraokeSession): void {
       stopKaraokeSession(session.guildId);
       session.embedMessage.edit({
         content: "",
-        embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${session.songTitle}** by ${session.artistName}\n\nGreat singing! 🌟`).setFooter({ text: "Use !karaoke <song> to sing another one!" })],
+        embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${session.songTitle}** by ${session.artistName}\n\n${nextFinishMessage()}`).setFooter({ text: "Use !karaoke <song> to sing another one!" })],
       }).catch(() => null);
     }
   }, 1500);
@@ -653,31 +722,26 @@ function startLyricsLoop(session: KaraokeSession): void {
 // ── Reaction-based fallback (no audio) ───────────────────────────────────────
 
 function startReactionSync(waitMsg: Message, lrcData: { lines: LrcLine[]; title: string; artist: string; duration: number }, guildId: string): void {
-  const collector = waitMsg.createReactionCollector({
-    filter: (r: MessageReaction, u: User) => ["▶️", "⏹"].includes(r.emoji.name ?? "") && !u.bot,
-    time: 5 * 60 * 1000,
+  // Auto-start immediately — no need to wait for ▶️
+  const session: KaraokeSession = {
+    guildId, lines: lrcData.lines, embedMessage: waitMsg,
+    startTime: Date.now(), intervalId: null, stopped: false,
+    songTitle: lrcData.title, artistName: lrcData.artist, lastEditedIdx: -1,
+  };
+  karaokeSessions.set(guildId, session);
+  waitMsg.edit({ content: "", embeds: [buildLyricsEmbed(session, 0)] }).catch(() => null);
+  startLyricsLoop(session);
+
+  const stopCollector = waitMsg.createReactionCollector({
+    filter: (r: MessageReaction, u: User) => r.emoji.name === "⏹" && !u.bot,
+    time: 90 * 60 * 1000,
     max: 1,
   });
-
-  collector.on("collect", async (reaction: MessageReaction) => {
-    if (reaction.emoji.name === "⏹") {
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Cancelled").setDescription("Karaoke session cancelled.")] });
-      return;
-    }
-    const session: KaraokeSession = {
-      guildId, lines: lrcData.lines, embedMessage: waitMsg,
-      startTime: Date.now(), intervalId: null, stopped: false,
-      songTitle: lrcData.title, artistName: lrcData.artist, lastEditedIdx: -1,
-    };
-    karaokeSessions.set(guildId, session);
-    await waitMsg.edit({ content: "", embeds: [buildLyricsEmbed(session, 0)] }).catch(() => null);
-    startLyricsLoop(session);
-  });
-
-  collector.on("end", (_c, reason) => {
-    if (reason === "time" && !karaokeSessions.has(guildId)) {
-      waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Session expired").setDescription("No reaction received within 5 minutes.\nUse `!karaoke <song>` to try again.")] }).catch(() => null);
-    }
+  stopCollector.on("collect", () => {
+    const s = karaokeSessions.get(guildId);
+    if (!s || s.stopped) return;
+    stopKaraokeSession(guildId);
+    waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
   });
 }
 
@@ -836,7 +900,6 @@ async function launchKaraoke(
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
-    await waitMsg.react("▶️").catch(() => null);
     await waitMsg.react("⏹").catch(() => null);
     startReactionSync(waitMsg, lrcData, guildId);
     return;
@@ -897,7 +960,7 @@ async function launchKaraoke(
       const s = karaokeSessions.get(guildId);
       if (!s || s.stopped) return;
       stopKaraokeSession(guildId);
-      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nGreat singing! 🌟`).setFooter({ text: "Use !karaoke <song> to start another!" })] }).catch(() => null);
+      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\n${nextFinishMessage()}`).setFooter({ text: "Use !karaoke <song> to start another!" })] }).catch(() => null);
     });
 
   } catch (err) {
@@ -906,7 +969,6 @@ async function launchKaraoke(
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
-    await waitMsg.react("▶️").catch(() => null);
     await waitMsg.react("⏹").catch(() => null);
     startReactionSync(waitMsg, lrcData, guildId);
   }
@@ -1046,18 +1108,23 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     return;
   }
 
-  // Single result → skip picker
+  // Single result, or confident auto-match → skip picker
   let chosenCandidate: LrclibResult;
 
   if (candidates.length === 1) {
     chosenCandidate = candidates[0]!;
   } else {
-    const picked = await runKaraokePicker(message, waitMsg, candidates);
-    if (!picked) {
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Cancelled").setDescription("Karaoke cancelled. Use `!karaoke <song>` to try again.")] });
-      return;
+    const autoPicked = tryAutoPick(query, candidates);
+    if (autoPicked) {
+      chosenCandidate = autoPicked;
+    } else {
+      const picked = await runKaraokePicker(message, waitMsg, candidates);
+      if (!picked) {
+        await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0x99aab5).setTitle("🎤 Cancelled").setDescription("Karaoke cancelled. Use `!karaoke <song>` to try again.")] });
+        return;
+      }
+      chosenCandidate = picked;
     }
-    chosenCandidate = picked;
   }
 
   const lrcData = {
