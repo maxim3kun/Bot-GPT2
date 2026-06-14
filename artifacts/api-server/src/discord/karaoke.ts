@@ -136,6 +136,28 @@ function deduplicateCandidates(candidates: LrclibResult[]): LrclibResult[] {
   });
 }
 
+/**
+ * Returns true when the track name contains a version/remix indicator
+ * (parenthetical or dash suffix) that is NOT a feat./collaboration marker.
+ * e.g. "Song (Pilule bleue)" → true, "Song (feat. X)" → false, "Song" → false
+ */
+function isVersionedTrack(trackName: string): boolean {
+  // Strip feat/ft/avec/with/prod parentheticals — those are collaborations, not versions
+  const stripped = trackName
+    .replace(/\s*[\(\[][^)\]]*(feat|ft\.?|avec|with|prod)[^)\]]*[\)\]]/gi, "")
+    .trim();
+  return /[\(\[]/.test(stripped) || /\s+-\s+/.test(stripped);
+}
+
+/** Sort candidates: clean originals first, versioned (remix/live/…) last */
+function sortCandidatesByOriginality(candidates: LrclibResult[]): LrclibResult[] {
+  return [...candidates].sort((a, b) => {
+    const aV = isVersionedTrack(a.trackName) ? 1 : 0;
+    const bV = isVersionedTrack(b.trackName) ? 1 : 0;
+    return aV - bV;
+  });
+}
+
 async function searchLrcLibMultiple(query: string, limit = 20): Promise<LrclibResult[]> {
   // Fire both strategies in parallel to reduce latency
   const words = query.trim().split(/\s+/);
@@ -685,7 +707,10 @@ async function runKaraokePicker(
 
   const buildEmbed = (p: number) => {
     const items = getPageItems(p);
-    const list  = items.map((r, i) => `${numberEmojis[i]} **${r.trackName}** — *${r.artistName}*`).join("\n");
+    const list  = items.map((r, i) => {
+      const tag = isVersionedTrack(r.trackName) ? " ↪" : "";
+      return `${numberEmojis[i]}${tag} **${r.trackName}** — *${r.artistName}*`;
+    }).join("\n");
     const nav   = totalPages > 1 ? ` · ◀️ ▶️ to navigate` : "";
     return new EmbedBuilder()
       .setColor(0x9b59b6)
@@ -933,7 +958,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
 
   // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
   const { synced: rawSynced, geniusHits } = await searchCandidates(query);
-  const candidates = deduplicateCandidates(rawSynced);
+  const candidates = sortCandidatesByOriginality(deduplicateCandidates(rawSynced));
 
   if (candidates.length === 0) {
     // No synced lyrics — if Genius found songs, show them as a picker first
