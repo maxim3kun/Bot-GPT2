@@ -239,12 +239,12 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
           : "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`",
       },
       {
-        name: fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays",
+        name: fr ? "Anniversaires" : es ? "Cumpleaños" : "Birthdays",
         value: fr
-          ? "`!birthday add <JJ/MM>` — Enregistrer 🎂\n`!birthday list` — Voir tous 📋\n`!birthday remove [@user]` — Supprimer ❌\n`!birthday channel [#salon]` — Salon d'annonce 📣 *(admin)*\n> `!help anniversaire` pour plus de détails"
+          ? "`!birthday add <JJ/MM>` — Enregistrer\n`!birthday list` — Voir tous\n`!birthday remove [@user]` — Supprimer\n> `!help anniversaire` pour plus de détails"
           : es
-          ? "`!birthday add <DD/MM>` — Registrar 🎂\n`!birthday list` — Ver todos 📋\n`!birthday remove [@user]` — Eliminar ❌\n`!birthday channel [#canal]` — Canal de anuncio 📣 *(admin)*\n> `!help cumpleanos` para más detalles"
-          : "`!birthday add <DD/MM>` — Save your birthday 🎂\n`!birthday list` — View all 📋\n`!birthday remove [@user]` — Remove ❌\n`!birthday channel [#channel]` — Announce channel 📣 *(admin)*\n> `!help birthday` for details",
+          ? "`!birthday add <DD/MM>` — Registrar\n`!birthday list` — Ver todos\n`!birthday remove [@user]` — Eliminar\n> `!help cumpleanos` para más detalles"
+          : "`!birthday add <DD/MM>` — Save your birthday\n`!birthday list` — View all\n`!birthday remove [@user]` — Remove\n> `!help birthday` for details",
       },
     );
   } else if (page === 2) {
@@ -488,14 +488,14 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): Em
       }); break;
 
     case "birthday":
-      embed.setTitle(fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays");
+      embed.setTitle(fr ? "Anniversaires" : es ? "Cumpleaños" : "Birthdays");
       embed.addFields(
         { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
           value: fr
-            ? "`!birthday add <JJ/MM>` 🎂 — Enregistre ton anniversaire\n`!birthday list` 📋 — Voir tous les anniversaires\n`!birthday remove [@user]` ❌ — Supprimer un anniversaire\n`!birthday channel [#salon]` 📣 — Définir le salon d'annonce *(admin)*"
+            ? "`!birthday add <JJ/MM>` — Enregistre ton anniversaire\n`!birthday list` — Voir tous les anniversaires\n`!birthday remove [@user]` — Supprimer un anniversaire"
             : es
-            ? "`!birthday add <DD/MM>` 🎂 — Registra tu cumpleaños\n`!birthday list` 📋 — Ver todos los cumpleaños\n`!birthday remove [@user]` ❌ — Eliminar un cumpleaños\n`!birthday channel [#canal]` 📣 — Establecer canal de anuncio *(admin)*"
-            : "`!birthday add <DD/MM>` 🎂 — Save your birthday\n`!birthday list` 📋 — View all birthdays\n`!birthday remove [@user]` ❌ — Remove a birthday\n`!birthday channel [#channel]` 📣 — Set announcement channel *(admin)*" },
+            ? "`!birthday add <DD/MM>` — Registra tu cumpleaños\n`!birthday list` — Ver todos los cumpleaños\n`!birthday remove [@user]` — Eliminar un cumpleaños"
+            : "`!birthday add <DD/MM>` — Save your birthday\n`!birthday list` — View all birthdays\n`!birthday remove [@user]` — Remove a birthday" },
         { name: fr ? "Alias" : es ? "Alias" : "Aliases",
           value: "`!anniversaire` · `!b`" },
       ); break;
@@ -647,6 +647,8 @@ async function sendModeratorGuide(message: Message): Promise<void> {
           "`!prefix reset` — Restore the default `!` prefix\n" +
           "`!unblock @user` — Lift any bot restriction on a user *(can unblock yourself too)*\n" +
           "`!banlist` — View all users flagged by the anti-troll system with their status\n" +
+          "`!birthday channel #salon` — Define the channel where birthday announcements are posted\n" +
+          "`!birthday channel reset` — Remove the birthday announcement channel\n" +
           "`!help admin` / `!Guide` / `!Instruction` / `!Guía` / `!mode d'emploi` — Show this guide",
         inline: false,
       },
