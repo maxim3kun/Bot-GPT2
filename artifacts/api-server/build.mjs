@@ -110,6 +110,7 @@ async function buildAll() {
       "play-dl",
       "m3u8stream",
       "miniget",
+      "mongodb",
     ],
     sourcemap: "linked",
     plugins: [
