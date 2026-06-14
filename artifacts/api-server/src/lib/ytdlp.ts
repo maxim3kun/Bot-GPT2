@@ -1,10 +1,14 @@
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
+import { existsSync } from "fs";
 import type { Readable } from "stream";
 
 const execFileAsync = promisify(execFile);
 
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=ios,mweb";
+const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
+const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
+
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=android,default";
 
 export interface YtInfo {
   title: string;
@@ -14,7 +18,7 @@ export interface YtInfo {
 
 export async function ytdlpInfo(url: string): Promise<YtInfo> {
   const { stdout } = await execFileAsync(
-    "yt-dlp",
+    YT_DLP_BIN,
     ["--print-json", "--skip-download", "--no-playlist", YT_CLIENT_ARGS, url],
     { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
   );
@@ -27,7 +31,7 @@ export async function ytdlpInfo(url: string): Promise<YtInfo> {
 }
 
 export function ytdlpStream(url: string): Readable {
-  const proc = spawn("yt-dlp", [
+  const proc = spawn(YT_DLP_BIN, [
     "-f", "bestaudio/best",
     "--no-playlist",
     "--quiet",
@@ -48,7 +52,7 @@ export interface YtSearchResult {
 
 export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchResult[]> {
   const { stdout } = await execFileAsync(
-    "yt-dlp",
+    YT_DLP_BIN,
     [
       `ytsearch${count}:${query}`,
       "--flat-playlist",
