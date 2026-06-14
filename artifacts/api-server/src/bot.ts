@@ -1661,7 +1661,7 @@ export function startBot(): void {
             await radioMsg.react("➡️").catch(() => null);
             const collector = radioMsg.createReactionCollector({
               filter: (r, u) => ["⬅️", "➡️"].includes(r.emoji.name ?? "") && !u.bot && u.id === message.author.id,
-              idle: 5 * 60 * 1000,
+              idle: 30 * 60 * 1000,
             });
             collector.on("collect", async (reaction, user) => {
               if (reaction.emoji.name === "➡️") page = (page === 3 ? 1 : page + 1) as 1 | 2 | 3;
@@ -1692,7 +1692,7 @@ export function startBot(): void {
             await radioMsg.react("➡️").catch(() => null);
             const collector = radioMsg.createReactionCollector({
               filter: (rx, u) => ["⬅️", "➡️"].includes(rx.emoji.name ?? "") && !u.bot && u.id === message.author.id,
-              idle: 5 * 60 * 1000,
+              idle: 30 * 60 * 1000,
             });
             collector.on("collect", async (reaction, user) => {
               if (reaction.emoji.name === "➡️") page = (page === 3 ? 1 : page + 1) as 1 | 2 | 3;
@@ -2170,6 +2170,15 @@ export function startBot(): void {
           if (command && command in RADIO_STATIONS) {
             await playRadio(message, command);
             break;
+          }
+
+          // Compound station shortcut — e.g. !rock es → rock_es, !cadena 100 → cadena100
+          if (command && args[0]) {
+            const compound = `${command}_${args[0].toLowerCase()}`;
+            if (compound in RADIO_STATIONS) {
+              await playRadio(message, compound);
+              break;
+            }
           }
 
           // Fuzzy command suggestion (with opt-in preference per user)

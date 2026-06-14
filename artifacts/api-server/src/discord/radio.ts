@@ -20,7 +20,7 @@ import { ytdlpInfo, ytdlpStream, ytdlpSearch } from "../lib/ytdlp";
 
 const STREAM_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Icy-MetaData": "1",
+  "Icy-MetaData": "0",
   "Connection": "keep-alive",
   "Accept": "*/*",
 };
@@ -29,15 +29,37 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
   if (hops > 8) throw new Error("Too many redirects");
   return new Promise((resolve, reject) => {
     const getter = url.startsWith("https://") ? httpsGet : httpGet;
-    getter(url, { headers: STREAM_HEADERS }, (res) => {
+    const req = getter(url, { headers: STREAM_HEADERS }, (res) => {
       const loc = res.headers.location;
       if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
+        res.resume(); // drain and discard redirect body
         fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
           .then(resolve).catch(reject);
-      } else {
-        resolve(res);
+        return;
       }
-    }).on("error", reject);
+      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+        return;
+      }
+      const ct = (res.headers["content-type"] ?? "").toLowerCase();
+      // Some stations return an M3U/PLS playlist — parse first URL from it
+      if (ct.includes("mpegurl") || ct.includes("x-scpls") || url.endsWith(".m3u") || url.endsWith(".m3u8") || url.endsWith(".pls")) {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => { body += chunk; if (body.length > 8192) res.destroy(); });
+        res.on("end", () => {
+          const firstUrl = body.split("\n").map(l => l.trim()).find(l => l.startsWith("http"));
+          if (firstUrl) fetchStream(firstUrl, hops + 1).then(resolve).catch(reject);
+          else reject(new Error("Empty playlist from " + url));
+        });
+        res.on("error", reject);
+        return;
+      }
+      resolve(res);
+    });
+    req.on("error", reject);
+    req.setTimeout(15_000, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
   });
 }
 
@@ -46,37 +68,39 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
 export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string; lang: "fr" | "es" | "en" }> = {
   // 🇫🇷 French
   nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
-  fun:         { name: "Fun Radio",      url: "https://streaming.radio.funradio.fr/fun-1-44-128",                   emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
-  skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_192k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
-  franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-hifi.mp3",               emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
-  franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-hifi.mp3",                emoji: "📰", genre: "News / Info",              lang: "fr" },
-  musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-hifi.mp3",             emoji: "🎼", genre: "Classical",                lang: "fr" },
-  ouifm:       { name: "OÜI FM",         url: "https://stream.ouifm.fr/ouifm-high.mp3",                           emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
-  virgin:      { name: "Virgin Radio",   url: "https://streaming.radio.virginradio.fr/virgin-1-44-128",            emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
-  nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
-  rtl2:        { name: "RTL 2",          url: "https://streaming.radio.rtl2.fr/rtl2-1-44-128",                     emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
+  fun:         { name: "Fun Radio",      url: "https://cdn.nrjaudio.fm/adwz2/fr/30401/mp3_128.mp3",                emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
+  skyrock:     { name: "Skyrock",        url: "https://skyrock.ice.infomaniak.ch/skyrock-128.mp3",                  emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
+  franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
+  franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
+  musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
+  ouifm:       { name: "OÜI FM",         url: "https://ouifm.ice.infomaniak.ch/ouifm-high.mp3",                    emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
+  virgin:      { name: "Virgin Radio",   url: "https://cdn.nrjaudio.fm/adwz2/fr/30501/mp3_128.mp3",               emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
+  nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/adwz2/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
+  rtl2:        { name: "RTL 2",          url: "https://icecast.rtl2.fr/rtl2-1-44-128",                             emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
+  sanef:       { name: "Sanef 107.7",    url: "https://sanef-1077.ice.infomaniak.ch/sanef-1077-128.mp3",           emoji: "🚗", genre: "Info / Trafic",            lang: "fr" },
+  evasion:     { name: "Évasion FM",     url: "https://evasion.ice.infomaniak.ch/evasion-128.mp3",                 emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
-  los40:       { name: "Los 40",         url: "https://25553.live.streamtheworld.com/LOS40_SC",                    emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://25773.live.streamtheworld.com/CADENA100_SC",                emoji: "💃", genre: "Pop / Dance",              lang: "es" },
-  europafm:    { name: "Europa FM",      url: "https://25773.live.streamtheworld.com/EUROPAFM_SC",                 emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://25773.live.streamtheworld.com/CADENADIAL_SC",               emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  rock_es:     { name: "Rock FM ES",     url: "https://25773.live.streamtheworld.com/ROCKFM_SC",                   emoji: "🤘", genre: "Rock",                      lang: "es" },
-  cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                           emoji: "📢", genre: "News / Talk",              lang: "es" },
+  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC",   emoji: "💃", genre: "Pop / Dance",              lang: "es" },
+  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/EUROPAFM_SC",    emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC",  emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
+  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKFM_SC",      emoji: "🤘", genre: "Rock",                     lang: "es" },
+  cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                                         emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
-  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                                                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
-  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3",                                                          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ABSOLUTE_RADIO_SC",                 emoji: "🎸", genre: "Classic Rock",             lang: "en" },
-  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3",                                                         emoji: "📻", genre: "Rock / Indie",             lang: "en" },
-  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                                                      emoji: "🎼", genre: "Classical",                lang: "en" },
-  magic:       { name: "Magic Radio",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/MAGIC_RADIO_SC",                    emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
-  kiss:        { name: "Kiss FM UK",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/KISS_SC",                           emoji: "💋", genre: "Dance / RnB",              lang: "en" },
-  planetrock:  { name: "Planet Rock",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/PLANET_ROCK_SC",                    emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
-  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3",                                                         emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
-  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                                                   emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
-  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",                                                         emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
-  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                                                                emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
-  jazz24:      { name: "Jazz24",         url: "https://live.amperwave.net/direct/ppm-jazz24mp3-ibc1",                                               emoji: "🎷", genre: "Jazz",                     lang: "en" },
-  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                                                              emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
+  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",           emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3Low",          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://22223.live.streamtheworld.com/ABSOLUTE_RADIO_SC", emoji: "🎸", genre: "Classic Rock",            lang: "en" },
+  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3Low",         emoji: "📻", genre: "Rock / Indie",             lang: "en" },
+  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",         emoji: "🎼", genre: "Classical",                lang: "en" },
+  magic:       { name: "Magic Radio",    url: "https://18493.live.streamtheworld.com/MAGIC_RADIO_SC",  emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
+  kiss:        { name: "Kiss FM UK",     url: "https://18963.live.streamtheworld.com/KISS_SC",         emoji: "💋", genre: "Dance / RnB",              lang: "en" },
+  planetrock:  { name: "Planet Rock",    url: "https://17883.live.streamtheworld.com/PLANET_ROCK_SC",  emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
+  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3Low",         emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
+  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",      emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
+  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",            emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
+  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                   emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
+  jazz24:      { name: "Jazz24",         url: "https://24953.live.streamtheworld.com/JAZZ24_SC",        emoji: "🎷", genre: "Jazz",                     lang: "en" },
+  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                 emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -224,14 +248,14 @@ export async function replyNotInVoice(message: Message): Promise<void> {
         .setEmoji("🔊"),
       new ButtonBuilder()
         .setCustomId("voice_ready")
-        .setLabel("Je suis prêt !")
+        .setLabel("I'm ready!")
         .setStyle(ButtonStyle.Success)
         .setEmoji("✅"),
     ),
   );
 
   await message.reply({
-    content: "❌ Tu dois d'abord rejoindre un salon vocal ! Clique sur un salon puis sur ✅ :",
+    content: "❌ You need to join a voice channel first! Click a channel then ✅ when ready:",
     components: rows,
   });
 }
@@ -786,10 +810,10 @@ export async function startVoteSkip(message: Message): Promise<void> {
       .setTitle(title)
       .setDescription(desc ?? `Skip **${trackTitle}** ?`)
       .addFields(
-        { name: "Votes", value: `${votes}/${needed} nécessaires`, inline: true },
-        { name: "Présents", value: `${totalHumans} humains`, inline: true },
+        { name: "Votes", value: `${votes}/${needed} needed`, inline: true },
+        { name: "Present", value: `${totalHumans} humans`, inline: true },
       )
-      .setFooter({ text: "Réagis ✅ pour voter  •  30 secondes" });
+      .setFooter({ text: "React ✅ to vote  •  30 seconds" });
 
   const voteMsg = await message.reply({ embeds: [buildEmbed(0, 0xfee75c, "🗳️ Vote Skip")] });
   await voteMsg.react("✅").catch(() => null);
@@ -831,20 +855,20 @@ export async function startVoteSkip(message: Message): Promise<void> {
       cur.youtubeTitle = null;
       cur.youtubeUrl = null;
       cur.player.stop();
-      const next = cur.queue.length > 0 ? " — chargement de la suivante…" : " — file vide.";
+      const next = cur.queue.length > 0 ? " — loading next track…" : " — queue is empty.";
       await voteMsg.edit({
         embeds: [buildEmbed(
           voted.size, 0x57f287,
-          "✅ Vote accepté !",
-          `**${trackTitle}** skippée par ${voted.size}/${totalHumans} vote${voted.size > 1 ? "s" : ""}.${next}`,
+          "✅ Vote passed!",
+          `**${trackTitle}** skipped by ${voted.size}/${totalHumans} vote${voted.size > 1 ? "s" : ""}.${next}`,
         )],
       }).catch(() => null);
     } else if (reason === "time") {
       await voteMsg.edit({
         embeds: [buildEmbed(
           voted.size, 0xed4245,
-          "❌ Vote échoué",
-          `Pas assez de votes pour skipper **${trackTitle}** (${voted.size}/${needed} obtenus).`,
+          "❌ Vote failed",
+          `Not enough votes to skip **${trackTitle}** (${voted.size}/${needed} received).`,
         )],
       }).catch(() => null);
     }
