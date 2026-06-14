@@ -4,7 +4,7 @@ import type { Readable } from "stream";
 
 const execFileAsync = promisify(execFile);
 
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=android_vr,web_creator";
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=ios,mweb";
 
 export interface YtInfo {
   title: string;

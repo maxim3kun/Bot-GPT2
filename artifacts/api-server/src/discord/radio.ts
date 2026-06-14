@@ -87,20 +87,20 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKFM_SC",      emoji: "🤘", genre: "Rock",                     lang: "es" },
   cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                                         emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
-  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",           emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
-  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3Low",          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://22223.live.streamtheworld.com/ABSOLUTE_RADIO_SC", emoji: "🎸", genre: "Classic Rock",            lang: "en" },
-  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3Low",         emoji: "📻", genre: "Rock / Indie",             lang: "en" },
-  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",         emoji: "🎼", genre: "Classical",                lang: "en" },
-  magic:       { name: "Magic Radio",    url: "https://18493.live.streamtheworld.com/MAGIC_RADIO_SC",  emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
-  kiss:        { name: "Kiss FM UK",     url: "https://18963.live.streamtheworld.com/KISS_SC",         emoji: "💋", genre: "Dance / RnB",              lang: "en" },
-  planetrock:  { name: "Planet Rock",    url: "https://17883.live.streamtheworld.com/PLANET_ROCK_SC",  emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
-  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3Low",         emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
-  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",      emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
-  groove:      { name: "Groove Salad",   url: "http://ice2.somafm.com/groovesalad-128-mp3",            emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
-  lush:        { name: "Lush",           url: "http://ice2.somafm.com/lush-128-mp3",                   emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
-  jazz24:      { name: "Jazz24",         url: "https://24953.live.streamtheworld.com/JAZZ24_SC",        emoji: "🎷", genre: "Jazz",                     lang: "en" },
-  defcon:      { name: "DEF CON Radio",  url: "http://ice2.somafm.com/defcon-128-mp3",                 emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
+  capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
+  heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartMP3",                          emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
+  absolute:    { name: "Absolute Radio", url: "https://stream-mz.planetradio.co.uk/absoluteradio.mp3",              emoji: "🎸", genre: "Classic Rock",            lang: "en" },
+  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXMP3",                         emoji: "📻", genre: "Rock / Indie",             lang: "en" },
+  classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                      emoji: "🎼", genre: "Classical",                lang: "en" },
+  magic:       { name: "Magic Radio",    url: "https://stream-mz.planetradio.co.uk/magic.mp3",                      emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
+  kiss:        { name: "Kiss FM UK",     url: "https://stream-mz.planetradio.co.uk/kiss.mp3",                       emoji: "💋", genre: "Dance / RnB",              lang: "en" },
+  planetrock:  { name: "Planet Rock",    url: "https://stream-mz.planetradio.co.uk/planetrock.mp3",                 emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
+  smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothMP3",                         emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
+  kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                   emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
+  groove:      { name: "Groove Salad",   url: "http://ice6.somafm.com/groovesalad-128-mp3",                         emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
+  lush:        { name: "Lush",           url: "http://ice6.somafm.com/lush-128-mp3",                                emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
+  jazz24:      { name: "Jazz24",         url: "https://jazz24.streamguys1.com/jazz24",                               emoji: "🎷", genre: "Jazz",                     lang: "en" },
+  defcon:      { name: "DEF CON Radio",  url: "http://ice6.somafm.com/defcon-128-mp3",                              emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ function startIdleTimer(guildId: string): void {
   state.idleTimer = setTimeout(() => {
     const cur = radioStates.get(guildId);
     if (!cur || cur.stationKey || cur.queue.length > 0 || cur.youtubeTitle) return;
-    autoDisconnect(guildId, "😴 Inactive for 2 minutes — leaving the voice channel.");
+    autoDisconnect(guildId, "😴 Inactif depuis 2 minutes — je quitte le salon vocal.");
   }, IDLE_TIMEOUT_MS);
 }
 
@@ -161,7 +161,7 @@ export function onVoiceAloneChange(guildId: string, isAlone: boolean): void {
   if (isAlone) {
     if (!state.aloneTimer) {
       state.aloneTimer = setTimeout(() => {
-        autoDisconnect(guildId, "😶 Alone in the channel for 5 minutes — disconnecting.");
+        autoDisconnect(guildId, "😶 Seul dans le salon depuis 5 minutes — je me déconnecte.");
       }, ALONE_TIMEOUT_MS);
     }
   } else {
@@ -193,11 +193,11 @@ async function playNextFromQueue(guildId: string): Promise<void> {
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0xed4245)
-        .setTitle("▶️ Now playing")
+        .setTitle("▶️ En cours de lecture")
         .setDescription(`**${title}**`)
         .addFields(
-          { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
-          { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining` : "Last video", inline: true },
+          { name: "Durée", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+          { name: "File d'attente", value: state.queue.length > 0 ? `${state.queue.length} vidéo${state.queue.length !== 1 ? "s" : ""} restante${state.queue.length !== 1 ? "s" : ""}` : "Dernière vidéo", inline: true },
         );
       if (thumbnail) embed.setThumbnail(thumbnail);
       await state.notifyChannel.send({ embeds: [embed] }).catch(() => null);
@@ -218,12 +218,17 @@ async function playNextFromQueue(guildId: string): Promise<void> {
 export async function replyNotInVoice(message: Message): Promise<void> {
   const guild = message.guild;
   if (!guild) {
-    await message.reply("❌ You need to be in a voice channel first!");
+    await message.reply("❌ Tu dois d'abord rejoindre un salon vocal !");
     return;
   }
 
   const { getVoicePickerChannels } = await import("./voice-picker-channels.js");
   const configuredIds = getVoicePickerChannels(guild.id);
+
+  // Ensure the channel cache is populated
+  if (guild.channels.cache.size === 0) {
+    await guild.channels.fetch().catch(() => null);
+  }
 
   let voiceChannels = configuredIds.length > 0
     ? configuredIds
@@ -235,7 +240,7 @@ export async function replyNotInVoice(message: Message): Promise<void> {
         .slice(0, 2);
 
   if (voiceChannels.length === 0) {
-    await message.reply("❌ You need to be in a voice channel first!");
+    await message.reply("❌ Tu dois d'abord rejoindre un salon vocal !");
     return;
   }
 
@@ -247,18 +252,18 @@ export async function replyNotInVoice(message: Message): Promise<void> {
         .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`),
       new ButtonBuilder()
         .setCustomId("voice_ready")
-        .setLabel("✅ I'm ready!")
+        .setLabel("✅ Je suis prêt(e) !")
         .setStyle(ButtonStyle.Success),
     ),
   );
 
   try {
     await message.reply({
-      content: "❌ You need to join a voice channel first! Click a channel then confirm when ready:",
+      content: "❌ Tu dois d'abord rejoindre un salon vocal ! Clique sur un salon puis confirme quand tu es prêt(e) :",
       components: rows,
     });
   } catch {
-    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.");
+    await message.reply("❌ Tu dois d'abord rejoindre un salon vocal ! Rejoins-en un puis réessaie.");
   }
 }
 
@@ -504,7 +509,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
   try {
     ready = await ensureVoiceConnection(message);
   } catch {
-    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.").catch(() => null);
+    await message.reply("❌ Tu dois d'abord rejoindre un salon vocal ! Rejoins-en un puis réessaie.").catch(() => null);
     return;
   }
   if (!ready) return;
@@ -518,7 +523,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
   state.queue = [];
 
   // Immediate feedback — user sees this while we open the TCP stream
-  const loadMsg = await message.reply(`⏳ Connecting to **${station.name}**…`);
+  const loadMsg = await message.reply(`⏳ Connexion à **${station.name}**…`);
 
   try {
     const stream = await fetchStream(station.url);
@@ -528,25 +533,25 @@ export async function playRadio(message: Message, stationInput: string): Promise
     state.player.once(AudioPlayerStatus.Playing, async () => {
       const embed = new EmbedBuilder()
         .setColor(0x57f287)
-        .setTitle(`${station.emoji} Now playing — ${station.name}`)
+        .setTitle(`${station.emoji} En cours — ${station.name}`)
         .addFields(
           { name: "Genre", value: station.genre, inline: true },
-          { name: "Stop", value: "`!radio leave`", inline: true },
+          { name: "Arrêter", value: "`!radio leave`", inline: true },
         )
-        .setFooter({ text: "Switch station anytime with !radio <key>" });
+        .setFooter({ text: "Change de station à tout moment avec !radio <clé>" });
       await loadMsg.edit({ content: "", embeds: [embed] });
     });
 
     state.player.once("error", async (err) => {
       logger.error({ err, stationKey }, "Radio stream error");
-      await loadMsg.edit(`❌ Stream error for **${station.name}**. Try another station with \`!radio list\`.`);
+      await loadMsg.edit(`❌ Erreur de stream pour **${station.name}**. Essaie une autre station avec \`!radio list\`.`);
       radioStates.delete(guildId);
       getVoiceConnection(guildId)?.destroy();
     });
 
   } catch (err) {
     logger.error({ err, stationKey }, "Radio play error");
-    await loadMsg.edit("❌ Failed to start the radio stream. Try another with `!radio list`.");
+    await loadMsg.edit("❌ Impossible de démarrer le stream radio. Essaie une autre station avec `!radio list`.");
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
   }
@@ -557,7 +562,7 @@ export async function stopRadio(message: Message): Promise<void> {
   const state = radioStates.get(guildId);
 
   if (!state) {
-    await message.reply("❌ Nothing is currently playing.");
+    await message.reply("❌ Rien n'est en cours de lecture.");
     return;
   }
 
@@ -566,7 +571,7 @@ export async function stopRadio(message: Message): Promise<void> {
   state.player.stop();
   radioStates.delete(guildId);
   getVoiceConnection(guildId)?.destroy();
-  await message.reply("👋 Stopped and disconnected.");
+  await message.reply("👋 Arrêté et déconnecté.");
 }
 
 // Private: plays a YouTube URL immediately given an existing state + a message to edit
@@ -595,27 +600,27 @@ async function execPlayYoutube(
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
-      .setTitle("▶️ Now playing")
+      .setTitle("▶️ En cours de lecture")
       .setDescription(`**${title}**`)
       .addFields(
-        { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
-        { name: "Stop", value: "`!radio leave`", inline: true },
-        ...(queueCount > 0 ? [{ name: "Queue", value: `${queueCount} next • \`!queue\``, inline: true }] : []),
+        { name: "Durée", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+        { name: "Arrêter", value: "`!radio leave`", inline: true },
+        ...(queueCount > 0 ? [{ name: "File d'attente", value: `${queueCount} suivant(s) • \`!queue\``, inline: true }] : []),
       )
-      .setFooter({ text: `!skip to skip • !youtube <url> to add • !youtube search <keywords>` });
+      .setFooter({ text: `!skip pour passer • !youtube <url> pour ajouter • !youtube search <mots-clés>` });
     if (thumbnail) embed.setThumbnail(thumbnail);
     await waitMsg.edit({ content: "", embeds: [embed] });
   });
 
   state.player.once("error", async (err: Error) => {
     logger.error({ err, url }, "YouTube playback error");
-    await waitMsg.edit("❌ Playback error. The video may be unavailable or age-restricted.");
+    await waitMsg.edit("❌ Erreur de lecture. La vidéo est peut-être indisponible ou soumise à une restriction d'âge.");
   });
 }
 
 export async function playYoutube(message: Message, url: string): Promise<void> {
   if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
-    await message.reply("❌ Please provide a valid YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
+    await message.reply("❌ Merci de fournir une URL YouTube valide.\nExemple : `!youtube https://www.youtube.com/watch?v=...`");
     return;
   }
 
@@ -630,7 +635,7 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   if (state.youtubeTitle) {
     state.queue.push(url);
     const pos = state.queue.length; // items after current (#1)
-    const waitMsg = await message.reply("⏳ Fetching info…");
+    const waitMsg = await message.reply("⏳ Récupération des infos…");
     try {
       const info = await ytdlpInfo(url);
       const { title, duration } = info;
@@ -638,16 +643,16 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle("📥 Added to queue")
+        .setTitle("📥 Ajouté à la file d'attente")
         .setDescription(`**${title}**`)
         .addFields(
-          { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
-          { name: "Position", value: `#${pos + 1} in queue`, inline: true },
+          { name: "Durée", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
+          { name: "Position", value: `#${pos + 1} dans la file`, inline: true },
         )
-        .setFooter({ text: `!queue to see all  •  !skip to skip current` });
+        .setFooter({ text: `!queue pour tout voir  •  !skip pour passer l'actuel` });
       await waitMsg.edit({ content: "", embeds: [embed] });
     } catch {
-      await waitMsg.edit(`📥 Added to queue at position #${pos + 1}.`);
+      await waitMsg.edit(`📥 Ajouté à la file d'attente en position #${pos + 1}.`);
     }
     return;
   }
@@ -661,12 +666,12 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   }
 
   // ── Play immediately ───────────────────────────────────────────────────────
-  const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait…");
+  const waitMsg = await message.reply("🎬 Chargement de l'audio YouTube, merci de patienter…");
   try {
     await execPlayYoutube(guildId, url, waitMsg);
   } catch (err) {
     logger.error({ err, url }, "YouTube load error");
-    await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
+    await waitMsg.edit("❌ Impossible de charger la vidéo YouTube. Elle est peut-être privée, soumise à restriction d'âge ou indisponible.");
     radioStates.delete(guildId);
     getVoiceConnection(guildId)?.destroy();
   }
@@ -676,23 +681,23 @@ const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as
 
 export async function searchAndQueue(message: Message, query: string): Promise<void> {
   if (!query.trim()) {
-    await message.reply("❓ Provide keywords.\nExample: `!youtube search stromae papaoutai`");
+    await message.reply("❓ Fournis des mots-clés.\nExemple : `!youtube search stromae papaoutai`");
     return;
   }
 
-  const loadMsg = await message.reply("🔍 Searching YouTube…");
+  const loadMsg = await message.reply("🔍 Recherche YouTube en cours…");
 
   let results: Awaited<ReturnType<typeof ytdlpSearch>>;
   try {
     results = await ytdlpSearch(query, 5);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
-    await loadMsg.edit("❌ Search failed. Please try again.");
+    await loadMsg.edit("❌ Recherche échouée. Réessaie.");
     return;
   }
 
   if (results.length === 0) {
-    await loadMsg.edit("❌ No results found.");
+    await loadMsg.edit("❌ Aucun résultat trouvé.");
     return;
   }
 
@@ -706,9 +711,9 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   const embed = new EmbedBuilder()
     .setColor(0xff0000)
-    .setTitle("🔍 YouTube — Search results")
+    .setTitle("🔍 YouTube — Résultats de recherche")
     .setDescription(lines.join("\n\n"))
-    .setFooter({ text: "React with a number to add to queue  •  30 seconds to choose" });
+    .setFooter({ text: "Réagis avec un numéro pour ajouter à la file  •  30 secondes pour choisir" });
 
   await loadMsg.edit({ content: "", embeds: [embed] });
   for (const emoji of SEARCH_EMOJIS.slice(0, results.length)) {
@@ -743,7 +748,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   collector.on("end", async (...args: unknown[]) => {
     const reason = args[1] as string;
     if (reason === "time") {
-      await loadMsg.edit({ content: "⏱️ Search expired.", embeds: [] }).catch(() => null);
+      await loadMsg.edit({ content: "⏱️ Recherche expirée.", embeds: [] }).catch(() => null);
     }
   });
 }
@@ -753,7 +758,7 @@ export async function skipYoutube(message: Message): Promise<void> {
   if (!guildId) return;
   const state = radioStates.get(guildId);
   if (!state || !state.youtubeTitle) {
-    await message.reply("❌ Nothing is currently playing.");
+    await message.reply("❌ Rien n'est en cours de lecture.");
     return;
   }
   const skipped = state.youtubeTitle;
@@ -761,9 +766,9 @@ export async function skipYoutube(message: Message): Promise<void> {
   state.youtubeUrl = null;
   state.player.stop();
   if (state.queue.length > 0) {
-    await message.reply(`⏭️ Skipped **${skipped}** — loading next…`);
+    await message.reply(`⏭️ **${skipped}** passé — chargement du suivant…`);
   } else {
-    await message.reply(`⏭️ Skipped **${skipped}** — queue is empty.`);
+    await message.reply(`⏭️ **${skipped}** passé — la file d'attente est vide.`);
   }
 }
 
@@ -777,18 +782,18 @@ export async function startVoteSkip(message: Message): Promise<void> {
 
   const state = radioStates.get(guildId);
   if (!state?.youtubeTitle) {
-    await message.reply("❌ Nothing is currently playing.");
+    await message.reply("❌ Rien n'est en cours de lecture.");
     return;
   }
 
   if (activeVoteSkips.has(guildId)) {
-    await message.reply("🗳️ A vote is already in progress, wait for it to finish!");
+    await message.reply("🗳️ Un vote est déjà en cours, attends qu'il se termine !");
     return;
   }
 
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await message.reply("❌ You must be in a voice channel to start a vote.");
+    await message.reply("❌ Tu dois être dans un salon vocal pour lancer un vote.");
     return;
   }
 
@@ -796,7 +801,7 @@ export async function startVoteSkip(message: Message): Promise<void> {
   const totalHumans = humanMembers.size;
 
   if (totalHumans === 0) {
-    await message.reply("❌ Nobody in the voice channel.");
+    await message.reply("❌ Personne dans le salon vocal.");
     return;
   }
 
@@ -806,8 +811,8 @@ export async function startVoteSkip(message: Message): Promise<void> {
     state.youtubeTitle = null;
     state.youtubeUrl = null;
     state.player.stop();
-    const msg = state.queue.length > 0 ? "loading next track…" : "queue is empty.";
-    await message.reply(`⏭️ Instant skip — **${skipped}** (only one in channel). ${msg}`);
+    const msg = state.queue.length > 0 ? "chargement du suivant…" : "la file d'attente est vide.";
+    await message.reply(`⏭️ Passage instantané — **${skipped}** (seul dans le salon). ${msg}`);
     return;
   }
 
@@ -819,12 +824,12 @@ export async function startVoteSkip(message: Message): Promise<void> {
     new EmbedBuilder()
       .setColor(color)
       .setTitle(title)
-      .setDescription(desc ?? `Skip **${trackTitle}** ?`)
+      .setDescription(desc ?? `Passer **${trackTitle}** ?`)
       .addFields(
-        { name: "Votes", value: `${votes}/${needed} needed`, inline: true },
-        { name: "Present", value: `${totalHumans} humans`, inline: true },
+        { name: "Votes", value: `${votes}/${needed} requis`, inline: true },
+        { name: "Présents", value: `${totalHumans} personnes`, inline: true },
       )
-      .setFooter({ text: "React ✅ to vote  •  30 seconds" });
+      .setFooter({ text: "Réagis ✅ pour voter  •  30 secondes" });
 
   const voteMsg = await message.reply({ embeds: [buildEmbed(0, 0xfee75c, "🗳️ Vote Skip")] });
   await voteMsg.react("✅").catch(() => null);
@@ -866,20 +871,20 @@ export async function startVoteSkip(message: Message): Promise<void> {
       cur.youtubeTitle = null;
       cur.youtubeUrl = null;
       cur.player.stop();
-      const next = cur.queue.length > 0 ? " — loading next track…" : " — queue is empty.";
+      const next = cur.queue.length > 0 ? " — chargement du suivant…" : " — la file d'attente est vide.";
       await voteMsg.edit({
         embeds: [buildEmbed(
           voted.size, 0x57f287,
-          "✅ Vote passed!",
-          `**${trackTitle}** skipped by ${voted.size}/${totalHumans} vote${voted.size > 1 ? "s" : ""}.${next}`,
+          "✅ Vote accepté !",
+          `**${trackTitle}** passé par ${voted.size}/${totalHumans} vote${voted.size > 1 ? "s" : ""}.${next}`,
         )],
       }).catch(() => null);
     } else if (reason === "time") {
       await voteMsg.edit({
         embeds: [buildEmbed(
           voted.size, 0xed4245,
-          "❌ Vote failed",
-          `Not enough votes to skip **${trackTitle}** (${voted.size}/${needed} received).`,
+          "❌ Vote échoué",
+          `Pas assez de votes pour passer **${trackTitle}** (${voted.size}/${needed} reçus).`,
         )],
       }).catch(() => null);
     }
@@ -892,26 +897,26 @@ export function getQueueEmbed(guildId: string): EmbedBuilder | null {
 
   const lines: string[] = [];
   if (state.youtubeTitle) {
-    lines.push(`▶️ **[Now playing]** ${state.youtubeTitle}`);
+    lines.push(`▶️ **[En cours]** ${state.youtubeTitle}`);
   }
   if (state.queue.length > 0) {
     state.queue.slice(0, 12).forEach((url, i) => {
       const id = url.match(/[?&]v=([^&]+)/)?.[1] ?? url.split("/").pop() ?? url;
       lines.push(`${i + 2}. \`${id}\` — ${url}`);
     });
-    if (state.queue.length > 12) lines.push(`… and ${state.queue.length - 12} more`);
+    if (state.queue.length > 12) lines.push(`… et ${state.queue.length - 12} de plus`);
   }
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle(`🎵 Queue — ${1 + state.queue.length} track${state.queue.length !== 1 ? "s" : ""}`)
+    .setTitle(`🎵 File d'attente — ${1 + state.queue.length} piste${state.queue.length !== 1 ? "s" : ""}`)
     .setDescription(lines.join("\n"))
-    .setFooter({ text: "!skip  •  !youtube <url>  •  !youtube search <keywords>" });
+    .setFooter({ text: "!skip  •  !youtube <url>  •  !youtube search <mots-clés>" });
 }
 
 export async function startQueue(message: Message, urls: string[], playlistName?: string): Promise<void> {
   if (urls.length === 0) {
-    await message.reply("❌ The playlist is empty.");
+    await message.reply("❌ La playlist est vide.");
     return;
   }
 
@@ -927,7 +932,7 @@ export async function startQueue(message: Message, urls: string[], playlistName?
 
   const firstUrl = urls[0];
   const waitMsg = await message.reply(
-    `🎵 Loading playlist **${playlistName ?? "queue"}** (${urls.length} video${urls.length !== 1 ? "s" : ""})...`,
+    `🎵 Chargement de la playlist **${playlistName ?? "file d'attente"}** (${urls.length} vidéo${urls.length !== 1 ? "s" : ""})…`,
   );
 
   try {
@@ -944,18 +949,18 @@ export async function startQueue(message: Message, urls: string[], playlistName?
     const secs = duration % 60;
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
-      .setTitle(`▶️ Now playing — ${playlistName ? `Playlist: ${playlistName}` : "Queue"}`)
+      .setTitle(`▶️ En cours — ${playlistName ? `Playlist : ${playlistName}` : "File d'attente"}`)
       .setDescription(`**${title}**`)
       .addFields(
-        { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
-        { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} after this` : "Last video", inline: true },
+        { name: "Durée", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+        { name: "File d'attente", value: state.queue.length > 0 ? `${state.queue.length} vidéo${state.queue.length !== 1 ? "s" : ""} après celle-ci` : "Dernière vidéo", inline: true },
       );
     if (thumbnail) embed.setThumbnail(thumbnail);
     await waitMsg.edit({ content: "", embeds: [embed] });
 
   } catch (err) {
     logger.error({ err, firstUrl }, "Playlist first video error");
-    await waitMsg.edit("❌ Failed to load the first video. Skipping...");
+    await waitMsg.edit("❌ Impossible de charger la première vidéo. Passage à la suivante…");
     if (state.queue.length > 0) {
       await playNextFromQueue(guildId);
     }
