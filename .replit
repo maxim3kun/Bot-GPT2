@@ -29,7 +29,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
+args = "fuser -k 8080/tcp 2>/dev/null; sleep 0.5; pnpm --filter @workspace/api-server run dev"
 waitForPort = 8080
 
 [agent]
