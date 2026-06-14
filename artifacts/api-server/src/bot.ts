@@ -1824,8 +1824,9 @@ export function startBot(): void {
           break;
         }
 
-        // ── Anniversaire ──────────────────────────────────────────────────────────
+        // ── Birthday ──────────────────────────────────────────────────────────────
         case "anniversaire":
+        case "b":
         case "birthday": {
           await handleBirthday(message, args);
           break;

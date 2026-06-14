@@ -43,11 +43,6 @@ function parseDate(raw: string): { day: number; month: number } | null {
   return { day, month };
 }
 
-const MONTH_NAMES_FR = [
-  "", "janvier", "février", "mars", "avril", "mai", "juin",
-  "juillet", "août", "septembre", "octobre", "novembre", "décembre",
-];
-
 const MONTH_NAMES_EN = [
   "", "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -63,16 +58,15 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
   const sub = (args[0] ?? "").toLowerCase();
 
   switch (sub) {
-    case "add":
-    case "ajouter": {
+    case "add": {
       const dateArg = args[1];
       if (!dateArg) {
-        await message.reply("❌ Usage: `!anniversaire add DD/MM [@user]`");
+        await message.reply("❌ Usage: `!birthday add DD/MM [@user]`");
         return;
       }
       const parsed = parseDate(dateArg);
       if (!parsed) {
-        await message.reply("❌ Invalid date. Use the format `DD/MM`, e.g. `!anniversaire add 25/12`");
+        await message.reply("❌ Invalid date. Use the format `DD/MM`, e.g. `!birthday add 25/12`");
         return;
       }
 
@@ -92,7 +86,6 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       break;
     }
 
-    case "liste":
     case "list": {
       const data = loadData();
       if (data.birthdays.length === 0) {
@@ -126,7 +119,6 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
       break;
     }
 
-    case "canal":
     case "channel": {
       const channel = message.mentions.channels.first() ?? message.channel;
       const data = loadData();
@@ -157,10 +149,11 @@ export async function handleBirthday(message: Message, args: string[]): Promise<
         .setTitle("🎂 Birthday Command")
         .setColor(0xff6b9d)
         .setDescription(
-          "`!anniversaire add DD/MM [@user]` — Register a birthday\n" +
-          "`!anniversaire liste` — View all birthdays\n" +
-          "`!anniversaire canal [#channel]` — Set the announcement channel\n" +
-          "`!anniversaire supprimer [@user]` — Remove a birthday"
+          "`!birthday add DD/MM [@user]` — Register a birthday\n" +
+          "`!birthday list` — View all birthdays\n" +
+          "`!birthday channel [#channel]` — Set the announcement channel\n" +
+          "`!birthday remove [@user]` / `supprimer` — Remove a birthday\n" +
+          "\nAlias: `!b` works for all subcommands"
         );
       await message.reply({ embeds: [embed] });
     }

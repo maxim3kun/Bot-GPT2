@@ -51,7 +51,7 @@ export const COMMANDS: CommandEntry[] = [
   { cmd: "image",                                                        emoji: "🖼️",  desc: "Generate an AI image" },
   { cmd: "help",          aliases: ["aide"],                             emoji: "❓",  desc: "Help & command list" },
   { cmd: "guide",         aliases: ["instruction", "guia"],              emoji: "📖",  desc: "Moderator setup guide" },
-  { cmd: "birthday",      aliases: ["anniversaire"],                     emoji: "🎂",  desc: "Manage birthdays" },
+  { cmd: "birthday",      aliases: ["anniversaire", "b"],               emoji: "🎂",  desc: "Manage birthdays" },
   { cmd: "poll",          aliases: ["sondage"],                          emoji: "📊",  desc: "Create a poll" },
   { cmd: "quest",                                                        emoji: "⚔️",  desc: "Quest system" },
   { cmd: "prefix",                                                       emoji: "⚙️",  desc: "Change the bot prefix" },
