@@ -8,6 +8,7 @@ import {
 import { get as httpsGet } from "https";
 import type { IncomingMessage } from "http";
 import { ensureVoiceConnection, radioStates } from "./radio";
+import { isInVoice, resubscribeVoicePlayer } from "./voice";
 import { logger } from "../lib/logger";
 
 // ── Finish messages ───────────────────────────────────────────────────────────
@@ -631,6 +632,68 @@ interface KaraokeSession {
 
 const karaokeSessions = new Map<string, KaraokeSession>();
 
+// ── Karaoke queue ─────────────────────────────────────────────────────────────
+
+interface KaraokeQueueEntry {
+  query: string;
+  message: Message;
+}
+
+const karaokeQueues = new Map<string, KaraokeQueueEntry[]>();
+
+/** Safely tear down radio audio without killing a voice (!join) session. */
+function cleanupKaraokeAudio(guildId: string): void {
+  const state = radioStates.get(guildId);
+  if (state) {
+    state.player.stop();
+    radioStates.delete(guildId);
+  }
+  if (!isInVoice(guildId)) {
+    getVoiceConnection(guildId)?.destroy();
+  } else {
+    // Voice session still active — re-subscribe its player so TTS/subtitles keep working
+    resubscribeVoicePlayer(guildId);
+  }
+}
+
+/** Auto-launch the next queued song when the current session ends. */
+async function processKaraokeQueue(guildId: string): Promise<void> {
+  const queue = karaokeQueues.get(guildId);
+  if (!queue || queue.length === 0) return;
+
+  const next = queue.shift()!;
+  if (queue.length === 0) karaokeQueues.delete(guildId);
+
+  await startKaraokeFromQueue(next.message, next.query, guildId);
+}
+
+async function startKaraokeFromQueue(message: Message, query: string, guildId: string): Promise<void> {
+  const notifyMsg = await message.channel.send({ embeds: [buildWaitEmbed(`🎵 Up next — searching **${query}**…`)] }) as Message;
+
+  const { synced: rawSynced } = await searchCandidates(query);
+  const candidates = sortCandidatesByOriginality(deduplicateCandidates(rawSynced));
+
+  if (candidates.length === 0) {
+    const remaining = karaokeQueues.get(guildId)?.length ?? 0;
+    await notifyMsg.edit({
+      embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Skipped")
+        .setDescription(`❌ No synced lyrics found for **${query}**.${remaining > 0 ? " Loading next song…" : ""}`)],
+    });
+    await processKaraokeQueue(guildId);
+    return;
+  }
+
+  const chosen = tryAutoPick(query, candidates) ?? candidates[0]!;
+  const lrcData = {
+    lines: parseLrc(chosen.syncedLyrics!),
+    title: chosen.trackName,
+    artist: chosen.artistName,
+    duration: chosen.duration ?? 0,
+  };
+
+  await launchKaraoke(message, notifyMsg, lrcData, guildId, query);
+}
+
 // ── Embed builders ────────────────────────────────────────────────────────────
 
 function buildWaitEmbed(desc: string, footer?: string): EmbedBuilder {
@@ -711,10 +774,12 @@ function startLyricsLoop(session: KaraokeSession): void {
     const last = session.lines[session.lines.length - 1];
     if (last && elapsed > last.time + 8) {
       stopKaraokeSession(session.guildId);
+      const hasQueue = (karaokeQueues.get(session.guildId)?.length ?? 0) > 0;
       session.embedMessage.edit({
         content: "",
-        embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${session.songTitle}** by ${session.artistName}\n\n${nextFinishMessage()}`).setFooter({ text: "Use !karaoke <song> to sing another one!" })],
+        embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${session.songTitle}** by ${session.artistName}\n\n${nextFinishMessage()}`).setFooter({ text: hasQueue ? "🎵 Loading next song in queue…" : "Use !karaoke <song> to sing another one!" })],
       }).catch(() => null);
+      void processKaraokeQueue(session.guildId);
     }
   }, 1500);
 }
@@ -741,6 +806,7 @@ function startReactionSync(waitMsg: Message, lrcData: { lines: LrcLine[]; title:
     const s = karaokeSessions.get(guildId);
     if (!s || s.stopped) return;
     stopKaraokeSession(guildId);
+    karaokeQueues.delete(guildId);
     waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
   });
 }
@@ -840,11 +906,9 @@ async function runKaraokePicker(
       }
     });
 
-    collector.on("end", (_c, reason) => {
+    collector.on("end", (_c, _reason) => {
       if (!resolved) resolve(null);
-      if (reason !== "selected" && reason !== "cancelled") {
-        pickMsg.reactions.removeAll().catch(() => null);
-      }
+      pickMsg.reactions.removeAll().catch(() => null);
     });
   });
 }
@@ -898,7 +962,7 @@ async function launchKaraoke(
     logger.warn({ originalQuery }, "SoundCloud not found — falling back to reaction sync");
     radioState.player.stop();
     radioStates.delete(guildId);
-    getVoiceConnection(guildId)?.destroy();
+    if (!isInVoice(guildId)) getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
     await waitMsg.react("⏹").catch(() => null);
     startReactionSync(waitMsg, lrcData, guildId);
@@ -940,9 +1004,8 @@ async function launchKaraoke(
         const s = karaokeSessions.get(guildId);
         if (!s || s.stopped) return;
         stopKaraokeSession(guildId);
-        radioStates.get(guildId)?.player.stop();
-        radioStates.delete(guildId);
-        getVoiceConnection(guildId)?.destroy();
+        karaokeQueues.delete(guildId);
+        cleanupKaraokeAudio(guildId);
         waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`).setFooter({ text: "Use !karaoke <song> to start a new session" })] }).catch(() => null);
       });
       startLyricsLoop(session);
@@ -951,23 +1014,25 @@ async function launchKaraoke(
     radioState.player.once("error", async (err) => {
       logger.error({ err }, "Karaoke SoundCloud playback error");
       stopKaraokeSession(guildId);
-      radioStates.delete(guildId);
-      getVoiceConnection(guildId)?.destroy();
-      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Playback error").setDescription("❌ Audio playback failed. Please try again.")] });
+      cleanupKaraokeAudio(guildId);
+      await waitMsg.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Playback error").setDescription("❌ Audio playback failed. Trying next in queue…")] });
+      await processKaraokeQueue(guildId);
     });
 
     radioState.player.once(AudioPlayerStatus.Idle, () => {
       const s = karaokeSessions.get(guildId);
       if (!s || s.stopped) return;
       stopKaraokeSession(guildId);
-      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\n${nextFinishMessage()}`).setFooter({ text: "Use !karaoke <song> to start another!" })] }).catch(() => null);
+      cleanupKaraokeAudio(guildId);
+      const hasQueue = (karaokeQueues.get(guildId)?.length ?? 0) > 0;
+      waitMsg.edit({ content: "", embeds: [new EmbedBuilder().setColor(0x57f287).setTitle("🎤 Karaoke finished!").setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\n${nextFinishMessage()}`).setFooter({ text: hasQueue ? "🎵 Loading next song in queue…" : "Use !karaoke <song> to start another!" })] }).catch(() => null);
+      void processKaraokeQueue(guildId);
     });
 
   } catch (err) {
     logger.error({ err }, "Karaoke stream start error");
     stopKaraokeSession(guildId);
-    radioStates.delete(guildId);
-    getVoiceConnection(guildId)?.destroy();
+    if (!isInVoice(guildId)) getVoiceConnection(guildId)?.destroy();
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
     await waitMsg.react("⏹").catch(() => null);
     startReactionSync(waitMsg, lrcData, guildId);
@@ -991,16 +1056,21 @@ export function isKaraokeActive(guildId: string): boolean {
 
 export async function stopKaraoke(message: Message): Promise<void> {
   if (!message.guildId) return;
-  const stopped = stopKaraokeSession(message.guildId);
-  const radioState = radioStates.get(message.guildId);
-  if (radioState) { radioState.player.stop(); radioStates.delete(message.guildId); }
-  getVoiceConnection(message.guildId)?.destroy();
+  const guildId = message.guildId;
+  const stopped = stopKaraokeSession(guildId);
+  const hadQueue = (karaokeQueues.get(guildId)?.length ?? 0) > 0;
+  karaokeQueues.delete(guildId);
+  cleanupKaraokeAudio(guildId);
 
   await message.reply({
     embeds: [new EmbedBuilder()
       .setColor(stopped ? 0x9b59b6 : 0xed4245)
       .setTitle(stopped ? "🎤 Karaoke stopped" : "🤷 Nothing running")
-      .setDescription(stopped ? "Thanks for singing! 🎶" : "No karaoke session is currently active.")
+      .setDescription(
+        stopped
+          ? `Thanks for singing! 🎶${hadQueue ? "\nQueue cleared." : ""}`
+          : "No karaoke session is currently active.",
+      )
       .setFooter({ text: "Use !karaoke <song> to start a new session" })],
   });
 }
@@ -1014,7 +1084,18 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     return;
   }
 
-  stopKaraokeSession(guildId);
+  // If a session is already active, queue this request instead of interrupting
+  if (karaokeSessions.has(guildId)) {
+    const existing = karaokeQueues.get(guildId) ?? [];
+    existing.push({ query, message });
+    karaokeQueues.set(guildId, existing);
+    const pos = existing.length;
+    await message.reply({ embeds: [new EmbedBuilder()
+      .setColor(0x9b59b6).setTitle("🎵 Added to queue")
+      .setDescription(`**${query}** added at position **#${pos}** in the queue.`)
+      .setFooter({ text: "Use !karaoke stop to clear the queue and stop" })] });
+    return;
+  }
 
   const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${query}**…`)] });
 

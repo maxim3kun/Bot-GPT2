@@ -168,6 +168,13 @@ export function isInVoice(guildId: string): boolean {
   return guildStates.has(guildId);
 }
 
+export function resubscribeVoicePlayer(guildId: string): void {
+  const state = guildStates.get(guildId);
+  const connection = getVoiceConnection(guildId);
+  if (!state || !connection) return;
+  connection.subscribe(state.player);
+}
+
 export async function joinVoice(message: Message): Promise<void> {
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
