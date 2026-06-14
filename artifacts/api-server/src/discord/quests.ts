@@ -1,9 +1,10 @@
 import { type Client, type Message, EmbedBuilder, type TextChannel } from "discord.js";
 import OpenAI from "openai";
-import { logger } from "../lib/logger";
+import { logger } from "../lib/logger.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { isDbReady, patchUserData, getAllUserDocs } from "../lib/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "../../data");
@@ -62,31 +63,55 @@ function getLevelInfo(points: number) {
   return { ...current, next };
 }
 
-// ── Storage ───────────────────────────────────────────────────────────────────
+// ── In-memory store ───────────────────────────────────────────────────────────
 
 let store: QuestStore = {};
 
-function loadStore() {
+/** Load from local JSON file (fallback when MongoDB is unavailable). */
+function loadFromJson(): void {
   try {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     if (existsSync(DATA_FILE)) {
       store = JSON.parse(readFileSync(DATA_FILE, "utf-8")) as QuestStore;
     }
   } catch (err) {
-    logger.error({ err }, "Failed to load quest store");
+    logger.error({ err }, "Failed to load quest store from JSON");
   }
 }
 
-function saveStore() {
-  try {
-    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), "utf-8");
-  } catch (err) {
-    logger.error({ err }, "Failed to save quest store");
+/** Persist a single user profile. Uses MongoDB when available, JSON file as fallback. */
+function persistUser(userId: string): void {
+  const profile = store[userId];
+  if (!profile) return;
+  if (isDbReady()) {
+    patchUserData(userId, { questProfile: profile as unknown as Record<string, unknown> })
+      .catch(err => logger.error({ err, userId }, "Failed to persist quest profile to MongoDB"));
+  } else {
+    try {
+      if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+      writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), "utf-8");
+    } catch (err) {
+      logger.error({ err }, "Failed to save quest store to JSON");
+    }
   }
 }
 
-loadStore();
+/** Initialise the quest store. Call this at startup before handling any commands. */
+export async function initQuestStore(): Promise<void> {
+  if (!isDbReady()) {
+    loadFromJson();
+    logger.info({ count: Object.keys(store).length }, "Quest store loaded from JSON (no MongoDB)");
+    return;
+  }
+  const users = await getAllUserDocs();
+  for (const { data } of users) {
+    if (data.questProfile && data.discordId) {
+      const profile = data.questProfile as unknown as UserProfile;
+      store[data.discordId] = { ...profile, userId: data.discordId };
+    }
+  }
+  logger.info({ count: Object.keys(store).length }, "Quest store loaded from MongoDB");
+}
 
 function getProfile(userId: string, username: string): UserProfile {
   if (!store[userId]) {
@@ -207,7 +232,7 @@ function attachReactionCollector(questMsg: Message, profile: UserProfile, channe
     }
 
     const { leveledUp, newLevel } = awardQuest(profile, idx);
-    saveStore();
+    persistUser(profile.userId);
 
     const quest = profile.quests[idx]!;
     await reaction.users.remove(user.id).catch(() => null);
@@ -230,7 +255,6 @@ function attachReactionCollector(questMsg: Message, profile: UserProfile, channe
 const REMINDER_HOURS = [10, 15, 18];
 
 export function startQuestReminders(client: Client, openai: OpenAI | null): void {
-  // Check every 30 seconds; fire within the first minute of each target hour
   setInterval(async () => {
     const now = new Date();
     const hour = now.getUTCHours();
@@ -245,11 +269,9 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
       const pending = profile.quests.filter(q => !q.completed);
       if (pending.length === 0) continue;
 
-      // Check against this user's personal schedule
       const userHours = profile.reminderHours ?? REMINDER_HOURS;
       if (!userHours.includes(hour)) continue;
 
-      // Don't fire twice in the same hour
       if (profile.lastRemindedDate === dateStr && profile.lastRemindedHour === hour) continue;
 
       try {
@@ -259,7 +281,6 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
         let text: string;
 
         if (profile.bullying && openai) {
-          // AI-generated bully message for more variety
           const questTitles = pending.map(q => q.title).join(", ");
           try {
             const res = await openai.chat.completions.create({
@@ -295,7 +316,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
 
         profile.lastRemindedDate = dateStr;
         profile.lastRemindedHour = hour;
-        saveStore();
+        persistUser(profile.userId);
 
         logger.info({ userId: profile.userId, hour, bullying: !!profile.bullying }, "Quest reminder sent");
       } catch (err) {
@@ -315,7 +336,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);
-  saveStore();
+  persistUser(profile.userId);
 
   const promptEmbed = new EmbedBuilder()
     .setTitle("🎯 Quest Setup")
@@ -387,7 +408,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
       completed: false,
     }));
 
-    saveStore();
+    persistUser(profile.userId);
 
     const questEmbed = buildQuestEmbed(profile);
     const questMsg = await waitMsg.edit({ content: "", embeds: [questEmbed] });
@@ -398,7 +419,6 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
     attachReactionCollector(questMsg, profile, message.channel as TextChannel);
 
-    // Ask bully mode preference
     const modeMsg = await message.channel.send(
       "⚡ Last step — how do you want your daily reminders (10h · 15h · 18h UTC)?\n" +
       "🔥 **Brutal accountability** — no excuses, no mercy, straight talk\n" +
@@ -415,7 +435,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
     const picked = modeCollected?.first()?.emoji?.name;
     profile.bullying = picked === "🔥";
-    saveStore();
+    persistUser(profile.userId);
 
     await modeMsg.edit(
       profile.bullying
@@ -438,7 +458,7 @@ export async function setReminderChannel(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   profile.notifyChannelId = message.channelId;
   profile.notifyGuildId = message.guildId;
-  saveStore();
+  persistUser(profile.userId);
 
   const pending = profile.quests.filter(q => !q.completed).length;
   const hours = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
@@ -490,7 +510,7 @@ export async function markAllQuestsDone(message: Message): Promise<void> {
     }
   }
 
-  saveStore();
+  persistUser(profile.userId);
 
   const lvl = getLevelInfo(profile.totalPoints);
   const embed = new EmbedBuilder()
@@ -512,7 +532,6 @@ export async function showQuestStats(message: Message): Promise<void> {
   const today = new Date();
   const todayStr = today.toISOString().split("T")[0]!;
 
-  // Build last 7 days (oldest → newest)
   const days: { label: string; dateStr: string }[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
@@ -522,7 +541,6 @@ export async function showQuestStats(message: Message): Promise<void> {
     days.push({ label, dateStr });
   }
 
-  // Aggregate completions per day
   const byDay = new Map<string, { count: number; xp: number }>();
   for (const d of days) byDay.set(d.dateStr, { count: 0, xp: 0 });
 
@@ -550,7 +568,6 @@ export async function showQuestStats(message: Message): Promise<void> {
     weekCount += count; weekXp += xp;
   }
 
-  // Current streak (consecutive days ending today with at least 1 completion)
   let streak = 0;
   for (let i = days.length - 1; i >= 0; i--) {
     if (byDay.get(days[i]!.dateStr)!.count > 0) streak++;
@@ -589,7 +606,7 @@ export async function setSchedule(message: Message, input: string): Promise<void
 
   if (input.trim().toLowerCase() === "reset") {
     delete profile.reminderHours;
-    saveStore();
+    persistUser(profile.userId);
     await message.reply("✅ Schedule reset to default: **10:00 · 15:00 · 18:00 UTC**");
     return;
   }
@@ -610,7 +627,7 @@ export async function setSchedule(message: Message, input: string): Promise<void
 
   const unique = [...new Set(parsed)].sort((a, b) => a - b);
   profile.reminderHours = unique;
-  saveStore();
+  persistUser(profile.userId);
 
   const display = unique.map(h => `${h}:00`).join(" · ");
   await message.reply(`⏰ Schedule updated: **${display} UTC**`);
@@ -640,7 +657,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
       completed: false,
     };
     profile.quests.push(quest);
-    saveStore();
+    persistUser(profile.userId);
     const embed = buildQuestEmbed(profile);
     await message.reply({ content: `✅ Quest added: **${quest.title}** (+${quest.points} XP)`, embeds: [embed] });
     return;
@@ -649,7 +666,6 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
   const thinkMsg = await message.channel.send("🤔 One question before I add this...");
 
   try {
-    // Step 1: AI generates ONE sharp clarifying question
     const qRes = await openai.chat.completions.create({
       model: "llama-3.1-70b-versatile",
       messages: [
@@ -670,7 +686,6 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     const question = qRes.choices[0]?.message?.content?.trim() ?? "What's your target timeline for this?";
     await thinkMsg.edit(`💬 **${question}** *(60s to answer — or ignore and I'll use the goal as-is)*`);
 
-    // Step 2: wait for user answer (optional — if no answer, proceed anyway)
     const answered = await message.channel.awaitMessages({
       filter: m => m.author.id === message.author.id,
       max: 1,
@@ -679,7 +694,6 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
 
     const answer = answered && answered.size > 0 ? answered.first()!.content : "";
 
-    // Step 3: AI creates the quest
     const questRes = await openai.chat.completions.create({
       model: "llama-3.1-70b-versatile",
       messages: [
@@ -716,7 +730,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     };
 
     profile.quests.push(quest);
-    saveStore();
+    persistUser(profile.userId);
 
     await thinkMsg.edit(
       `✅ Quest added: **${quest.title}** — ${DIFF_EMOJI[quest.difficulty] ?? "⬜"} ${quest.difficulty}, +${quest.points} XP`,
@@ -739,7 +753,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
 export async function showQuestList(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);
-  saveStore();
+  persistUser(profile.userId);
 
   const embed = buildQuestEmbed(profile);
   const questMsg = await message.reply({ embeds: [embed] });
@@ -775,7 +789,7 @@ export async function markQuestDone(message: Message, indexStr: string): Promise
   }
 
   const { leveledUp, newLevel } = awardQuest(profile, idx);
-  saveStore();
+  persistUser(profile.userId);
 
   const embed = new EmbedBuilder()
     .setColor(0x2ecc71)
@@ -793,7 +807,7 @@ export async function markQuestDone(message: Message, indexStr: string): Promise
 export async function showQuestProfile(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);
-  saveStore();
+  persistUser(profile.userId);
 
   const lvl = getLevelInfo(profile.totalPoints);
   const active = profile.quests.filter(q => !q.completed).length;
@@ -827,7 +841,7 @@ export async function setBullyMode(message: Message, enable: boolean): Promise<v
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);
   profile.bullying = enable;
-  saveStore();
+  persistUser(profile.userId);
 
   if (enable) {
     await message.reply(
@@ -864,7 +878,7 @@ export async function resetQuests(message: Message): Promise<void> {
   profile.quests = [];
   profile.totalPoints = 0;
   profile.completedCount = 0;
-  saveStore();
+  persistUser(profile.userId);
 
   await confirmMsg.edit("✅ All quests and XP reset. Use `!quest start` to begin fresh!");
 }

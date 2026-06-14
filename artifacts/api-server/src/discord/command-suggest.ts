@@ -5,7 +5,8 @@ import {
   ButtonStyle,
   ComponentType,
 } from "discord.js";
-import { getSuggestPref, setSuggestPref } from "./suggest-prefs";
+import { getSuggestPref, setSuggestPref } from "./suggest-prefs.js";
+import { isDbReady, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
 
 // ── Command registry ──────────────────────────────────────────────────────────
 
@@ -296,9 +297,29 @@ function fmtDuration(ms: number): string {
 
 const adminChannelIds = new Map<string, string>(); // guildId → channelId
 
+export async function initAdminChannels(): Promise<void> {
+  if (!isDbReady()) return;
+  try {
+    const guilds = await getAllGuildDocs();
+    for (const guild of guilds) {
+      if (guild.adminChannelId) {
+        adminChannelIds.set(guild._id, guild.adminChannelId);
+      }
+    }
+  } catch {
+    // Non-fatal — admin channels will be empty until set
+  }
+}
+
 export function setAdminChannel(guildId: string, channelId: string | null): void {
-  if (channelId === null) adminChannelIds.delete(guildId);
-  else adminChannelIds.set(guildId, channelId);
+  if (channelId === null) {
+    adminChannelIds.delete(guildId);
+  } else {
+    adminChannelIds.set(guildId, channelId);
+  }
+  if (isDbReady()) {
+    upsertGuildDoc(guildId, { adminChannelId: channelId }).catch(() => null);
+  }
 }
 
 export function getAdminChannelId(guildId: string): string | null {

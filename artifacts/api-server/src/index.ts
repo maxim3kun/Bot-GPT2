@@ -1,13 +1,19 @@
-import app from "./app";
-import { logger } from "./lib/logger";
-import { startBot } from "./bot";
+import app from "./app.js";
+import { logger } from "./lib/logger.js";
+import { startBot } from "./bot.js";
+import { connectDb } from "./lib/db.js";
+import { runMigration } from "./lib/migrate.js";
+import { initQuestStore } from "./discord/quests.js";
+import { initBirthdayStore } from "./discord/birthdays.js";
+import { initSuggestPrefs } from "./discord/suggest-prefs.js";
+import { initPrefixStore } from "./discord/prefix-store.js";
+import { initPlaylists } from "./discord/playlist.js";
+import { initAdminChannels } from "./discord/command-suggest.js";
 
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+  throw new Error("PORT environment variable is required but was not provided.");
 }
 
 const port = Number(rawPort);
@@ -15,6 +21,21 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// ── Database + data store initialisation ──────────────────────────────────────
+
+await connectDb();
+await runMigration();
+await Promise.all([
+  initQuestStore(),
+  initBirthdayStore(),
+  initSuggestPrefs(),
+  initPrefixStore(),
+  initPlaylists(),
+  initAdminChannels(),
+]);
+
+// ── HTTP server ───────────────────────────────────────────────────────────────
 
 app.listen(port, (err) => {
   if (err) {
@@ -29,10 +50,9 @@ app.listen(port, (err) => {
 startBot();
 
 // ── Keep-alive self-ping ───────────────────────────────────────────────────────
-// Pings the local server every 4 minutes to prevent Replit from sleeping the
-// container during periods of low traffic.
+
 function startKeepAlive(serverPort: number): void {
-  const INTERVAL_MS = 4 * 60 * 1000; // 4 minutes
+  const INTERVAL_MS = 4 * 60 * 1000;
   const url = `http://localhost:${serverPort}/api/healthz`;
 
   setInterval(async () => {
