@@ -238,6 +238,14 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
           ? "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <pregunta>` 🎱  `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` — ej. `!joke es`"
           : "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`",
       },
+      {
+        name: fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays",
+        value: fr
+          ? "`!birthday add <JJ/MM>` — Enregistrer 🎂\n`!birthday list` — Voir tous 📋\n`!birthday remove [@user]` — Supprimer ❌\n`!birthday channel [#salon]` — Salon d'annonce 📣 *(admin)*\n> `!help anniversaire` pour plus de détails"
+          : es
+          ? "`!birthday add <DD/MM>` — Registrar 🎂\n`!birthday list` — Ver todos 📋\n`!birthday remove [@user]` — Eliminar ❌\n`!birthday channel [#canal]` — Canal de anuncio 📣 *(admin)*\n> `!help cumpleanos` para más detalles"
+          : "`!birthday add <DD/MM>` — Save your birthday 🎂\n`!birthday list` — View all 📋\n`!birthday remove [@user]` — Remove ❌\n`!birthday channel [#channel]` — Announce channel 📣 *(admin)*\n> `!help birthday` for details",
+      },
     );
   } else if (page === 2) {
     embed.setDescription(fr ? "Mini-jeux et génération musicale." : es ? "Mini-juegos y música." : "Mini-games and music generation.");
@@ -335,7 +343,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
 
 // ── Topic-specific help ───────────────────────────────────────────────────────
 
-type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai";
+type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai" | "birthday";
 
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -357,6 +365,7 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
     niveles: { topic: "levels", lang: "es" }, nivel: { topic: "levels", lang: "es" },
     voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
     ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
+    birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" }, cumpleanos: { topic: "birthday", lang: "es" },
   };
   const match = map[key];
   if (!match) return null;
@@ -477,6 +486,19 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): Em
           ? "`!join` 🔊 — Unirse al canal de voz\n`!leave` 👋 — Salir\n`!voice say <texto>` 🗣️ — Síntesis de voz\n`!voice stop` — Solo subtítulos\n`!voice resume` — Modo vocal completo\n`!subtitles` 📝 — Activar/desactivar subtítulos"
           : "`!join` 🔊 — Join voice channel\n`!leave` 👋 — Leave\n`!voice say <text>` 🗣️ — Text-to-speech\n`!voice stop` — Captions-only mode\n`!voice resume` — Full voice mode\n`!subtitles` 📝 — Toggle live captions",
       }); break;
+
+    case "birthday":
+      embed.setTitle(fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays");
+      embed.addFields(
+        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+          value: fr
+            ? "`!birthday add <JJ/MM>` 🎂 — Enregistre ton anniversaire\n`!birthday list` 📋 — Voir tous les anniversaires\n`!birthday remove [@user]` ❌ — Supprimer un anniversaire\n`!birthday channel [#salon]` 📣 — Définir le salon d'annonce *(admin)*"
+            : es
+            ? "`!birthday add <DD/MM>` 🎂 — Registra tu cumpleaños\n`!birthday list` 📋 — Ver todos los cumpleaños\n`!birthday remove [@user]` ❌ — Eliminar un cumpleaños\n`!birthday channel [#canal]` 📣 — Establecer canal de anuncio *(admin)*"
+            : "`!birthday add <DD/MM>` 🎂 — Save your birthday\n`!birthday list` 📋 — View all birthdays\n`!birthday remove [@user]` ❌ — Remove a birthday\n`!birthday channel [#channel]` 📣 — Set announcement channel *(admin)*" },
+        { name: fr ? "Alias" : es ? "Alias" : "Aliases",
+          value: "`!anniversaire` · `!b`" },
+      ); break;
 
     case "ai":
       embed.setTitle(fr ? "🤖 IA & Avancé" : es ? "🤖 IA & Avanzado" : "🤖 AI & Advanced");
@@ -1859,6 +1881,7 @@ export function startBot(): void {
         }
 
         // ── Quest tracker ─────────────────────────────────────────────────────────
+        case "quests":
         case "quest": {
           const sub = args[0]?.toLowerCase();
           if (!sub || sub === "start") {

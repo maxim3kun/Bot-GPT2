@@ -330,7 +330,11 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
 
 export async function startQuestSetup(message: Message, openai: OpenAI | null): Promise<void> {
   if (!openai) {
-    await message.reply("❌ AI (GROQ_API_KEY) is required for quest setup. Ask an admin to configure it.");
+    await message.reply(
+      "❌ The AI quest creator isn't available right now.\n" +
+      "You can still add quests manually with `!quest add <goal>` ➕\n" +
+      "Or view your existing quests with `!quest list` 📋",
+    );
     return;
   }
 
