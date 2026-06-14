@@ -14,6 +14,7 @@ import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
+import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -645,6 +646,8 @@ async function sendModeratorGuide(message: Message): Promise<void> {
         value:
           "`!prefix <new>` — Change the bot prefix for this server *(max 3 chars)*\n" +
           "`!prefix reset` — Restore the default `!` prefix\n" +
+          "`!voicechannels #salon1 #salon2` — Choose the 2 voice channels shown when a user isn't in voice\n" +
+          "`!voicechannels reset` — Restore the default (first 2 voice channels of the server)\n" +
           "`!unblock @user` — Lift any bot restriction on a user *(can unblock yourself too)*\n" +
           "`!banlist` — View all users flagged by the anti-troll system with their status\n" +
           "`!birthday channel #salon` — Define the channel where birthday announcements are posted\n" +
@@ -1038,6 +1041,32 @@ export function startBot(): void {
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply("❌ Something went wrong. Please try again!").catch(() => null);
       }
+    }
+  });
+
+  // ── Button interaction handler ───────────────────────────────────────────────
+
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isButton()) return;
+    if (interaction.customId !== "voice_ready") return;
+
+    try {
+      const member = interaction.member instanceof GuildMember
+        ? interaction.member
+        : interaction.guild
+          ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+          : null;
+
+      const voiceChannel = (member as GuildMember | null)?.voice?.channel;
+      if (!voiceChannel) {
+        await interaction.reply({ content: "❌ Rejoins d'abord un salon vocal, puis clique sur ✅ !", ephemeral: true });
+        return;
+      }
+
+      await interaction.reply({ content: `✅ Tu es dans **${voiceChannel.name}** — relance maintenant ta commande !`, ephemeral: true });
+    } catch (err) {
+      logger.error({ err }, "voice_ready button error");
+      await interaction.reply({ content: "❌ Une erreur s'est produite.", ephemeral: true }).catch(() => null);
     }
   });
 
@@ -1514,6 +1543,47 @@ export function startBot(): void {
             `✅ Prefix changed to \`${newPfx}\`\n` +
             `Example: \`${newPfx}help\`, \`${newPfx}radio nrj\`, \`${newPfx}music generator lo-fi\``,
           );
+          break;
+        }
+
+        // ── Voice picker channels (admin) ────────────────────────────────────────
+        case "voicechannels":
+        case "voicesalons":
+        case "salonsvocaux": {
+          const isVCAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator)
+            || message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isVCAdmin) {
+            await message.reply("🔒 Seuls les admins peuvent configurer ça. (Permission **Gérer le serveur** requise)");
+            break;
+          }
+          if (!message.guildId) break;
+
+          if (args[0]?.toLowerCase() === "reset") {
+            await setVoicePickerChannels(message.guildId, []);
+            await message.reply("✅ Sélecteur de salon vocal réinitialisé — les 2 premiers salons vocaux du serveur seront affichés.");
+            break;
+          }
+
+          const mentionedChannels = [...message.mentions.channels.values()]
+            .filter(c => c.type === ChannelType.GuildVoice)
+            .slice(0, 2);
+
+          if (mentionedChannels.length === 0) {
+            const current = getVoicePickerChannels(message.guildId);
+            const desc = current.length > 0
+              ? `Salons actuels : ${current.map(id => `<#${id}>`).join(", ")}`
+              : "Salons actuels : les 2 premiers salons vocaux du serveur";
+            await message.reply(
+              `🔊 **Sélecteur de salon vocal**\n${desc}\n\n` +
+              `➤ Configurer : \`!voicechannels #salon1 #salon2\`\n` +
+              `➤ Réinitialiser : \`!voicechannels reset\``,
+            );
+            break;
+          }
+
+          const newIds = mentionedChannels.map(c => c.id);
+          await setVoicePickerChannels(message.guildId, newIds);
+          await message.reply(`✅ Sélecteur mis à jour ! Salons affichés : ${newIds.map(id => `<#${id}>`).join(", ")}`);
           break;
         }
 

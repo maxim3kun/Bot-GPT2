@@ -198,36 +198,40 @@ export async function replyNotInVoice(message: Message): Promise<void> {
     return;
   }
 
-  const voiceChannels = [...guild.channels.cache.values()]
-    .filter(c => c.type === ChannelType.GuildVoice)
-    .slice(0, 20);
+  const { getVoicePickerChannels } = await import("./voice-picker-channels.js");
+  const configuredIds = getVoicePickerChannels(guild.id);
+
+  let voiceChannels = configuredIds.length > 0
+    ? configuredIds
+        .map(id => guild.channels.cache.get(id))
+        .filter((c): c is NonNullable<typeof c> => c?.type === ChannelType.GuildVoice)
+        .slice(0, 2)
+    : [...guild.channels.cache.values()]
+        .filter(c => c.type === ChannelType.GuildVoice)
+        .slice(0, 2);
 
   if (voiceChannels.length === 0) {
     await message.reply("❌ You need to be in a voice channel first!");
     return;
   }
 
-  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  let current = new ActionRowBuilder<ButtonBuilder>();
-
-  for (const ch of voiceChannels) {
-    if (current.components.length >= 5) {
-      rows.push(current);
-      if (rows.length >= 4) break;
-      current = new ActionRowBuilder<ButtonBuilder>();
-    }
-    current.addComponents(
+  const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map(ch =>
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setLabel(ch.name.slice(0, 80))
         .setStyle(ButtonStyle.Link)
         .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`)
         .setEmoji("🔊"),
-    );
-  }
-  if (current.components.length > 0) rows.push(current);
+      new ButtonBuilder()
+        .setCustomId("voice_ready")
+        .setLabel("Je suis prêt !")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("✅"),
+    ),
+  );
 
   await message.reply({
-    content: "❌ You need to be in a voice channel first! Click one to join:",
+    content: "❌ Tu dois d'abord rejoindre un salon vocal ! Clique sur un salon puis sur ✅ :",
     components: rows,
   });
 }

@@ -9,6 +9,7 @@ import { initSuggestPrefs } from "./discord/suggest-prefs.js";
 import { initPrefixStore } from "./discord/prefix-store.js";
 import { initPlaylists } from "./discord/playlist.js";
 import { initAdminChannels } from "./discord/command-suggest.js";
+import { initVoicePickerChannels } from "./discord/voice-picker-channels.js";
 
 const rawPort = process.env["PORT"];
 
@@ -33,6 +34,7 @@ await Promise.all([
   initPrefixStore(),
   initPlaylists(),
   initAdminChannels(),
+  initVoicePickerChannels(),
 ]);
 
 // ── HTTP server ───────────────────────────────────────────────────────────────

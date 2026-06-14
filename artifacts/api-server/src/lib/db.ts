@@ -62,6 +62,7 @@ export interface GuildDoc {
   birthdayChannelId?: string | null;
   adminChannelId?: string | null;
   playlists?: Record<string, string[]>;
+  voicePickerChannelIds?: string[];
   updatedAt: Date;
 }
 
