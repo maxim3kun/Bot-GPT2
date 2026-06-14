@@ -242,22 +242,24 @@ export async function replyNotInVoice(message: Message): Promise<void> {
   const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map(ch =>
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setLabel(ch.name.slice(0, 80))
+        .setLabel(`🔊 ${ch.name.slice(0, 77)}`)
         .setStyle(ButtonStyle.Link)
-        .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`)
-        .setEmoji("🔊"),
+        .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`),
       new ButtonBuilder()
         .setCustomId("voice_ready")
-        .setLabel("I'm ready!")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("✅"),
+        .setLabel("✅ I'm ready!")
+        .setStyle(ButtonStyle.Success),
     ),
   );
 
-  await message.reply({
-    content: "❌ You need to join a voice channel first! Click a channel then ✅ when ready:",
-    components: rows,
-  });
+  try {
+    await message.reply({
+      content: "❌ You need to join a voice channel first! Click a channel then confirm when ready:",
+      components: rows,
+    });
+  } catch {
+    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.");
+  }
 }
 
 // ── Voice connection helper ───────────────────────────────────────────────────
@@ -498,7 +500,13 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   const station = RADIO_STATIONS[stationKey]!;
 
-  const ready = await ensureVoiceConnection(message);
+  let ready = false;
+  try {
+    ready = await ensureVoiceConnection(message);
+  } catch {
+    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.").catch(() => null);
+    return;
+  }
   if (!ready) return;
 
   const guildId = message.guildId!;
