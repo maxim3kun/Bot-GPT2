@@ -1074,9 +1074,12 @@ async function launchKaraoke(
 
   if (!ytTrack) {
     logger.warn({ originalQuery }, "YouTube not found — falling back to reaction sync");
+    // Keep the voice connection alive so the bot stays in the channel with the user;
+    // only destroy if no other voice activity (voice.ts player) is using it.
     radioState.player.stop();
     radioStates.delete(guildId);
-    if (!isInVoice(guildId)) getVoiceConnection(guildId)?.destroy();
+    // Do NOT destroy the connection here — the bot should remain in the voice channel
+    // even in reaction-sync mode so the user sees it present.
     await waitMsg.edit({ embeds: [buildReadyEmbed(lrcData.title, lrcData.artist, lrcData.lines.length, lrcData.duration)] });
     await waitMsg.react("⏹").catch(() => null);
     startReactionSync(waitMsg, lrcData, guildId);

@@ -1001,8 +1001,10 @@ function queryWordMatchesTitle(queryWord: string, titleWordsNorm: string[]): boo
   return false;
 }
 
-function scoreYtResult(r: { title: string; channel: string | null }, query = ""): number {
+function scoreYtResult(r: { title: string; channel: string | null; duration?: number }, query = ""): number {
   let s = 0;
+  // Duration=0 means YouTube topic/channel/playlist, not a real video — strongly penalize
+  if (r.duration !== undefined && r.duration === 0) s -= 25;
   if (REMIX_PATTERN.test(r.title)) s -= 5;
   if (OFFICIAL_PATTERN.test(r.title)) s += 2;
   if (r.channel && /official|vevo/i.test(r.channel)) s += 1;
