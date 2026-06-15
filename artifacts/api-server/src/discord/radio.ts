@@ -1196,11 +1196,10 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     thumbnail: null as string | null,
   }));
 
-  // Auto-play: for 2+ word queries, YouTube's own #1 result is almost always correct.
-  // Trusting it directly avoids false negatives from our scoring (duration=0 penalty,
-  // missing channel data, accented artist names, etc.).
+  // Auto-play: for 3+ word queries (e.g. "David Guetta Titanium"), YouTube's #1 is almost
+  // always correct. 1-2 words is often just an artist name → show the picker instead.
   const wordCount = query.trim().split(/\s+/).filter(w => w.length > 1).length;
-  if (wordCount >= 2) {
+  if (wordCount >= 3) {
     const sel = cleaned[0]!;
     await loadMsg.edit(`▶️ Playing **${sel.title}**`);
     await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
