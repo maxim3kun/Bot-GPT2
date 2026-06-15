@@ -8,10 +8,8 @@ const execFileAsync = promisify(execFile);
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
-// default: works for metadata on all videos (including music videos)
-const YT_INFO_ARGS = "--extractor-args=youtube:player_client=default";
-// tv_embedded: provides actual downloadable audio URLs from datacenter IPs
-const YT_STREAM_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
+// tv_embedded: only client that works from datacenter IPs (default hangs, ios returns 0 bytes)
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
 
 export interface YtInfo {
   title: string;
@@ -20,16 +18,27 @@ export interface YtInfo {
 }
 
 export async function ytdlpInfo(url: string): Promise<YtInfo> {
+  // Use --print instead of --print-json: lighter, no JSON parse issues,
+  // works even when tv_embedded falls back to another client
   const { stdout } = await execFileAsync(
     YT_DLP_BIN,
-    ["--print-json", "--skip-download", "--no-playlist", YT_INFO_ARGS, url],
-    { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    [
+      "--print", "%(title)s\t%(duration)s\t%(thumbnail)s",
+      "--no-playlist",
+      YT_CLIENT_ARGS,
+      url,
+    ],
+    { timeout: 20_000, maxBuffer: 512 * 1024 },
   );
-  const data = JSON.parse(stdout.trim()) as Record<string, unknown>;
+  const line = stdout.trim();
+  const parts = line.split("\t");
+  const title = parts[0]?.trim() || "Unknown";
+  const duration = parseInt(parts[1] ?? "0", 10);
+  const thumb = parts[2]?.trim() || null;
   return {
-    title: (data.title as string | undefined) ?? "Unknown",
-    duration: (data.duration as number | undefined) ?? 0,
-    thumbnail: (data.thumbnail as string | null | undefined) ?? null,
+    title,
+    duration: isNaN(duration) ? 0 : duration,
+    thumbnail: thumb && thumb !== "NA" ? thumb : null,
   };
 }
 
@@ -38,7 +47,7 @@ export function ytdlpStream(url: string): Readable {
     "-f", "bestaudio/best",
     "--no-playlist",
     "--quiet",
-    YT_STREAM_ARGS,
+    YT_CLIENT_ARGS,
     "-o", "-",
     url,
   ]);
