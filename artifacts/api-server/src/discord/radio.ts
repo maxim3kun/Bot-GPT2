@@ -26,21 +26,43 @@ async function getPlay() {
 }
 
 async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: string; title: string; duration: number; channel: string | null }[]> {
-  try {
-    const play = await getPlay();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const results: any[] = await play.search(query, { source: { youtube: "video" }, limit });
-    if (!results?.length) return [];
-    return results.map((v: any) => ({
-      url: v.url as string,
-      title: (v.title as string) ?? query,
-      duration: (v.durationInSec as number) ?? 0,
-      channel: (v.channel?.name as string) ?? null,
-    }));
-  } catch (err) {
-    logger.warn({ err }, "play-dl search failed — falling back to ytdlp");
-    return ytdlpSearch(query, limit);
+  // Run play-dl and yt-dlp in parallel for broader coverage
+  const [playDlResult, ytdlpResult] = await Promise.allSettled([
+    (async () => {
+      const play = await getPlay();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results: any[] = await play.search(query, { source: { youtube: "video" }, limit });
+      if (!results?.length) return [] as { url: string; title: string; duration: number; channel: string | null }[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return results.map((v: any) => ({
+        url: v.url as string,
+        title: (v.title as string) ?? query,
+        duration: (v.durationInSec as number) ?? 0,
+        channel: (v.channel?.name as string) ?? null,
+      }));
+    })(),
+    ytdlpSearch(query, limit),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: { url: string; title: string; duration: number; channel: string | null }[] = [];
+
+  for (const res of [playDlResult, ytdlpResult]) {
+    if (res.status !== "fulfilled") continue;
+    for (const r of res.value) {
+      if (!seen.has(r.url)) {
+        seen.add(r.url);
+        merged.push(r);
+      }
+    }
   }
+
+  if (merged.length === 0) {
+    if (ytdlpResult.status === "fulfilled") return [];
+    throw (playDlResult as PromiseRejectedResult).reason ?? new Error("YouTube search failed");
+  }
+
+  return merged.slice(0, limit);
 }
 
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
@@ -913,16 +935,57 @@ export async function playYoutube(
 }
 
 const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
-const RESULTS_PER_PAGE = 4;
+const MAX_PAGES = 3;
+
+/**
+ * Compute page slices so nav buttons and pick buttons all fit on one Discord row (max 5).
+ * - Page with only ▶ or only ◀: 4 picks + 1 nav = 5 buttons
+ * - Page with both ◀ and ▶: 3 picks + 2 nav = 5 buttons
+ * - No nav at all: 4 picks
+ * Max 3 pages → fetching 4+3+4 = 11 results is enough.
+ */
+function computePageSlices(totalResults: number): Array<{ start: number; count: number }> {
+  if (totalResults <= 4) return [{ start: 0, count: totalResults }];
+
+  const slices: Array<{ start: number; count: number }> = [];
+
+  // Page 0: no ◀ → 4 picks (+ ▶ if more pages)
+  slices.push({ start: 0, count: Math.min(4, totalResults) });
+
+  const afterP0 = slices[0]!.count;
+  if (afterP0 >= totalResults) return slices;
+
+  const remaining = totalResults - afterP0;
+
+  if (remaining <= 4) {
+    // Only one more page (last, only ◀) → up to 4 picks
+    slices.push({ start: afterP0, count: remaining });
+  } else {
+    // Middle page: both ◀ and ▶ → 3 picks to stay within 5 buttons
+    slices.push({ start: afterP0, count: 3 });
+    const afterP1 = afterP0 + 3;
+    const remaining2 = totalResults - afterP1;
+    if (remaining2 > 0) {
+      // Last page: only ◀ → up to 4 picks
+      slices.push({ start: afterP1, count: Math.min(4, remaining2) });
+    }
+  }
+
+  return slices.slice(0, MAX_PAGES);
+}
 
 function buildSearchPage(
   results: Array<{ url: string; title: string; duration: number; thumbnail: string | null }>,
   page: number,
   msgId: string,
+  slices: Array<{ start: number; count: number }>,
 ): { embed: EmbedBuilder; components: ActionRowBuilder<ButtonBuilder>[] } {
-  const totalPages = Math.ceil(results.length / RESULTS_PER_PAGE);
-  const start = page * RESULTS_PER_PAGE;
-  const pageResults = results.slice(start, start + RESULTS_PER_PAGE);
+  const totalPages = slices.length;
+  const slice = slices[page]!;
+  const pageResults = results.slice(slice.start, slice.start + slice.count);
+
+  const hasPrev = page > 0;
+  const hasNext = page < totalPages - 1;
 
   const description = pageResults.map((r, i) => {
     const mins = Math.floor(r.duration / 60);
@@ -938,24 +1001,27 @@ function buildSearchPage(
     .setDescription(description)
     .setFooter({ text: `${pageLabel}Click a number to play • expires in 30s` });
 
-  const pickButtons = pageResults.map((_, i) =>
-    new ButtonBuilder()
-      .setCustomId(`yt:pick:${i}:${msgId}`)
-      .setLabel(String(i + 1))
-      .setStyle(ButtonStyle.Secondary),
-  );
+  // Single row: [◀?] [1] [2] [3] [4?] [▶?]
+  const buttons: ButtonBuilder[] = [];
 
-  const navButtons: ButtonBuilder[] = [];
-  if (page > 0) {
-    navButtons.push(
+  if (hasPrev) {
+    buttons.push(
       new ButtonBuilder()
         .setCustomId(`yt:nav:prev:${msgId}`)
         .setLabel("◀")
         .setStyle(ButtonStyle.Primary),
     );
   }
-  if ((page + 1) < totalPages) {
-    navButtons.push(
+  pageResults.forEach((_, i) => {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`yt:pick:${i}:${msgId}`)
+        .setLabel(String(i + 1))
+        .setStyle(ButtonStyle.Secondary),
+    );
+  });
+  if (hasNext) {
+    buttons.push(
       new ButtonBuilder()
         .setCustomId(`yt:nav:next:${msgId}`)
         .setLabel("▶")
@@ -963,14 +1029,10 @@ function buildSearchPage(
     );
   }
 
-  const components: ActionRowBuilder<ButtonBuilder>[] = [
-    new ActionRowBuilder<ButtonBuilder>().addComponents(...pickButtons),
-  ];
-  if (navButtons.length > 0) {
-    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...navButtons));
-  }
-
-  return { embed, components };
+  return {
+    embed,
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)],
+  };
 }
 
 const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
@@ -1040,6 +1102,7 @@ interface PendingSearchEntry {
   expires: ReturnType<typeof setTimeout>;
   page: number;
   loadMsg: Message;
+  slices: Array<{ start: number; count: number }>;
 }
 
 const pendingSearches = new Map<string, PendingSearchEntry>();
@@ -1052,7 +1115,9 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
 } | null {
   const ps = pendingSearches.get(msgId);
   if (!ps) return null;
-  const globalIdx = ps.page * RESULTS_PER_PAGE + localIdx;
+  const slice = ps.slices[ps.page];
+  if (!slice) return null;
+  const globalIdx = slice.start + localIdx;
   if (globalIdx < 0 || globalIdx >= ps.results.length) return null;
   clearTimeout(ps.expires);
   pendingSearches.delete(msgId);
@@ -1063,11 +1128,10 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
 export async function navigateSearch(msgId: string, dir: "prev" | "next"): Promise<void> {
   const ps = pendingSearches.get(msgId);
   if (!ps) return;
-  const totalPages = Math.ceil(ps.results.length / RESULTS_PER_PAGE);
   const newPage = dir === "next" ? ps.page + 1 : ps.page - 1;
-  if (newPage < 0 || newPage >= totalPages) return;
+  if (newPage < 0 || newPage >= ps.slices.length) return;
   ps.page = newPage;
-  const { embed, components } = buildSearchPage(ps.results, newPage, msgId);
+  const { embed, components } = buildSearchPage(ps.results, newPage, msgId, ps.slices);
   await ps.loadMsg.edit({ content: "", embeds: [embed], components }).catch(() => null);
 }
 
@@ -1081,7 +1145,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
-    results = await fastYouTubeSearch(query, 8);
+    results = await fastYouTubeSearch(query, 11);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
@@ -1103,7 +1167,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     }))
     .sort((a, b) => b.score - a.score);
 
-  const topResults = scored.slice(0, 8);
+  // Keep up to 11 results (4+3+4 for 3 pages)
+  const topResults = scored.slice(0, 11);
 
   // Auto-play when query had ≥2 meaningful words AND top score ≥20 AND gap to #2 ≥10
   const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
@@ -1119,9 +1184,10 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Show a paginated picker so the user can choose
+  // Show a paginated picker (max 3 pages, all nav+pick buttons on one row)
   const allResults = topResults.map(r => ({ url: r.url, title: r.title, duration: r.duration, thumbnail: null as string | null }));
-  const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id);
+  const slices = computePageSlices(allResults.length);
+  const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id, slices);
 
   await loadMsg.edit({ content: "", embeds: [embed], components });
 
@@ -1138,6 +1204,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     expires,
     page: 0,
     loadMsg,
+    slices,
   });
 }
 
