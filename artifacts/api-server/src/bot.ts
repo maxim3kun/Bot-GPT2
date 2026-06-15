@@ -326,10 +326,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
         value: fr
-          ? "`!help admin` — Guide complet pour les modérateurs"
+          ? "`!help admin` — Commandes d'administration\n`!help setup` / `!setup` — Clés API & secrets"
           : es
-          ? "`!help admin` — Guía completa para moderadores"
-          : "`!help admin` — Full guide for moderators",
+          ? "`!help admin` — Comandos de administración\n`!help setup` / `!setup` — Claves API y secretos"
+          : "`!help admin` — Admin commands\n`!help setup` / `!setup` — API keys & secrets",
       },
     );
   }
@@ -594,20 +594,20 @@ async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, 
   });
 }
 
-// ── Moderator setup guide helper ─────────────────────────────────────────────
+// ── Setup guide (API keys) ────────────────────────────────────────────────────
 
-async function sendModeratorGuide(message: Message): Promise<void> {
+async function sendSetupGuide(message: Message): Promise<void> {
   const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
     || message.member?.permissions.has(PermissionFlagsBits.Administrator);
   if (!isMod) {
     await message.reply("🔒 This command is for moderators only.");
     return;
   }
-  const guideEmbed = new EmbedBuilder()
+  const setupEmbed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("🔧 Bot Setup Guide — Moderators Only")
+    .setTitle("🔧 Bot Setup — API Keys & Secrets")
     .setDescription(
-      "Add the following **environment secrets** in your Replit project to unlock each feature.\n" +
+      "Add the following **secrets** in your Replit project to unlock each feature.\n" +
       "Go to **Replit → Secrets** (the 🔒 lock icon in the left sidebar), then click **+ New Secret**.\n\u200b"
     )
     .addFields(
@@ -641,41 +641,77 @@ async function sendModeratorGuide(message: Message): Promise<void> {
         value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.",
         inline: false,
       },
-      {
-        name: "⚙️ Admin commands",
-        value:
-          "`!prefix <new>` — Change the bot prefix for this server *(max 3 chars)*\n" +
-          "`!prefix reset` — Restore the default `!` prefix\n" +
-          "`!voicechannels #salon1 #salon2` — Choose the 2 voice channels shown when a user isn't in voice\n" +
-          "`!voicechannels reset` — Restore the default (first 2 voice channels of the server)\n" +
-          "`!unblock @user` — Lift any bot restriction on a user *(can unblock yourself too)*\n" +
-          "`!banlist` — View all users flagged by the anti-troll system with their status\n" +
-          "`!birthday channel #salon` — Define the channel where birthday announcements are posted\n" +
-          "`!birthday channel reset` — Remove the birthday announcement channel\n" +
-          "`!help admin` / `!Guide` / `!Instruction` / `!Guía` / `!mode d'emploi` — Show this guide",
-        inline: false,
-      },
-      {
-        name: "🛡️ Anti-troll escalation system",
-        value:
-          "The bot auto-escalates users who repeatedly send junk commands:\n" +
-          "**1st trigger** — Warning: *\"Don't push it\"*\n" +
-          "**2nd trigger** — 3-min unknown-command block *(real commands still work)*\n" +
-          "**3rd trigger** *(within 6h)* — 12h unknown-command block\n" +
-          "**4th trigger** *(within 12h)* — 2h **full** lockout *(all commands including !help)* + admin alert button\n" +
-          "**5th trigger** *(within 3 days)* — **Permanent ban** + admin alert button\n" +
-          "Use `!unblock @user` to release anyone at any stage.",
-        inline: false,
-      },
     )
     .setFooter({ text: "⚠️ Never share these tokens publicly — always store them in Replit Secrets, never in code." });
 
   try {
-    await message.author.send({ embeds: [guideEmbed] });
+    await message.author.send({ embeds: [setupEmbed] });
     await message.reply("📬 Setup guide sent to your DMs!");
   } catch {
-    await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [guideEmbed] });
+    await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [setupEmbed] });
   }
+}
+
+// ── Admin commands guide ──────────────────────────────────────────────────────
+
+async function sendAdminGuide(message: Message, guildPrefix: string): Promise<void> {
+  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+  if (!isMod) {
+    await message.reply("🔒 This command is for moderators only.");
+    return;
+  }
+  const adminEmbed = new EmbedBuilder()
+    .setColor(0x2ecc71)
+    .setTitle("⚙️ Admin Commands")
+    .setDescription("Commands only available to members with **Manage Server** or **Administrator** permission.\n\u200b")
+    .addFields(
+      {
+        name: "🔤 Prefix",
+        value:
+          `\`${guildPrefix}prefix <new>\` — Change the bot prefix for this server *(max 3 chars)*\n` +
+          `\`${guildPrefix}prefix reset\` — Restore the default \`!\` prefix`,
+        inline: false,
+      },
+      {
+        name: "🔊 Voice channel picker",
+        value:
+          `\`${guildPrefix}voicechannels #ch1 #ch2\` — Set the 2 voice channels shown when a user isn't in voice\n` +
+          `\`${guildPrefix}voicechannels reset\` — Restore default (first 2 voice channels of the server)`,
+        inline: false,
+      },
+      {
+        name: "🎂 Birthdays",
+        value:
+          `\`${guildPrefix}birthday channel #channel\` — Set the channel for birthday announcements\n` +
+          `\`${guildPrefix}birthday channel reset\` — Remove the birthday announcement channel`,
+        inline: false,
+      },
+      {
+        name: "🚨 Alert channel",
+        value:
+          `\`${guildPrefix}admin channel #channel\` — Set the channel for anti-troll alerts\n` +
+          `\`${guildPrefix}admin channel reset\` — Remove the alert channel`,
+        inline: false,
+      },
+      {
+        name: "🛡️ Anti-troll",
+        value:
+          `\`${guildPrefix}unblock @user\` — Lift any bot restriction on a user\n` +
+          `\`${guildPrefix}banlist\` — View all users flagged by the anti-troll system\n\n` +
+          "**Escalation:** warning → 3min block → 12h block → 2h full lockout → permanent ban\n" +
+          "Use `!unblock @user` to release anyone at any stage.",
+        inline: false,
+      },
+      {
+        name: "ℹ️ More info",
+        value: `\`${guildPrefix}help setup\` — API keys & secrets setup guide`,
+        inline: false,
+      },
+    )
+    .setFooter({ text: "Use !help setup to configure API keys and unlock features." });
+
+  await message.reply({ embeds: [adminEmbed] });
 }
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1059,14 +1095,14 @@ export function startBot(): void {
 
       const voiceChannel = (member as GuildMember | null)?.voice?.channel;
       if (!voiceChannel) {
-        await interaction.reply({ content: "❌ Rejoins d'abord un salon vocal, puis clique sur ✅ !", ephemeral: true });
+        await interaction.reply({ content: "❌ Join a voice channel first, then click ✅ I'm ready!", ephemeral: true });
         return;
       }
 
-      await interaction.reply({ content: `✅ Tu es dans **${voiceChannel.name}** — relance maintenant ta commande !`, ephemeral: true });
+      await interaction.reply({ content: `✅ You're in **${voiceChannel.name}** — now retry your command!`, ephemeral: true });
     } catch (err) {
       logger.error({ err }, "voice_ready button error");
-      await interaction.reply({ content: "❌ Une erreur s'est produite.", ephemeral: true }).catch(() => null);
+      await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
     }
   });
 
@@ -1481,12 +1517,13 @@ export function startBot(): void {
           break;
         }
 
-        // ── Moderator setup guide — multiple command aliases ──────────────────────
+        // ── Setup guide (API keys) — multiple command aliases ────────────────────
+        case "setup":
         case "instruction":
         case "guide":
         case "guia":
         case "guía": {
-          await sendModeratorGuide(message);
+          await sendSetupGuide(message);
           break;
         }
 
@@ -1496,7 +1533,7 @@ export function startBot(): void {
             await message.reply("❓ Did you mean `!mode d'emploi`?");
             break;
           }
-          await sendModeratorGuide(message);
+          await sendSetupGuide(message);
           break;
         }
 
@@ -1553,14 +1590,14 @@ export function startBot(): void {
           const isVCAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator)
             || message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
           if (!isVCAdmin) {
-            await message.reply("🔒 Seuls les admins peuvent configurer ça. (Permission **Gérer le serveur** requise)");
+            await message.reply("🔒 Only admins can configure this. (**Manage Server** permission required)");
             break;
           }
           if (!message.guildId) break;
 
           if (args[0]?.toLowerCase() === "reset") {
             await setVoicePickerChannels(message.guildId, []);
-            await message.reply("✅ Sélecteur de salon vocal réinitialisé — les 2 premiers salons vocaux du serveur seront affichés.");
+            await message.reply("✅ Voice channel picker reset — the first 2 voice channels of the server will be shown.");
             break;
           }
 
@@ -1571,19 +1608,19 @@ export function startBot(): void {
           if (mentionedChannels.length === 0) {
             const current = getVoicePickerChannels(message.guildId);
             const desc = current.length > 0
-              ? `Salons actuels : ${current.map(id => `<#${id}>`).join(", ")}`
-              : "Salons actuels : les 2 premiers salons vocaux du serveur";
+              ? `Current channels: ${current.map(id => `<#${id}>`).join(", ")}`
+              : "Current channels: first 2 voice channels of the server";
             await message.reply(
-              `🔊 **Sélecteur de salon vocal**\n${desc}\n\n` +
-              `➤ Configurer : \`!voicechannels #salon1 #salon2\`\n` +
-              `➤ Réinitialiser : \`!voicechannels reset\``,
+              `🔊 **Voice channel picker**\n${desc}\n\n` +
+              `➤ Set channels: \`${guildPrefix}voicechannels #channel1 #channel2\`\n` +
+              `➤ Reset to default: \`${guildPrefix}voicechannels reset\``,
             );
             break;
           }
 
           const newIds = mentionedChannels.map(c => c.id);
           await setVoicePickerChannels(message.guildId, newIds);
-          await message.reply(`✅ Sélecteur mis à jour ! Salons affichés : ${newIds.map(id => `<#${id}>`).join(", ")}`);
+          await message.reply(`✅ Voice picker updated! Channels shown: ${newIds.map(id => `<#${id}>`).join(", ")}`);
           break;
         }
 
@@ -2142,9 +2179,15 @@ export function startBot(): void {
           const arg0 = (args[0] ?? "").toLowerCase();
           const arg1 = (args[1] ?? "").toLowerCase();
 
-          // Moderator admin guide — !help admin
+          // Admin commands guide — !help admin
           if (arg0 === "admin") {
-            await sendModeratorGuide(message);
+            await sendAdminGuide(message, guildPrefix);
+            break;
+          }
+
+          // Setup guide (API keys) — !help setup
+          if (arg0 === "setup") {
+            await sendSetupGuide(message);
             break;
           }
 
