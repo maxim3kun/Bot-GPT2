@@ -15,6 +15,32 @@ import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpSearch } from "../lib/ytdlp";
+import { getVoicePickerChannels } from "./voice-picker-channels.js";
+
+// ── Pending voice commands (auto-retry after joining voice) ───────────────────
+
+const pendingVoiceCmds = new Map<string, {
+  fn: () => Promise<void>;
+  userId: string;
+  expires: number;
+}>();
+
+export function registerPendingVoiceCmd(key: string, userId: string, fn: () => Promise<void>): void {
+  const now = Date.now();
+  for (const [k, v] of pendingVoiceCmds) {
+    if (v.expires < now) pendingVoiceCmds.delete(k);
+  }
+  pendingVoiceCmds.set(key, { fn, userId, expires: now + 5 * 60 * 1000 });
+}
+
+export function consumePendingVoiceCmd(key: string, userId: string): (() => Promise<void>) | null {
+  const entry = pendingVoiceCmds.get(key);
+  if (!entry) return null;
+  if (entry.userId !== userId) return null;
+  if (entry.expires < Date.now()) { pendingVoiceCmds.delete(key); return null; }
+  pendingVoiceCmds.delete(key);
+  return entry.fn;
+}
 
 // ── HTTP stream fetcher (follows redirects) ───────────────────────────────────
 
@@ -208,14 +234,13 @@ async function playNextFromQueue(guildId: string): Promise<void> {
 
 // ── Voice channel picker (sent when user isn't in a channel) ─────────────────
 
-export async function replyNotInVoice(message: Message): Promise<void> {
+export async function replyNotInVoice(message: Message, pendingKey?: string): Promise<void> {
   const guild = message.guild;
   if (!guild) {
     await message.reply("❌ You need to be in a voice channel first!");
     return;
   }
 
-  const { getVoicePickerChannels } = await import("./voice-picker-channels.js");
   const configuredIds = getVoicePickerChannels(guild.id);
 
   // Ensure the channel cache is populated
@@ -223,7 +248,7 @@ export async function replyNotInVoice(message: Message): Promise<void> {
     await guild.channels.fetch().catch(() => null);
   }
 
-  let voiceChannels = configuredIds.length > 0
+  const voiceChannels = configuredIds.length > 0
     ? configuredIds
         .map(id => guild.channels.cache.get(id))
         .filter((c): c is NonNullable<typeof c> => c?.type === ChannelType.GuildVoice)
@@ -237,14 +262,16 @@ export async function replyNotInVoice(message: Message): Promise<void> {
     return;
   }
 
-  const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map(ch =>
+  // Each button gets a unique customId (Discord rejects duplicate customIds in the same message)
+  const baseId = pendingKey ?? `noop_${Date.now()}`;
+  const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map((ch, idx) =>
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setLabel(`🔊 ${ch.name.slice(0, 77)}`)
         .setStyle(ButtonStyle.Link)
         .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`),
       new ButtonBuilder()
-        .setCustomId("voice_ready")
+        .setCustomId(`voice_ready:${baseId}:${idx}`)
         .setLabel("✅ I'm ready!")
         .setStyle(ButtonStyle.Success),
     ),
@@ -252,20 +279,27 @@ export async function replyNotInVoice(message: Message): Promise<void> {
 
   try {
     await message.reply({
-      content: "❌ You need to join a voice channel first! Click a channel then confirm when ready:",
+      content: "❌ You need to join a voice channel first! Click a channel below, join it, then click **✅ I'm ready!** and your command will run automatically:",
       components: rows,
     });
-  } catch {
-    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.");
+  } catch (err) {
+    logger.error({ err }, "replyNotInVoice: failed to send voice picker");
+    await message.reply("❌ You need to be in a voice channel first! Join one and then retry your command.").catch(() => null);
   }
 }
 
 // ── Voice connection helper ───────────────────────────────────────────────────
 
-export async function ensureVoiceConnection(message: Message): Promise<boolean> {
+export async function ensureVoiceConnection(message: Message, onReady?: () => Promise<void>): Promise<boolean> {
   const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await replyNotInVoice(message);
+    if (onReady) {
+      const key = `${message.author.id}_${Date.now()}`;
+      registerPendingVoiceCmd(key, message.author.id, onReady);
+      await replyNotInVoice(message, key);
+    } else {
+      await replyNotInVoice(message);
+    }
     return false;
   }
 
@@ -498,13 +532,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   const station = RADIO_STATIONS[stationKey]!;
 
-  let ready = false;
-  try {
-    ready = await ensureVoiceConnection(message);
-  } catch {
-    await message.reply("❌ You need to be in a voice channel first! Join one and then retry.").catch(() => null);
-    return;
-  }
+  const ready = await ensureVoiceConnection(message, () => playRadio(message, stationInput));
   if (!ready) return;
 
   const guildId = message.guildId!;
@@ -617,7 +645,7 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
     return;
   }
 
-  const ready = await ensureVoiceConnection(message);
+  const ready = await ensureVoiceConnection(message, () => playYoutube(message, url));
   if (!ready) return;
 
   const guildId = message.guildId!;

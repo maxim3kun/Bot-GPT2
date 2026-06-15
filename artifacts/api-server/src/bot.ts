@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd } from "./discord/radio";
 import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
@@ -1084,7 +1084,7 @@ export function startBot(): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
-    if (interaction.customId !== "voice_ready") return;
+    if (!interaction.customId.startsWith("voice_ready")) return;
 
     try {
       const member = interaction.member instanceof GuildMember
@@ -1095,8 +1095,21 @@ export function startBot(): void {
 
       const voiceChannel = (member as GuildMember | null)?.voice?.channel;
       if (!voiceChannel) {
-        await interaction.reply({ content: "❌ Join a voice channel first, then click ✅ I'm ready!", ephemeral: true });
+        await interaction.reply({ content: "❌ Join a voice channel first, then click **✅ I'm ready!**", ephemeral: true });
         return;
+      }
+
+      // Extract pending command key from customId: "voice_ready:<key>:<idx>"
+      const parts = interaction.customId.split(":");
+      const pendingKey = parts[1]; // undefined for legacy "voice_ready" format
+
+      if (pendingKey && !pendingKey.startsWith("noop_")) {
+        const fn = consumePendingVoiceCmd(pendingKey, interaction.user.id);
+        if (fn) {
+          await interaction.reply({ content: `✅ Got it! You're in **${voiceChannel.name}** — running your command now…`, ephemeral: true });
+          await fn().catch(err => logger.error({ err }, "voice_ready auto-retry error"));
+          return;
+        }
       }
 
       await interaction.reply({ content: `✅ You're in **${voiceChannel.name}** — now retry your command!`, ephemeral: true });
