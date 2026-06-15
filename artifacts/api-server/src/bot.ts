@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -1145,6 +1145,21 @@ export function startBot(): void {
         logger.error({ err }, "np button error");
         await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
       }
+      return;
+    }
+
+    // ── Search result picker buttons ─────────────────────────────────────────
+    if (interaction.customId.startsWith("yt:")) {
+      const parts = interaction.customId.split(":");
+      const idx = parseInt(parts[1] ?? "0", 10);
+      const msgId = parts[2] ?? "";
+      const pending = consumePendingSearch(msgId, idx);
+      if (!pending) {
+        await interaction.reply({ content: "❌ Search expired. Use `!y` again.", ephemeral: true });
+        return;
+      }
+      await interaction.update({ content: `▶️ Playing **${pending.pick.title}**`, embeds: [], components: [] });
+      await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail });
       return;
     }
 

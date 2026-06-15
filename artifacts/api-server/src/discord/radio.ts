@@ -745,6 +745,7 @@ async function execPlayYoutube(
   url: string,
   waitMsg: Message,
   requestedBy?: string,
+  knownMeta?: { title: string; duration: number; thumbnail: string | null },
 ): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state) return;
@@ -785,11 +786,11 @@ async function execPlayYoutube(
   };
 
   try {
-    // play-dl: stream + metadata in parallel (~2-4 s vs 8-12 s for ytdlp subprocess)
+    // play-dl: stream only (skip video_info if we already have it from search)
     const play = await getPlay();
     const [streamData, videoInfo] = await Promise.all([
       play.stream(url, { quality: 2 }),
-      play.video_info(url).catch(() => null),
+      knownMeta ? Promise.resolve(null) : play.video_info(url).catch(() => null),
     ]);
 
     const typeStr: string = (streamData as any).type ?? "";
@@ -801,15 +802,30 @@ async function execPlayYoutube(
     const resource = createAudioResource((streamData as any).stream as NodeJS.ReadableStream, { inputType: djsType });
     state.player.play(resource);
     state.player.once(AudioPlayerStatus.Playing, async () => {
-      const det = (videoInfo as any)?.video_details;
-      await postNowPlaying(det?.title ?? "Unknown", det?.durationInSec ?? 0, det?.thumbnails?.[0]?.url ?? null);
+      if (knownMeta) {
+        await postNowPlaying(knownMeta.title, knownMeta.duration, knownMeta.thumbnail);
+      } else {
+        const det = (videoInfo as any)?.video_details;
+        const title = det?.title ?? null;
+        const duration = det?.durationInSec ?? 0;
+        const thumbnail = det?.thumbnails?.[0]?.url ?? null;
+        // If video_info returned nothing, fall back to ytdlp for metadata only
+        if (!title) {
+          const info = await ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+          await postNowPlaying(info.title, info.duration, info.thumbnail);
+        } else {
+          await postNowPlaying(title, duration, thumbnail);
+        }
+      }
     });
     state.player.once("error", onError);
   } catch (err) {
     logger.warn({ err, url }, "play-dl stream failed — falling back to ytdlp");
     const audioStream = ytdlpStream(url);
     const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
-    const infoPromise = ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+    const infoPromise = knownMeta
+      ? Promise.resolve(knownMeta)
+      : ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
     state.player.play(resource);
     state.player.once(AudioPlayerStatus.Playing, async () => {
       const { title, duration, thumbnail } = await infoPromise;
@@ -819,14 +835,18 @@ async function execPlayYoutube(
   }
 }
 
-export async function playYoutube(message: Message, url: string): Promise<void> {
+export async function playYoutube(
+  message: Message,
+  url: string,
+  knownMeta?: { title: string; duration: number; thumbnail: string | null },
+): Promise<void> {
   if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
     // Not a URL — treat as a search query
     await searchAndQueue(message, url);
     return;
   }
 
-  const ready = await ensureVoiceConnection(message, () => playYoutube(message, url));
+  const ready = await ensureVoiceConnection(message, () => playYoutube(message, url, knownMeta));
   if (!ready) return;
 
   const guildId = message.guildId!;
@@ -881,9 +901,9 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   }
 
   // ── Play immediately ───────────────────────────────────────────────────────
-  const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait…");
+  const waitMsg = await message.reply("🎬 Loading…");
   try {
-    await execPlayYoutube(guildId, url, waitMsg, message.author.id);
+    await execPlayYoutube(guildId, url, waitMsg, message.author.id, knownMeta);
   } catch (err) {
     logger.error({ err, url }, "YouTube load error");
     await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
@@ -898,19 +918,17 @@ const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|
 const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
 
 /**
- * Fuzzy word match: query word matches if:
- *  - title contains the query word exactly, OR
- *  - a word in the title is contained within the query word (handles "guims"→"gims"),  OR
- *  - Levenshtein distance ≤ 1 between the query word and any title word (1-char typos)
+ * Fuzzy word match against pre-normalised title word list.
+ * titleWordsNorm: each token already has non-alphanumeric chars stripped ("S.O.S" → "sos")
  */
-function queryWordMatchesTitle(queryWord: string, titleWords: string[]): boolean {
-  for (const tw of titleWords) {
+function queryWordMatchesTitle(queryWord: string, titleWordsNorm: string[]): boolean {
+  for (const tw of titleWordsNorm) {
     if (tw === queryWord) return true;
-    if (tw.length < 2) continue;
-    // substring: "gims" inside "guims", or "guims" inside some longer title word
+    if (tw.length < 2 || queryWord.length < 2) continue;
+    // One is a substring of the other and within 1 char length diff  ("gims"⊂"guims")
     if (queryWord.includes(tw) && tw.length >= queryWord.length - 1) return true;
     if (tw.includes(queryWord) && queryWord.length >= tw.length - 1) return true;
-    // 1-char edit distance (insertion/deletion only for speed)
+    // Levenshtein distance 1 via insertion/deletion walk
     if (Math.abs(tw.length - queryWord.length) === 1) {
       const [shorter, longer] = tw.length < queryWord.length ? [tw, queryWord] : [queryWord, tw];
       let i = 0, j = 0, diffs = 0;
@@ -927,29 +945,53 @@ function queryWordMatchesTitle(queryWord: string, titleWords: string[]): boolean
 function scoreYtResult(r: { title: string; channel: string | null }, query = ""): number {
   let s = 0;
   if (REMIX_PATTERN.test(r.title)) s -= 5;
-  // Reduced official bonus so it never overrides exact-match results
   if (OFFICIAL_PATTERN.test(r.title)) s += 2;
   if (r.channel && /official|vevo/i.test(r.channel)) s += 1;
 
-  // Query relevance — most important signal
   if (query) {
-    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
-    const titleWords = r.title.toLowerCase().split(/[\s\-&.,!?()[\]]+/).filter(w => w.length > 1);
-    const matchCount = words.filter(w => queryWordMatchesTitle(w, titleWords)).length;
+    // Normalise query: remove punctuation so "S.O.S" → "sos", keep spaces
+    const words = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
 
-    s += matchCount * 10; // +10 per matching word (strong signal)
+    // Split title on spaces/hyphens ONLY (not dots) so "S.O.S" stays together,
+    // then strip non-alphanumeric per token → "S.O.S" → "sos", "1.9" → "19"
+    const titleWordsNorm = r.title.toLowerCase()
+      .split(/[\s\-&!?()\[\]]+/)
+      .map(w => w.replace(/[^a-z0-9]/g, ""))
+      .filter(w => w.length > 1);
 
-    // Big bonus when every query word appears in the title
-    if (words.length > 1 && matchCount === words.length) s += 20;
+    const matchCount = words.filter(w => queryWordMatchesTitle(w, titleWordsNorm)).length;
 
-    // Penalty when less than half the words match (wrong song)
-    if (words.length > 1 && matchCount < Math.ceil(words.length / 2)) s -= 8;
-
-    // Hard penalty: title shares no words with query at all
-    if (matchCount === 0 && words.length > 0) s -= 20;
+    s += matchCount * 10;
+    if (words.length > 1 && matchCount === words.length) s += 20;   // all words matched
+    if (words.length > 1 && matchCount < Math.ceil(words.length / 2)) s -= 8; // < half match
+    if (matchCount === 0 && words.length > 0) s -= 20;               // nothing matched
   }
 
   return s;
+}
+
+// ── Search result picker ──────────────────────────────────────────────────────
+
+interface PendingSearchEntry {
+  results: Array<{ url: string; title: string; duration: number; thumbnail: string | null }>;
+  message: Message;
+  requestedBy: string;
+  expires: ReturnType<typeof setTimeout>;
+}
+
+const pendingSearches = new Map<string, PendingSearchEntry>();
+
+/** Called by the bot.ts button handler when the user clicks a search result. */
+export function consumePendingSearch(msgId: string, idx: number): {
+  pick: { url: string; title: string; duration: number; thumbnail: string | null };
+  message: Message;
+  requestedBy: string;
+} | null {
+  const ps = pendingSearches.get(msgId);
+  if (!ps || idx < 0 || idx >= ps.results.length) return null;
+  clearTimeout(ps.expires);
+  pendingSearches.delete(msgId);
+  return { pick: ps.results[idx]!, message: ps.message, requestedBy: ps.requestedBy };
 }
 
 export async function searchAndQueue(message: Message, query: string): Promise<void> {
@@ -962,7 +1004,6 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
-    // play-dl search is in-process (~1-2s) vs ytdlp subprocess (~7s)
     results = await fastYouTubeSearch(query, 8);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
@@ -975,11 +1016,74 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Auto-pick the top scored result — no reaction picker needed
-  results = [...results].sort((a, b) => scoreYtResult(b, query) - scoreYtResult(a, query));
-  const selected = results[0]!;
-  await loadMsg.delete().catch(() => null);
-  await playYoutube(message, selected.url);
+  // Score and sort all results
+  const scored = results
+    .map(r => ({ ...r, score: scoreYtResult(r, query), thumbnail: null as string | null }))
+    .sort((a, b) => b.score - a.score);
+
+  const top5 = scored.slice(0, 5);
+
+  // Auto-play only when the top result is a definitive match:
+  // — query had ≥2 meaningful words AND top score ≥30 AND gap to #2 ≥15
+  const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
+  const isConfidentMatch =
+    queryWords.length >= 2 &&
+    top5[0]!.score >= 30 &&
+    (top5.length < 2 || top5[0]!.score - top5[1]!.score >= 15);
+
+  if (isConfidentMatch) {
+    const sel = top5[0]!;
+    await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+    await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+    return;
+  }
+
+  // Show a numbered picker so the user can choose
+  const description = top5.map((r, i) => {
+    const mins = Math.floor(r.duration / 60);
+    const secs = r.duration % 60;
+    const dur = r.duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—";
+    return `**${i + 1}.** ${r.title}   *${dur}*`;
+  }).join("\n");
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🔍 Search results")
+    .setDescription(description)
+    .setFooter({ text: "Click a number to play • expires in 30s" });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    top5.map((_, i) =>
+      new ButtonBuilder()
+        .setCustomId(`yt:${i}:${loadMsg.id}`)
+        .setLabel(String(i + 1))
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  );
+
+  await loadMsg.edit({ content: "", embeds: [embed], components: [row] });
+
+  // Expire after 30 s — disable buttons
+  const expires = setTimeout(async () => {
+    pendingSearches.delete(loadMsg.id);
+    const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      top5.map((_, i) =>
+        new ButtonBuilder()
+          .setCustomId(`yt:${i}:${loadMsg.id}`)
+          .setLabel(String(i + 1))
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
+      ),
+    );
+    await loadMsg.edit({ embeds: [embed], components: [disabledRow] }).catch(() => null);
+  }, 30_000);
+
+  pendingSearches.set(loadMsg.id, {
+    results: top5.map(r => ({ url: r.url, title: r.title, duration: r.duration, thumbnail: null })),
+    message,
+    requestedBy: message.author.id,
+    expires,
+  });
 }
 
 export async function skipYoutube(message: Message): Promise<void> {
