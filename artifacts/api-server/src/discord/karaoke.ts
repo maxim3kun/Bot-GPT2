@@ -1058,8 +1058,12 @@ async function launchKaraoke(
   const sourceLabel = audioSource === "soundcloud" ? "SoundCloud" : "YouTube";
   await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on ${sourceLabel}…`, "Searching for the best audio source…")] });
 
+  // Refresh voice state in case cache went stale during the lyrics search (can take 5-10s)
+  if (message.member && !message.member.voice.channel && message.guild) {
+    try { await message.guild.members.fetch(message.author.id); } catch { /* ignore */ }
+  }
   const ready = await ensureVoiceConnection(message);
-  if (!ready) { await waitMsg.edit({ content: "❌ You need to be in a voice channel first! Join one and retry `!karaoke`.", components: [] }); return; }
+  if (!ready) { await waitMsg.edit({ content: "❌ You need to be in a voice channel. Join one and retry `!karaoke`.", components: [] }); return; }
 
   const radioState = radioStates.get(guildId);
   if (!radioState) { await waitMsg.edit("❌ Voice connection lost. Try again."); return; }
@@ -1214,9 +1218,15 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   }
 
   // Early voice check — fail fast before any network searches
-  if (!attachToCurrentAudio && !message.member?.voice.channel) {
-    await message.reply("❌ Tu dois rejoindre un salon vocal d'abord !\nRejoins un salon puis retape `!karaoke <nom du morceau>`.");
-    return;
+  // Refresh the member voice state if the cache shows no channel (bot may have restarted while user was already in voice)
+  if (!attachToCurrentAudio) {
+    if (message.member && !message.member.voice.channel && message.guild) {
+      try { await message.guild.members.fetch(message.author.id); } catch { /* ignore */ }
+    }
+    if (!message.member?.voice.channel) {
+      await message.reply("❌ You need to be in a voice channel first!\nJoin one and try `!karaoke <song name>` again.");
+      return;
+    }
   }
 
   // If a session is already active and we're not attaching to current audio, queue it

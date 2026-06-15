@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRow, radioStates } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -1101,7 +1101,7 @@ export function startBot(): void {
           }
           const currentEmbed = interaction.message.embeds[0];
           const updatedEmbed = currentEmbed ? EmbedBuilder.from(currentEmbed) : new EmbedBuilder();
-          await interaction.update({ embeds: [updatedEmbed], components: [buildNpButtonRow(result === "paused")] });
+          await interaction.update({ embeds: [updatedEmbed], components: buildNpButtonRows(result === "paused") });
           return;
         }
 

@@ -16,23 +16,6 @@ import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 
-// ── Rainbow ANSI title (Discord code-block coloring) ──────────────────────────
-
-// Bright ANSI codes (90-97 range) — Discord renders these correctly in ```ansi blocks
-// 91=bright red, 93=bright yellow, 92=bright green, 96=bright cyan, 94=bright blue, 95=bright magenta
-const RAINBOW = ["\u001b[91m", "\u001b[93m", "\u001b[92m", "\u001b[96m", "\u001b[94m", "\u001b[95m"];
-const RST = "\u001b[0m";
-
-function rainbowTitle(text: string): string {
-  let out = "";
-  let ci = 0;
-  for (const ch of text) {
-    if (ch === " ") { out += " "; }
-    else { out += `${RAINBOW[ci % RAINBOW.length]}${ch}${RST}`; ci++; }
-  }
-  return `\`\`\`ansi\n${out}\n\`\`\``;
-}
-
 // ── Fast YouTube search via play-dl (in-process, no subprocess overhead) ─────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -239,25 +222,56 @@ export function onVoiceAloneChange(guildId: string, isAlone: boolean): void {
 
 // ── Now Playing button helpers ────────────────────────────────────────────────
 
-export function buildNpButtonRow(paused: boolean): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(paused ? "np:resume" : "np:pause")
-      .setLabel(paused ? "▶️ Resume" : "⏸️ Pause")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("np:skip")
-      .setLabel("⏭️ Skip")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("np:like")
-      .setLabel("💚 Like")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId("np:stop")
-      .setLabel("🛑 Stop")
-      .setStyle(ButtonStyle.Danger),
-  );
+export function buildNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuilder>[] {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("np:like")
+        .setLabel("Like")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(paused ? "np:resume" : "np:pause")
+        .setLabel(paused ? "Resume" : "Pause")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("np:skip")
+        .setLabel("Skip")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("np:stop")
+        .setLabel("Stop")
+        .setStyle(ButtonStyle.Danger),
+    ),
+  ];
+}
+
+// ── Now Playing embed builder ─────────────────────────────────────────────────
+
+interface NowPlayingEmbedOpts {
+  title: string;
+  url: string;
+  duration: string;
+  thumbnail: string | null;
+  requestedBy?: string;
+  queueCount?: number;
+}
+
+function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(0x57f287)
+    .setTitle("Now Playing")
+    .setURL(opts.url)
+    .setDescription(`\`\`\`\n${opts.title}\n\`\`\``)
+    .addFields(
+      { name: "Duration", value: opts.duration, inline: true },
+      ...(opts.requestedBy ? [{ name: "Requested by", value: `<@${opts.requestedBy}>`, inline: true }] : []),
+      ...(opts.queueCount && opts.queueCount > 0 ? [{ name: "Queue", value: `${opts.queueCount} next • \`!queue\``, inline: true }] : []),
+    )
+    .setFooter({ text: "!y <title or url> to add  •  !queue to see upcoming" });
+  if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
+  return embed;
 }
 
 async function disableNpButtonsForState(state: RadioState): Promise<void> {
@@ -271,6 +285,35 @@ async function disableNpButtonsForState(state: RadioState): Promise<void> {
   }
 }
 
+// ── Track info pre-fetch cache ────────────────────────────────────────────────
+
+interface CachedTrackInfo {
+  title: string;
+  duration: number;
+  thumbnail: string | null;
+}
+
+const queueInfoCache = new Map<string, CachedTrackInfo>();
+
+async function prefetchTrackInfo(url: string): Promise<void> {
+  if (queueInfoCache.has(url)) return;
+  try {
+    const play = await getPlay();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const info = await (play.video_info(url) as Promise<any>).catch(() => null);
+    const det = info?.video_details;
+    if (det) {
+      queueInfoCache.set(url, {
+        title: cleanYouTubeTitle((det.title as string) ?? "Unknown"),
+        duration: (det.durationInSec as number) ?? 0,
+        thumbnail: (det.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null,
+      });
+    }
+  } catch {
+    // Silently ignore — ytdlpInfo used as fallback when track plays
+  }
+}
+
 // ── Queue playback (internal) ─────────────────────────────────────────────────
 
 async function playNextFromQueue(guildId: string): Promise<void> {
@@ -279,37 +322,41 @@ async function playNextFromQueue(guildId: string): Promise<void> {
 
   const url = state.queue.shift()!;
 
+  // Pre-fetch info for the track after next, in background
+  if (state.queue.length > 0) {
+    prefetchTrackInfo(state.queue[0]!).catch(() => null);
+  }
+
   try {
-    const info = await ytdlpInfo(url);
-    const { title, duration, thumbnail } = info;
+    // Start the audio stream immediately — don't wait for metadata
     const audioStream = ytdlpStream(url);
     const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
+    // Use cached info if available (instant), otherwise fetch
+    const cached = queueInfoCache.get(url);
+    const { title: rawTitle, duration, thumbnail } = cached ?? await ytdlpInfo(url);
+    const cleanTitle = cleanYouTubeTitle(rawTitle);
+
     state.stationKey = null;
-    state.youtubeTitle = cleanYouTubeTitle(title);
+    state.youtubeTitle = cleanTitle;
     state.youtubeUrl = url;
     state.youtubeStartTime = Date.now();
     state.paused = false;
     state.player.play(resource);
 
     if (state.notifyChannel) {
-      const cleanTitle = cleanYouTubeTitle(title);
       const mins = Math.floor(duration / 60);
       const secs = duration % 60;
-      const embed = new EmbedBuilder()
-        .setColor(0x57f287)
-        .setTitle("🎵 Now Playing")
-        .setURL(url)
-        .setDescription(rainbowTitle(cleanTitle))
-        .addFields(
-          { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
-          { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining` : "Last video", inline: true },
-        );
-      if (thumbnail) embed.setThumbnail(thumbnail);
-      // Disable old NP buttons before sending new
+      const embed = buildNowPlayingEmbed({
+        title: cleanTitle,
+        url,
+        duration: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—",
+        thumbnail: thumbnail ?? null,
+        queueCount: state.queue.length,
+      });
       await disableNpButtonsForState(state);
       const sent = await state.notifyChannel
-        .send({ embeds: [embed], components: [buildNpButtonRow(false)] })
+        .send({ embeds: [embed], components: buildNpButtonRows(false) })
         .catch(() => null);
       state.nowPlayingMsg = (sent as Message | null);
     }
@@ -722,19 +769,15 @@ async function execPlayYoutube(
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
-    const embed = new EmbedBuilder()
-      .setColor(0x57f287)
-      .setTitle("🎵 Now Playing")
-      .setURL(url)
-      .setDescription(rainbowTitle(cleanTitle))
-      .addFields(
-        { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
-        ...(requestedBy ? [{ name: "Requested by", value: `<@${requestedBy}>`, inline: true }] : []),
-        ...(queueCount > 0 ? [{ name: "Queue", value: `${queueCount} next • \`!queue\``, inline: true }] : []),
-      )
-      .setFooter({ text: `!y <title or url> to add  •  !queue to see upcoming` });
-    if (thumbnail) embed.setThumbnail(thumbnail);
-    await waitMsg.edit({ content: "", embeds: [embed], components: [buildNpButtonRow(false)] });
+    const embed = buildNowPlayingEmbed({
+      title: cleanTitle,
+      url,
+      duration: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—",
+      thumbnail,
+      requestedBy: requestedBy ?? undefined,
+      queueCount,
+    });
+    await waitMsg.edit({ content: "", embeds: [embed], components: buildNpButtonRows(false) });
   };
 
   const onError = async (err: Error) => {
@@ -796,24 +839,37 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   if (state.youtubeTitle) {
     state.queue.push(url);
     const pos = state.queue.length; // items after current (#1)
-    const waitMsg = await message.reply("⏳ Fetching info…");
+    const waitMsg = await message.reply("⏳ Adding to queue…");
     try {
-      const info = await ytdlpInfo(url);
-      const { title, duration } = info;
+      // Use play-dl video_info (fast, in-process) and cache it for when the track plays
+      const play = await getPlay();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const info = await (play.video_info(url) as Promise<any>).catch(() => null);
+      const det = info?.video_details;
+      const title: string = det?.title ?? "Unknown";
+      const duration: number = det?.durationInSec ?? 0;
+      const thumbnail: string | null = (det?.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null;
+      // Cache so playNextFromQueue can use it immediately when this track's turn comes
+      queueInfoCache.set(url, { title: cleanYouTubeTitle(title), duration, thumbnail });
+      // Pre-fetch the track after this one too, if it exists
+      if (state.queue.length > 1) {
+        prefetchTrackInfo(state.queue[state.queue.length - 2]!).catch(() => null);
+      }
       const mins = Math.floor(duration / 60);
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle("📥 Added to queue")
-        .setDescription(`**${title}**`)
+        .setTitle("Added to queue")
+        .setDescription(`\`\`\`\n${cleanYouTubeTitle(title)}\n\`\`\``)
         .addFields(
           { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
-          { name: "Position", value: `#${pos + 1} in queue`, inline: true },
+          { name: "Position", value: `#${pos + 1}`, inline: true },
         )
-        .setFooter({ text: `!queue to see all  •  !skip to skip current` });
+        .setFooter({ text: "!queue to see all  •  !skip to skip current" });
+      if (thumbnail) embed.setThumbnail(thumbnail);
       await waitMsg.edit({ content: "", embeds: [embed] });
     } catch {
-      await waitMsg.edit(`📥 Added to queue at position #${pos + 1}.`);
+      await waitMsg.edit(`Added to queue at position #${pos + 1}.`);
     }
     return;
   }
@@ -846,16 +902,26 @@ const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video
 function scoreYtResult(r: { title: string; channel: string | null }, query = ""): number {
   let s = 0;
   if (REMIX_PATTERN.test(r.title)) s -= 5;
-  if (OFFICIAL_PATTERN.test(r.title)) s += 4;
-  if (r.channel && /official|vevo/i.test(r.channel)) s += 2;
+  // Reduced official bonus so it never overrides exact-match results
+  if (OFFICIAL_PATTERN.test(r.title)) s += 2;
+  if (r.channel && /official|vevo/i.test(r.channel)) s += 1;
 
-  // Query relevance — most important: boost results that actually match the search terms
+  // Query relevance — most important signal
   if (query) {
-    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
     const titleLower = r.title.toLowerCase();
     const matchCount = words.filter(w => titleLower.includes(w)).length;
-    s += matchCount * 5; // +5 per matching word
-    if (matchCount === 0 && words.length > 0) s -= 10; // Hard penalty: title shares no words with query
+
+    s += matchCount * 10; // +10 per matching word (strong signal)
+
+    // Big bonus when every query word appears in the title
+    if (words.length > 1 && matchCount === words.length) s += 20;
+
+    // Penalty when less than half the words match (wrong song)
+    if (words.length > 1 && matchCount < Math.ceil(words.length / 2)) s -= 8;
+
+    // Hard penalty: title shares no words with query at all
+    if (matchCount === 0 && words.length > 0) s -= 20;
   }
 
   return s;
@@ -872,7 +938,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
     // play-dl search is in-process (~1-2s) vs ytdlp subprocess (~7s)
-    results = await fastYouTubeSearch(query, 5);
+    results = await fastYouTubeSearch(query, 8);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
