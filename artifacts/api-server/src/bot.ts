@@ -1142,6 +1142,16 @@ export function startBot(): void {
           await interaction.reply({ content: "⏹️ Stopped and disconnected.", ephemeral: true });
           return;
         }
+
+        if (action === "queue") {
+          const embed = getQueueEmbed(guildId);
+          if (!embed) {
+            await interaction.reply({ content: "📭 La queue est vide.", ephemeral: true });
+            return;
+          }
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          return;
+        }
       } catch (err) {
         logger.error({ err }, "np button error");
         await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);

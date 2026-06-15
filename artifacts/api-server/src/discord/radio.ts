@@ -250,6 +250,10 @@ export function buildNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuild
         .setCustomId("np:stop")
         .setLabel("Stop")
         .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("np:queue")
+        .setLabel("📋")
+        .setStyle(ButtonStyle.Primary),
     ),
   ];
 }
@@ -321,6 +325,28 @@ async function prefetchTrackInfo(url: string): Promise<void> {
   }
 }
 
+// ── Stream pre-load cache ─────────────────────────────────────────────────────
+// Spawns yt-dlp early so audio is already buffered when the track's turn comes.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const preloadedStreamCache = new Map<string, any>();
+
+function preloadStream(url: string): void {
+  if (preloadedStreamCache.has(url)) return;
+  try {
+    const stream = ytdlpStream(url);
+    preloadedStreamCache.set(url, stream);
+    // Auto-cleanup after 8 minutes if never consumed (e.g. queue cleared)
+    const timer = setTimeout(() => preloadedStreamCache.delete(url), 8 * 60 * 1000);
+    stream.once("error", () => {
+      clearTimeout(timer);
+      preloadedStreamCache.delete(url);
+    });
+  } catch {
+    // ignore — fresh stream will be spawned at play time
+  }
+}
+
 // ── Queue playback (internal) ─────────────────────────────────────────────────
 
 async function playNextFromQueue(guildId: string): Promise<void> {
@@ -329,14 +355,16 @@ async function playNextFromQueue(guildId: string): Promise<void> {
 
   const url = state.queue.shift()!;
 
-  // Pre-fetch info for the track after next, in background
+  // Pre-fetch info AND pre-load audio stream for the next track in background
   if (state.queue.length > 0) {
     prefetchTrackInfo(state.queue[0]!).catch(() => null);
+    preloadStream(state.queue[0]!); // spawn yt-dlp early so it's buffered
   }
 
   try {
-    // Start the audio stream immediately — don't wait for metadata
-    const audioStream = ytdlpStream(url);
+    // Use pre-loaded stream if available (already buffering), else spawn fresh
+    const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
+    preloadedStreamCache.delete(url);
     const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
     // Use cached info if available (instant), otherwise fetch
@@ -878,7 +906,11 @@ export async function playYoutube(
       const thumbnail: string | null = (det?.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null;
       // Cache so playNextFromQueue can use it immediately when this track's turn comes
       queueInfoCache.set(url, { title: cleanYouTubeTitle(title), duration, thumbnail });
-      // Pre-fetch the track after this one too, if it exists
+      // If this is the very next track, preload its audio stream now
+      if (state.queue.length === 1) {
+        preloadStream(url);
+      }
+      // Pre-fetch metadata for the track after this one too
       if (state.queue.length > 1) {
         prefetchTrackInfo(state.queue[state.queue.length - 2]!).catch(() => null);
       }
@@ -1382,21 +1414,24 @@ export function getQueueEmbed(guildId: string): EmbedBuilder | null {
 
   const lines: string[] = [];
   if (state.youtubeTitle) {
-    lines.push(`▶️ **[Now playing]** ${state.youtubeTitle}`);
+    lines.push(`▶️ **[En cours]** ${state.youtubeTitle}`);
   }
   if (state.queue.length > 0) {
     state.queue.slice(0, 12).forEach((url, i) => {
-      const id = url.match(/[?&]v=([^&]+)/)?.[1] ?? url.split("/").pop() ?? url;
-      lines.push(`${i + 2}. \`${id}\` — ${url}`);
+      const cached = queueInfoCache.get(url);
+      const label = cached
+        ? `**${cached.title}** (${Math.floor(cached.duration / 60)}:${String(cached.duration % 60).padStart(2, "0")})`
+        : `\`${url.match(/[?&]v=([^&]+)/)?.[1] ?? url.split("/").pop() ?? url}\``;
+      lines.push(`${i + 2}. ${label}`);
     });
-    if (state.queue.length > 12) lines.push(`… and ${state.queue.length - 12} more`);
+    if (state.queue.length > 12) lines.push(`… et ${state.queue.length - 12} autres`);
   }
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle(`🎵 Queue — ${1 + state.queue.length} track${state.queue.length !== 1 ? "s" : ""}`)
+    .setTitle(`🎵 Queue — ${1 + state.queue.length} titre${state.queue.length !== 1 ? "s" : ""}`)
     .setDescription(lines.join("\n"))
-    .setFooter({ text: "!skip  •  !youtube <url>  •  !youtube search <keywords>" });
+    .setFooter({ text: "!skip  •  !y <titre>  •  !queue" });
 }
 
 export async function startQueue(message: Message, urls: string[], playlistName?: string): Promise<void> {
