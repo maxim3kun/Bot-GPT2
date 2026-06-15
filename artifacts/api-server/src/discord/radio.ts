@@ -704,15 +704,7 @@ async function execPlayYoutube(
   const state = radioStates.get(guildId);
   if (!state) return;
 
-  // Disable buttons on any previous NP message
   await disableNpButtonsForState(state);
-
-  // Start audio stream immediately (no blocking info fetch first)
-  const audioStream = ytdlpStream(url);
-  const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
-
-  // Fetch metadata in parallel while audio buffers
-  const infoPromise = ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
 
   clearIdleTimer(state);
   state.stationKey = null;
@@ -721,17 +713,12 @@ async function execPlayYoutube(
   state.nowPlayingMsg = waitMsg;
   state.paused = false;
   state.requestedBy = requestedBy ?? null;
-  state.player.play(resource);
 
-  state.player.once(AudioPlayerStatus.Playing, async () => {
-    const { title, duration, thumbnail } = await infoPromise;
-    const s = radioStates.get(guildId);
-    if (s) {
-      s.youtubeTitle = cleanYouTubeTitle(title);
-      s.youtubeStartTime = Date.now();
-    }
-
+  // Shared: build + post the Now Playing embed once audio starts
+  const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
     const cleanTitle = cleanYouTubeTitle(title);
+    const s = radioStates.get(guildId);
+    if (s) { s.youtubeTitle = cleanTitle; s.youtubeStartTime = Date.now(); }
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
@@ -748,13 +735,47 @@ async function execPlayYoutube(
       .setFooter({ text: `!y <title or url> to add  •  !queue to see upcoming` });
     if (thumbnail) embed.setThumbnail(thumbnail);
     await waitMsg.edit({ content: "", embeds: [embed], components: [buildNpButtonRow(false)] });
-  });
+  };
 
-  state.player.once("error", async (err: Error) => {
+  const onError = async (err: Error) => {
     logger.error({ err, url }, "YouTube playback error");
     state.nowPlayingMsg = null;
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] });
-  });
+  };
+
+  try {
+    // play-dl: stream + metadata in parallel (~2-4 s vs 8-12 s for ytdlp subprocess)
+    const play = await getPlay();
+    const [streamData, videoInfo] = await Promise.all([
+      play.stream(url, { quality: 2 }),
+      play.video_info(url).catch(() => null),
+    ]);
+
+    const typeStr: string = (streamData as any).type ?? "";
+    let djsType = StreamType.Arbitrary;
+    if (typeStr === "webm/opus") djsType = StreamType.WebmOpus;
+    else if (typeStr === "ogg/opus") djsType = StreamType.OggOpus;
+    else if (typeStr === "opus") djsType = StreamType.Opus;
+
+    const resource = createAudioResource((streamData as any).stream as NodeJS.ReadableStream, { inputType: djsType });
+    state.player.play(resource);
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      const det = (videoInfo as any)?.video_details;
+      await postNowPlaying(det?.title ?? "Unknown", det?.durationInSec ?? 0, det?.thumbnails?.[0]?.url ?? null);
+    });
+    state.player.once("error", onError);
+  } catch (err) {
+    logger.warn({ err, url }, "play-dl stream failed — falling back to ytdlp");
+    const audioStream = ytdlpStream(url);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
+    const infoPromise = ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+    state.player.play(resource);
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      const { title, duration, thumbnail } = await infoPromise;
+      await postNowPlaying(title, duration, thumbnail);
+    });
+    state.player.once("error", onError);
+  }
 }
 
 export async function playYoutube(message: Message, url: string): Promise<void> {

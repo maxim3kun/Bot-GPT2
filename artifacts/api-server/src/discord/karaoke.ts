@@ -1213,6 +1213,12 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     return;
   }
 
+  // Early voice check — fail fast before any network searches
+  if (!attachToCurrentAudio && !message.member?.voice.channel) {
+    await message.reply("❌ Tu dois rejoindre un salon vocal d'abord !\nRejoins un salon puis retape `!karaoke <nom du morceau>`.");
+    return;
+  }
+
   // If a session is already active and we're not attaching to current audio, queue it
   if (karaokeSessions.has(guildId) && !attachToCurrentAudio) {
     const existing = karaokeQueues.get(guildId) ?? [];
