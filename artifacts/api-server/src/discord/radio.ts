@@ -68,17 +68,16 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
 export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string; lang: "fr" | "es" | "en" }> = {
   // 🇫🇷 French
   nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
-  fun:         { name: "Fun Radio",      url: "https://cdn.nrjaudio.fm/adwz2/fr/30401/mp3_128.mp3",                emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
-  skyrock:     { name: "Skyrock",        url: "https://skyrock.ice.infomaniak.ch/skyrock-128.mp3",                  emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
+  fun:         { name: "Fun Radio",      url: "https://streaming.radio.funradio.fr/fun-1-44-128",                  emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
+  skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
   franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
   franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
   musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
   ouifm:       { name: "OÜI FM",         url: "https://ouifm.ice.infomaniak.ch/ouifm-high.mp3",                    emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
-  virgin:      { name: "Virgin Radio",   url: "https://cdn.nrjaudio.fm/adwz2/fr/30501/mp3_128.mp3",               emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
+  virgin:      { name: "Virgin Radio",   url: "https://vr.ice.infomaniak.ch/vr-high.mp3",                          emoji: "💋", genre: "Rock / Pop",               lang: "fr" },
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/adwz2/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl2.fr/rtl2-1-44-128",                             emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
-  sanef:       { name: "Sanef 107.7",    url: "https://sanef-1077.ice.infomaniak.ch/sanef-1077-128.mp3",           emoji: "🚗", genre: "Info / Trafic",            lang: "fr" },
-  evasion:     { name: "Évasion FM",     url: "https://evasion.ice.infomaniak.ch/evasion-128.mp3",                 emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
+  evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
   cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC",   emoji: "💃", genre: "Pop / Dance",              lang: "es" },
@@ -89,17 +88,12 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
   heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartLondonMP3",                     emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
-  absolute:    { name: "Absolute Radio", url: "https://abs.streamabc.net/abs-mp3-128-6144512",                    emoji: "🎸", genre: "Classic Rock",            lang: "en" },
-  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXLondonMP3",                   emoji: "📻", genre: "Rock / Indie",             lang: "en" },
+  radiox:      { name: "Radio X",        url: "https://media-ice.musicradio.com/RadioXManchesterMP3",               emoji: "📻", genre: "Rock / Indie",             lang: "en" },
   classicfm:   { name: "Classic FM",     url: "https://media-ice.musicradio.com/ClassicFMMP3",                      emoji: "🎼", genre: "Classical",                lang: "en" },
-  magic:       { name: "Magic Radio",    url: "https://icy.magic.co.uk/magic.mp3",                                  emoji: "✨", genre: "Pop / Easy Listening",     lang: "en" },
-  kiss:        { name: "Kiss FM UK",     url: "https://icy.kissfmuk.com/kiss.mp3",                                  emoji: "💋", genre: "Dance / RnB",              lang: "en" },
-  planetrock:  { name: "Planet Rock",    url: "https://icy.planetrock.com/planetrock.mp3",                          emoji: "🪨", genre: "Classic Rock / Hard Rock", lang: "en" },
   smooth:      { name: "Smooth Radio",   url: "https://media-ice.musicradio.com/SmoothLondonMP3",                   emoji: "🌊", genre: "Soul / Smooth",            lang: "en" },
   kexp:        { name: "KEXP",           url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",                   emoji: "🌍", genre: "Indie / Alternative",      lang: "en" },
   groove:      { name: "Groove Salad",   url: "http://ice3.somafm.com/groovesalad-128-mp3",                         emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
   lush:        { name: "Lush",           url: "http://ice3.somafm.com/lush-128-mp3",                                emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
-  jazz24:      { name: "Jazz24",         url: "https://jazz24.streamguys1.com/jazz24-mp3128",                        emoji: "🎷", genre: "Jazz",                     lang: "en" },
   defcon:      { name: "DEF CON Radio",  url: "http://ice3.somafm.com/defcon-128-mp3",                              emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
 };
 
