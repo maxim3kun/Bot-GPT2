@@ -25,14 +25,17 @@ async function getPlay() {
   return _play;
 }
 
+/**
+ * Fast search using play-dl only (in-process, no subprocess).
+ * Falls back to yt-dlp if play-dl fails.
+ */
 async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: string; title: string; duration: number; channel: string | null }[]> {
-  // Run play-dl and yt-dlp in parallel for broader coverage
-  const [playDlResult, ytdlpResult] = await Promise.allSettled([
-    (async () => {
-      const play = await getPlay();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results: any[] = await play.search(query, { source: { youtube: "video" }, limit });
-      if (!results?.length) return [] as { url: string; title: string; duration: number; channel: string | null }[];
+  // Primary: play-dl (fast, in-process, returns results in YouTube's natural ranking order)
+  try {
+    const play = await getPlay();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results: any[] = await play.search(query, { source: { youtube: "video" }, limit });
+    if (results?.length) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return results.map((v: any) => ({
         url: v.url as string,
@@ -40,29 +43,13 @@ async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: strin
         duration: (v.durationInSec as number) ?? 0,
         channel: (v.channel?.name as string) ?? null,
       }));
-    })(),
-    ytdlpSearch(query, limit),
-  ]);
-
-  const seen = new Set<string>();
-  const merged: { url: string; title: string; duration: number; channel: string | null }[] = [];
-
-  for (const res of [playDlResult, ytdlpResult]) {
-    if (res.status !== "fulfilled") continue;
-    for (const r of res.value) {
-      if (!seen.has(r.url)) {
-        seen.add(r.url);
-        merged.push(r);
-      }
     }
+  } catch {
+    // fall through to yt-dlp
   }
 
-  if (merged.length === 0) {
-    if (ytdlpResult.status === "fulfilled") return [];
-    throw (playDlResult as PromiseRejectedResult).reason ?? new Error("YouTube search failed");
-  }
-
-  return merged.slice(0, limit);
+  // Fallback: yt-dlp (subprocess — slower but reliable)
+  return ytdlpSearch(query, limit);
 }
 
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
@@ -1157,7 +1144,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
-    results = await fastYouTubeSearch(query, 11);
+    // Fetch only 5 results — enough for the picker and much faster
+    results = await fastYouTubeSearch(query, 5);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
@@ -1169,60 +1157,26 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Score, clean titles, and sort all results
-  const scored = results
-    .map(r => ({
-      ...r,
-      title: cleanYouTubeTitle(r.title),
-      score: scoreYtResult(r, query),
-      thumbnail: null as string | null,
-    }))
-    .sort((a, b) => b.score - a.score);
+  // Clean titles (keep natural YouTube order — do NOT re-sort by our score)
+  const cleaned = results.map(r => ({
+    ...r,
+    title: cleanYouTubeTitle(r.title),
+    thumbnail: null as string | null,
+  }));
 
-  // Keep up to 11 results (4+3+4 for 3 pages)
-  const topResults = scored.slice(0, 11);
-
-  // Auto-play logic:
-  // 1. Find the first result (across all candidates) where EVERY query word appears
-  //    in the video title OR the channel name. This is called a "full match".
-  //    We search across all results, not just #1, because the scoring can push the
-  //    best semantic match down (e.g. YouTube Music auto-generated videos get duration=0
-  //    → -25 pts, which buries "Indila - S.O.S" behind "Indila - Love Story").
-  // 2. If a full match is found, auto-play it directly.
-  // 3. Fall back to the classic gap-based auto-play when no full match is found.
-  const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
-
-  function isFullMatch(r: { title: string; channel: string | null }): boolean {
-    const tWords = r.title.toLowerCase()
-      .split(/[\s\-&!?()\[\]]+/)
-      .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
-      .filter((w: string) => w.length > 1);
-    const cWords = (r.channel ?? "").toLowerCase()
-      .split(/[\s\-&!?()\[\]]+/)
-      .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
-      .filter((w: string) => w.length > 1);
-    return queryWords.every((w: string) => queryWordMatchesTitle(w, tWords) || queryWordMatchesTitle(w, cWords));
+  // Auto-play: for 2+ word queries, YouTube's own #1 result is almost always correct.
+  // Trusting it directly avoids false negatives from our scoring (duration=0 penalty,
+  // missing channel data, accented artist names, etc.).
+  const wordCount = query.trim().split(/\s+/).filter(w => w.length > 1).length;
+  if (wordCount >= 2) {
+    const sel = cleaned[0]!;
+    await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+    await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+    return;
   }
 
-  if (queryWords.length >= 2) {
-    const fullMatchIdx = topResults.findIndex(r => isFullMatch(r));
-    if (fullMatchIdx !== -1) {
-      const sel = topResults[fullMatchIdx]!;
-      await loadMsg.edit(`▶️ Playing **${sel.title}**`);
-      await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
-      return;
-    }
-    // Classic fallback: top result scores high with a clear gap
-    const top = topResults[0]!;
-    if (top.score >= 20 && (topResults.length < 2 || top.score - topResults[1]!.score >= 10)) {
-      await loadMsg.edit(`▶️ Playing **${top.title}**`);
-      await playYoutube(message, top.url, { title: top.title, duration: top.duration, thumbnail: null });
-      return;
-    }
-  }
-
-  // Show a paginated picker (max 3 pages, all nav+pick buttons on one row)
-  const allResults = topResults.map(r => ({ url: r.url, title: r.title, duration: r.duration, thumbnail: null as string | null }));
+  // Single-word query or edge case: show a picker so the user can choose
+  const allResults = cleaned;
   const slices = computePageSlices(allResults.length);
   const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id, slices);
 
