@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=default";
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
 
 export interface YtInfo {
   title: string;
