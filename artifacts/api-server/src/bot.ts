@@ -16,6 +16,7 @@ import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
+import { isDbReady } from "./lib/db";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1657,6 +1658,46 @@ export function startBot(): void {
             break;
           }
           await sendSetupGuide(message);
+          break;
+        }
+
+        // ── Status (owner only) ──────────────────────────────────────────────────
+        case "status": {
+          if (message.author.username.toLowerCase() !== "maxim3kun") {
+            await message.reply("🔒 Commande réservée.");
+            break;
+          }
+          const mongoOk   = isDbReady();
+          const groqOk    = !!process.env["GROQ_API_KEY"];
+          const sunoOk    = !!process.env["SUNO_API_KEY"];
+          const hfOk      = !!process.env["HUGGINGFACE_TOKEN"];
+          const token2Ok  = !!process.env["DISCORD_TOKEN_2"];
+          const guilds    = client.guilds.cache.size;
+          const users     = client.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
+          const uptime    = process.uptime();
+          const h = Math.floor(uptime / 3600);
+          const m = Math.floor((uptime % 3600) / 60);
+          const s = Math.floor(uptime % 60);
+          const uptimeStr = `${h}h ${m}m ${s}s`;
+          const mem = process.memoryUsage();
+          const memMb = Math.round(mem.heapUsed / 1024 / 1024);
+
+          const embed = new EmbedBuilder()
+            .setTitle("🤖 Bot Status")
+            .setColor(mongoOk ? 0x57f287 : 0xfee75c)
+            .addFields(
+              { name: "🗄️ MongoDB",        value: mongoOk  ? "✅ Connecté"  : "⚠️ Fallback JSON", inline: true },
+              { name: "🧠 IA (Groq)",      value: groqOk   ? "✅ Active"    : "❌ Désactivée",    inline: true },
+              { name: "🎵 Suno",           value: sunoOk   ? "✅ Active"    : "❌ Désactivée",    inline: true },
+              { name: "🖼️ HuggingFace",   value: hfOk     ? "✅ Active"    : "❌ Désactivée",    inline: true },
+              { name: "⚔️ AI Battle",      value: token2Ok ? "✅ Active"    : "❌ Désactivée",    inline: true },
+              { name: "🏠 Serveurs",       value: `${guilds}`,                                    inline: true },
+              { name: "👥 Membres totaux", value: `${users}`,                                     inline: true },
+              { name: "⏱️ Uptime",         value: uptimeStr,                                       inline: true },
+              { name: "💾 RAM",            value: `${memMb} MB`,                                   inline: true },
+            )
+            .setTimestamp();
+          await message.reply({ embeds: [embed] });
           break;
         }
 
