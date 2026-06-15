@@ -1717,8 +1717,8 @@ export function startBot(): void {
           if (sub === "search" || sub === "s") {
             const query = args.slice(1).join(" ");
             await searchAndQueue(message, query);
-          } else if (sub) {
-            await playYoutube(message, sub);
+          } else if (args[0]) {
+            await playYoutube(message, args[0]);
           } else {
             const ytEmbed = new EmbedBuilder()
               .setColor(0xed4245)
