@@ -68,7 +68,7 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
 export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: string; genre: string; lang: "fr" | "es" | "en" }> = {
   // 🇫🇷 French
   nrj:         { name: "NRJ",            url: "https://cdn.nrjaudio.fm/audio1/fr/30001/mp3_128.mp3",               emoji: "🔥", genre: "Pop / Hits",              lang: "fr" },
-  fun:         { name: "Fun Radio",      url: "https://streamer-01.rtl.fr/fun-1-44-128",                           emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
+  fun:         { name: "Fun Radio",      url: "https://icecast.rtl.fr/fun-1-44-128",                               emoji: "🎉", genre: "Dance / Electronic",       lang: "fr" },
   skyrock:     { name: "Skyrock",        url: "https://icecast.skyrock.net/s/natio_mp3_128k",                      emoji: "🎤", genre: "Hip-Hop / R&B",            lang: "fr" },
   franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
   franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },

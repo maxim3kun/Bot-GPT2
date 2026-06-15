@@ -8,7 +8,10 @@ const execFileAsync = promisify(execFile);
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
+// default: works for metadata on all videos (including music videos)
+const YT_INFO_ARGS = "--extractor-args=youtube:player_client=default";
+// tv_embedded: provides actual downloadable audio URLs from datacenter IPs
+const YT_STREAM_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
 
 export interface YtInfo {
   title: string;
@@ -19,7 +22,7 @@ export interface YtInfo {
 export async function ytdlpInfo(url: string): Promise<YtInfo> {
   const { stdout } = await execFileAsync(
     YT_DLP_BIN,
-    ["--print-json", "--skip-download", "--no-playlist", YT_CLIENT_ARGS, url],
+    ["--print-json", "--skip-download", "--no-playlist", YT_INFO_ARGS, url],
     { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
   );
   const data = JSON.parse(stdout.trim()) as Record<string, unknown>;
@@ -35,7 +38,7 @@ export function ytdlpStream(url: string): Readable {
     "-f", "bestaudio/best",
     "--no-playlist",
     "--quiet",
-    YT_CLIENT_ARGS,
+    YT_STREAM_ARGS,
     "-o", "-",
     url,
   ]);
