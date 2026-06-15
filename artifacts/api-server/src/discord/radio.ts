@@ -237,8 +237,6 @@ export function buildNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuild
         .setCustomId("np:skip")
         .setLabel("Skip")
         .setStyle(ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId("np:stop")
         .setLabel("Stop")
@@ -261,9 +259,9 @@ interface NowPlayingEmbedOpts {
 function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
-    .setTitle("Now Playing")
+    .setTitle("🎵 Now Playing")
     .setURL(opts.url)
-    .setDescription(`\`\`\`\n${opts.title}\n\`\`\``)
+    .setDescription(`**[${opts.title}](${opts.url})**`)
     .addFields(
       { name: "Duration", value: opts.duration, inline: true },
       ...(opts.requestedBy ? [{ name: "Requested by", value: `<@${opts.requestedBy}>`, inline: true }] : []),
@@ -899,6 +897,33 @@ const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as
 const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
 const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
 
+/**
+ * Fuzzy word match: query word matches if:
+ *  - title contains the query word exactly, OR
+ *  - a word in the title is contained within the query word (handles "guims"→"gims"),  OR
+ *  - Levenshtein distance ≤ 1 between the query word and any title word (1-char typos)
+ */
+function queryWordMatchesTitle(queryWord: string, titleWords: string[]): boolean {
+  for (const tw of titleWords) {
+    if (tw === queryWord) return true;
+    if (tw.length < 2) continue;
+    // substring: "gims" inside "guims", or "guims" inside some longer title word
+    if (queryWord.includes(tw) && tw.length >= queryWord.length - 1) return true;
+    if (tw.includes(queryWord) && queryWord.length >= tw.length - 1) return true;
+    // 1-char edit distance (insertion/deletion only for speed)
+    if (Math.abs(tw.length - queryWord.length) === 1) {
+      const [shorter, longer] = tw.length < queryWord.length ? [tw, queryWord] : [queryWord, tw];
+      let i = 0, j = 0, diffs = 0;
+      while (i < shorter.length && j < longer.length) {
+        if (shorter[i] !== longer[j]) { diffs++; j++; } else { i++; j++; }
+        if (diffs > 1) break;
+      }
+      if (diffs <= 1) return true;
+    }
+  }
+  return false;
+}
+
 function scoreYtResult(r: { title: string; channel: string | null }, query = ""): number {
   let s = 0;
   if (REMIX_PATTERN.test(r.title)) s -= 5;
@@ -909,8 +934,8 @@ function scoreYtResult(r: { title: string; channel: string | null }, query = "")
   // Query relevance — most important signal
   if (query) {
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
-    const titleLower = r.title.toLowerCase();
-    const matchCount = words.filter(w => titleLower.includes(w)).length;
+    const titleWords = r.title.toLowerCase().split(/[\s\-&.,!?()[\]]+/).filter(w => w.length > 1);
+    const matchCount = words.filter(w => queryWordMatchesTitle(w, titleWords)).length;
 
     s += matchCount * 10; // +10 per matching word (strong signal)
 
