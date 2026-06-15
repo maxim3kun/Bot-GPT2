@@ -5,7 +5,7 @@ import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive,
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
-import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource } from "./discord/karaoke";
+import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
@@ -2012,6 +2012,18 @@ export function startBot(): void {
               const current = getGuildKaraokeSource(message.guildId);
               await message.reply(`❓ Usage: \`!karaoke source youtube\` or \`!karaoke source soundcloud\`\nCurrent source: **${current === "youtube" ? "YouTube" : "SoundCloud"}**`);
             }
+            break;
+          }
+
+          // !karaoke offset <seconds> — adjust lyrics sync (e.g. 2 = lyrics 2 s behind audio)
+          if (sub === "offset") {
+            const secArg = parseFloat(args[1] ?? "");
+            if (isNaN(secArg) || secArg < 0 || secArg > 10) {
+              await message.reply("❓ Usage: `!karaoke offset <seconds>`\nExample: `!karaoke offset 2` (lyrics start 2 s after audio)\nRange: 0–10 s · Default: 2 s");
+              break;
+            }
+            setKaraokeOffset(message.guildId, Math.round(secArg * 1000));
+            await message.reply(`✅ Karaoke sync offset set to **${secArg} s** — takes effect on the next song.`);
             break;
           }
 

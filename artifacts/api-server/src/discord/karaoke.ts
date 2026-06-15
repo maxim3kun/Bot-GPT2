@@ -652,6 +652,22 @@ async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStre
   }
 }
 
+// ── Audio sync offset ─────────────────────────────────────────────────────────
+// Discord buffers ~2 s of audio before playing it to clients.  If we start the
+// lyrics counter exactly when AudioPlayerStatus.Playing fires, the lyrics will
+// be ~2 s ahead of what the user hears.  This offset delays the lyrics clock so
+// they stay in sync with the perceived audio.  Adjust with !karaoke offset <s>.
+const DEFAULT_KARAOKE_OFFSET_MS = 2000;
+const karaokeOffsets = new Map<string, number>(); // guildId → offset in ms
+
+export function setKaraokeOffset(guildId: string, ms: number): void {
+  karaokeOffsets.set(guildId, ms);
+}
+
+function getKaraokeOffset(guildId: string): number {
+  return karaokeOffsets.get(guildId) ?? DEFAULT_KARAOKE_OFFSET_MS;
+}
+
 // ── Session state ─────────────────────────────────────────────────────────────
 
 interface KaraokeSession {
@@ -1107,9 +1123,10 @@ async function launchKaraoke(
     radioState.player.play(resource);
 
     radioState.player.once(AudioPlayerStatus.Playing, async () => {
+      // Add the guild's audio offset so lyrics stay in sync with Discord's buffer delay
       const session: KaraokeSession = {
         guildId, lines: lrcData.lines, embedMessage: waitMsg,
-        startTime: Date.now(), intervalId: null, stopped: false,
+        startTime: Date.now() + getKaraokeOffset(guildId), intervalId: null, stopped: false,
         songTitle: lrcData.title, artistName: lrcData.artist, lastEditedIdx: -1,
       };
       karaokeSessions.set(guildId, session);
