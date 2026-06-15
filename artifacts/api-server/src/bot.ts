@@ -1933,8 +1933,9 @@ export function startBot(): void {
               .setFooter({ text: "Tip: !y stromae papaoutai • !y https://youtu.be/… • !radio list" });
             await message.reply({ embeds: [ytEmbed] });
           } else {
-            // URL → play directly; anything else → search
-            await playYoutube(message, args[0]);
+            // URL → play directly; anything else (multi-word) → search
+            const query = args.join(" ");
+            await playYoutube(message, query);
           }
           break;
         }
@@ -2583,7 +2584,7 @@ export function startBot(): void {
                 if (args[0]?.toLowerCase() === "search") {
                   await searchAndQueue(message, args.slice(1).join(" "));
                 } else {
-                  await playYoutube(message, args[0] ?? "");
+                  await playYoutube(message, args.join(" "));
                 }
                 break;
               }
