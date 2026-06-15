@@ -8,6 +8,7 @@ import {
 import { ensureVoiceConnection, radioStates } from "./radio";
 import { isInVoice, resubscribeVoicePlayer } from "./voice";
 import { logger } from "../lib/logger";
+import { ytdlpStream } from "../lib/ytdlp";
 
 // ── Finish messages ───────────────────────────────────────────────────────────
 
@@ -626,11 +627,11 @@ async function searchYouTube(query: string, minDurationSec = 60, lrcTitle = ""):
 }
 
 async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStream; type: StreamType } | null> {
+  // Try play-dl first (faster, in-process)
   try {
     const play = await getPlay();
     const result = await play.stream(url, { quality: 2 });
-    if (!result?.stream) return null;
-    // play-dl returns "opus", "webm/opus", "ogg/opus", or "arbitrary"
+    if (!result?.stream) throw new Error("play-dl returned no stream");
     const typeStr: string = result.type ?? "";
     let djsType = StreamType.Arbitrary;
     if (typeStr === "webm/opus") djsType = StreamType.WebmOpus;
@@ -638,7 +639,15 @@ async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStre
     else if (typeStr === "opus") djsType = StreamType.Opus;
     return { stream: result.stream as NodeJS.ReadableStream, type: djsType };
   } catch (err) {
-    logger.warn({ err }, "YouTube stream error");
+    logger.warn({ err, url }, "play-dl karaoke stream failed — falling back to yt-dlp");
+  }
+
+  // Fallback: yt-dlp (works from datacenter IPs where play-dl may be blocked)
+  try {
+    const audioStream = ytdlpStream(url);
+    return { stream: audioStream, type: StreamType.Arbitrary };
+  } catch (err) {
+    logger.warn({ err, url }, "yt-dlp karaoke stream also failed");
     return null;
   }
 }

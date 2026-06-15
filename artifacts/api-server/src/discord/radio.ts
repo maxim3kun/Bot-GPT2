@@ -1182,12 +1182,26 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   // Keep up to 11 results (4+3+4 for 3 pages)
   const topResults = scored.slice(0, 11);
 
-  // Auto-play when query had ≥2 meaningful words AND top score ≥20 AND gap to #2 ≥10
+  // Auto-play when query had ≥2 meaningful words AND top score ≥20.
+  // Extra condition: either gap ≥10 OR all query words are matched directly in the
+  // video title (not just via the channel name). This prevents the picker from
+  // showing when multiple results score identically because they all contain the
+  // same words (e.g. "ninao guims" → NINAO - Maître GIMS vs NINAO lyrics vs NINAO remix).
   const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
+  const top = topResults[0]!;
+  const topTitleWordsNorm = top.title.toLowerCase()
+    .split(/[\s\-&!?()\[\]]+/)
+    .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
+    .filter((w: string) => w.length > 1);
+  const allWordsInTitle = queryWords.length >= 2 &&
+    queryWords.every((w: string) => queryWordMatchesTitle(w, topTitleWordsNorm));
   const isConfidentMatch =
     queryWords.length >= 2 &&
-    topResults[0]!.score >= 20 &&
-    (topResults.length < 2 || topResults[0]!.score - topResults[1]!.score >= 10);
+    top.score >= 20 &&
+    (
+      (topResults.length < 2 || top.score - topResults[1]!.score >= 10) ||
+      allWordsInTitle
+    );
 
   if (isConfidentMatch) {
     const sel = topResults[0]!;
