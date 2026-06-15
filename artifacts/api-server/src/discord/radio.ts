@@ -18,7 +18,9 @@ import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } f
 
 // ── Rainbow ANSI title (Discord code-block coloring) ──────────────────────────
 
-const RAINBOW = ["\u001b[1;31m", "\u001b[1;33m", "\u001b[1;32m", "\u001b[1;36m", "\u001b[1;34m", "\u001b[1;35m"];
+// Bright ANSI codes (90-97 range) — Discord renders these correctly in ```ansi blocks
+// 91=bright red, 93=bright yellow, 92=bright green, 96=bright cyan, 94=bright blue, 95=bright magenta
+const RAINBOW = ["\u001b[91m", "\u001b[93m", "\u001b[92m", "\u001b[96m", "\u001b[94m", "\u001b[95m"];
 const RST = "\u001b[0m";
 
 function rainbowTitle(text: string): string {
@@ -29,6 +31,33 @@ function rainbowTitle(text: string): string {
     else { out += `${RAINBOW[ci % RAINBOW.length]}${ch}${RST}`; ci++; }
   }
   return `\`\`\`ansi\n${out}\n\`\`\``;
+}
+
+// ── Fast YouTube search via play-dl (in-process, no subprocess overhead) ─────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _play: any = null;
+async function getPlay() {
+  if (!_play) _play = (await import("play-dl")).default ?? (await import("play-dl"));
+  return _play;
+}
+
+async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: string; title: string; duration: number; channel: string | null }[]> {
+  try {
+    const play = await getPlay();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results: any[] = await play.search(query, { source: { youtube: "video" }, limit });
+    if (!results?.length) return [];
+    return results.map((v: any) => ({
+      url: v.url as string,
+      title: (v.title as string) ?? query,
+      duration: (v.durationInSec as number) ?? 0,
+      channel: (v.channel?.name as string) ?? null,
+    }));
+  } catch (err) {
+    logger.warn({ err }, "play-dl search failed — falling back to ytdlp");
+    return ytdlpSearch(query, limit);
+  }
 }
 
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
@@ -809,9 +838,10 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   const loadMsg = await message.reply("🔍 Searching…");
 
-  let results: Awaited<ReturnType<typeof ytdlpSearch>>;
+  let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
-    results = await ytdlpSearch(query, 5);
+    // play-dl search is in-process (~1-2s) vs ytdlp subprocess (~7s)
+    results = await fastYouTubeSearch(query, 5);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
