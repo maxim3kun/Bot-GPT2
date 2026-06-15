@@ -999,7 +999,7 @@ function buildSearchPage(
     .setColor(0x5865f2)
     .setTitle("🔍 Search results")
     .setDescription(description)
-    .setFooter({ text: `${pageLabel}Click a number to play • expires in 30s` });
+    .setFooter({ text: `${pageLabel}Click a number to play • expires in 2 min` });
 
   // Single row: [◀?] [1] [2] [3] [4?] [▶?]
   const buttons: ButtonBuilder[] = [];
@@ -1182,32 +1182,43 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   // Keep up to 11 results (4+3+4 for 3 pages)
   const topResults = scored.slice(0, 11);
 
-  // Auto-play when query had ≥2 meaningful words AND top score ≥20.
-  // Extra condition: either gap ≥10 OR all query words are matched directly in the
-  // video title (not just via the channel name). This prevents the picker from
-  // showing when multiple results score identically because they all contain the
-  // same words (e.g. "ninao guims" → NINAO - Maître GIMS vs NINAO lyrics vs NINAO remix).
+  // Auto-play logic:
+  // 1. Find the first result (across all candidates) where EVERY query word appears
+  //    in the video title OR the channel name. This is called a "full match".
+  //    We search across all results, not just #1, because the scoring can push the
+  //    best semantic match down (e.g. YouTube Music auto-generated videos get duration=0
+  //    → -25 pts, which buries "Indila - S.O.S" behind "Indila - Love Story").
+  // 2. If a full match is found, auto-play it directly.
+  // 3. Fall back to the classic gap-based auto-play when no full match is found.
   const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
-  const top = topResults[0]!;
-  const topTitleWordsNorm = top.title.toLowerCase()
-    .split(/[\s\-&!?()\[\]]+/)
-    .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
-    .filter((w: string) => w.length > 1);
-  const allWordsInTitle = queryWords.length >= 2 &&
-    queryWords.every((w: string) => queryWordMatchesTitle(w, topTitleWordsNorm));
-  const isConfidentMatch =
-    queryWords.length >= 2 &&
-    top.score >= 20 &&
-    (
-      (topResults.length < 2 || top.score - topResults[1]!.score >= 10) ||
-      allWordsInTitle
-    );
 
-  if (isConfidentMatch) {
-    const sel = topResults[0]!;
-    await loadMsg.edit(`▶️ Playing **${sel.title}**`);
-    await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
-    return;
+  function isFullMatch(r: { title: string; channel: string | null }): boolean {
+    const tWords = r.title.toLowerCase()
+      .split(/[\s\-&!?()\[\]]+/)
+      .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
+      .filter((w: string) => w.length > 1);
+    const cWords = (r.channel ?? "").toLowerCase()
+      .split(/[\s\-&!?()\[\]]+/)
+      .map((w: string) => w.replace(/[^a-z0-9]/g, ""))
+      .filter((w: string) => w.length > 1);
+    return queryWords.every((w: string) => queryWordMatchesTitle(w, tWords) || queryWordMatchesTitle(w, cWords));
+  }
+
+  if (queryWords.length >= 2) {
+    const fullMatchIdx = topResults.findIndex(r => isFullMatch(r));
+    if (fullMatchIdx !== -1) {
+      const sel = topResults[fullMatchIdx]!;
+      await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+      await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+      return;
+    }
+    // Classic fallback: top result scores high with a clear gap
+    const top = topResults[0]!;
+    if (top.score >= 20 && (topResults.length < 2 || top.score - topResults[1]!.score >= 10)) {
+      await loadMsg.edit(`▶️ Playing **${top.title}**`);
+      await playYoutube(message, top.url, { title: top.title, duration: top.duration, thumbnail: null });
+      return;
+    }
   }
 
   // Show a paginated picker (max 3 pages, all nav+pick buttons on one row)
@@ -1217,11 +1228,11 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   await loadMsg.edit({ content: "", embeds: [embed], components });
 
-  // Expire after 30 s — remove buttons
+  // Expire after 2 min — remove buttons
   const expires = setTimeout(async () => {
     pendingSearches.delete(loadMsg.id);
     await loadMsg.edit({ embeds: [embed], components: [] }).catch(() => null);
-  }, 30_000);
+  }, 120_000);
 
   pendingSearches.set(loadMsg.id, {
     results: allResults,
