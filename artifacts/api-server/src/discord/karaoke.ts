@@ -234,6 +234,17 @@ function sortCandidatesByOriginality(candidates: LrclibResult[]): LrclibResult[]
   });
 }
 
+/**
+ * Remove remix/karaoke/instrumental/cover/nightcore variants when at least one
+ * clean original exists. If ALL candidates are versioned, return them as-is.
+ */
+const HARD_REMIX_PATTERN = /\b(remix|karaoke\s*version|karaoke\s*track|instrumental|nightcore|slowed|reverb|mashup|sped[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix|cover)\b/i;
+
+function filterRemixCandidates(candidates: LrclibResult[]): LrclibResult[] {
+  const originals = candidates.filter(c => !HARD_REMIX_PATTERN.test(c.trackName));
+  return originals.length > 0 ? originals : candidates;
+}
+
 /** Return only the primary (first-credited) artist, normalised. */
 function primaryArtistNorm(artistName: string): string {
   return artistName
@@ -687,7 +698,7 @@ async function startKaraokeFromQueue(message: Message, query: string, guildId: s
   const notifyMsg = await message.channel.send({ embeds: [buildWaitEmbed(`🎵 Up next — searching **${query}**…`)] }) as Message;
 
   const { synced: rawSynced } = await searchCandidates(query);
-  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(deduplicateCandidates(rawSynced)), query);
+  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(filterRemixCandidates(deduplicateCandidates(rawSynced))), query);
 
   if (candidates.length === 0) {
     const remaining = karaokeQueues.get(guildId)?.length ?? 0;
@@ -1119,7 +1130,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
 
   // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
   const { synced: rawSynced, geniusHits } = await searchCandidates(query);
-  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(deduplicateCandidates(rawSynced)), query);
+  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(filterRemixCandidates(deduplicateCandidates(rawSynced))), query);
 
   if (candidates.length === 0) {
     // No synced lyrics — if Genius found songs, show them as a picker first

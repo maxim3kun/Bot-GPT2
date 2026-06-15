@@ -14,7 +14,7 @@ import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
-import { ytdlpInfo, ytdlpStream, ytdlpSearch } from "../lib/ytdlp";
+import { ytdlpInfo, ytdlpStream, ytdlpSearch, type YtInfo } from "../lib/ytdlp";
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
 
 // ── Pending voice commands (auto-retry after joining voice) ───────────────────
@@ -604,18 +604,23 @@ async function execPlayYoutube(
   const state = radioStates.get(guildId);
   if (!state) return;
 
-  const info = await ytdlpInfo(url);
-  const { title, duration, thumbnail } = info;
+  // Start audio stream immediately (no blocking info fetch first)
   const audioStream = ytdlpStream(url);
   const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
+  // Fetch metadata in parallel while audio buffers
+  const infoPromise = ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+
   clearIdleTimer(state);
   state.stationKey = null;
-  state.youtubeTitle = title;
+  state.youtubeTitle = "Loading…";
   state.youtubeUrl = url;
   state.player.play(resource);
 
   state.player.once(AudioPlayerStatus.Playing, async () => {
+    const { title, duration, thumbnail } = await infoPromise;
+    state!.youtubeTitle = title;
+
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
@@ -624,11 +629,11 @@ async function execPlayYoutube(
       .setTitle("▶️ Now playing")
       .setDescription(`**${title}**`)
       .addFields(
-        { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
+        { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
         { name: "Stop", value: "`!radio leave`", inline: true },
         ...(queueCount > 0 ? [{ name: "Queue", value: `${queueCount} next • \`!queue\``, inline: true }] : []),
       )
-      .setFooter({ text: `!skip to skip • !youtube <url> to add • !youtube search <keywords>` });
+      .setFooter({ text: `!skip to skip • !y <title or url> to add • !y search <keywords>` });
     if (thumbnail) embed.setThumbnail(thumbnail);
     await waitMsg.edit({ content: "", embeds: [embed] });
   });
@@ -641,7 +646,8 @@ async function execPlayYoutube(
 
 export async function playYoutube(message: Message, url: string): Promise<void> {
   if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
-    await message.reply("❌ Please provide a valid YouTube URL.\nExample: `!youtube https://www.youtube.com/watch?v=...`");
+    // Not a URL — treat as a search query
+    await searchAndQueue(message, url);
     return;
   }
 
@@ -700,9 +706,20 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
 
 const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
 
+const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
+const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
+
+function scoreYtResult(r: { title: string; channel: string | null }): number {
+  let s = 0;
+  if (REMIX_PATTERN.test(r.title)) s -= 5;
+  if (OFFICIAL_PATTERN.test(r.title)) s += 4;
+  if (r.channel && /official|vevo/i.test(r.channel)) s += 2;
+  return s;
+}
+
 export async function searchAndQueue(message: Message, query: string): Promise<void> {
   if (!query.trim()) {
-    await message.reply("❓ Provide keywords.\nExample: `!youtube search stromae papaoutai`");
+    await message.reply("❓ Provide keywords.\nExample: `!y stromae papaoutai`");
     return;
   }
 
@@ -710,7 +727,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   let results: Awaited<ReturnType<typeof ytdlpSearch>>;
   try {
-    results = await ytdlpSearch(query, 5);
+    // Fetch a few extra results so scoring has more to work with
+    results = await ytdlpSearch(query, 7);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
@@ -722,12 +740,16 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
+  // Sort: official/original first, remixes/covers last — keep top 5
+  results = [...results].sort((a, b) => scoreYtResult(b) - scoreYtResult(a)).slice(0, 5);
+
   const lines = results.map((r, i) => {
     const mins = Math.floor(r.duration / 60);
     const secs = r.duration % 60;
     const time = r.duration > 0 ? ` \`${mins}:${secs.toString().padStart(2, "0")}\`` : "";
     const ch = r.channel ? ` — *${r.channel}*` : "";
-    return `${SEARCH_EMOJIS[i]} **${r.title}**${time}${ch}`;
+    const tag = REMIX_PATTERN.test(r.title) ? " 🎛️" : OFFICIAL_PATTERN.test(r.title) ? " ✨" : "";
+    return `${SEARCH_EMOJIS[i]} **${r.title}**${tag}${time}${ch}`;
   });
 
   const embed = new EmbedBuilder()

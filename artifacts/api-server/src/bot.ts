@@ -1765,23 +1765,25 @@ export function startBot(): void {
         case "yb": {
           const sub = args[0]?.toLowerCase();
           if (sub === "search" || sub === "s") {
+            // explicit search: !y search <keywords>
             const query = args.slice(1).join(" ");
             await searchAndQueue(message, query);
-          } else if (args[0]) {
-            await playYoutube(message, args[0]);
-          } else {
+          } else if (!args[0]) {
             const ytEmbed = new EmbedBuilder()
               .setColor(0xed4245)
               .setTitle("▶️ YouTube — How to use")
               .addFields(
-                { name: "`!youtube <url>`",            value: "Play a video or add it to the queue",    inline: false },
-                { name: "`!youtube search <keywords>`", value: "Search YouTube and pick from results",   inline: false },
-                { name: "`!skip`",                     value: "Skip the current track",                 inline: false },
-                { name: "`!queue`",                    value: "See what's coming up in the queue",      inline: false },
-                { name: "`!np`",                       value: "Show the currently playing track",       inline: false },
+                { name: "`!y <song title>`",   value: "Search YouTube and pick from results *(no URL needed!)*", inline: false },
+                { name: "`!y <url>`",          value: "Play a YouTube link directly",                           inline: false },
+                { name: "`!skip`",             value: "Skip the current track",                                 inline: false },
+                { name: "`!queue`",            value: "See what's coming up in the queue",                      inline: false },
+                { name: "`!np`",               value: "Show the currently playing track",                       inline: false },
               )
-              .setFooter({ text: "Tip: !youtube search lo-fi beats • !radio list to browse radio" });
+              .setFooter({ text: "Tip: !y stromae papaoutai • !y https://youtu.be/… • !radio list" });
             await message.reply({ embeds: [ytEmbed] });
+          } else {
+            // URL → play directly; anything else → search
+            await playYoutube(message, args[0]);
           }
           break;
         }
