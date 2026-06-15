@@ -1171,8 +1171,26 @@ export function startBot(): void {
         await interaction.reply({ content: "❌ Search expired. Use `!y` again.", ephemeral: true });
         return;
       }
+
+      // Check voice channel from interaction (most up-to-date, handles bot leaving/rejoining)
+      const pickMember = interaction.member instanceof GuildMember
+        ? interaction.member
+        : interaction.guild
+          ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+          : null;
+      const pickVoiceChannel = (pickMember as GuildMember | null)?.voice?.channel;
+      if (!pickVoiceChannel) {
+        await interaction.reply({ content: "❌ Join a voice channel first, then use `!y` again.", ephemeral: true });
+        return;
+      }
+
       await interaction.update({ content: `▶️ Playing **${pending.pick.title}**`, embeds: [], components: [] });
-      await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail });
+      try {
+        await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail });
+      } catch (err) {
+        logger.error({ err }, "yt:pick play error");
+        await interaction.followUp({ content: "❌ Failed to play. Try `!y` again.", ephemeral: true }).catch(() => null);
+      }
       return;
     }
 

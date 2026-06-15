@@ -1075,19 +1075,31 @@ function scoreYtResult(r: { title: string; channel: string | null; duration?: nu
     // Normalise query: remove punctuation so "S.O.S" → "sos", keep spaces
     const words = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
 
-    // Split title on spaces/hyphens ONLY (not dots) so "S.O.S" stays together,
+    // Split title on spaces/hyphens ONLY so "S.O.S" stays together,
     // then strip non-alphanumeric per token → "S.O.S" → "sos", "1.9" → "19"
     const titleWordsNorm = r.title.toLowerCase()
       .split(/[\s\-&!?()\[\]]+/)
       .map(w => w.replace(/[^a-z0-9]/g, ""))
       .filter(w => w.length > 1);
 
-    const matchCount = words.filter(w => queryWordMatchesTitle(w, titleWordsNorm)).length;
+    // Also tokenise channel name — handles "NINAO" (title) + channel "Maître GIMS" → artist word found
+    const channelWordsNorm = r.channel
+      ? r.channel.toLowerCase()
+          .split(/[\s\-&!?()\[\]]+/)
+          .map(w => w.replace(/[^a-z0-9]/g, ""))
+          .filter(w => w.length > 1)
+      : [];
 
-    s += matchCount * 10;
-    if (words.length > 1 && matchCount === words.length) s += 20;   // all words matched
-    if (words.length > 1 && matchCount < Math.ceil(words.length / 2)) s -= 8; // < half match
-    if (matchCount === 0 && words.length > 0) s -= 20;               // nothing matched
+    const titleMatchCount = words.filter(w => queryWordMatchesTitle(w, titleWordsNorm)).length;
+    // Combined = title + channel; catches when artist is only in channel name
+    const combinedMatchCount = words.filter(w =>
+      queryWordMatchesTitle(w, titleWordsNorm) || queryWordMatchesTitle(w, channelWordsNorm),
+    ).length;
+
+    s += titleMatchCount * 10;
+    if (words.length > 1 && combinedMatchCount === words.length) s += 20;   // all words matched (title+channel)
+    if (words.length > 1 && combinedMatchCount < Math.ceil(words.length / 2)) s -= 8; // < half match
+    if (combinedMatchCount === 0 && words.length > 0) s -= 20;               // nothing matched
   }
 
   return s;
