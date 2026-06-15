@@ -135,6 +135,9 @@ interface RadioState {
   guildId: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
   aloneTimer: ReturnType<typeof setTimeout> | null;
+  nowPlayingMsg: Message | null;
+  paused: boolean;
+  requestedBy: string | null;
 }
 
 export const radioStates = new Map<string, RadioState>();
@@ -188,6 +191,40 @@ export function onVoiceAloneChange(guildId: string, isAlone: boolean): void {
   }
 }
 
+// ── Now Playing button helpers ────────────────────────────────────────────────
+
+export function buildNpButtonRow(paused: boolean): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(paused ? "np:resume" : "np:pause")
+      .setLabel(paused ? "▶️ Resume" : "⏸️ Pause")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("np:skip")
+      .setLabel("⏭️ Skip")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("np:like")
+      .setLabel("💚 Like")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("np:stop")
+      .setLabel("🛑 Stop")
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
+async function disableNpButtonsForState(state: RadioState): Promise<void> {
+  if (!state.nowPlayingMsg) return;
+  const msg = state.nowPlayingMsg;
+  state.nowPlayingMsg = null;
+  try {
+    await (msg as Message).edit({ components: [] });
+  } catch {
+    // Message may have been deleted — ignore
+  }
+}
+
 // ── Queue playback (internal) ─────────────────────────────────────────────────
 
 async function playNextFromQueue(guildId: string): Promise<void> {
@@ -205,21 +242,27 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     state.stationKey = null;
     state.youtubeTitle = title;
     state.youtubeUrl = url;
+    state.paused = false;
     state.player.play(resource);
 
     if (state.notifyChannel) {
       const mins = Math.floor(duration / 60);
       const secs = duration % 60;
       const embed = new EmbedBuilder()
-        .setColor(0xed4245)
-        .setTitle("▶️ Now playing")
-        .setDescription(`**${title}**`)
+        .setColor(0x57f287)
+        .setTitle("🎵 Now Playing")
+        .setDescription(`**[${title}](${url})**`)
         .addFields(
           { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
           { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining` : "Last video", inline: true },
         );
       if (thumbnail) embed.setThumbnail(thumbnail);
-      await state.notifyChannel.send({ embeds: [embed] }).catch(() => null);
+      // Disable old NP buttons before sending new
+      await disableNpButtonsForState(state);
+      const sent = await state.notifyChannel
+        .send({ embeds: [embed], components: [buildNpButtonRow(false)] })
+        .catch(() => null);
+      state.nowPlayingMsg = (sent as Message | null);
     }
   } catch (err) {
     logger.error({ err, url }, "Queue playback error");
@@ -354,9 +397,11 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
         return;
       }
 
-      // Nothing left to play — start the idle auto-disconnect timer
+      // Nothing left to play — disable NP buttons and start idle timer
       s.youtubeTitle = null;
       s.youtubeUrl = null;
+      s.paused = false;
+      disableNpButtonsForState(s).catch(() => null);
       startIdleTimer(guildId);
     });
 
@@ -371,6 +416,9 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       guildId,
       idleTimer: null,
       aloneTimer: null,
+      nowPlayingMsg: null,
+      paused: false,
+      requestedBy: null,
     });
   } else {
     connection.subscribe(radioStates.get(guildId)!.player);
@@ -599,10 +647,14 @@ export async function stopRadio(message: Message): Promise<void> {
 async function execPlayYoutube(
   guildId: string,
   url: string,
-  waitMsg: { edit: (opts: unknown) => Promise<unknown> },
+  waitMsg: Message,
+  requestedBy?: string,
 ): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state) return;
+
+  // Disable buttons on any previous NP message
+  await disableNpButtonsForState(state);
 
   // Start audio stream immediately (no blocking info fetch first)
   const audioStream = ytdlpStream(url);
@@ -615,32 +667,37 @@ async function execPlayYoutube(
   state.stationKey = null;
   state.youtubeTitle = "Loading…";
   state.youtubeUrl = url;
+  state.nowPlayingMsg = waitMsg;
+  state.paused = false;
+  state.requestedBy = requestedBy ?? null;
   state.player.play(resource);
 
   state.player.once(AudioPlayerStatus.Playing, async () => {
     const { title, duration, thumbnail } = await infoPromise;
-    state!.youtubeTitle = title;
+    const s = radioStates.get(guildId);
+    if (s) { s.youtubeTitle = title; }
 
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
     const embed = new EmbedBuilder()
-      .setColor(0xed4245)
-      .setTitle("▶️ Now playing")
-      .setDescription(`**${title}**`)
+      .setColor(0x57f287)
+      .setTitle("🎵 Now Playing")
+      .setDescription(`**[${title}](${url})**`)
       .addFields(
         { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
-        { name: "Stop", value: "`!radio leave`", inline: true },
+        ...(requestedBy ? [{ name: "Requested by", value: `<@${requestedBy}>`, inline: true }] : []),
         ...(queueCount > 0 ? [{ name: "Queue", value: `${queueCount} next • \`!queue\``, inline: true }] : []),
       )
-      .setFooter({ text: `!skip to skip • !y <title or url> to add • !y search <keywords>` });
+      .setFooter({ text: `!y <title or url> to add  •  !queue to see upcoming` });
     if (thumbnail) embed.setThumbnail(thumbnail);
-    await waitMsg.edit({ content: "", embeds: [embed] });
+    await waitMsg.edit({ content: "", embeds: [embed], components: [buildNpButtonRow(false)] });
   });
 
   state.player.once("error", async (err: Error) => {
     logger.error({ err, url }, "YouTube playback error");
-    await waitMsg.edit("❌ Playback error. The video may be unavailable or age-restricted.");
+    state.nowPlayingMsg = null;
+    await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] });
   });
 }
 
@@ -695,7 +752,7 @@ export async function playYoutube(message: Message, url: string): Promise<void> 
   // ── Play immediately ───────────────────────────────────────────────────────
   const waitMsg = await message.reply("🎬 Loading YouTube audio, please wait…");
   try {
-    await execPlayYoutube(guildId, url, waitMsg);
+    await execPlayYoutube(guildId, url, waitMsg, message.author.id);
   } catch (err) {
     logger.error({ err, url }, "YouTube load error");
     await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
@@ -805,14 +862,52 @@ export async function skipYoutube(message: Message): Promise<void> {
     return;
   }
   const skipped = state.youtubeTitle;
-  state.youtubeTitle = null;
-  state.youtubeUrl = null;
-  state.player.stop();
+  skipCurrentTrack(guildId);
   if (state.queue.length > 0) {
     await message.reply(`⏭️ Skipped **${skipped}** — loading next…`);
   } else {
     await message.reply(`⏭️ Skipped **${skipped}** — queue is empty.`);
   }
+}
+
+/** Toggle pause/resume. Returns the new state or "not_playing". */
+export function pauseToggle(guildId: string): "paused" | "resumed" | "not_playing" {
+  const state = radioStates.get(guildId);
+  if (!state || !state.youtubeTitle) return "not_playing";
+  if (state.paused) {
+    state.player.unpause();
+    state.paused = false;
+    return "resumed";
+  } else {
+    state.player.pause();
+    state.paused = true;
+    return "paused";
+  }
+}
+
+/** Skip the current YouTube track (no message reply). Triggers Idle → next in queue or idle. */
+export function skipCurrentTrack(guildId: string): string | null {
+  const state = radioStates.get(guildId);
+  if (!state || !state.youtubeTitle) return null;
+  const title = state.youtubeTitle;
+  state.youtubeTitle = null;
+  state.youtubeUrl = null;
+  disableNpButtonsForState(state).catch(() => null);
+  state.player.stop();
+  return title;
+}
+
+/** Stop playback, disconnect, and clean up state for a guild. */
+export function stopForGuild(guildId: string): boolean {
+  const state = radioStates.get(guildId);
+  if (!state) return false;
+  clearIdleTimer(state);
+  clearAloneTimer(state);
+  disableNpButtonsForState(state).catch(() => null);
+  state.player.stop();
+  radioStates.delete(guildId);
+  getVoiceConnection(guildId)?.destroy();
+  return true;
 }
 
 // ── Vote skip ─────────────────────────────────────────────────────────────────

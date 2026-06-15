@@ -3,7 +3,8 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRow, radioStates } from "./discord/radio";
+import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
@@ -1084,6 +1085,69 @@ export function startBot(): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
+
+    // ── Now Playing buttons ─────────────────────────────────────────────────
+    if (interaction.customId.startsWith("np:")) {
+      const action = interaction.customId.split(":")[1];
+      const guildId = interaction.guildId;
+      if (!guildId) { await interaction.reply({ content: "❌ Guild not found.", ephemeral: true }); return; }
+
+      try {
+        if (action === "pause" || action === "resume") {
+          const result = pauseToggle(guildId);
+          if (result === "not_playing") {
+            await interaction.reply({ content: "❌ Nothing is playing right now.", ephemeral: true });
+            return;
+          }
+          const currentEmbed = interaction.message.embeds[0];
+          const updatedEmbed = currentEmbed ? EmbedBuilder.from(currentEmbed) : new EmbedBuilder();
+          await interaction.update({ embeds: [updatedEmbed], components: [buildNpButtonRow(result === "paused")] });
+          return;
+        }
+
+        if (action === "skip") {
+          const skipped = skipCurrentTrack(guildId);
+          if (!skipped) {
+            await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
+            return;
+          }
+          await interaction.reply({ content: `⏭️ Skipped **${skipped}**.`, ephemeral: true });
+          return;
+        }
+
+        if (action === "like") {
+          const state = radioStates.get(guildId);
+          if (!state?.youtubeTitle || !state?.youtubeUrl) {
+            await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
+            return;
+          }
+          const { youtubeTitle: title, youtubeUrl: url } = state;
+          if (isLiked(interaction.user.id, url)) {
+            await removeLike(interaction.user.id, url);
+            await interaction.reply({ content: `💔 Removed **${title}** from your likes.`, ephemeral: true });
+          } else {
+            await addLike(interaction.user.id, { title, url });
+            await interaction.reply({ content: `💚 Added **${title}** to your likes!\nUse \`!likes\` to see your list.`, ephemeral: true });
+          }
+          return;
+        }
+
+        if (action === "stop") {
+          const stopped = stopForGuild(guildId);
+          if (!stopped) {
+            await interaction.reply({ content: "❌ Nothing is playing.", ephemeral: true });
+            return;
+          }
+          await interaction.reply({ content: "⏹️ Stopped and disconnected.", ephemeral: true });
+          return;
+        }
+      } catch (err) {
+        logger.error({ err }, "np button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
     if (!interaction.customId.startsWith("voice_ready")) return;
 
     try {
@@ -1823,6 +1887,56 @@ export function startBot(): void {
           } else {
             await message.reply({ embeds: [npEmbed] });
           }
+          break;
+        }
+
+        // ── Likes ────────────────────────────────────────────────────────────────
+        case "likes":
+        case "liked": {
+          const userId = message.author.id;
+          const sub = args[0]?.toLowerCase();
+
+          if (sub === "play") {
+            const liked = getLikes(userId);
+            if (liked.length === 0) {
+              await message.reply("💔 You have no liked tracks yet. Use the **💚 Like** button on a Now Playing embed to save a song.");
+              break;
+            }
+            await message.reply(`🎵 Queuing **${liked.length} liked track${liked.length !== 1 ? "s" : ""}**…`);
+            for (const track of liked) {
+              await playYoutube(message, track.url);
+            }
+            break;
+          }
+
+          const liked = getLikes(userId);
+          if (liked.length === 0) {
+            const emptyEmbed = new EmbedBuilder()
+              .setColor(0x57f287)
+              .setTitle("💚 Your Liked Tracks")
+              .setDescription("You haven't liked any tracks yet!\n\nWhen a YouTube video is playing, click the **💚 Like** button on the **🎵 Now Playing** embed to save it here.")
+              .setFooter({ text: "!likes play — play your entire likes list" });
+            await message.reply({ embeds: [emptyEmbed] });
+            break;
+          }
+
+          const PAGE_SIZE = 10;
+          const recentFirst = [...liked].reverse();
+          const page = recentFirst.slice(0, PAGE_SIZE);
+          const totalPages = Math.ceil(liked.length / PAGE_SIZE);
+
+          const lines = page.map((t, i) => {
+            const daysAgo = Math.floor((Date.now() - new Date(t.likedAt).getTime()) / 86_400_000);
+            const when = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo}d ago`;
+            return `**${i + 1}.** [${t.title}](${t.url}) — *${when}*`;
+          });
+
+          const likesEmbed = new EmbedBuilder()
+            .setColor(0x57f287)
+            .setTitle(`💚 Your Liked Tracks (${liked.length})`)
+            .setDescription(lines.join("\n"))
+            .setFooter({ text: `!likes play — queue all  •  Page 1/${totalPages}` });
+          await message.reply({ embeds: [likesEmbed] });
           break;
         }
 

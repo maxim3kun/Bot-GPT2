@@ -66,11 +66,18 @@ export interface GuildDoc {
   updatedAt: Date;
 }
 
+export interface LikedTrack {
+  title: string;
+  url: string;
+  likedAt: string; // ISO 8601
+}
+
 export interface UserData {
   discordId?: string;
   questProfile?: Record<string, unknown>;
   suggestPref?: boolean;
   birthday?: { day: number; month: number; userName: string };
+  likes?: LikedTrack[];
 }
 
 // ── MongoDB client ─────────────────────────────────────────────────────────────
