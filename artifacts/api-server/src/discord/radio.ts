@@ -1196,9 +1196,15 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     thumbnail: null as string | null,
   }));
 
-  // Auto-play: for 3+ word queries (e.g. "David Guetta Titanium"), YouTube's #1 is almost
-  // always correct. 1-2 words is often just an artist name → show the picker instead.
-  const wordCount = query.trim().split(/\s+/).filter(w => w.length > 1).length;
+  // Auto-play heuristic:
+  // - 3+ words → specific enough (e.g. "David Guetta Titanium") → play #1 directly
+  // - 2 words → could be "Artist Song" (Gims Bella) OR "Firstname Lastname" (David Guetta)
+  //   → check if word 2 appears in the *song* part of the top result's title (after " - ")
+  //   → if yes: it's artist+song → auto-play; if no: it's just an artist → picker
+  // - 1 word → always show picker
+  const words = query.trim().split(/\s+/).filter(w => w.length > 1);
+  const wordCount = words.length;
+
   if (wordCount >= 3) {
     const sel = cleaned[0]!;
     await loadMsg.edit(`▶️ Playing **${sel.title}**`);
@@ -1206,7 +1212,25 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Single-word query or edge case: show a picker so the user can choose
+  if (wordCount === 2) {
+    const sel = cleaned[0]!;
+    const word2 = (words[1] ?? "").toLowerCase();
+    const titleLower = sel.title.toLowerCase();
+    const dashIdx = titleLower.indexOf(" - ");
+    if (dashIdx !== -1) {
+      const artistPart = titleLower.slice(0, dashIdx);
+      const songPart   = titleLower.slice(dashIdx + 3);
+      // word2 is in song part but NOT in artist part → it's a song title → auto-play
+      if (songPart.includes(word2) && !artistPart.includes(word2)) {
+        await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+        await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+        return;
+      }
+    }
+    // Otherwise fall through to picker
+  }
+
+  // 1-word query, or 2-word artist name → show a picker so the user can choose
   const allResults = cleaned;
   const slices = computePageSlices(allResults.length);
   const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id, slices);
