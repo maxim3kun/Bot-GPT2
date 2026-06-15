@@ -668,6 +668,19 @@ interface KaraokeQueueEntry {
 
 const karaokeQueues = new Map<string, KaraokeQueueEntry[]>();
 
+// ── Per-guild karaoke audio source preference ──────────────────────────────
+
+type KaraokeAudioSource = "youtube" | "soundcloud";
+const karaokeSourceStore = new Map<string, KaraokeAudioSource>();
+
+export function getGuildKaraokeSource(guildId: string): KaraokeAudioSource {
+  return karaokeSourceStore.get(guildId) ?? "youtube";
+}
+
+export function setGuildKaraokeSource(guildId: string, source: KaraokeAudioSource): void {
+  karaokeSourceStore.set(guildId, source);
+}
+
 /** Safely tear down radio audio without killing a voice (!join) session. */
 function cleanupKaraokeAudio(guildId: string): void {
   const state = radioStates.get(guildId);
@@ -838,6 +851,73 @@ function startReactionSync(waitMsg: Message, lrcData: { lines: LrcLine[]; title:
   });
 }
 
+// ── Attach lyrics to currently-playing YouTube audio ─────────────────────────
+
+/**
+ * Start a karaoke lyrics overlay on the audio ALREADY playing in the voice channel.
+ * Does NOT stop/restart the player — just syncs the lyrics from the given start time.
+ */
+async function attachLyricsToCurrentAudio(
+  message: Message,
+  waitMsg: Message,
+  lrcData: { lines: LrcLine[]; title: string; artist: string; duration: number },
+  guildId: string,
+  audioStartTime: number,
+): Promise<void> {
+  if (lrcData.lines.length === 0) {
+    await waitMsg.edit({
+      embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("🎤 Empty lyrics")
+        .setDescription(`❌ The lyrics for **${lrcData.title}** appear empty. Try another song.`)],
+    });
+    return;
+  }
+
+  // Stop any existing karaoke session (without touching the audio player)
+  stopKaraokeSession(guildId);
+
+  const session: KaraokeSession = {
+    guildId,
+    lines: lrcData.lines,
+    embedMessage: waitMsg,
+    startTime: audioStartTime,
+    intervalId: null,
+    stopped: false,
+    songTitle: lrcData.title,
+    artistName: lrcData.artist,
+    lastEditedIdx: -1,
+  };
+  karaokeSessions.set(guildId, session);
+
+  const elapsed = (Date.now() - audioStartTime) / 1000;
+  const currentIdx = getCurrentLineIndex(lrcData.lines, elapsed);
+
+  const embed = buildLyricsEmbed(session, currentIdx).addFields(
+    { name: "🎵 Source", value: "Current playback (synced ✨)", inline: true },
+  );
+  await waitMsg.edit({ content: "", embeds: [embed] }).catch(() => null);
+  await waitMsg.react("⏹").catch(() => null);
+
+  const stopCollector = waitMsg.createReactionCollector({
+    filter: (r: MessageReaction, u: User) => r.emoji.name === "⏹" && !u.bot,
+    time: 90 * 60 * 1000,
+    max: 1,
+  });
+  stopCollector.on("collect", () => {
+    const s = karaokeSessions.get(guildId);
+    if (!s || s.stopped) return;
+    stopKaraokeSession(guildId);
+    karaokeQueues.delete(guildId);
+    waitMsg.edit({
+      content: "",
+      embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle("🎤 Karaoke stopped")
+        .setDescription(`**${lrcData.title}** by ${lrcData.artist}\n\nThanks for singing! 🎶`)
+        .setFooter({ text: "Use !karaoke <song> to start a new session" })],
+    }).catch(() => null);
+  });
+
+  startLyricsLoop(session);
+}
+
 // ── Reaction-based paginated song picker ─────────────────────────────────────
 
 const MAX_SINGLE_PAGE = 6;
@@ -974,7 +1054,9 @@ async function launchKaraoke(
     return;
   }
 
-  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on YouTube…`, "Searching for the best audio source…")] });
+  const audioSource = getGuildKaraokeSource(guildId);
+  const sourceLabel = audioSource === "soundcloud" ? "SoundCloud" : "YouTube";
+  await waitMsg.edit({ embeds: [buildWaitEmbed(`✅ **${lrcData.title}** — *${lrcData.artist}*\n🎵 Searching audio on ${sourceLabel}…`, "Searching for the best audio source…")] });
 
   const ready = await ensureVoiceConnection(message);
   if (!ready) { await waitMsg.edit({ content: "❌ You need to be in a voice channel first! Join one and retry `!karaoke`.", components: [] }); return; }
@@ -1108,29 +1190,47 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
   if (!message.guildId) return;
   const guildId = message.guildId;
 
-  if (!query.trim()) {
-    await message.reply("❓ Usage: `!karaoke <artist song name>`\nExamples: `!karaoke Indila SOS` · `!karaoke Kendji Girac Andalouse`");
+  // Detect if a YouTube track is currently playing (not itself a karaoke session)
+  const radioState = radioStates.get(guildId);
+  const ytStartTime = radioState?.youtubeStartTime ?? null;
+  const ytTitle = radioState?.youtubeTitle;
+  const isYtPlaying = Boolean(ytTitle && ytStartTime && ytTitle !== "Loading…" && !ytTitle.startsWith("🎤"));
+
+  let effectiveQuery = query.trim();
+  let attachToCurrentAudio = false;
+
+  if (!effectiveQuery && isYtPlaying) {
+    // No query given but YouTube is playing — attach lyrics to current track
+    effectiveQuery = ytTitle!;
+    attachToCurrentAudio = true;
+  }
+
+  if (!effectiveQuery) {
+    await message.reply(
+      "❓ Usage: `!karaoke <artist song name>`\nExamples: `!karaoke Indila SOS` · `!karaoke Kendji Girac Andalouse`\n" +
+      "💡 **Tip:** Type `!karaoke` with no argument while a song is playing to attach live synced lyrics!",
+    );
     return;
   }
 
-  // If a session is already active, queue this request instead of interrupting
-  if (karaokeSessions.has(guildId)) {
+  // If a session is already active and we're not attaching to current audio, queue it
+  if (karaokeSessions.has(guildId) && !attachToCurrentAudio) {
     const existing = karaokeQueues.get(guildId) ?? [];
-    existing.push({ query, message });
+    existing.push({ query: effectiveQuery, message });
     karaokeQueues.set(guildId, existing);
     const pos = existing.length;
     await message.reply({ embeds: [new EmbedBuilder()
       .setColor(0x9b59b6).setTitle("🎵 Added to queue")
-      .setDescription(`**${query}** added at position **#${pos}** in the queue.`)
+      .setDescription(`**${effectiveQuery}** added at position **#${pos}** in the queue.`)
       .setFooter({ text: "Use !karaoke stop to clear the queue and stop" })] });
     return;
   }
 
-  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${query}**…`)] });
+  const waitMsg = await message.reply({ embeds: [buildWaitEmbed(`🔍 Searching **${effectiveQuery}**…`)] });
 
   // 1 — Fetch candidates from lrclib + Genius, deduplicate and let user pick
-  const { synced: rawSynced, geniusHits } = await searchCandidates(query);
-  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(filterRemixCandidates(deduplicateCandidates(rawSynced))), query);
+  const { synced: rawSynced, geniusHits } = await searchCandidates(effectiveQuery);
+  const candidates = sortByPrimaryArtistRelevance(sortCandidatesByOriginality(filterRemixCandidates(deduplicateCandidates(rawSynced))), effectiveQuery);
 
   if (candidates.length === 0) {
     // No synced lyrics — if Genius found songs, show them as a picker first
@@ -1244,5 +1344,7 @@ export async function startKaraoke(message: Message, query: string): Promise<voi
     duration: chosenCandidate.duration ?? 0,
   };
 
-  await launchKaraoke(message, waitMsg, lrcData, guildId, query);
+  await (attachToCurrentAudio && ytStartTime
+    ? attachLyricsToCurrentAudio(message, waitMsg, lrcData, guildId, ytStartTime)
+    : launchKaraoke(message, waitMsg, lrcData, guildId, effectiveQuery));
 }

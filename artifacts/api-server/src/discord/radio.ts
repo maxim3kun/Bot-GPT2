@@ -14,7 +14,23 @@ import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
-import { ytdlpInfo, ytdlpStream, ytdlpSearch, type YtInfo } from "../lib/ytdlp";
+import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
+
+// ── Rainbow ANSI title (Discord code-block coloring) ──────────────────────────
+
+const RAINBOW = ["\u001b[1;31m", "\u001b[1;33m", "\u001b[1;32m", "\u001b[1;36m", "\u001b[1;34m", "\u001b[1;35m"];
+const RST = "\u001b[0m";
+
+function rainbowTitle(text: string): string {
+  let out = "";
+  let ci = 0;
+  for (const ch of text) {
+    if (ch === " ") { out += " "; }
+    else { out += `${RAINBOW[ci % RAINBOW.length]}${ch}${RST}`; ci++; }
+  }
+  return `\`\`\`ansi\n${out}\n\`\`\``;
+}
+
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
 
 // ── Pending voice commands (auto-retry after joining voice) ───────────────────
@@ -129,6 +145,7 @@ interface RadioState {
   stationKey: string | null;
   youtubeTitle: string | null;
   youtubeUrl: string | null;
+  youtubeStartTime: number | null;
   queue: string[];
   queueName: string | null;
   notifyChannel: TextChannel | null;
@@ -242,16 +259,19 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     state.stationKey = null;
     state.youtubeTitle = title;
     state.youtubeUrl = url;
+    state.youtubeStartTime = Date.now();
     state.paused = false;
     state.player.play(resource);
 
     if (state.notifyChannel) {
+      const cleanTitle = cleanYouTubeTitle(title);
       const mins = Math.floor(duration / 60);
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0x57f287)
         .setTitle("🎵 Now Playing")
-        .setDescription(`**[${title}](${url})**`)
+        .setURL(url)
+        .setDescription(rainbowTitle(cleanTitle))
         .addFields(
           { name: "Duration", value: `${mins}:${secs.toString().padStart(2, "0")}`, inline: true },
           { name: "Queue", value: state.queue.length > 0 ? `${state.queue.length} video${state.queue.length !== 1 ? "s" : ""} remaining` : "Last video", inline: true },
@@ -400,6 +420,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       // Nothing left to play — disable NP buttons and start idle timer
       s.youtubeTitle = null;
       s.youtubeUrl = null;
+      s.youtubeStartTime = null;
       s.paused = false;
       disableNpButtonsForState(s).catch(() => null);
       startIdleTimer(guildId);
@@ -410,6 +431,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       stationKey: null,
       youtubeTitle: null,
       youtubeUrl: null,
+      youtubeStartTime: null,
       queue: [],
       queueName: null,
       notifyChannel: null,
@@ -675,15 +697,20 @@ async function execPlayYoutube(
   state.player.once(AudioPlayerStatus.Playing, async () => {
     const { title, duration, thumbnail } = await infoPromise;
     const s = radioStates.get(guildId);
-    if (s) { s.youtubeTitle = title; }
+    if (s) {
+      s.youtubeTitle = title;
+      s.youtubeStartTime = Date.now();
+    }
 
+    const cleanTitle = cleanYouTubeTitle(title);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
     const embed = new EmbedBuilder()
       .setColor(0x57f287)
       .setTitle("🎵 Now Playing")
-      .setDescription(`**[${title}](${url})**`)
+      .setURL(url)
+      .setDescription(rainbowTitle(cleanTitle))
       .addFields(
         { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
         ...(requestedBy ? [{ name: "Requested by", value: `<@${requestedBy}>`, inline: true }] : []),
@@ -780,12 +807,11 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  const loadMsg = await message.reply("🔍 Searching YouTube…");
+  const loadMsg = await message.reply("🔍 Searching…");
 
   let results: Awaited<ReturnType<typeof ytdlpSearch>>;
   try {
-    // Fetch a few extra results so scoring has more to work with
-    results = await ytdlpSearch(query, 7);
+    results = await ytdlpSearch(query, 5);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
@@ -797,60 +823,11 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Sort: official/original first, remixes/covers last — keep top 5
-  results = [...results].sort((a, b) => scoreYtResult(b) - scoreYtResult(a)).slice(0, 5);
-
-  const lines = results.map((r, i) => {
-    const mins = Math.floor(r.duration / 60);
-    const secs = r.duration % 60;
-    const time = r.duration > 0 ? ` \`${mins}:${secs.toString().padStart(2, "0")}\`` : "";
-    const ch = r.channel ? ` — *${r.channel}*` : "";
-    const tag = REMIX_PATTERN.test(r.title) ? " 🎛️" : OFFICIAL_PATTERN.test(r.title) ? " ✨" : "";
-    return `${SEARCH_EMOJIS[i]} **${r.title}**${tag}${time}${ch}`;
-  });
-
-  const embed = new EmbedBuilder()
-    .setColor(0xff0000)
-    .setTitle("🔍 YouTube — Search results")
-    .setDescription(lines.join("\n\n"))
-    .setFooter({ text: "React with a number to add to queue  •  30 seconds to choose" });
-
-  await loadMsg.edit({ content: "", embeds: [embed] });
-  for (const emoji of SEARCH_EMOJIS.slice(0, results.length)) {
-    await loadMsg.react(emoji).catch(() => null);
-  }
-
-  const collector = (loadMsg as unknown as {
-    createReactionCollector: (opts: {
-      filter: (r: { emoji: { name: string | null } }, u: { id: string; bot: boolean }) => boolean;
-      time: number;
-      max: number;
-    }) => {
-      on: (event: string, cb: (...args: unknown[]) => void) => void;
-      stop: (reason?: string) => void;
-    };
-  }).createReactionCollector({
-    filter: (r: { emoji: { name: string | null } }, u: { id: string; bot: boolean }) =>
-      !u.bot && u.id === message.author.id && (SEARCH_EMOJIS as readonly string[]).includes(r.emoji.name ?? ""),
-    time: 30_000,
-    max: 1,
-  });
-
-  collector.on("collect", async (...args: unknown[]) => {
-    const reaction = args[0] as { emoji: { name: string | null } };
-    const idx = (SEARCH_EMOJIS as readonly string[]).indexOf(reaction.emoji.name ?? "");
-    if (idx === -1 || !results[idx]) return;
-    const selected = results[idx]!;
-    await loadMsg.delete().catch(() => null);
-    await playYoutube(message, selected.url);
-  });
-
-  collector.on("end", async (...args: unknown[]) => {
-    const reason = args[1] as string;
-    if (reason === "time") {
-      await loadMsg.edit({ content: "⏱️ Search expired.", embeds: [] }).catch(() => null);
-    }
-  });
+  // Auto-pick the top scored result — no reaction picker needed
+  results = [...results].sort((a, b) => scoreYtResult(b) - scoreYtResult(a));
+  const selected = results[0]!;
+  await loadMsg.delete().catch(() => null);
+  await playYoutube(message, selected.url);
 }
 
 export async function skipYoutube(message: Message): Promise<void> {
@@ -892,6 +869,7 @@ export function skipCurrentTrack(guildId: string): string | null {
   const title = state.youtubeTitle;
   state.youtubeTitle = null;
   state.youtubeUrl = null;
+  state.youtubeStartTime = null;
   disableNpButtonsForState(state).catch(() => null);
   state.player.stop();
   return title;

@@ -62,6 +62,19 @@ export interface YtSearchResult {
   channel: string | null;
 }
 
+const CLUTTER_RE = /\s*[\(\[]\s*(official\s*(video|audio|music\s*video|lyric(?:s)?\s*video?|clip)|clip\s*offici[ae]l|clip\s*official|officiel|vevo|hd|4k|mv|m\/v|lyric(?:s)?|full\s*(?:hd|version)|visualizer|original\s*(?:version)?)\s*[\)\]]/gi;
+const SUFFIX_RE  = /\s*[-–|]\s*(official\s*(?:video|audio|music\s*video|clip)|clip\s*offici[ae]l|officiel|lyrics?|hd|4k)\s*$/gi;
+const GENRE_RE   = /\s*[\(\[]\s*(pop|hip[- ]?hop|r&b|rnb|rap|rock|jazz|classical|electronic|dance|edm|indie|alternative|metal|country|reggae|latin|soul|funk|blues|punk|k-?pop)\s*[\)\]]/gi;
+
+export function cleanYouTubeTitle(title: string): string {
+  return title
+    .replace(CLUTTER_RE, "")
+    .replace(SUFFIX_RE, "")
+    .replace(GENRE_RE, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchResult[]> {
   const { stdout } = await execFileAsync(
     YT_DLP_BIN,

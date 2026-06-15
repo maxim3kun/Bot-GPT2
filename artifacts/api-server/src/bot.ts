@@ -5,7 +5,7 @@ import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive,
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRow, radioStates } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
-import { startKaraoke, stopKaraoke, isKaraokeActive } from "./discord/karaoke";
+import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
@@ -1948,6 +1948,24 @@ export function startBot(): void {
 
           if (sub === "stop") {
             await stopKaraoke(message);
+            break;
+          }
+
+          // Admin: !karaoke source youtube|soundcloud
+          if (sub === "source") {
+            const srcArg = args[1]?.toLowerCase();
+            if (srcArg === "youtube" || srcArg === "soundcloud") {
+              const member = message.member as GuildMember | null;
+              if (!member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+                await message.reply("❌ You need **Manage Server** permission to change karaoke settings.");
+                break;
+              }
+              setGuildKaraokeSource(message.guildId, srcArg);
+              await message.reply(`✅ Karaoke audio source set to **${srcArg === "youtube" ? "YouTube" : "SoundCloud"}** for this server.`);
+            } else {
+              const current = getGuildKaraokeSource(message.guildId);
+              await message.reply(`❓ Usage: \`!karaoke source youtube\` or \`!karaoke source soundcloud\`\nCurrent source: **${current === "youtube" ? "YouTube" : "SoundCloud"}**`);
+            }
             break;
           }
 
