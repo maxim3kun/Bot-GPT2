@@ -913,6 +913,65 @@ export async function playYoutube(
 }
 
 const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
+const RESULTS_PER_PAGE = 4;
+
+function buildSearchPage(
+  results: Array<{ url: string; title: string; duration: number; thumbnail: string | null }>,
+  page: number,
+  msgId: string,
+): { embed: EmbedBuilder; components: ActionRowBuilder<ButtonBuilder>[] } {
+  const totalPages = Math.ceil(results.length / RESULTS_PER_PAGE);
+  const start = page * RESULTS_PER_PAGE;
+  const pageResults = results.slice(start, start + RESULTS_PER_PAGE);
+
+  const description = pageResults.map((r, i) => {
+    const mins = Math.floor(r.duration / 60);
+    const secs = r.duration % 60;
+    const dur = r.duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—";
+    return `**${i + 1}.** ${r.title}   *${dur}*`;
+  }).join("\n");
+
+  const pageLabel = totalPages > 1 ? `Page ${page + 1}/${totalPages} • ` : "";
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🔍 Search results")
+    .setDescription(description)
+    .setFooter({ text: `${pageLabel}Click a number to play • expires in 30s` });
+
+  const pickButtons = pageResults.map((_, i) =>
+    new ButtonBuilder()
+      .setCustomId(`yt:pick:${i}:${msgId}`)
+      .setLabel(String(i + 1))
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  const navButtons: ButtonBuilder[] = [];
+  if (page > 0) {
+    navButtons.push(
+      new ButtonBuilder()
+        .setCustomId(`yt:nav:prev:${msgId}`)
+        .setLabel("◀")
+        .setStyle(ButtonStyle.Primary),
+    );
+  }
+  if ((page + 1) < totalPages) {
+    navButtons.push(
+      new ButtonBuilder()
+        .setCustomId(`yt:nav:next:${msgId}`)
+        .setLabel("▶")
+        .setStyle(ButtonStyle.Primary),
+    );
+  }
+
+  const components: ActionRowBuilder<ButtonBuilder>[] = [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(...pickButtons),
+  ];
+  if (navButtons.length > 0) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...navButtons));
+  }
+
+  return { embed, components };
+}
 
 const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
 const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
@@ -977,21 +1036,37 @@ interface PendingSearchEntry {
   message: Message;
   requestedBy: string;
   expires: ReturnType<typeof setTimeout>;
+  page: number;
+  loadMsg: Message;
 }
 
 const pendingSearches = new Map<string, PendingSearchEntry>();
 
-/** Called by the bot.ts button handler when the user clicks a search result. */
-export function consumePendingSearch(msgId: string, idx: number): {
+/** Called by the bot.ts button handler when the user clicks a search result (localIdx = position on current page). */
+export function consumePendingSearch(msgId: string, localIdx: number): {
   pick: { url: string; title: string; duration: number; thumbnail: string | null };
   message: Message;
   requestedBy: string;
 } | null {
   const ps = pendingSearches.get(msgId);
-  if (!ps || idx < 0 || idx >= ps.results.length) return null;
+  if (!ps) return null;
+  const globalIdx = ps.page * RESULTS_PER_PAGE + localIdx;
+  if (globalIdx < 0 || globalIdx >= ps.results.length) return null;
   clearTimeout(ps.expires);
   pendingSearches.delete(msgId);
-  return { pick: ps.results[idx]!, message: ps.message, requestedBy: ps.requestedBy };
+  return { pick: ps.results[globalIdx]!, message: ps.message, requestedBy: ps.requestedBy };
+}
+
+/** Called by the bot.ts button handler when the user clicks ◀ or ▶ to navigate pages. */
+export async function navigateSearch(msgId: string, dir: "prev" | "next"): Promise<void> {
+  const ps = pendingSearches.get(msgId);
+  if (!ps) return;
+  const totalPages = Math.ceil(ps.results.length / RESULTS_PER_PAGE);
+  const newPage = dir === "next" ? ps.page + 1 : ps.page - 1;
+  if (newPage < 0 || newPage >= totalPages) return;
+  ps.page = newPage;
+  const { embed, components } = buildSearchPage(ps.results, newPage, msgId);
+  await ps.loadMsg.edit({ content: "", embeds: [embed], components }).catch(() => null);
 }
 
 export async function searchAndQueue(message: Message, query: string): Promise<void> {
@@ -1016,73 +1091,51 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Score and sort all results
+  // Score, clean titles, and sort all results
   const scored = results
-    .map(r => ({ ...r, score: scoreYtResult(r, query), thumbnail: null as string | null }))
+    .map(r => ({
+      ...r,
+      title: cleanYouTubeTitle(r.title),
+      score: scoreYtResult(r, query),
+      thumbnail: null as string | null,
+    }))
     .sort((a, b) => b.score - a.score);
 
-  const top5 = scored.slice(0, 5);
+  const topResults = scored.slice(0, 8);
 
-  // Auto-play only when the top result is a definitive match:
-  // — query had ≥2 meaningful words AND top score ≥30 AND gap to #2 ≥15
+  // Auto-play when query had ≥2 meaningful words AND top score ≥20 AND gap to #2 ≥10
   const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
   const isConfidentMatch =
     queryWords.length >= 2 &&
-    top5[0]!.score >= 30 &&
-    (top5.length < 2 || top5[0]!.score - top5[1]!.score >= 15);
+    topResults[0]!.score >= 20 &&
+    (topResults.length < 2 || topResults[0]!.score - topResults[1]!.score >= 10);
 
   if (isConfidentMatch) {
-    const sel = top5[0]!;
+    const sel = topResults[0]!;
     await loadMsg.edit(`▶️ Playing **${sel.title}**`);
     await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
     return;
   }
 
-  // Show a numbered picker so the user can choose
-  const description = top5.map((r, i) => {
-    const mins = Math.floor(r.duration / 60);
-    const secs = r.duration % 60;
-    const dur = r.duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—";
-    return `**${i + 1}.** ${r.title}   *${dur}*`;
-  }).join("\n");
+  // Show a paginated picker so the user can choose
+  const allResults = topResults.map(r => ({ url: r.url, title: r.title, duration: r.duration, thumbnail: null as string | null }));
+  const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle("🔍 Search results")
-    .setDescription(description)
-    .setFooter({ text: "Click a number to play • expires in 30s" });
+  await loadMsg.edit({ content: "", embeds: [embed], components });
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    top5.map((_, i) =>
-      new ButtonBuilder()
-        .setCustomId(`yt:${i}:${loadMsg.id}`)
-        .setLabel(String(i + 1))
-        .setStyle(ButtonStyle.Secondary),
-    ),
-  );
-
-  await loadMsg.edit({ content: "", embeds: [embed], components: [row] });
-
-  // Expire after 30 s — disable buttons
+  // Expire after 30 s — remove buttons
   const expires = setTimeout(async () => {
     pendingSearches.delete(loadMsg.id);
-    const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      top5.map((_, i) =>
-        new ButtonBuilder()
-          .setCustomId(`yt:${i}:${loadMsg.id}`)
-          .setLabel(String(i + 1))
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true),
-      ),
-    );
-    await loadMsg.edit({ embeds: [embed], components: [disabledRow] }).catch(() => null);
+    await loadMsg.edit({ embeds: [embed], components: [] }).catch(() => null);
   }, 30_000);
 
   pendingSearches.set(loadMsg.id, {
-    results: top5.map(r => ({ url: r.url, title: r.title, duration: r.duration, thumbnail: null })),
+    results: allResults,
     message,
     requestedBy: message.author.id,
     expires,
+    page: 0,
+    loadMsg,
   });
 }
 

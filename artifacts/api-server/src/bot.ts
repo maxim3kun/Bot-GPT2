@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -1151,9 +1151,22 @@ export function startBot(): void {
     // ── Search result picker buttons ─────────────────────────────────────────
     if (interaction.customId.startsWith("yt:")) {
       const parts = interaction.customId.split(":");
-      const idx = parseInt(parts[1] ?? "0", 10);
-      const msgId = parts[2] ?? "";
-      const pending = consumePendingSearch(msgId, idx);
+      const subtype = parts[1] ?? "";
+
+      // Navigation: yt:nav:prev:msgId / yt:nav:next:msgId
+      if (subtype === "nav") {
+        const dir = (parts[2] ?? "next") as "prev" | "next";
+        const msgId = parts[3] ?? "";
+        await interaction.deferUpdate();
+        await navigateSearch(msgId, dir);
+        return;
+      }
+
+      // Pick: yt:pick:N:msgId (new) or yt:N:msgId (old/compat)
+      const localIdx = subtype === "pick" ? parseInt(parts[2] ?? "0", 10) : parseInt(subtype, 10);
+      const msgId = subtype === "pick" ? (parts[3] ?? "") : (parts[2] ?? "");
+
+      const pending = consumePendingSearch(msgId, localIdx);
       if (!pending) {
         await interaction.reply({ content: "❌ Search expired. Use `!y` again.", ephemeral: true });
         return;
