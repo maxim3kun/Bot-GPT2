@@ -286,7 +286,7 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
 
     state.stationKey = null;
-    state.youtubeTitle = title;
+    state.youtubeTitle = cleanYouTubeTitle(title);
     state.youtubeUrl = url;
     state.youtubeStartTime = Date.now();
     state.paused = false;
@@ -727,7 +727,7 @@ async function execPlayYoutube(
     const { title, duration, thumbnail } = await infoPromise;
     const s = radioStates.get(guildId);
     if (s) {
-      s.youtubeTitle = title;
+      s.youtubeTitle = cleanYouTubeTitle(title);
       s.youtubeStartTime = Date.now();
     }
 
@@ -822,11 +822,21 @@ const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as
 const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
 const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
 
-function scoreYtResult(r: { title: string; channel: string | null }): number {
+function scoreYtResult(r: { title: string; channel: string | null }, query = ""): number {
   let s = 0;
   if (REMIX_PATTERN.test(r.title)) s -= 5;
   if (OFFICIAL_PATTERN.test(r.title)) s += 4;
   if (r.channel && /official|vevo/i.test(r.channel)) s += 2;
+
+  // Query relevance — most important: boost results that actually match the search terms
+  if (query) {
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const titleLower = r.title.toLowerCase();
+    const matchCount = words.filter(w => titleLower.includes(w)).length;
+    s += matchCount * 5; // +5 per matching word
+    if (matchCount === 0 && words.length > 0) s -= 10; // Hard penalty: title shares no words with query
+  }
+
   return s;
 }
 
@@ -854,7 +864,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   }
 
   // Auto-pick the top scored result — no reaction picker needed
-  results = [...results].sort((a, b) => scoreYtResult(b) - scoreYtResult(a));
+  results = [...results].sort((a, b) => scoreYtResult(b, query) - scoreYtResult(a, query));
   const selected = results[0]!;
   await loadMsg.delete().catch(() => null);
   await playYoutube(message, selected.url);

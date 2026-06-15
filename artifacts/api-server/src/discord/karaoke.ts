@@ -782,7 +782,7 @@ function buildLyricsEmbed(session: KaraokeSession, currentIdx: number): EmbedBui
     .setTitle(`🎤 ${songTitle}`)
     .setAuthor({ name: `🎵 ${artistName}` })
     .setDescription(desc)
-    .setFooter({ text: `⏱ ${mins}:${secs.toString().padStart(2, "0")} · React ⏹ to stop` });
+    .setFooter({ text: `⏱ ${mins}:${secs.toString().padStart(2, "0")} · Lyrics: lrclib.io · ⏹ to stop` });
 }
 
 // ── Lyrics loop ───────────────────────────────────────────────────────────────
