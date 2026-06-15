@@ -16,6 +16,12 @@ import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 
+// ── Activity callback — bot.ts registers this to update client presence ────────
+let _activityCallback: ((title: string | null) => void) | null = null;
+export function setActivityCallback(cb: (title: string | null) => void): void {
+  _activityCallback = cb;
+}
+
 // ── Fast YouTube search via play-dl (in-process, no subprocess overhead) ─────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -378,6 +384,7 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     state.youtubeStartTime = Date.now();
     state.paused = false;
     state.player.play(resource);
+    _activityCallback?.(cleanTitle);
 
     if (state.notifyChannel) {
       const mins = Math.floor(duration / 60);
@@ -533,6 +540,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       s.youtubeUrl = null;
       s.youtubeStartTime = null;
       s.paused = false;
+      _activityCallback?.(null);
       disableNpButtonsForState(s).catch(() => null);
       startIdleTimer(guildId);
     });
@@ -723,6 +731,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.queue = [];
+  _activityCallback?.(null);
 
   // Immediate feedback — user sees this while we open the TCP stream
   const loadMsg = await message.reply(`⏳ Connecting to **${station.name}**…`);
@@ -802,6 +811,7 @@ async function execPlayYoutube(
     const cleanTitle = cleanYouTubeTitle(title);
     const s = radioStates.get(guildId);
     if (s) { s.youtubeTitle = cleanTitle; s.youtubeStartTime = Date.now(); }
+    _activityCallback?.(cleanTitle);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const queueCount = radioStates.get(guildId)?.queue.length ?? 0;
@@ -1294,6 +1304,7 @@ export function skipCurrentTrack(guildId: string): string | null {
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.youtubeStartTime = null;
+  _activityCallback?.(null);
   disableNpButtonsForState(state).catch(() => null);
   state.player.stop();
   return title;
