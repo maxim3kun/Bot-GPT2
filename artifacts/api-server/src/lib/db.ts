@@ -59,6 +59,7 @@ export interface UserDoc {
 export interface GuildDoc {
   _id: string;
   prefix?: string;
+  lang?: string;
   birthdayChannelId?: string | null;
   adminChannelId?: string | null;
   playlists?: Record<string, string[]>;

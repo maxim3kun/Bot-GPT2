@@ -13,6 +13,8 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
+import { getLang } from "./discord/lang-store";
+import { handleNewCommand } from "./discord/new-commands";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
@@ -2706,6 +2708,13 @@ export function startBot(): void {
           });
           break;
         }
+
+        // ── New commands (beta) ───────────────────────────────────────────────
+        case "new": {
+          await handleNewCommand(message, args, guildPrefix);
+          break;
+        }
+
       }
     } catch (err) {
       logger.error({ err, command }, "Command error");
