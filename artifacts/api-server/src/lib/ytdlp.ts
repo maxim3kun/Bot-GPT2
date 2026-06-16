@@ -2,15 +2,41 @@ import { spawn, execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import type { Readable } from "stream";
+import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
 
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
-// android + formats=missing_pot: only client that streams audio from datacenter IPs as of 2025-06
-// tv_embedded was previously used but now returns 0 bytes; ios/mweb return only image formats
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=android,formats=missing_pot";
+// ── Client rotation ────────────────────────────────────────────────────────────
+// YouTube blocks clients from datacenter IPs periodically. We keep a list and
+// auto-rotate when one gets blocked, so the bot heals itself without restarts.
+const YT_CLIENTS = [
+  "android,formats=missing_pot", // works as of 2025-06 from Replit IPs
+  "tv_embedded",                  // was working before android; keep as fallback
+  "mweb",                         // mobile web — last resort
+  "ios",                          // ios — often missing formats but worth a try
+];
+let _clientIdx = 0;
+
+function clientArgs(): string {
+  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]}`;
+}
+
+/** Called when current client is confirmed blocked — moves to the next one. */
+function rotateClient(fromIdx: number): void {
+  if (_clientIdx !== fromIdx) return; // already rotated by a concurrent call
+  _clientIdx = (_clientIdx + 1) % YT_CLIENTS.length;
+  logger.warn(
+    { prev: YT_CLIENTS[fromIdx], next: YT_CLIENTS[_clientIdx] },
+    "yt-dlp: YouTube client blocked — rotated to next",
+  );
+}
+
+const BLOCKED_RE = /no longer supported|Sign in|po_token required/i;
+
+// ── Public exports ─────────────────────────────────────────────────────────────
 
 export interface YtInfo {
   title: string;
@@ -18,41 +44,64 @@ export interface YtInfo {
   thumbnail: string | null;
 }
 
-export async function ytdlpInfo(url: string): Promise<YtInfo> {
-  // Use --print instead of --print-json: lighter, no JSON parse issues,
-  // works even when tv_embedded falls back to another client
-  const { stdout } = await execFileAsync(
-    YT_DLP_BIN,
-    [
-      "--print", "%(title)s\t%(duration)s\t%(thumbnail)s",
-      "--no-playlist",
-      YT_CLIENT_ARGS,
-      url,
-    ],
-    { timeout: 20_000, maxBuffer: 512 * 1024 },
-  );
-  const line = stdout.trim();
-  const parts = line.split("\t");
-  const title = parts[0]?.trim() || "Unknown";
-  const duration = parseInt(parts[1] ?? "0", 10);
-  const thumb = parts[2]?.trim() || null;
-  return {
-    title,
-    duration: isNaN(duration) ? 0 : duration,
-    thumbnail: thumb && thumb !== "NA" ? thumb : null,
-  };
+export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
+  const idx = _clientIdx;
+  let stderr = "";
+  try {
+    const { stdout, stderr: se } = await execFileAsync(
+      YT_DLP_BIN,
+      [
+        "--print", "%(title)s\t%(duration)s\t%(thumbnail)s",
+        "--no-playlist",
+        clientArgs(),
+        url,
+      ],
+      { timeout: 20_000, maxBuffer: 512 * 1024 },
+    );
+    stderr = se ?? "";
+    const line = stdout.trim();
+    const parts = line.split("\t");
+    const title = parts[0]?.trim() || "Unknown";
+    const duration = parseInt(parts[1] ?? "0", 10);
+    const thumb = parts[2]?.trim() || null;
+    return {
+      title,
+      duration: isNaN(duration) ? 0 : duration,
+      thumbnail: thumb && thumb !== "NA" ? thumb : null,
+    };
+  } catch (err) {
+    const msg = String((err as { stderr?: string })?.stderr ?? err);
+    if (BLOCKED_RE.test(msg) && _retry < YT_CLIENTS.length - 1) {
+      rotateClient(idx);
+      return ytdlpInfo(url, _retry + 1);
+    }
+    throw err;
+  }
 }
 
 export function ytdlpStream(url: string): Readable {
+  const idx = _clientIdx;
   const proc = spawn(YT_DLP_BIN, [
     "-f", "bestaudio/best",
     "--no-playlist",
     "--quiet",
-    YT_CLIENT_ARGS,
+    clientArgs(),
     "-o", "-",
     url,
   ]);
-  proc.stderr.pipe(process.stderr);
+
+  // Monitor stderr — if YouTube blocks, rotate client so next stream uses the new one
+  let stderrBuf = "";
+  proc.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    stderrBuf += text;
+    if (BLOCKED_RE.test(stderrBuf)) {
+      rotateClient(idx);
+      stderrBuf = ""; // prevent re-triggering
+    }
+    process.stderr.write(text);
+  });
+
   return proc.stdout as Readable;
 }
 
