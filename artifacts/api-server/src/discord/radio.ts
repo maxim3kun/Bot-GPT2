@@ -383,6 +383,13 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     const { title: rawTitle, duration, thumbnail } = cached ?? await ytdlpInfo(url);
     const cleanTitle = cleanYouTubeTitle(rawTitle);
 
+    // Skip unresolvable tracks (ytdlpInfo fallback: title="Unknown", duration=0)
+    if (cleanTitle === "Unknown" && duration === 0) {
+      logger.warn({ url }, "Skipping unresolvable track");
+      if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
+      return;
+    }
+
     state.stationKey = null;
     state.youtubeTitle = cleanTitle;
     state.youtubeUrl = url;
@@ -1210,9 +1217,12 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   // Filter out long videos (compilations, mixes, full albums — anything > 15 min)
   const MAX_SINGLE_TRACK_SECS = 15 * 60;
-  const filtered = results.filter(r => r.duration === 0 || r.duration <= MAX_SINGLE_TRACK_SECS);
-  // Fallback: if everything was filtered (e.g. query is intentionally about a long video), keep all
-  const pool = filtered.length > 0 ? filtered : results;
+  // Prefer results with a known duration under 15 min (excludes livestreams and broken entries)
+  const withDuration = results.filter(r => r.duration > 0 && r.duration <= MAX_SINGLE_TRACK_SECS);
+  // Fallback: if too few good results, include unknown-duration ones but still drop >15 min
+  const pool = withDuration.length >= 2
+    ? withDuration
+    : results.filter(r => r.duration === 0 || r.duration <= MAX_SINGLE_TRACK_SECS);
 
   // Clean titles and cap at 11 (3 pages: 4 + 3 + 4)
   const cleaned = pool.slice(0, 11).map(r => ({
