@@ -1079,3 +1079,551 @@ export async function playConnect4(message: Message, args: string[]): Promise<vo
     }
   });
 }
+
+// ─────────────────────────────────────────
+// GUESS THE LOGO
+// ─────────────────────────────────────────
+
+interface LogoBrand {
+  name: string;
+  aliases: string[];
+  domain: string;
+  category: string;
+  country: string;
+  hints: string[];
+}
+
+const LOGO_BRANDS: LogoBrand[] = [
+  {
+    name: "Nike",
+    aliases: ["nike"],
+    domain: "nike.com",
+    category: "Sportswear",
+    country: "🇺🇸 USA",
+    hints: [
+      "This brand's iconic symbol is called the 'Swoosh'.",
+      "Their famous slogan is 'Just Do It'.",
+      "Founded in 1964, this brand was originally called Blue Ribbon Sports.",
+    ],
+  },
+  {
+    name: "Apple",
+    aliases: ["apple"],
+    domain: "apple.com",
+    category: "Technology",
+    country: "🇺🇸 USA",
+    hints: [
+      "This company makes one of the world's most popular smartphones.",
+      "Their headquarters in Cupertino, California is shaped like a giant ring.",
+      "Founded by Steve Jobs, Steve Wozniak, and Ronald Wayne in 1976.",
+    ],
+  },
+  {
+    name: "BMW",
+    aliases: ["bmw", "bayerische motoren werke"],
+    domain: "bmw.com",
+    category: "Automotive",
+    country: "🇩🇪 Germany",
+    hints: [
+      "This German carmaker's logo represents a spinning aircraft propeller.",
+      "Their slogan is 'The Ultimate Driving Machine'.",
+      "Founded in Munich in 1916, they also make motorcycles.",
+    ],
+  },
+  {
+    name: "Mercedes-Benz",
+    aliases: ["mercedes", "mercedes-benz", "mercedes benz"],
+    domain: "mercedes-benz.com",
+    category: "Automotive",
+    country: "🇩🇪 Germany",
+    hints: [
+      "This German brand's three-pointed star represents dominance on land, sea, and air.",
+      "They claim to have invented the first true automobile in 1886.",
+      "Their AMG performance division is based in Affalterbach.",
+    ],
+  },
+  {
+    name: "Audi",
+    aliases: ["audi"],
+    domain: "audi.com",
+    category: "Automotive",
+    country: "🇩🇪 Germany",
+    hints: [
+      "Their logo's four interlocking rings represent four companies that merged in 1932.",
+      "Their slogan is 'Vorsprung durch Technik' (Advancement through technology).",
+      "Part of the Volkswagen Group, headquartered in Ingolstadt.",
+    ],
+  },
+  {
+    name: "Shell",
+    aliases: ["shell"],
+    domain: "shell.com",
+    category: "Energy / Oil",
+    country: "🇳🇱 Netherlands",
+    hints: [
+      "This energy company's logo is one of the most recognized in the world.",
+      "The symbol is a pecten shell, which has been their emblem since 1904.",
+      "They are one of the largest oil and gas companies on the planet.",
+    ],
+  },
+  {
+    name: "McDonald's",
+    aliases: ["mcdonalds", "mcdonald's", "mcd", "mac do", "macdo"],
+    domain: "mcdonalds.com",
+    category: "Fast Food",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo's golden arches are among the most recognized symbols on Earth.",
+      "They serve over 69 million customers daily across 100+ countries.",
+      "Their most iconic product was introduced in 1968.",
+    ],
+  },
+  {
+    name: "Spotify",
+    aliases: ["spotify"],
+    domain: "spotify.com",
+    category: "Music Streaming",
+    country: "🇸🇪 Sweden",
+    hints: [
+      "This green streaming app launched in 2008 in Stockholm.",
+      "Their logo shows three curved lines representing sound waves.",
+      "They have over 600 million active users worldwide.",
+    ],
+  },
+  {
+    name: "Instagram",
+    aliases: ["instagram", "insta", "ig"],
+    domain: "instagram.com",
+    category: "Social Media",
+    country: "🇺🇸 USA",
+    hints: [
+      "This photo and video sharing app was acquired by Facebook (Meta) in 2012.",
+      "Originally launched in 2010 as a photo-only platform.",
+      "Their icon is a stylized camera.",
+    ],
+  },
+  {
+    name: "Snapchat",
+    aliases: ["snapchat", "snap"],
+    domain: "snapchat.com",
+    category: "Social Media",
+    country: "🇺🇸 USA",
+    hints: [
+      "This app's logo is a white ghost on a yellow background.",
+      "Messages on this platform disappear after being viewed.",
+      "Founded in 2011 by Stanford students Evan Spiegel and Bobby Murphy.",
+    ],
+  },
+  {
+    name: "Discord",
+    aliases: ["discord"],
+    domain: "discord.com",
+    category: "Communication",
+    country: "🇺🇸 USA",
+    hints: [
+      "This platform was originally built for gamers to chat while playing.",
+      "Their mascot is called Wumpus.",
+      "Launched in 2015, they now have over 500 million registered users.",
+    ],
+  },
+  {
+    name: "GitHub",
+    aliases: ["github"],
+    domain: "github.com",
+    category: "Developer Tools",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their mascot is called 'Octocat' — a cat with octopus tentacles.",
+      "This platform hosts millions of open-source software repositories.",
+      "Acquired by Microsoft in 2018 for $7.5 billion.",
+    ],
+  },
+  {
+    name: "Firefox",
+    aliases: ["firefox", "mozilla firefox", "mozilla"],
+    domain: "mozilla.org",
+    category: "Technology",
+    country: "🇺🇸 USA",
+    hints: [
+      "This browser's logo shows a fiery animal wrapping around a blue globe.",
+      "Developed by the non-profit Mozilla Foundation.",
+      "The 'fox' in the name is actually a red panda.",
+    ],
+  },
+  {
+    name: "Volkswagen",
+    aliases: ["volkswagen", "vw"],
+    domain: "volkswagen.com",
+    category: "Automotive",
+    country: "🇩🇪 Germany",
+    hints: [
+      "Their name means 'People's Car' in German.",
+      "The Beetle was their first mass-market vehicle.",
+      "Founded in 1937, they are Europe's largest automaker.",
+    ],
+  },
+  {
+    name: "Ferrari",
+    aliases: ["ferrari"],
+    domain: "ferrari.com",
+    category: "Automotive",
+    country: "🇮🇹 Italy",
+    hints: [
+      "Their iconic logo features a black prancing horse on a yellow shield.",
+      "Based in Maranello, Italy, they also compete in Formula 1.",
+      "Founded by Enzo Ferrari in 1939.",
+    ],
+  },
+  {
+    name: "Lamborghini",
+    aliases: ["lamborghini", "lambo"],
+    domain: "lamborghini.com",
+    category: "Automotive",
+    country: "🇮🇹 Italy",
+    hints: [
+      "Their logo shows a charging bull — the founder was born under the Taurus sign.",
+      "Ferruccio, their founder, originally manufactured tractors.",
+      "Based in Sant'Agata Bolognese, Italy, founded in 1963.",
+    ],
+  },
+  {
+    name: "Puma",
+    aliases: ["puma"],
+    domain: "puma.com",
+    category: "Sportswear",
+    country: "🇩🇪 Germany",
+    hints: [
+      "Their logo is a leaping big cat.",
+      "Co-founded by Rudolf Dassler, whose brother Adolf founded a rival brand.",
+      "Based in Herzogenaurach, Germany — the same town as their rival.",
+    ],
+  },
+  {
+    name: "Adidas",
+    aliases: ["adidas"],
+    domain: "adidas.com",
+    category: "Sportswear",
+    country: "🇩🇪 Germany",
+    hints: [
+      "Their logo is three parallel stripes or a trefoil.",
+      "Founded by Adolf 'Adi' Dassler in 1949.",
+      "Their rival brand was founded by Adi's own brother.",
+    ],
+  },
+  {
+    name: "Starbucks",
+    aliases: ["starbucks"],
+    domain: "starbucks.com",
+    category: "Coffee",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo features a twin-tailed mermaid called a Siren.",
+      "Named after a character in the novel Moby Dick.",
+      "Founded in Seattle in 1971, they now have 35,000+ locations worldwide.",
+    ],
+  },
+  {
+    name: "Mastercard",
+    aliases: ["mastercard", "master card"],
+    domain: "mastercard.com",
+    category: "Finance",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo is two overlapping circles — one red, one orange.",
+      "They process billions of transactions per year across 210+ countries.",
+      "Founded in 1966 as Interbank Card Association.",
+    ],
+  },
+  {
+    name: "Target",
+    aliases: ["target"],
+    domain: "target.com",
+    category: "Retail",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo is a red bullseye — a circle within a circle.",
+      "This retailer is the 7th largest in the United States.",
+      "Founded in Minneapolis in 1902 as the Dayton Dry Goods Company.",
+    ],
+  },
+  {
+    name: "Airbnb",
+    aliases: ["airbnb", "air bnb"],
+    domain: "airbnb.com",
+    category: "Travel / Accommodation",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo is called 'the Bélo' and represents belonging.",
+      "This platform lets people rent out their homes to travelers.",
+      "Founded in 2008 when the founders rented out air mattresses in their apartment.",
+    ],
+  },
+  {
+    name: "Twitter",
+    aliases: ["twitter", "x", "twitter x"],
+    domain: "x.com",
+    category: "Social Media",
+    country: "🇺🇸 USA",
+    hints: [
+      "This platform was originally built around short text messages of 140 characters.",
+      "The original bird logo was named 'Larry' after basketball player Larry Bird.",
+      "Acquired by Elon Musk in 2022 and rebranded to 'X'.",
+    ],
+  },
+  {
+    name: "TikTok",
+    aliases: ["tiktok", "tik tok"],
+    domain: "tiktok.com",
+    category: "Social Media",
+    country: "🇨🇳 China",
+    hints: [
+      "Their logo looks like a musical note.",
+      "This short-video app is owned by ByteDance, a Chinese company.",
+      "Launched internationally in 2017, it reached 1 billion users faster than any platform before.",
+    ],
+  },
+  {
+    name: "Lacoste",
+    aliases: ["lacoste"],
+    domain: "lacoste.com",
+    category: "Fashion",
+    country: "🇫🇷 France",
+    hints: [
+      "Their logo is a green crocodile.",
+      "Founded by tennis champion René Lacoste, nicknamed 'the Crocodile'.",
+      "The iconic polo shirt was invented by their founder in 1933.",
+    ],
+  },
+  {
+    name: "Rolex",
+    aliases: ["rolex"],
+    domain: "rolex.com",
+    category: "Luxury Watches",
+    country: "🇨🇭 Switzerland",
+    hints: [
+      "Their logo is a golden crown.",
+      "Founded in London in 1905 by Hans Wilsdorf.",
+      "One of their watches sold at auction for over $17 million.",
+    ],
+  },
+  {
+    name: "PlayStation",
+    aliases: ["playstation", "sony playstation", "ps"],
+    domain: "playstation.com",
+    category: "Gaming",
+    country: "🇯🇵 Japan",
+    hints: [
+      "Their logo uses four shapes: a circle, cross, square, and triangle.",
+      "Made by Sony, this console first launched in Japan in 1994.",
+      "It is one of the best-selling gaming brands of all time.",
+    ],
+  },
+  {
+    name: "Red Bull",
+    aliases: ["red bull", "redbull"],
+    domain: "redbull.com",
+    category: "Energy Drinks",
+    country: "🇦🇹 Austria",
+    hints: [
+      "Their logo shows two red bulls charging toward each other in front of a yellow sun.",
+      "Their slogan is 'Red Bull gives you wings'.",
+      "They also own a Formula 1 team and multiple football clubs.",
+    ],
+  },
+  {
+    name: "Ralph Lauren",
+    aliases: ["ralph lauren", "polo ralph lauren", "polo"],
+    domain: "ralphlauren.com",
+    category: "Fashion",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo shows a polo player on horseback.",
+      "Founded by Ralph Lifshitz (who changed his name) in 1967.",
+      "Known for their preppy American style and the Polo shirt.",
+    ],
+  },
+  {
+    name: "Under Armour",
+    aliases: ["under armour", "ua", "underarmour"],
+    domain: "underarmour.com",
+    category: "Sportswear",
+    country: "🇺🇸 USA",
+    hints: [
+      "Their logo is two mirrored 'U' letters interlocked.",
+      "Founded in 1996 by Kevin Plank from his grandmother's basement.",
+      "Originally focused on moisture-wicking athletic shirts.",
+    ],
+  },
+];
+
+type LogoDifficulty = "easy" | "medium" | "hard";
+
+interface LogoGame {
+  brand: LogoBrand;
+  difficulty: LogoDifficulty;
+  hintIndex: number;
+  maxHints: number;
+}
+
+const activeLogoGames = new Map<string, LogoGame>();
+const recentLogoBrands = new Map<string, Set<string>>();
+
+const LOGO_DIFF_CONFIG: Record<LogoDifficulty, { maxHints: number; timeMs: number; label: string; color: number }> = {
+  easy:   { maxHints: 3, timeMs: 90_000, label: "🟢 Easy",   color: 0x2ecc71 },
+  medium: { maxHints: 2, timeMs: 60_000, label: "🟡 Medium", color: 0xf1c40f },
+  hard:   { maxHints: 1, timeMs: 45_000, label: "🔴 Hard",   color: 0xe74c3c },
+};
+
+function pickLogoToken(): string {
+  return process.env["LOGO_DEV_TOKEN"] ?? process.env["LOGO_DEV_API_KEY"] ?? "";
+}
+
+function buildLogoUrl(domain: string): string {
+  const token = pickLogoToken();
+  const base = `https://img.logo.dev/${domain}?size=200&format=png`;
+  return token ? `${base}&token=${token}` : base;
+}
+
+function pickRandomBrand(channelId: string): LogoBrand {
+  const recent = recentLogoBrands.get(channelId) ?? new Set();
+  const pool = LOGO_BRANDS.filter((b) => !recent.has(b.name));
+  const source = pool.length > 0 ? pool : LOGO_BRANDS;
+  const brand = source[Math.floor(Math.random() * source.length)];
+  recent.add(brand.name);
+  if (recent.size > Math.floor(LOGO_BRANDS.length / 2)) {
+    recent.clear();
+    recent.add(brand.name);
+  }
+  recentLogoBrands.set(channelId, recent);
+  return brand;
+}
+
+function isCorrectLogoBrand(guess: string, brand: LogoBrand): boolean {
+  const norm = normalize(guess);
+  return [brand.name, ...brand.aliases].some((a) => normalize(a) === norm);
+}
+
+export async function playGuessLogo(message: Message, diffArg?: string): Promise<void> {
+  const channel = toSendable(message.channel);
+  if (!channel) return;
+
+  if (activeLogoGames.has(channel.id)) {
+    await channel.send("🏷️ A logo game is already running here! Guess the current logo or wait for it to end.");
+    return;
+  }
+
+  if (!pickLogoToken()) {
+    await channel.send("❌ Logo game is not configured. Ask a moderator to set `LOGO_DEV_TOKEN` — use `!mode d'emploi` for instructions.");
+    return;
+  }
+
+  const difficulty: LogoDifficulty = (["easy", "medium", "hard"].includes(diffArg ?? "") ? diffArg : "easy") as LogoDifficulty;
+  const cfg = LOGO_DIFF_CONFIG[difficulty];
+  const brand = pickRandomBrand(channel.id);
+  const game: LogoGame = { brand, difficulty, hintIndex: 0, maxHints: cfg.maxHints };
+  activeLogoGames.set(channel.id, game);
+
+  const logoUrl = buildLogoUrl(brand.domain);
+
+  const buildEmbed = (hintsShown: string[]): EmbedBuilder => {
+    const embed = new EmbedBuilder()
+      .setTitle(`🏷️ GUESS THE LOGO — ${cfg.label}`)
+      .setImage(logoUrl)
+      .setColor(cfg.color)
+      .setFooter({ text: `${cfg.maxHints} hint${cfg.maxHints > 1 ? "s" : ""} available • ${cfg.timeMs / 1000}s per guess • !logo stop to give up` });
+
+    if (hintsShown.length === 0) {
+      embed.setDescription("🔍 Which brand does this logo belong to?\nType your answer below!");
+    } else {
+      embed.setDescription(
+        "🔍 Which brand does this logo belong to?\n\n" +
+        hintsShown.map((h, i) => `💡 **Hint ${i + 1}:** ${h}`).join("\n")
+      );
+    }
+    return embed;
+  };
+
+  await channel.send({ embeds: [buildEmbed([])] });
+
+  const hintsUsed: string[] = [];
+
+  try {
+    while (true) {
+      const collected = await (message.channel as unknown as {
+        awaitMessages: (opts: {
+          filter: (m: Message) => boolean;
+          max: number;
+          time: number;
+          errors: string[];
+        }) => Promise<Map<string, Message>>;
+      }).awaitMessages({
+        filter: (m: Message) => !m.author.bot,
+        max: 1,
+        time: cfg.timeMs,
+        errors: ["time"],
+      });
+
+      const reply = [...collected.values()][0];
+      if (!reply) break;
+
+      const text = reply.content.trim();
+
+      if (normalize(text) === "!logo stop" || normalize(text) === "logo stop") {
+        await channel.send(
+          `🏳️ Game over! The logo was **${brand.name}** (${brand.category} • ${brand.country})`
+        );
+        break;
+      }
+
+      if (isCorrectLogoBrand(text, brand)) {
+        const hintsLabel =
+          hintsUsed.length === 0
+            ? "without any hints — incredible! 🤯"
+            : hintsUsed.length === 1
+            ? "with just 1 hint"
+            : `with ${hintsUsed.length} hints`;
+
+        const score = cfg.maxHints + 1 - hintsUsed.length;
+        const stars = "⭐".repeat(Math.max(1, score));
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ecc71)
+          .setTitle(`✅ ${reply.author.displayName} got it!`)
+          .setDescription(
+            `The logo was **${brand.name}** ${hintsLabel}!\n` +
+            `**Category:** ${brand.category} • **Country:** ${brand.country}\n` +
+            `**Score:** ${stars} (${score}/${cfg.maxHints + 1})`
+          )
+          .setThumbnail(logoUrl);
+
+        await channel.send({ embeds: [embed] });
+        break;
+      }
+
+      const nextHint = brand.hints[hintsUsed.length];
+      if (!nextHint || hintsUsed.length >= cfg.maxHints) {
+        await channel.send(
+          `❌ Wrong! No more hints.\nThe logo was **${brand.name}** — ${brand.category} from ${brand.country}. Better luck next time!`
+        );
+        break;
+      }
+
+      hintsUsed.push(nextHint);
+      await channel.send({ embeds: [buildEmbed(hintsUsed)] });
+    }
+  } catch {
+    await channel.send(
+      `⏱️ Time's up! The logo was **${brand.name}** — ${brand.category} from ${brand.country}.`
+    );
+  } finally {
+    activeLogoGames.delete(channel.id);
+  }
+}
+
+export function stopGuessLogo(channelId: string): boolean {
+  return activeLogoGames.delete(channelId);
+}
+
+export function isLogoActive(channelId: string): boolean {
+  return activeLogoGames.has(channelId);
+}

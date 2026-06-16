@@ -15,6 +15,7 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `DISCORD_TOKEN_2` — second bot pour `!ai battle`
 - `HUGGINGFACE_TOKEN` — active `!image` / `/image`
 - `SUNO_API_KEY` — active `!music generator` et `!credits`
+- `LOGO_DEV_TOKEN` — active `!guessthelogo` (token publishable logo.dev)
 
 ## Stack
 
@@ -59,6 +60,7 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `!trivia` — Quiz culture générale (IA)
 - `!guessnumber` — Devine un nombre
 - `!connect4` — Puissance 4
+- `!guessthelogo [easy|medium|hard]` — Devine le logo (aussi `!guesslogo`, `!devinelelogo`) — nécessite `LOGO_DEV_TOKEN`
 
 ### Musique (Suno AI)
 - `!music generator <prompt>` — génère une chanson

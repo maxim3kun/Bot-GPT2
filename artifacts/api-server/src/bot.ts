@@ -1,7 +1,7 @@
 import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
-import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
+import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
@@ -259,10 +259,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`",
       },
       {
         name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
@@ -405,10 +405,10 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): Em
       embed.setTitle(fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games");
       embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
         value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*"
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`"
           : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*",
+          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`"
+          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`",
       }); break;
 
     case "music":
@@ -1534,6 +1534,24 @@ export function startBot(): void {
           break;
         }
 
+        case "guessthelogo":
+        case "guesslogo":
+        case "devinelelogo": {
+          const sub = args[0]?.toLowerCase();
+          if (sub === "stop") {
+            if (isLogoActive(message.channelId)) {
+              stopGuessLogo(message.channelId);
+              await message.reply("🏳️ Logo game abandoned!");
+            } else {
+              await message.reply("🤷 No logo game in progress.");
+            }
+            break;
+          }
+          const logoDiff = sub && ["easy", "medium", "hard"].includes(sub) ? sub : "easy";
+          playGuessLogo(message, logoDiff).catch((err) => logger.error({ err }, "GuessLogo error"));
+          break;
+        }
+
         // ── Music — Suno AI ───────────────────────────────────────────────────────
         case "music": {
           const sub = args.shift()?.toLowerCase();
@@ -2581,6 +2599,19 @@ export function startBot(): void {
               case "connect4":
                 await playConnect4(message, args);
                 break;
+              case "guessthelogo":
+              case "guesslogo":
+              case "devinelelogo": {
+                const logoSub = args[0]?.toLowerCase();
+                if (logoSub === "stop") {
+                  if (isLogoActive(message.channelId)) { stopGuessLogo(message.channelId); await message.reply("🏳️ Logo game abandoned!"); }
+                  else { await message.reply("🤷 No logo game in progress."); }
+                } else {
+                  const ld = logoSub && ["easy","medium","hard"].includes(logoSub) ? logoSub : "easy";
+                  playGuessLogo(message, ld).catch(() => null);
+                }
+                break;
+              }
               case "music":
                 await message.reply(`🎵 Usage: \`${guildPrefix}music generator <description>\`\nExemple : \`${guildPrefix}music generator lo-fi chill beats\``);
                 break;
