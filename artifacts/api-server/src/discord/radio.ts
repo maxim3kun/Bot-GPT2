@@ -1195,8 +1195,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   let results: { url: string; title: string; duration: number; channel: string | null }[];
   try {
-    // Fetch only 5 results — enough for the picker and much faster
-    results = await fastYouTubeSearch(query, 5);
+    // Fetch 15 candidates so we have enough after filtering out compilations/mixes
+    results = await fastYouTubeSearch(query, 15);
   } catch (err) {
     logger.error({ err, query }, "YouTube search error");
     await loadMsg.edit("❌ Search failed. Please try again.");
@@ -1208,8 +1208,14 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     return;
   }
 
-  // Clean titles (keep natural YouTube order — do NOT re-sort by our score)
-  const cleaned = results.map(r => ({
+  // Filter out long videos (compilations, mixes, full albums — anything > 15 min)
+  const MAX_SINGLE_TRACK_SECS = 15 * 60;
+  const filtered = results.filter(r => r.duration === 0 || r.duration <= MAX_SINGLE_TRACK_SECS);
+  // Fallback: if everything was filtered (e.g. query is intentionally about a long video), keep all
+  const pool = filtered.length > 0 ? filtered : results;
+
+  // Clean titles and cap at 11 (3 pages: 4 + 3 + 4)
+  const cleaned = pool.slice(0, 11).map(r => ({
     ...r,
     title: cleanYouTubeTitle(r.title),
     thumbnail: null as string | null,
