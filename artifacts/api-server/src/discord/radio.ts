@@ -326,19 +326,14 @@ const queueInfoCache = new Map<string, CachedTrackInfo>();
 async function prefetchTrackInfo(url: string): Promise<void> {
   if (queueInfoCache.has(url)) return;
   try {
-    const play = await getPlay();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const info = await (play.video_info(url) as Promise<any>).catch(() => null);
-    const det = info?.video_details;
-    if (det) {
-      queueInfoCache.set(url, {
-        title: cleanYouTubeTitle((det.title as string) ?? "Unknown"),
-        duration: (det.durationInSec as number) ?? 0,
-        thumbnail: (det.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null,
-      });
-    }
+    const info = await ytdlpInfo(url);
+    queueInfoCache.set(url, {
+      title: cleanYouTubeTitle(info.title),
+      duration: info.duration,
+      thumbnail: info.thumbnail,
+    });
   } catch {
-    // Silently ignore — ytdlpInfo used as fallback when track plays
+    // Silently ignore — metadata fetched fresh at play time
   }
 }
 
@@ -1155,7 +1150,13 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
   if (globalIdx < 0 || globalIdx >= ps.results.length) return null;
   clearTimeout(ps.expires);
   pendingSearches.delete(msgId);
-  return { pick: ps.results[globalIdx]!, message: ps.message, requestedBy: ps.requestedBy };
+  const basePick = ps.results[globalIdx]!;
+  // Use pre-fetched metadata if available (better thumbnail, confirmed duration)
+  const cached = queueInfoCache.get(basePick.url);
+  const pick = cached
+    ? { url: basePick.url, title: cached.title, duration: cached.duration, thumbnail: cached.thumbnail }
+    : basePick;
+  return { pick, message: ps.message, requestedBy: ps.requestedBy };
 }
 
 /** Called by the bot.ts button handler when the user clicks ◀ or ▶ to navigate pages. */
@@ -1248,6 +1249,25 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   const { embed, components } = buildSearchPage(allResults, 0, loadMsg.id, slices);
 
   await loadMsg.edit({ content: "", embeds: [embed], components });
+
+  // Pre-warm yt-dlp for the top 3 results while the user reads the picker.
+  // The user typically takes 3–10 s to choose — by then the stream is already buffered,
+  // so audio starts almost instantly after the click.
+  const warmCount = Math.min(3, allResults.length);
+  for (let i = 0; i < warmCount; i++) {
+    const r = allResults[i]!;
+    preloadStream(r.url);
+    // Also pre-fetch full metadata (real thumbnail, exact duration) in parallel
+    if (!queueInfoCache.has(r.url)) {
+      ytdlpInfo(r.url)
+        .then(info => queueInfoCache.set(r.url, {
+          title: cleanYouTubeTitle(info.title),
+          duration: info.duration,
+          thumbnail: info.thumbnail,
+        }))
+        .catch(() => null);
+    }
+  }
 
   // Expire after 2 min — remove buttons
   const expires = setTimeout(async () => {
