@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -916,33 +916,6 @@ export function startBot(): void {
       }
     });
 
-    // Rename the voice channel to show the current song, restore on stop
-    const originalChannelNames = new Map<string, string>(); // guildId → original name
-    setChannelNameCallback((guildId, title) => {
-      try {
-        const guild = client.guilds.cache.get(guildId);
-        if (!guild) return;
-        const channelId = guild.members.me?.voice.channelId;
-        if (!channelId) return;
-        const channel = guild.channels.cache.get(channelId);
-        if (!channel || channel.type !== ChannelType.GuildVoice) return;
-        if (title) {
-          if (!originalChannelNames.has(guildId)) {
-            originalChannelNames.set(guildId, channel.name);
-          }
-          const label = `🎵 ${title}`.slice(0, 100);
-          channel.setName(label).catch(() => null);
-        } else {
-          const original = originalChannelNames.get(guildId);
-          if (original) {
-            channel.setName(original).catch(() => null);
-            originalChannelNames.delete(guildId);
-          }
-        }
-      } catch {
-        // Silently ignore — rate limit or missing permissions
-      }
-    });
   });
 
   // ── Voice state — auto-disconnect when bot is alone ──────────────────────────

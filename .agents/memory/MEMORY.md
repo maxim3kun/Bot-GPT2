@@ -1,0 +1,1 @@
+- [yt-dlp YouTube client for Replit](yt-dlp-client.md) — tv_embedded broken (0 bytes); use android,formats=missing_pot as of 2025-06

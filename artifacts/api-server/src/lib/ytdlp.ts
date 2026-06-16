@@ -8,8 +8,9 @@ const execFileAsync = promisify(execFile);
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
-// tv_embedded: only client that works from datacenter IPs (default hangs, ios returns 0 bytes)
-const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=tv_embedded";
+// android + formats=missing_pot: only client that streams audio from datacenter IPs as of 2025-06
+// tv_embedded was previously used but now returns 0 bytes; ios/mweb return only image formats
+const YT_CLIENT_ARGS = "--extractor-args=youtube:player_client=android,formats=missing_pot";
 
 export interface YtInfo {
   title: string;
