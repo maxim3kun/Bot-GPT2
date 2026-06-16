@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4 } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -913,6 +913,20 @@ export function startBot(): void {
         client.user?.setActivity(title, { type: ActivityType.Listening });
       } else {
         client.user?.setActivity("!help · !music · !join", { type: ActivityType.Listening });
+      }
+    });
+
+    // Set voice channel status (the text shown under the channel name in the sidebar)
+    setChannelNameCallback((guildId, title) => {
+      try {
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) return;
+        const channelId = guild.members.me?.voice.channelId;
+        if (!channelId) return;
+        const status = title ? `🎵 ${title}` : "";
+        client.rest.put(`/channels/${channelId}/voice-status`, { body: { status } }).catch(() => null);
+      } catch {
+        // Missing permissions or rate limit — ignore silently
       }
     });
 
