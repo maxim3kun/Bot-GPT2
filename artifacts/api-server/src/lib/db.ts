@@ -83,10 +83,19 @@ export interface UserData {
 
 // ── MongoDB client ─────────────────────────────────────────────────────────────
 
+// ── Logo brands cache ──────────────────────────────────────────────────────────
+
+export interface LogoBrandCacheDoc {
+  _id: "logo_brands";
+  brands: unknown[];
+  updatedAt: Date;
+}
+
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 export let usersCol: Collection<UserDoc> | null = null;
 export let guildsCol: Collection<GuildDoc> | null = null;
+export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
 
 export function isDbReady(): boolean {
   return db !== null && encKey !== null;
@@ -107,6 +116,7 @@ export async function connectDb(): Promise<void> {
     db = mongoClient.db();
     usersCol  = db.collection<UserDoc>("users");
     guildsCol = db.collection<GuildDoc>("guilds");
+    logoBrandsCacheCol = db.collection<LogoBrandCacheDoc>("logo_brands_cache");
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");
   } catch (err) {

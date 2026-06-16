@@ -428,6 +428,46 @@ export const LOGO_SEARCH_TERMS = [
   "movie", "music", "podcast", "social", "dating", "travel", "booking",
 ];
 
+// ── MongoDB-backed cache ─────────────────────────────────────────────────────
+// Brands are fetched once from logo.dev API then stored in MongoDB.
+// Subsequent startups load from MongoDB — no API call needed.
+// Cache TTL: 7 days.
+
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function loadBrandsWithCache(publicKey: string): Promise<LogoBrand[]> {
+  // lazy-import to avoid circular dependency at module load time
+  const { logoBrandsCacheCol } = await import("../lib/db.js");
+
+  if (logoBrandsCacheCol) {
+    try {
+      const cached = await logoBrandsCacheCol.findOne({ _id: "logo_brands" });
+      if (cached && (Date.now() - cached.updatedAt.getTime()) < CACHE_TTL_MS) {
+        return cached.brands as LogoBrand[];
+      }
+    } catch {
+      // ignore cache read errors — fall through to API
+    }
+  }
+
+  // Cache miss or stale → fetch from API
+  const fresh = await loadDynamicBrands(publicKey);
+
+  if (logoBrandsCacheCol && fresh.length > 0) {
+    try {
+      await logoBrandsCacheCol.updateOne(
+        { _id: "logo_brands" },
+        { $set: { brands: fresh as unknown[], updatedAt: new Date() } },
+        { upsert: true },
+      );
+    } catch {
+      // ignore cache write errors
+    }
+  }
+
+  return fresh;
+}
+
 export async function loadDynamicBrands(publicKey: string): Promise<LogoBrand[]> {
   const seen = new Set<string>(HARDCODED_BRANDS.map((b) => b.domain.toLowerCase()));
   const results: LogoBrand[] = [];

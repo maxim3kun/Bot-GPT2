@@ -1,7 +1,7 @@
 import { Message, EmbedBuilder, MessageReaction, User } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
-import { LogoBrand, HARDCODED_BRANDS, loadDynamicBrands } from "./discord/logo-brands";
+import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
 
 // ─────────────────────────────────────────
 // HELPERS
@@ -1095,7 +1095,7 @@ function triggerDynamicLoad(): void {
   if (dynamicBrandsLoaded || dynamicLoadPromise) return;
   const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
   if (!token) return;
-  dynamicLoadPromise = loadDynamicBrands(token).then((brands) => {
+  dynamicLoadPromise = loadBrandsWithCache(token).then((brands) => {
     logoBrandPool = [...HARDCODED_BRANDS, ...brands];
     dynamicBrandsLoaded = true;
     logger.info({ total: logoBrandPool.length, dynamic: brands.length }, "Logo brand pool loaded");
