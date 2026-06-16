@@ -1475,7 +1475,7 @@ const LOGO_DIFF_CONFIG: Record<LogoDifficulty, { maxHints: number; timeMs: numbe
 };
 
 function pickLogoToken(): string {
-  return process.env["LOGO_DEV_TOKEN"] ?? process.env["LOGO_DEV_API_KEY"] ?? "";
+  return process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
 }
 
 function buildLogoUrl(domain: string): string {
