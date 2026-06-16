@@ -19,6 +19,7 @@ import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUse
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
 import { isDbReady } from "./lib/db";
+import { setBotStats } from "./lib/bot-stats";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -2727,8 +2728,17 @@ export function startBot(): void {
     if (client.user) {
       registerSlashCommands(client.user.id, token)
         .catch((err) => logger.error({ err }, "Slash command registration failed"));
+      setBotStats({
+        guildCount: client.guilds.cache.size,
+        botTag: client.user.tag,
+        botAvatarUrl: client.user.displayAvatarURL({ size: 256 }),
+        botId: client.user.id,
+      });
     }
   });
+
+  client.on("guildCreate", () => setBotStats({ guildCount: client.guilds.cache.size }));
+  client.on("guildDelete", () => setBotStats({ guildCount: client.guilds.cache.size }));
 
   client.login(token).catch((err) => {
     logger.error({ err }, "Failed to connect to Discord");

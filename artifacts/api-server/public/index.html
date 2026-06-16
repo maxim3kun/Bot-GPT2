@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MaximeGPT — Bot Discord</title>
+  <meta name="description" content="Bot Discord complet : IA, musique, mini-jeux, vocal, radio et bien plus." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blurple:   #5865F2;
+      --blurple-h: #4752c4;
+      --green:     #57f287;
+      --yellow:    #fee75c;
+      --bg:        #0b0c10;
+      --bg2:       #111318;
+      --card:      #161b27;
+      --card2:     #1e2535;
+      --border:    #2a3146;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --radius:    14px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Inter", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ─────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 64px;
+      background: rgba(11,12,16,.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: .6rem; text-decoration: none; color: var(--text); font-weight: 700; font-size: 1.1rem; }
+    .nav-logo img { width: 34px; height: 34px; border-radius: 50%; }
+    .nav-logo .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; display: inline-block; }
+    .nav-links { display: flex; align-items: center; gap: .5rem; }
+    .nav-links a { padding: .45rem .9rem; border-radius: 8px; text-decoration: none; font-size: .9rem; font-weight: 500; color: var(--muted); transition: color .2s, background .2s; }
+    .nav-links a:hover { color: var(--text); background: var(--card); }
+    .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem 1.2rem; border-radius: 8px; font-weight: 600; font-size: .9rem; text-decoration: none; cursor: pointer; border: none; transition: all .2s; }
+    .btn-primary { background: var(--blurple); color: #fff; }
+    .btn-primary:hover { background: var(--blurple-h); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(88,101,242,.4); }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--blurple); }
+
+    /* ── HERO ────────────────────────────── */
+    .hero {
+      position: relative;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 7rem 1.5rem 5rem;
+      overflow: hidden;
+    }
+    .hero-glow {
+      position: absolute; top: -120px; left: 50%; transform: translateX(-50%);
+      width: 700px; height: 500px;
+      background: radial-gradient(ellipse, rgba(88,101,242,.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-avatar {
+      width: 100px; height: 100px; border-radius: 50%;
+      border: 3px solid var(--blurple);
+      box-shadow: 0 0 30px rgba(88,101,242,.45);
+      margin-bottom: 1.5rem;
+      background: var(--card);
+    }
+    .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+    .hero h1 span { background: linear-gradient(135deg, #5865f2, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .hero p { margin: 1rem auto 0; max-width: 560px; color: var(--muted); font-size: 1.1rem; line-height: 1.7; }
+    .hero-actions { display: flex; gap: .8rem; margin-top: 2.2rem; flex-wrap: wrap; justify-content: center; }
+    .hero-stats {
+      display: flex; gap: 1.5rem; margin-top: 3rem; flex-wrap: wrap; justify-content: center;
+    }
+    .stat-pill {
+      display: flex; align-items: center; gap: .5rem;
+      background: var(--card); border: 1px solid var(--border);
+      padding: .55rem 1.1rem; border-radius: 40px;
+      font-size: .9rem; font-weight: 600;
+    }
+    .stat-pill .icon { font-size: 1.1rem; }
+    .stat-pill .val { color: var(--blurple); font-size: 1rem; }
+
+    /* ── SECTION LABELS ──────────────────── */
+    section { padding: 4.5rem 1.5rem; max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(88,101,242,.12); border: 1px solid rgba(88,101,242,.3);
+      color: #a5b4fc; border-radius: 40px; padding: .3rem .9rem; font-size: .8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .08em; margin-bottom: 1rem;
+    }
+    .section-title { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 800; margin-bottom: .6rem; }
+    .section-sub { color: var(--muted); font-size: 1rem; max-width: 540px; line-height: 1.6; }
+
+    /* ── FEATURES ────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem; margin-top: 2.5rem;
+    }
+    .feat-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.5rem; transition: border-color .2s, transform .2s, box-shadow .2s;
+    }
+    .feat-card:hover { border-color: var(--blurple); transform: translateY(-3px); box-shadow: 0 8px 30px rgba(88,101,242,.15); }
+    .feat-icon { font-size: 2rem; margin-bottom: .8rem; }
+    .feat-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+    .feat-card p { font-size: .88rem; color: var(--muted); line-height: 1.5; }
+
+    /* ── COMMANDS ────────────────────────── */
+    .commands-section { padding: 4.5rem 1.5rem; background: var(--bg2); }
+    .commands-inner { max-width: 1100px; margin: 0 auto; }
+    .cmd-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin: 2rem 0 1.5rem; }
+    .cmd-tab {
+      padding: .45rem 1.1rem; border-radius: 8px; font-size: .88rem; font-weight: 600;
+      border: 1px solid var(--border); background: transparent; color: var(--muted);
+      cursor: pointer; transition: all .2s;
+    }
+    .cmd-tab.active, .cmd-tab:hover { background: var(--blurple); color: #fff; border-color: var(--blurple); }
+    .cmd-panel { display: none; }
+    .cmd-panel.active { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .8rem; }
+    .cmd-row {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: .9rem 1.1rem; display: flex; flex-direction: column; gap: .25rem;
+    }
+    .cmd-row code {
+      font-family: "Courier New", monospace; font-size: .88rem;
+      background: rgba(88,101,242,.15); color: #a5b4fc;
+      padding: .15rem .45rem; border-radius: 5px; width: fit-content;
+    }
+    .cmd-row span { font-size: .85rem; color: var(--muted); line-height: 1.4; }
+
+    /* ── INVITE BANNER ───────────────────── */
+    .invite-banner {
+      margin: 0 auto; max-width: 1100px;
+      background: linear-gradient(135deg, var(--blurple) 0%, #7c3aed 100%);
+      border-radius: var(--radius); padding: 3rem 2.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1.5rem; flex-wrap: wrap;
+    }
+    .invite-banner h2 { font-size: 1.6rem; font-weight: 800; }
+    .invite-banner p { color: rgba(255,255,255,.75); margin-top: .3rem; font-size: .95rem; }
+    .btn-white { background: #fff; color: var(--blurple); font-weight: 700; }
+    .btn-white:hover { background: #e8eafd; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+
+    /* ── FOOTER ──────────────────────────── */
+    footer {
+      text-align: center; padding: 2.5rem 1.5rem;
+      border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem;
+    }
+    footer a { color: var(--blurple); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── STATUS BADGE ────────────────────── */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: rgba(87,242,135,.1); border: 1px solid rgba(87,242,135,.25);
+      color: var(--green); border-radius: 40px; padding: .25rem .8rem; font-size: .78rem; font-weight: 700;
+      margin-bottom: 1.2rem;
+    }
+    .status-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* ── RESPONSIVE ──────────────────────── */
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      .nav-links a:not(:last-child) { display: none; }
+      .invite-banner { text-align: center; justify-content: center; }
+      .hero-stats { gap: .7rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#">
+    <img id="nav-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="avatar" />
+    <span id="nav-name">MaximeGPT</span>
+    <span class="dot"></span>
+  </a>
+  <div class="nav-links">
+    <a href="#features">Fonctionnalités</a>
+    <a href="#commands">Commandes</a>
+    <a id="nav-invite" href="#" class="btn btn-primary">+ Ajouter au serveur</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-glow"></div>
+  <div class="status-badge"><span class="status-dot"></span> En ligne</div>
+  <img id="hero-avatar" class="hero-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Bot avatar" />
+  <h1>Le bot Discord qui<br><span>fait tout.</span></h1>
+  <p>IA, musique Suno, radio, mini-jeux, chat vocal, karaoké et bien plus — tout dans un seul bot.</p>
+  <div class="hero-actions">
+    <a id="invite-btn" href="#" class="btn btn-primary">🚀 Ajouter au serveur</a>
+    <a href="#commands" class="btn btn-ghost">📖 Voir les commandes</a>
+  </div>
+  <div class="hero-stats">
+    <div class="stat-pill"><span class="icon">🌐</span><span class="val" id="stat-guilds">—</span><span>serveurs</span></div>
+    <div class="stat-pill"><span class="icon">⚡</span><span class="val" id="stat-cmds">45</span><span>commandes</span></div>
+    <div class="stat-pill"><span class="icon">🕐</span><span class="val" id="stat-uptime">—</span></div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-label">✨ Fonctionnalités</div>
+  <h2 class="section-title">Tout ce dont votre serveur a besoin</h2>
+  <p class="section-sub">Des dizaines de commandes organisées en catégories pour animer votre communauté.</p>
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="feat-icon">🤖</div>
+      <h3>Intelligence Artificielle</h3>
+      <p>Chat IA par mention ou en DM, génération d'images, débat entre deux bots IA, théories du complot.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎵</div>
+      <h3>Musique & Radio</h3>
+      <p>Génération musicale avec Suno AI, 30+ stations radio FR/ES/EN, lecture YouTube avec file d'attente.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎙️</div>
+      <h3>Chat Vocal</h3>
+      <p>Le bot rejoint votre salon, transcrit la parole (Whisper) et répond en voix (Google TTS).</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎮</div>
+      <h3>Mini-jeux</h3>
+      <p>Démineur, GeoGuessr, Trivia IA, Puissance 4, Devine le nombre — jouez directement dans Discord.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎤</div>
+      <h3>Karaoké</h3>
+      <p>Affichage des paroles en temps réel synchronisé avec la musique en cours de lecture.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🌍</div>
+      <h3>Multilingue</h3>
+      <p>Commandes disponibles en français, anglais et espagnol. Langue configurable par serveur.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎂</div>
+      <h3>Anniversaires</h3>
+      <p>Enregistrez les anniversaires de vos membres et recevez une notification automatique le jour J.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">⚔️</div>
+      <h3>Système de Quêtes</h3>
+      <p>Créez des objectifs pour vos membres avec rappels automatiques et suivi de progression.</p>
+    </div>
+  </div>
+</section>
+
+<!-- COMMANDS -->
+<div class="commands-section" id="commands">
+  <div class="commands-inner">
+    <div class="section-label">📖 Commandes</div>
+    <h2 class="section-title">Toutes les commandes</h2>
+    <p class="section-sub">Préfixe par défaut : <code style="background:var(--card);padding:.2rem .5rem;border-radius:5px;color:#a5b4fc">!</code> — modifiable avec <code style="background:var(--card);padding:.2rem .5rem;border-radius:5px;color:#a5b4fc">!prefix</code></p>
+
+    <div class="cmd-tabs">
+      <button class="cmd-tab active" data-tab="fun">😄 Fun</button>
+      <button class="cmd-tab" data-tab="games">🎮 Mini-jeux</button>
+      <button class="cmd-tab" data-tab="music">🎵 Musique</button>
+      <button class="cmd-tab" data-tab="radio">📻 Radio</button>
+      <button class="cmd-tab" data-tab="voice">🎙️ Vocal</button>
+      <button class="cmd-tab" data-tab="ai">🤖 IA</button>
+      <button class="cmd-tab" data-tab="admin">⚙️ Admin</button>
+    </div>
+
+    <div class="cmd-panel active" id="tab-fun">
+      <div class="cmd-row"><code>!say &lt;message&gt;</code><span>Fait répéter le message par le bot</span></div>
+      <div class="cmd-row"><code>!hello / !bonjour / !salut</code><span>Accueil chaleureux personnalisé</span></div>
+      <div class="cmd-row"><code>!compliment [fr|es]</code><span>Envoie un compliment aléatoire</span></div>
+      <div class="cmd-row"><code>!joke [fr|es]</code><span>Raconte une blague aléatoire</span></div>
+      <div class="cmd-row"><code>!encouragement [fr|es]</code><span>Un mot d'encouragement</span></div>
+      <div class="cmd-row"><code>!hug [fr|es]</code><span>Envoie un câlin virtuel 🤗</span></div>
+      <div class="cmd-row"><code>!8ball &lt;question&gt;</code><span>La boule magique répond à tout</span></div>
+      <div class="cmd-row"><code>!dice [faces]</code><span>Lance un dé (6 faces par défaut)</span></div>
+      <div class="cmd-row"><code>!conspiracy [sujet]</code><span>Génère une théorie du complot IA</span></div>
+      <div class="cmd-row"><code>!poll Question | Opt1 | Opt2</code><span>Crée un sondage avec réactions</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-games">
+      <div class="cmd-row"><code>!minesweeper [easy|medium|hard]</code><span>Démineur interactif</span></div>
+      <div class="cmd-row"><code>!geo [easy|medium|hard]</code><span>Devine le pays à partir d'indices</span></div>
+      <div class="cmd-row"><code>!trivia</code><span>Quiz culture générale généré par IA</span></div>
+      <div class="cmd-row"><code>!guessnumber</code><span>Devine le nombre secret</span></div>
+      <div class="cmd-row"><code>!connect4 [fr|es] [@adversaire]</code><span>Puissance 4 contre un joueur</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-music">
+      <div class="cmd-row"><code>!music generator &lt;prompt&gt;</code><span>Génère une chanson originale avec Suno AI</span></div>
+      <div class="cmd-row"><code>!music prompt</code><span>Affiche des exemples de prompts créatifs</span></div>
+      <div class="cmd-row"><code>!credits</code><span>Affiche les crédits Suno restants</span></div>
+      <div class="cmd-row"><code>!play &lt;url ou recherche&gt;</code><span>Lance une vidéo YouTube en vocal</span></div>
+      <div class="cmd-row"><code>!skip</code><span>Passe au titre suivant</span></div>
+      <div class="cmd-row"><code>!queue</code><span>Affiche la file d'attente</span></div>
+      <div class="cmd-row"><code>!pause / !resume</code><span>Met en pause ou reprend</span></div>
+      <div class="cmd-row"><code>!stop</code><span>Arrête la musique et vide la file</span></div>
+      <div class="cmd-row"><code>!np</code><span>Affiche le titre en cours</span></div>
+      <div class="cmd-row"><code>!karaoke</code><span>Active l'affichage des paroles en temps réel</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-radio">
+      <div class="cmd-row"><code>!radio</code><span>Affiche la liste des stations disponibles</span></div>
+      <div class="cmd-row"><code>!radio &lt;station&gt;</code><span>Lance une station (NRJ, Skyrock, Los40…)</span></div>
+      <div class="cmd-row"><code>!radio fr / es / en</code><span>Filtre les stations par langue</span></div>
+      <div class="cmd-row"><code>!radio stop</code><span>Arrête la radio en cours</span></div>
+      <div class="cmd-row"><code>!radio list</code><span>Liste complète des 30+ stations</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-voice">
+      <div class="cmd-row"><code>!join</code><span>Rejoint votre salon vocal et écoute</span></div>
+      <div class="cmd-row"><code>!leave</code><span>Quitte le salon vocal</span></div>
+      <div class="cmd-row"><code>!voice stop</code><span>Mode sous-titres uniquement (sans TTS)</span></div>
+      <div class="cmd-row"><code>!voice resume</code><span>Réactive les réponses vocales</span></div>
+      <div class="cmd-row"><code>!subtitles</code><span>Active/désactive la transcription en temps réel</span></div>
+      <div class="cmd-row"><code>!shazam</code><span>Identifie la musique entendue dans le salon</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-ai">
+      <div class="cmd-row"><code>@bot &lt;message&gt;</code><span>Chat IA — fonctionne aussi en DM</span></div>
+      <div class="cmd-row"><code>/image &lt;description&gt;</code><span>Génère une image avec HuggingFace</span></div>
+      <div class="cmd-row"><code>!ai battle &lt;sujet&gt;</code><span>Débat entre deux bots IA</span></div>
+      <div class="cmd-row"><code>!ai stop</code><span>Arrête le débat en cours</span></div>
+      <div class="cmd-row"><code>!birthday set &lt;JJ/MM&gt;</code><span>Enregistre votre anniversaire</span></div>
+      <div class="cmd-row"><code>!quest</code><span>Voir et gérer vos quêtes personnelles</span></div>
+    </div>
+
+    <div class="cmd-panel" id="tab-admin">
+      <div class="cmd-row"><code>!prefix &lt;nouveau&gt;</code><span>Change le préfixe du serveur</span></div>
+      <div class="cmd-row"><code>!new setlang [en|fr|es]</code><span>Définit la langue par défaut du serveur</span></div>
+      <div class="cmd-row"><code>!admin channel #salon</code><span>Définit le salon d'alertes anti-troll</span></div>
+      <div class="cmd-row"><code>!block @membre</code><span>Bloque un membre des commandes</span></div>
+      <div class="cmd-row"><code>!unblock @membre</code><span>Débloque un membre</span></div>
+      <div class="cmd-row"><code>!banlist</code><span>Affiche les membres bloqués</span></div>
+      <div class="cmd-row"><code>!help admin</code><span>Guide complet des commandes admin</span></div>
+      <div class="cmd-row"><code>!setup</code><span>Assistant de configuration des clés API</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- INVITE BANNER -->
+<div style="padding: 4.5rem 1.5rem;">
+  <div class="invite-banner">
+    <div>
+      <h2>Prêt à booster votre serveur ?</h2>
+      <p>Gratuit · Aucun abonnement requis · Installation en 30 secondes</p>
+    </div>
+    <a id="banner-invite" href="#" class="btn btn-white">🚀 Ajouter au serveur</a>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    <strong>MaximeGPT</strong> — Bot Discord · Construit avec discord.js v14 &amp; Suno AI
+    &nbsp;·&nbsp;
+    <a href="#commands">Commandes</a>
+  </p>
+  <p style="margin-top:.5rem;font-size:.78rem;">Bot ID : <span id="footer-id" style="color:var(--muted)">—</span></p>
+</footer>
+
+<script>
+  // ── Tab switching ───────────────────────────────────────────────────────────
+  document.querySelectorAll(".cmd-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".cmd-tab").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".cmd-panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  // ── Format uptime ───────────────────────────────────────────────────────────
+  function fmtUptime(s) {
+    if (s < 60)  return s + "s";
+    if (s < 3600) return Math.floor(s/60) + "min";
+    if (s < 86400) return Math.floor(s/3600) + "h " + Math.floor((s%3600)/60) + "min";
+    return Math.floor(s/86400) + "j " + Math.floor((s%86400)/3600) + "h";
+  }
+
+  // ── Fetch stats ─────────────────────────────────────────────────────────────
+  async function loadStats() {
+    try {
+      const r = await fetch("/api/stats");
+      if (!r.ok) return;
+      const d = await r.json();
+
+      if (d.botAvatarUrl) {
+        document.getElementById("hero-avatar").src = d.botAvatarUrl;
+        document.getElementById("nav-avatar").src  = d.botAvatarUrl;
+      }
+      if (d.botTag) {
+        const name = d.botTag.split("#")[0];
+        document.getElementById("nav-name").textContent = name;
+        document.title = name + " — Bot Discord";
+      }
+
+      document.getElementById("stat-guilds").textContent = d.guildCount ?? "—";
+      document.getElementById("stat-cmds").textContent   = d.commandCount ?? "45";
+      document.getElementById("stat-uptime").textContent = "En ligne " + fmtUptime(d.uptimeSeconds);
+      document.getElementById("footer-id").textContent   = d.botId ?? "—";
+
+      if (d.botId) {
+        const url = "https://discord.com/api/oauth2/authorize?client_id=" + d.botId + "&permissions=8&scope=bot%20applications.commands";
+        document.getElementById("invite-btn").href    = url;
+        document.getElementById("nav-invite").href    = url;
+        document.getElementById("banner-invite").href = url;
+      }
+    } catch(e) {}
+  }
+
+  loadStats();
+  setInterval(loadStats, 30000);
+</script>
+</body>
+</html>
