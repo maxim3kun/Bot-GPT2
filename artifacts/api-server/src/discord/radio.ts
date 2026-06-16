@@ -817,6 +817,17 @@ async function execPlayYoutube(
   const state = radioStates.get(guildId);
   if (!state) return;
 
+  // 🚀 Start yt-dlp immediately — while Discord API calls below are in flight, it's already running.
+  // Use pre-loaded stream if available (was buffering in background), else spawn fresh.
+  const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
+  preloadedStreamCache.delete(url);
+
+  // Info fetch runs in parallel with stream startup (skipped when metadata already known)
+  const infoPromise: Promise<{ title: string; duration: number; thumbnail: string | null }> = knownMeta
+    ? Promise.resolve(knownMeta)
+    : ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+
+  // Discord API calls — these overlap with yt-dlp startup time above
   await disableNpButtonsForState(state);
 
   clearIdleTimer(state);
@@ -827,7 +838,6 @@ async function execPlayYoutube(
   state.paused = false;
   state.requestedBy = requestedBy ?? null;
 
-  // Shared: build + post the Now Playing embed once audio starts
   const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
     const cleanTitle = cleanYouTubeTitle(title);
     const s = radioStates.get(guildId);
@@ -854,54 +864,13 @@ async function execPlayYoutube(
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] });
   };
 
-  try {
-    // play-dl: stream only (skip video_info if we already have it from search)
-    const play = await getPlay();
-    const [streamData, videoInfo] = await Promise.all([
-      play.stream(url, { quality: 2 }),
-      knownMeta ? Promise.resolve(null) : play.video_info(url).catch(() => null),
-    ]);
-
-    const typeStr: string = (streamData as any).type ?? "";
-    let djsType = StreamType.Arbitrary;
-    if (typeStr === "webm/opus") djsType = StreamType.WebmOpus;
-    else if (typeStr === "ogg/opus") djsType = StreamType.OggOpus;
-    else if (typeStr === "opus") djsType = StreamType.Opus;
-
-    const resource = createAudioResource((streamData as any).stream as NodeJS.ReadableStream, { inputType: djsType });
-    state.player.play(resource);
-    state.player.once(AudioPlayerStatus.Playing, async () => {
-      if (knownMeta) {
-        await postNowPlaying(knownMeta.title, knownMeta.duration, knownMeta.thumbnail);
-      } else {
-        const det = (videoInfo as any)?.video_details;
-        const title = det?.title ?? null;
-        const duration = det?.durationInSec ?? 0;
-        const thumbnail = det?.thumbnails?.[0]?.url ?? null;
-        // If video_info returned nothing, fall back to ytdlp for metadata only
-        if (!title) {
-          const info = await ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
-          await postNowPlaying(info.title, info.duration, info.thumbnail);
-        } else {
-          await postNowPlaying(title, duration, thumbnail);
-        }
-      }
-    });
-    state.player.once("error", onError);
-  } catch (err) {
-    logger.warn({ err, url }, "play-dl stream failed — falling back to ytdlp");
-    const audioStream = ytdlpStream(url);
-    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
-    const infoPromise = knownMeta
-      ? Promise.resolve(knownMeta)
-      : ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
-    state.player.play(resource);
-    state.player.once(AudioPlayerStatus.Playing, async () => {
-      const { title, duration, thumbnail } = await infoPromise;
-      await postNowPlaying(title, duration, thumbnail);
-    });
-    state.player.once("error", onError);
-  }
+  const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
+  state.player.play(resource);
+  state.player.once(AudioPlayerStatus.Playing, async () => {
+    const { title, duration, thumbnail } = await infoPromise;
+    await postNowPlaying(title, duration, thumbnail);
+  });
+  state.player.once("error", onError);
 }
 
 export async function playYoutube(
@@ -974,6 +943,8 @@ export async function playYoutube(
   }
 
   // ── Play immediately ───────────────────────────────────────────────────────
+  // Pre-warm yt-dlp before the Discord message round-trip (~200ms saved)
+  preloadStream(url);
   const waitMsg = await message.reply("🎬 Loading…");
   try {
     await execPlayYoutube(guildId, url, waitMsg, message.author.id, knownMeta);
