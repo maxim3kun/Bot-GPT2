@@ -281,7 +281,13 @@ interface NowPlayingEmbedOpts {
   queueCount?: number;
 }
 
+function youtubeThumbnail(url: string): string | null {
+  const m = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+  return m ? `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg` : null;
+}
+
 function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
+  const thumb = opts.thumbnail ?? youtubeThumbnail(opts.url);
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle("🎵 Now Playing")
@@ -292,7 +298,7 @@ function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
       ...(opts.requestedBy ? [{ name: "Requested by", value: `<@${opts.requestedBy}>`, inline: true }] : []),
       ...(opts.queueCount && opts.queueCount > 0 ? [{ name: "Queue", value: `${opts.queueCount} next • \`!queue\``, inline: true }] : []),
     )
-  if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
+  if (thumb) embed.setThumbnail(thumb);
   return embed;
 }
 
