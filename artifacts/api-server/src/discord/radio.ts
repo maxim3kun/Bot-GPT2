@@ -252,7 +252,7 @@ export function buildNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuild
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(paused ? "np:resume" : "np:pause")
-        .setLabel(paused ? "Resume" : "Pause")
+        .setLabel(paused ? "▶️" : "⏸️")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("np:skip")
@@ -292,7 +292,6 @@ function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
       ...(opts.requestedBy ? [{ name: "Requested by", value: `<@${opts.requestedBy}>`, inline: true }] : []),
       ...(opts.queueCount && opts.queueCount > 0 ? [{ name: "Queue", value: `${opts.queueCount} next • \`!queue\``, inline: true }] : []),
     )
-    .setFooter({ text: "!y <title or url> to add  •  !queue to see upcoming" });
   if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
   return embed;
 }
