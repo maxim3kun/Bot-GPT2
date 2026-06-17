@@ -6,6 +6,8 @@ export interface LogoBrand {
   country: string;
   tier: 1 | 2 | 3;
   hints: string[];
+  /** true = brand name is readable text in the logo — exclude from guessing game */
+  textLogo?: true;
 }
 
 // ── TIER 1 — Famous icon logos, no readable brand text ──────────────────────
@@ -177,12 +179,12 @@ const T1: LogoBrand[] = [
   },
   {
     name: "Jeep", aliases: ["jeep"], domain: "jeep.com",
-    category: "Automotive", country: "🇺🇸 USA", tier: 1,
+    category: "Automotive", country: "🇺🇸 USA", tier: 1, textLogo: true,
     hints: ["Originally built as a military vehicle in World War II.", "Part of Stellantis.", "Famous for off-road capability."],
   },
   {
     name: "Coca-Cola", aliases: ["coca-cola", "coke", "coca cola"], domain: "coca-cola.com",
-    category: "Beverages", country: "🇺🇸 USA", tier: 1,
+    category: "Beverages", country: "🇺🇸 USA", tier: 1, textLogo: true,
     hints: ["Invented in 1886 by pharmacist John Pemberton in Atlanta.", "Their logo script has barely changed in over 130 years.", "Sold in more than 200 countries."],
   },
   {
@@ -232,12 +234,12 @@ const T1: LogoBrand[] = [
   },
   {
     name: "Nintendo", aliases: ["nintendo"], domain: "nintendo.com",
-    category: "Gaming", country: "🇯🇵 Japan", tier: 1,
+    category: "Gaming", country: "🇯🇵 Japan", tier: 1, textLogo: true,
     hints: ["Home of Mario, Zelda, and Pokémon.", "Originally founded in 1889 as a playing card company.", "Their Switch console sold over 140 million units."],
   },
   {
     name: "LEGO", aliases: ["lego"], domain: "lego.com",
-    category: "Toys", country: "🇩🇰 Denmark", tier: 1,
+    category: "Toys", country: "🇩🇰 Denmark", tier: 1, textLogo: true,
     hints: ["Name comes from the Danish words 'leg godt' meaning 'play well'.", "Founded in 1932 by Ole Kirk Christiansen.", "Their signature bricks have been compatible since 1958."],
   },
   {
@@ -247,7 +249,7 @@ const T1: LogoBrand[] = [
   },
   {
     name: "Harley-Davidson", aliases: ["harley-davidson", "harley davidson", "harley", "hd"], domain: "harley-davidson.com",
-    category: "Motorcycles", country: "🇺🇸 USA", tier: 1,
+    category: "Motorcycles", country: "🇺🇸 USA", tier: 1, textLogo: true,
     hints: ["Logo is a bar-and-shield design.", "Founded in Milwaukee, Wisconsin in 1903.", "One of the most tattooed brand logos in the world."],
   },
   {
@@ -259,22 +261,22 @@ const T1: LogoBrand[] = [
 
 // ── TIER 2 — Well-known brands, 1–2 hints ───────────────────────────────────
 const T2: LogoBrand[] = [
-  { name: "Google", aliases: ["google"], domain: "google.com", category: "Technology", country: "🇺🇸 USA", tier: 2, hints: ["World's most used search engine, founded in 1998."] },
-  { name: "Microsoft", aliases: ["microsoft"], domain: "microsoft.com", category: "Technology", country: "🇺🇸 USA", tier: 2, hints: ["Makers of Windows and Office, founded by Bill Gates."] },
-  { name: "Amazon", aliases: ["amazon"], domain: "amazon.com", category: "E-commerce", country: "🇺🇸 USA", tier: 2, hints: ["Started as an online bookstore in Jeff Bezos's garage in 1994."] },
+  { name: "Google", aliases: ["google"], domain: "google.com", category: "Technology", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["World's most used search engine, founded in 1998."] },
+  { name: "Microsoft", aliases: ["microsoft"], domain: "microsoft.com", category: "Technology", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Makers of Windows and Office, founded by Bill Gates."] },
+  { name: "Amazon", aliases: ["amazon"], domain: "amazon.com", category: "E-commerce", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Started as an online bookstore in Jeff Bezos's garage in 1994."] },
   { name: "Netflix", aliases: ["netflix"], domain: "netflix.com", category: "Streaming", country: "🇺🇸 USA", tier: 2, hints: ["Started as a DVD mail-rental service before pivoting to streaming."] },
-  { name: "Meta", aliases: ["meta", "facebook meta"], domain: "meta.com", category: "Technology", country: "🇺🇸 USA", tier: 2, hints: ["Parent company of Facebook, Instagram and WhatsApp."] },
+  { name: "Meta", aliases: ["meta", "facebook meta"], domain: "meta.com", category: "Technology", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Parent company of Facebook, Instagram and WhatsApp."] },
   { name: "Tesla", aliases: ["tesla"], domain: "tesla.com", category: "Automotive / Energy", country: "🇺🇸 USA", tier: 2, hints: ["The world's most valuable electric car company, led by Elon Musk."] },
-  { name: "Samsung", aliases: ["samsung"], domain: "samsung.com", category: "Technology", country: "🇰🇷 South Korea", tier: 2, hints: ["South Korean conglomerate that makes smartphones, TVs and chips."] },
+  { name: "Samsung", aliases: ["samsung"], domain: "samsung.com", category: "Technology", country: "🇰🇷 South Korea", tier: 2, textLogo: true, hints: ["South Korean conglomerate that makes smartphones, TVs and chips."] },
   { name: "Honda", aliases: ["honda"], domain: "honda.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, hints: ["Also the world's largest motorcycle manufacturer."] },
-  { name: "Ford", aliases: ["ford", "ford motors"], domain: "ford.com", category: "Automotive", country: "🇺🇸 USA", tier: 2, hints: ["Founder Henry Ford popularized the assembly line in 1913."] },
+  { name: "Ford", aliases: ["ford", "ford motors"], domain: "ford.com", category: "Automotive", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Founder Henry Ford popularized the assembly line in 1913."] },
   { name: "Volvo", aliases: ["volvo"], domain: "volvo.com", category: "Automotive", country: "🇸🇪 Sweden", tier: 2, hints: ["Swedish brand famous for safety innovations in cars."] },
   { name: "Hyundai", aliases: ["hyundai"], domain: "hyundai.com", category: "Automotive", country: "🇰🇷 South Korea", tier: 2, hints: ["South Korean automaker that also builds ships and construction equipment."] },
-  { name: "Kia", aliases: ["kia"], domain: "kia.com", category: "Automotive", country: "🇰🇷 South Korea", tier: 2, hints: ["Sister brand to Hyundai, their name means 'rising from Asia'."] },
+  { name: "Kia", aliases: ["kia"], domain: "kia.com", category: "Automotive", country: "🇰🇷 South Korea", tier: 2, textLogo: true, hints: ["Sister brand to Hyundai, their name means 'rising from Asia'."] },
   { name: "Land Rover", aliases: ["land rover", "landrover"], domain: "landrover.com", category: "Automotive", country: "🇬🇧 UK", tier: 2, hints: ["British brand famous for luxury off-road SUVs."] },
   { name: "Jaguar", aliases: ["jaguar"], domain: "jaguar.com", category: "Automotive", country: "🇬🇧 UK", tier: 2, hints: ["British luxury car brand named after the big cat."] },
   { name: "Subaru", aliases: ["subaru"], domain: "subaru.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, hints: ["Famous for all-wheel drive and beloved by rally fans."] },
-  { name: "Nissan", aliases: ["nissan"], domain: "nissan.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, hints: ["Japanese automaker known for the GT-R and the Leaf EV."] },
+  { name: "Nissan", aliases: ["nissan"], domain: "nissan.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, textLogo: true, hints: ["Japanese automaker known for the GT-R and the Leaf EV."] },
   { name: "Mazda", aliases: ["mazda"], domain: "mazda.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, hints: ["Japanese automaker known for their rotary engines."] },
   { name: "Mitsubishi", aliases: ["mitsubishi"], domain: "mitsubishi.com", category: "Automotive", country: "🇯🇵 Japan", tier: 2, hints: ["Their name means 'three diamonds' in Japanese."] },
   { name: "Alfa Romeo", aliases: ["alfa romeo", "alfa"], domain: "alfaromeo.com", category: "Automotive", country: "🇮🇹 Italy", tier: 2, hints: ["Italian brand with a cross and serpent in their logo."] },
@@ -288,23 +290,23 @@ const T2: LogoBrand[] = [
   { name: "Fiat", aliases: ["fiat"], domain: "fiat.com", category: "Automotive", country: "🇮🇹 Italy", tier: 2, hints: ["Italian automaker known for small, efficient city cars."] },
   { name: "Seat", aliases: ["seat"], domain: "seat.com", category: "Automotive", country: "🇪🇸 Spain", tier: 2, hints: ["Spain's only mass-market car manufacturer, part of the VW Group."] },
   { name: "Skoda", aliases: ["skoda", "škoda"], domain: "skoda-auto.com", category: "Automotive", country: "🇨🇿 Czech Republic", tier: 2, hints: ["Czech automaker and one of the oldest car brands in the world."] },
-  { name: "IKEA", aliases: ["ikea"], domain: "ikea.com", category: "Retail / Furniture", country: "🇸🇪 Sweden", tier: 2, hints: ["Swedish furniture giant where products have unpronounced Nordic names."] },
-  { name: "H&M", aliases: ["h&m", "hm", "hennes mauritz"], domain: "hm.com", category: "Fashion", country: "🇸🇪 Sweden", tier: 2, hints: ["Swedish fast-fashion brand with stores in 77 countries."] },
-  { name: "Zara", aliases: ["zara"], domain: "zara.com", category: "Fashion", country: "🇪🇸 Spain", tier: 2, hints: ["Spanish fashion brand owned by Inditex, the world's largest apparel retailer."] },
+  { name: "IKEA", aliases: ["ikea"], domain: "ikea.com", category: "Retail / Furniture", country: "🇸🇪 Sweden", tier: 2, textLogo: true, hints: ["Swedish furniture giant where products have unpronounced Nordic names."] },
+  { name: "H&M", aliases: ["h&m", "hm", "hennes mauritz"], domain: "hm.com", category: "Fashion", country: "🇸🇪 Sweden", tier: 2, textLogo: true, hints: ["Swedish fast-fashion brand with stores in 77 countries."] },
+  { name: "Zara", aliases: ["zara"], domain: "zara.com", category: "Fashion", country: "🇪🇸 Spain", tier: 2, textLogo: true, hints: ["Spanish fashion brand owned by Inditex, the world's largest apparel retailer."] },
   { name: "Hermès", aliases: ["hermes", "hermès"], domain: "hermes.com", category: "Luxury Fashion", country: "🇫🇷 France", tier: 2, hints: ["French luxury house famous for their Birkin and Kelly handbags."] },
-  { name: "Prada", aliases: ["prada"], domain: "prada.com", category: "Luxury Fashion", country: "🇮🇹 Italy", tier: 2, hints: ["Italian luxury brand founded in Milan in 1913."] },
+  { name: "Prada", aliases: ["prada"], domain: "prada.com", category: "Luxury Fashion", country: "🇮🇹 Italy", tier: 2, textLogo: true, hints: ["Italian luxury brand founded in Milan in 1913."] },
   { name: "Versace", aliases: ["versace", "gianni versace"], domain: "versace.com", category: "Luxury Fashion", country: "🇮🇹 Italy", tier: 2, hints: ["Italian fashion house whose logo is the Medusa head."] },
-  { name: "Armani", aliases: ["armani", "giorgio armani"], domain: "armani.com", category: "Luxury Fashion", country: "🇮🇹 Italy", tier: 2, hints: ["Italian luxury brand founded by Giorgio Armani in 1975."] },
-  { name: "Burberry", aliases: ["burberry"], domain: "burberry.com", category: "Luxury Fashion", country: "🇬🇧 UK", tier: 2, hints: ["British brand famous for their tartan plaid pattern."] },
-  { name: "Coach", aliases: ["coach", "coach new york"], domain: "coach.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, hints: ["American luxury leather goods brand founded in NYC in 1941."] },
-  { name: "Calvin Klein", aliases: ["calvin klein", "ck"], domain: "calvinklein.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, hints: ["American fashion brand famous for minimalist denim and underwear."] },
-  { name: "Tommy Hilfiger", aliases: ["tommy hilfiger", "tommy"], domain: "tommy.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, hints: ["American preppy brand recognizable by its red-white-blue color scheme."] },
-  { name: "Levi's", aliases: ["levis", "levi's", "levi strauss"], domain: "levi.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, hints: ["Invented the blue jeans in San Francisco in 1873."] },
-  { name: "Uniqlo", aliases: ["uniqlo"], domain: "uniqlo.com", category: "Fashion", country: "🇯🇵 Japan", tier: 2, hints: ["Japanese basics brand known for their HeatTech and Airism lines."] },
-  { name: "Vans", aliases: ["vans"], domain: "vans.com", category: "Footwear", country: "🇺🇸 USA", tier: 2, hints: ["Famous for their checkered slip-ons, beloved by skaters since 1966."] },
+  { name: "Armani", aliases: ["armani", "giorgio armani"], domain: "armani.com", category: "Luxury Fashion", country: "🇮🇹 Italy", tier: 2, textLogo: true, hints: ["Italian luxury brand founded by Giorgio Armani in 1975."] },
+  { name: "Burberry", aliases: ["burberry"], domain: "burberry.com", category: "Luxury Fashion", country: "🇬🇧 UK", tier: 2, textLogo: true, hints: ["British brand famous for their tartan plaid pattern."] },
+  { name: "Coach", aliases: ["coach", "coach new york"], domain: "coach.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["American luxury leather goods brand founded in NYC in 1941."] },
+  { name: "Calvin Klein", aliases: ["calvin klein", "ck"], domain: "calvinklein.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["American fashion brand famous for minimalist denim and underwear."] },
+  { name: "Tommy Hilfiger", aliases: ["tommy hilfiger", "tommy"], domain: "tommy.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["American preppy brand recognizable by its red-white-blue color scheme."] },
+  { name: "Levi's", aliases: ["levis", "levi's", "levi strauss"], domain: "levi.com", category: "Fashion", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Invented the blue jeans in San Francisco in 1873."] },
+  { name: "Uniqlo", aliases: ["uniqlo"], domain: "uniqlo.com", category: "Fashion", country: "🇯🇵 Japan", tier: 2, textLogo: true, hints: ["Japanese basics brand known for their HeatTech and Airism lines."] },
+  { name: "Vans", aliases: ["vans"], domain: "vans.com", category: "Footwear", country: "🇺🇸 USA", tier: 2, textLogo: true, hints: ["Famous for their checkered slip-ons, beloved by skaters since 1966."] },
   { name: "New Balance", aliases: ["new balance", "nb"], domain: "newbalance.com", category: "Footwear", country: "🇺🇸 USA", tier: 2, hints: ["One of the few major sneaker brands that still manufactures in the USA."] },
-  { name: "Fila", aliases: ["fila"], domain: "fila.com", category: "Sportswear", country: "🇰🇷 South Korea", tier: 2, hints: ["Italian-born brand now owned by a South Korean company."] },
-  { name: "Asics", aliases: ["asics"], domain: "asics.com", category: "Sportswear", country: "🇯🇵 Japan", tier: 2, hints: ["Japanese sports brand whose name is a Latin acronym for a healthy mind in a healthy body."] },
+  { name: "Fila", aliases: ["fila"], domain: "fila.com", category: "Sportswear", country: "🇰🇷 South Korea", tier: 2, textLogo: true, hints: ["Italian-born brand now owned by a South Korean company."] },
+  { name: "Asics", aliases: ["asics"], domain: "asics.com", category: "Sportswear", country: "🇯🇵 Japan", tier: 2, textLogo: true, hints: ["Japanese sports brand whose name is a Latin acronym for a healthy mind in a healthy body."] },
   { name: "Reebok", aliases: ["reebok"], domain: "reebok.com", category: "Sportswear", country: "🇬🇧 UK", tier: 2, hints: ["British brand originally known for making spiked running shoes in the 1890s."] },
   { name: "Crocs", aliases: ["crocs"], domain: "crocs.com", category: "Footwear", country: "🇺🇸 USA", tier: 2, hints: ["Famous for their foam clogs with holes, loved and hated in equal measure."] },
   { name: "Timberland", aliases: ["timberland"], domain: "timberland.com", category: "Footwear / Apparel", country: "🇺🇸 USA", tier: 2, hints: ["Famous for their yellow waterproof work boots since 1973."] },

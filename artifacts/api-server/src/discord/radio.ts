@@ -41,7 +41,7 @@ async function getPlay() {
  * Fast search using play-dl only (in-process, no subprocess).
  * Falls back to yt-dlp if play-dl fails.
  */
-async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: string; title: string; duration: number; channel: string | null }[]> {
+async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: string; title: string; duration: number; channel: string | null; isLive?: boolean }[]> {
   // Primary: play-dl (fast, in-process, returns results in YouTube's natural ranking order)
   try {
     const play = await getPlay();
@@ -54,6 +54,7 @@ async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: strin
         title: (v.title as string) ?? query,
         duration: (v.durationInSec as number) ?? 0,
         channel: (v.channel?.name as string) ?? null,
+        isLive: !!(v.isLive || v.isLiveContent),
       }));
     }
   } catch {
@@ -179,6 +180,7 @@ interface RadioState {
   youtubeTitle: string | null;
   youtubeUrl: string | null;
   youtubeStartTime: number | null;
+  isLive: boolean;
   queue: string[];
   queueName: string | null;
   notifyChannel: TextChannel | null;
@@ -279,6 +281,7 @@ interface NowPlayingEmbedOpts {
   thumbnail: string | null;
   requestedBy?: string;
   queueCount?: number;
+  isLive?: boolean;
 }
 
 function youtubeThumbnail(url: string): string | null {
@@ -288,13 +291,16 @@ function youtubeThumbnail(url: string): string | null {
 
 function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
   const thumb = opts.thumbnail ?? youtubeThumbnail(opts.url);
+  const color = opts.isLive ? 0xed4245 : 0x57f287;
+  const title = opts.isLive ? "🔴 Live Stream" : "🎵 Now Playing";
+  const durationLabel = opts.isLive ? "Status" : "Duration";
   const embed = new EmbedBuilder()
-    .setColor(0x57f287)
-    .setTitle("🎵 Now Playing")
+    .setColor(color)
+    .setTitle(title)
     .setURL(opts.url)
     .setDescription(`**[${opts.title}](${opts.url})**`)
     .addFields(
-      { name: "Duration", value: opts.duration, inline: true },
+      { name: durationLabel, value: opts.duration, inline: true },
       ...(opts.requestedBy ? [{ name: "Requested by", value: `<@${opts.requestedBy}>`, inline: true }] : []),
       ...(opts.queueCount && opts.queueCount > 0 ? [{ name: "Queue", value: `${opts.queueCount} next • \`!queue\``, inline: true }] : []),
     )
@@ -544,6 +550,21 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
         return;
       }
 
+      if (s.isLive) {
+        // Live stream ended
+        s.youtubeTitle = null;
+        s.youtubeUrl = null;
+        s.youtubeStartTime = null;
+        s.isLive = false;
+        s.paused = false;
+        _activityCallback?.(null);
+        _channelNameCallback?.(guildId, null);
+        disableNpButtonsForState(s).catch(() => null);
+        s.notifyChannel?.send("📴 The live stream has ended.").catch(() => null);
+        startIdleTimer(guildId);
+        return;
+      }
+
       if (s.queue.length > 0) {
         playNextFromQueue(guildId).catch((err) => logger.error({ err }, "Auto-queue error"));
         return;
@@ -566,6 +587,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       youtubeTitle: null,
       youtubeUrl: null,
       youtubeStartTime: null,
+      isLive: false,
       queue: [],
       queueName: null,
       notifyChannel: null,
@@ -829,6 +851,7 @@ async function execPlayYoutube(
   state.stationKey = null;
   state.youtubeTitle = "Loading…";
   state.youtubeUrl = url;
+  state.isLive = false;
   state.nowPlayingMsg = waitMsg;
   state.paused = false;
   state.requestedBy = requestedBy ?? null;
@@ -914,11 +937,13 @@ export async function playYoutube(
       const secs = duration % 60;
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle("Added to queue")
-        .setDescription(`\`\`\`\n${cleanYouTubeTitle(title)}\n\`\`\``)
+        .setTitle("📋 Added to Queue")
+        .setURL(url)
+        .setDescription(`**[${cleanYouTubeTitle(title)}](${url})**`)
         .addFields(
           { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
           { name: "Position", value: `#${pos + 1}`, inline: true },
+          { name: "Requested by", value: `<@${message.author.id}>`, inline: true },
         )
         .setFooter({ text: "!queue to see all  •  !skip to skip current" });
       if (thumbnail) embed.setThumbnail(thumbnail);
@@ -1195,12 +1220,14 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   // Filter out long videos (compilations, mixes, full albums — anything > 15 min)
   const MAX_SINGLE_TRACK_SECS = 15 * 60;
+  // Exclude live streams — they have no fixed duration and break queue playback; use !live instead
+  const noLive = results.filter(r => !r.isLive);
   // Prefer results with a known duration under 15 min (excludes livestreams and broken entries)
-  const withDuration = results.filter(r => r.duration > 0 && r.duration <= MAX_SINGLE_TRACK_SECS);
+  const withDuration = noLive.filter(r => r.duration > 0 && r.duration <= MAX_SINGLE_TRACK_SECS);
   // Fallback: if too few good results, include unknown-duration ones but still drop >15 min
   const pool = withDuration.length >= 2
     ? withDuration
-    : results.filter(r => r.duration === 0 || r.duration <= MAX_SINGLE_TRACK_SECS);
+    : noLive.filter(r => r.duration === 0 || r.duration <= MAX_SINGLE_TRACK_SECS);
 
   // Clean titles and cap at 11 (3 pages: 4 + 3 + 4)
   const cleaned = pool.slice(0, 11).map(r => ({
@@ -1326,6 +1353,7 @@ export function skipCurrentTrack(guildId: string): string | null {
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.youtubeStartTime = null;
+  state.isLive = false;
   _activityCallback?.(null);
   _channelNameCallback?.(guildId, null);
   disableNpButtonsForState(state).catch(() => null);
@@ -1541,5 +1569,114 @@ export async function startQueue(message: Message, urls: string[], playlistName?
     if (state.queue.length > 0) {
       await playNextFromQueue(guildId);
     }
+  }
+}
+
+/** Play a live stream (YouTube Live or Twitch). Input can be a URL or a search query. */
+export async function playLive(message: Message, input: string): Promise<void> {
+  if (!input.trim()) {
+    await message.reply("❓ Provide a URL or search query.\nExamples: `!live https://www.twitch.tv/channel`  •  `!live lofi girl`");
+    return;
+  }
+
+  const isUrl = /^https?:\/\//.test(input) || input.includes("twitch.tv/") || input.includes("youtube.com/") || input.includes("youtu.be/");
+
+  const ready = await ensureVoiceConnection(message, () => playLive(message, input));
+  if (!ready) return;
+
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId)!;
+  state.notifyChannel = message.channel as TextChannel;
+
+  if (state.stationKey) {
+    state.stationKey = null;
+    state.player.stop();
+    state.queue = [];
+    state.queueName = null;
+  }
+
+  const waitMsg = await message.reply("🔴 Loading live stream…");
+
+  let liveUrl: string | null = isUrl ? input : null;
+  let liveTitle = "Live Stream";
+  let liveThumbnail: string | null = null;
+
+  if (!liveUrl) {
+    try {
+      const play = await getPlay();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results: any[] = await play.search(input, { source: { youtube: "video" }, limit: 15 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const liveResults = results.filter((v: any) => v.isLive || v.isLiveContent || v.durationInSec === 0);
+      if (liveResults.length === 0) {
+        await waitMsg.edit("❌ No live streams found for that query. Try a direct URL instead.");
+        return;
+      }
+      liveUrl = liveResults[0].url as string;
+      liveTitle = (liveResults[0].title as string) ?? "Live Stream";
+      await waitMsg.edit(`🔴 Found: **${liveTitle}** — connecting to stream…`);
+    } catch (err) {
+      logger.error({ err, input }, "Live stream search error");
+      await waitMsg.edit("❌ Failed to search for live streams. Try a direct URL.");
+      return;
+    }
+  }
+
+  try {
+    const audioStream = ytdlpStream(liveUrl);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
+
+    clearIdleTimer(state);
+    state.stationKey = null;
+    state.youtubeTitle = liveTitle;
+    state.youtubeUrl = liveUrl;
+    state.youtubeStartTime = null;
+    state.isLive = true;
+    state.paused = false;
+    state.requestedBy = message.author.id;
+
+    await disableNpButtonsForState(state);
+    state.nowPlayingMsg = waitMsg;
+
+    state.player.play(resource);
+
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      try {
+        const info = await ytdlpInfo(liveUrl!);
+        liveTitle = cleanYouTubeTitle(info.title) || liveTitle;
+        liveThumbnail = info.thumbnail;
+      } catch {
+        // ignore — use fallback title
+      }
+
+      const s = radioStates.get(guildId);
+      if (s) { s.youtubeTitle = liveTitle; }
+      _activityCallback?.(liveTitle);
+      _channelNameCallback?.(guildId, liveTitle);
+
+      const embed = buildNowPlayingEmbed({
+        title: liveTitle,
+        url: liveUrl!,
+        duration: "🔴 LIVE",
+        thumbnail: liveThumbnail,
+        requestedBy: message.author.id,
+        isLive: true,
+      });
+      await waitMsg.edit({ content: "", embeds: [embed], components: buildNpButtonRows(false) });
+      const s2 = radioStates.get(guildId);
+      if (s2) s2.nowPlayingMsg = waitMsg;
+    });
+
+    state.player.once("error", async (err: Error) => {
+      logger.error({ err, url: liveUrl }, "Live stream playback error");
+      const s = radioStates.get(guildId);
+      if (s?.nowPlayingMsg === waitMsg) s.nowPlayingMsg = null;
+      await waitMsg.edit({ content: "❌ Failed to play the live stream. The stream may have ended or the URL is invalid.", components: [] });
+    });
+
+  } catch (err) {
+    logger.error({ err, input }, "Live stream load error");
+    await waitMsg.edit("❌ Failed to load the live stream. Make sure the URL is valid and the stream is currently live.");
+    state.isLive = false;
   }
 }

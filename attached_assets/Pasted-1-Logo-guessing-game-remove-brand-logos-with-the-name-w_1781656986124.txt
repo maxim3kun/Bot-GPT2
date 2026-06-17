@@ -1,0 +1,22 @@
+1. Logo guessing game — remove brand logos with the name written on them
+
+Currently the game picks logos at random, but some logos contain the brand name written out in plain text directly on the image (like Gucci, Jeep, Harley Davidson) — which makes the game too easy/pointless since the answer is directly visible. Filter the logo database to exclude logos where the brand name appears as text on the logo itself, and only keep symbolic/graphic logos (like the Nike swoosh, the Apple logo, etc.) where the player has to visually recognize the brand without being able to read its name.
+
+2. `!y` command — bug with YouTube live streams in search results
+
+When using `!y <search>`, search results sometimes include currently-live YouTube streams. The problem: these live streams have no fixed duration (no "total time" like a normal video), which breaks the current system (likely the duration display or playback logic that expects a fixed length).
+
+Detect when a `!y` search result is a currently-live YouTube stream, and exclude it from regular `!y` search results (so `!y` only returns standard videos with a fixed duration).
+
+3. New `!live` command — for YouTube/Twitch live streams (currently broken / does not exist properly)
+
+Add a new command `!live` dedicated to playing live streams, separate from `!y`. Currently, attempting to play YouTube live streams does not work at all — this needs to be fixed/implemented from scratch if needed:
+- `!live <YouTube or Twitch URL>` — play a specific live stream directly from a provided URL
+- `!live <search query>` — search for a currently-live YouTube stream matching the query (without a URL) and play it
+- Support both YouTube and Twitch as sources
+- Since live streams have no fixed duration, display "🔴 LIVE" instead of a duration/progress bar in the now playing embed
+- Make sure the audio actually starts playing correctly for live streams specifically (this is the current bug — live streams fail to play even when a valid URL or search result is provided)
+
+4. "Added to queue" embed styling
+
+The current "Added to queue" message looks inconsistent/ugly compared to the "Now Playing" embed. Restyle it to match the same visual format as "Now Playing" (same colors, same layout structure, same level of detail — title, requested by, etc.) for visual consistency across the music system.

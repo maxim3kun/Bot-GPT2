@@ -42,6 +42,7 @@ export interface YtInfo {
   title: string;
   duration: number;
   thumbnail: string | null;
+  isLive?: boolean;
 }
 
 export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
@@ -51,7 +52,7 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
     const { stdout, stderr: se } = await execFileAsync(
       YT_DLP_BIN,
       [
-        "--print", "%(title)s\t%(duration)s\t%(thumbnail)s",
+        "--print", "%(title)s\t%(duration)s\t%(thumbnail)s\t%(is_live)s",
         "--no-playlist",
         clientArgs(),
         url,
@@ -64,10 +65,12 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
     const title = parts[0]?.trim() || "Unknown";
     const duration = parseInt(parts[1] ?? "0", 10);
     const thumb = parts[2]?.trim() || null;
+    const isLive = parts[3]?.trim() === "True";
     return {
       title,
       duration: isNaN(duration) ? 0 : duration,
       thumbnail: thumb && thumb !== "NA" ? thumb : null,
+      isLive,
     };
   } catch (err) {
     const msg = String((err as { stderr?: string })?.stderr ?? err);
@@ -110,6 +113,7 @@ export interface YtSearchResult {
   url: string;
   duration: number;
   channel: string | null;
+  isLive?: boolean;
 }
 
 const CLUTTER_RE = /\s*[\(\[]\s*(official\s*(video|audio|music\s*video|lyric(?:s)?\s*video?|clip)|clip\s*offici[ae]l|clip\s*official|officiel|vevo|hd|4k|mv|m\/v|lyric(?:s)?|full\s*(?:hd|version)|visualizer|original\s*(?:version)?)\s*[\)\]]/gi;
@@ -132,7 +136,7 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
       `ytsearch${count}:${query}`,
       "--flat-playlist",
       "--no-warnings",
-      "--print", "%(id)s\t%(title)s\t%(duration)s\t%(uploader)s",
+      "--print", "%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(is_live)s",
     ],
     { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 },
   );
@@ -143,11 +147,13 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
     const title = parts[1] ?? "Unknown";
     const dur = parseInt(parts[2] ?? "0", 10);
     const channel = parts[3] && parts[3] !== "NA" ? parts[3] : null;
+    const isLive = parts[4]?.trim() === "True";
     return {
       title,
       url: `https://www.youtube.com/watch?v=${id}`,
       duration: isNaN(dur) ? 0 : dur,
       channel,
+      isLive,
     };
   });
 }

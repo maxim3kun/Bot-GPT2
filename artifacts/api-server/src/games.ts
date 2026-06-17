@@ -1142,7 +1142,7 @@ function buildLogoUrl(domain: string): string {
 
 function pickBrandForDifficulty(channelId: string, difficulty: LogoDifficulty): LogoBrand {
   const cfg = LOGO_DIFF_CONFIG[difficulty];
-  const pool = logoBrandPool.filter((b) => cfg.tiers.includes(b.tier));
+  const pool = logoBrandPool.filter((b) => cfg.tiers.includes(b.tier) && !b.textLogo);
   const recent = recentLogoBrands.get(channelId) ?? new Set();
   const fresh = pool.filter((b) => !recent.has(b.name));
   const source = fresh.length > 0 ? fresh : pool;
