@@ -130,6 +130,7 @@ export function ytdlpStream(url: string): Readable {
     "--no-cache-dir",
     "--socket-timeout", "10",
     "--concurrent-fragments", "1",
+    "--hls-use-mpegts",          // required to pipe HLS live streams as a continuous TS stream
     clientArgs(),
     ...cookieArgs(),
     "-o", "-",
