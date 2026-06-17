@@ -846,6 +846,45 @@ export async function showQuestProfile(message: Message): Promise<void> {
   await message.reply({ embeds: [embed] });
 }
 
+/** Return a read-only snapshot of a user's quest profile (for external commands). */
+export function getUserQuestData(userId: string): {
+  totalPoints: number;
+  completedCount: number;
+  activeCount: number;
+  levelTitle: string;
+  levelNum: number;
+  nextThreshold: number | null;
+  progressBar: string;
+  bullying: boolean;
+  createdAt: string;
+  reminderActive: boolean;
+  reminderHours: number[];
+} | null {
+  const profile = store[userId];
+  if (!profile) return null;
+  const lvl = getLevelInfo(profile.totalPoints);
+  const active = profile.quests.filter(q => !q.completed).length;
+  let bar = "";
+  if (lvl.next) {
+    const range = lvl.next.threshold - lvl.threshold;
+    const progress = Math.min(10, Math.round(((profile.totalPoints - lvl.threshold) / range) * 10));
+    bar = "█".repeat(progress) + "░".repeat(10 - progress);
+  }
+  return {
+    totalPoints: profile.totalPoints,
+    completedCount: profile.completedCount,
+    activeCount: active,
+    levelTitle: lvl.title,
+    levelNum: lvl.level,
+    nextThreshold: lvl.next?.threshold ?? null,
+    progressBar: bar,
+    bullying: profile.bullying ?? false,
+    createdAt: profile.createdAt,
+    reminderActive: !!profile.notifyChannelId,
+    reminderHours: profile.reminderHours ?? [10, 15, 18],
+  };
+}
+
 export async function setBullyMode(message: Message, enable: boolean): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);

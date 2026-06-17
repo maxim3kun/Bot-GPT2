@@ -9,7 +9,7 @@ import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getG
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
@@ -235,10 +235,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Changer ta langue (défaut: anglais)"
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Fiche Mii style 🎮\n`!language [en|fr|es]` — Changer ta langue (défaut: anglais)"
           : es
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Cambiar tu idioma (defecto: inglés)"
-          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Change your language (default: English)",
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Ficha estilo Mii 🎮\n`!language [en|fr|es]` — Cambiar tu idioma (defecto: inglés)"
+          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Mii-style profile card 🎮\n`!language [en|fr|es]` — Change your language (default: English)",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
@@ -2885,6 +2885,71 @@ export function startBot(): void {
               `\`${guildPrefix}admin channel reset\` — Remove it`
             );
           }
+          break;
+        }
+
+        // ── Profile ───────────────────────────────────────────────────────────────
+        case "profile":
+        case "profil": {
+          const target = message.mentions.users.first() ?? message.author;
+          const isSelf = target.id === message.author.id;
+
+          // Mii-style avatar via DiceBear avataaars
+          const miiUrl = `https://api.dicebear.com/9.x/avataaars/png?seed=${target.id}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc&radius=50&size=256`;
+
+          const lang = getUserLang(isSelf ? message.author.id : target.id);
+          const langLabel = USER_LANG_LABELS[lang] ?? "🇬🇧 English";
+
+          const questData = getUserQuestData(target.id);
+          const displayName = target.displayName ?? target.username;
+
+          const embed = new EmbedBuilder()
+            .setTitle(`🎮 ${displayName}'s Profile`)
+            .setColor(0x9b59b6)
+            .setThumbnail(miiUrl);
+
+          if (questData) {
+            // XP progress bar
+            if (questData.progressBar && questData.nextThreshold !== null) {
+              embed.setDescription(
+                `\`[${questData.progressBar}]\` **${questData.totalPoints}** / ${questData.nextThreshold} XP`,
+              );
+            } else {
+              embed.setDescription("🌌 **Max level reached! You are Transcendent!**");
+            }
+            embed.addFields(
+              { name: "🏅 Level", value: `${questData.levelTitle} (Lv. ${questData.levelNum})`, inline: true },
+              { name: "⚡ Total XP", value: `${questData.totalPoints} pts`, inline: true },
+              { name: "\u200b", value: "\u200b", inline: true },
+              { name: "✅ Quests done", value: `${questData.completedCount}`, inline: true },
+              { name: "📋 Active", value: `${questData.activeCount}`, inline: true },
+              { name: "\u200b", value: "\u200b", inline: true },
+              { name: "💬 Reminder mode", value: questData.bullying ? "🔥 Bully mode" : "🕊️ Normal", inline: true },
+              {
+                name: "🔔 Reminders",
+                value: questData.reminderActive
+                  ? `Active (${questData.reminderHours.map(h => `${h}h`).join(", ")} UTC)`
+                  : "Not configured",
+                inline: true,
+              },
+              { name: "\u200b", value: "\u200b", inline: true },
+            );
+          } else {
+            embed.setDescription("No quest data yet — start your journey with `!quest start`! 🚀");
+          }
+
+          embed.addFields(
+            { name: "🌐 Language", value: langLabel, inline: true },
+            {
+              name: "📅 Member since",
+              value: questData ? new Date(questData.createdAt).toLocaleDateString("en-GB") : "—",
+              inline: true,
+            },
+          );
+
+          embed.setFooter({ text: isSelf ? "Use !language [en|fr|es] to change your language" : `Viewing ${displayName}'s profile` });
+
+          await message.reply({ embeds: [embed] });
           break;
         }
 
