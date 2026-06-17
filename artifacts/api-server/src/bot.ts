@@ -2894,18 +2894,48 @@ export function startBot(): void {
           const target = message.mentions.users.first() ?? message.author;
           const isSelf = target.id === message.author.id;
 
-          // Mii-style avatar via DiceBear avataaars
-          const miiUrl = `https://api.dicebear.com/9.x/avataaars/png?seed=${target.id}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc&radius=50&size=256`;
-
           const lang = getUserLang(isSelf ? message.author.id : target.id);
           const langLabel = USER_LANG_LABELS[lang] ?? "🇬🇧 English";
 
           const questData = getUserQuestData(target.id);
           const displayName = target.displayName ?? target.username;
+          const level = questData?.levelNum ?? 1;
+
+          // Expression & color evolve with level (DiceBear avataaars)
+          const MII_FACES: Record<number, { mouth: string; eyes: string; eyebrows: string }> = {
+            1: { mouth: "sad",     eyes: "cry",     eyebrows: "sadConcernedNatural"  },
+            2: { mouth: "serious", eyes: "default",  eyebrows: "defaultNatural"       },
+            3: { mouth: "default", eyes: "default",  eyebrows: "defaultNatural"       },
+            4: { mouth: "smile",   eyes: "squint",   eyebrows: "defaultNatural"       },
+            5: { mouth: "smile",   eyes: "happy",    eyebrows: "raisedExcited"        },
+            6: { mouth: "twinkle", eyes: "happy",    eyebrows: "raisedExcited"        },
+            7: { mouth: "twinkle", eyes: "happy",    eyebrows: "raisedExcitedNatural" },
+            8: { mouth: "twinkle", eyes: "hearts",   eyebrows: "raisedExcited"        },
+            9: { mouth: "twinkle", eyes: "hearts",   eyebrows: "raisedExcited"        },
+          };
+          const LEVEL_COLORS: Record<number, number> = {
+            1: 0x7f8c8d, 2: 0x95a5a6,
+            3: 0x3498db, 4: 0x2980b9,
+            5: 0x2ecc71, 6: 0x27ae60,
+            7: 0xf1c40f, 8: 0xe67e22,
+            9: 0x9b59b6,
+          };
+          const face = MII_FACES[level] ?? MII_FACES[1]!;
+          const embedColor = LEVEL_COLORS[level] ?? 0x9b59b6;
+
+          const miiUrl = [
+            `https://api.dicebear.com/9.x/avataaars/png`,
+            `?seed=${target.id}`,
+            `&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`,
+            `&radius=50&size=256`,
+            `&mouth=${face.mouth}`,
+            `&eyes=${face.eyes}`,
+            `&eyebrows=${face.eyebrows}`,
+          ].join("");
 
           const embed = new EmbedBuilder()
             .setTitle(`🎮 ${displayName}'s Profile`)
-            .setColor(0x9b59b6)
+            .setColor(embedColor)
             .setThumbnail(miiUrl);
 
           if (questData) {
