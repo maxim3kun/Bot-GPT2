@@ -1,6 +1,6 @@
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
-import { existsSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import type { Readable } from "stream";
 import { logger } from "./logger";
 
@@ -8,6 +8,42 @@ const execFileAsync = promisify(execFile);
 
 const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
+
+// ── YouTube cookies ────────────────────────────────────────────────────────────
+// Set YT_COOKIES to a Netscape-format cookies file content (plain text or
+// base64-encoded). Export cookies from your browser with the "Get cookies.txt
+// LOCALLY" extension (chrome/firefox), then store the file content as the
+// YT_COOKIES secret in Railway / Replit secrets.
+// yt-dlp will use these cookies to bypass the "Sign in to confirm" bot-check.
+
+const COOKIES_PATH = "/tmp/yt-cookies.txt";
+let _cookiesReady = false;
+
+function initCookies(): void {
+  const raw = process.env["YT_COOKIES"];
+  if (!raw) return;
+
+  try {
+    // Accept both plain Netscape format and base64-encoded
+    let content: string;
+    if (raw.startsWith("# Netscape HTTP Cookie File") || raw.startsWith("# HTTP Cookie File")) {
+      content = raw;
+    } else {
+      content = Buffer.from(raw, "base64").toString("utf8");
+    }
+    writeFileSync(COOKIES_PATH, content, { encoding: "utf8", mode: 0o600 });
+    _cookiesReady = true;
+    logger.info("yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active");
+  } catch (err) {
+    logger.warn({ err }, "yt-dlp: failed to write cookies file — continuing without cookies");
+  }
+}
+
+initCookies();
+
+function cookieArgs(): string[] {
+  return _cookiesReady ? ["--cookies", COOKIES_PATH] : [];
+}
 
 // ── Client rotation ────────────────────────────────────────────────────────────
 // YouTube blocks clients from datacenter IPs periodically. We keep a list and
@@ -55,6 +91,7 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
         "--print", "%(title)s\t%(duration)s\t%(thumbnail)s\t%(is_live)s",
         "--no-playlist",
         clientArgs(),
+        ...cookieArgs(),
         url,
       ],
       { timeout: 20_000, maxBuffer: 512 * 1024 },
@@ -89,6 +126,7 @@ export function ytdlpStream(url: string): Readable {
     "--no-playlist",
     "--quiet",
     clientArgs(),
+    ...cookieArgs(),
     "-o", "-",
     url,
   ]);
@@ -137,6 +175,7 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
       "--flat-playlist",
       "--no-warnings",
       "--print", "%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(is_live)s",
+      ...cookieArgs(),
     ],
     { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 },
   );
