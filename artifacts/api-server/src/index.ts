@@ -12,6 +12,7 @@ import { initPlaylists } from "./discord/playlist.js";
 import { initAdminChannels } from "./discord/command-suggest.js";
 import { initVoicePickerChannels } from "./discord/voice-picker-channels.js";
 import { initLikesStore } from "./discord/likes-store.js";
+import { initLogoBrandStore } from "./discord/logo-brand-store.js";
 
 const rawPort = process.env["PORT"];
 
@@ -39,6 +40,7 @@ await Promise.all([
   initAdminChannels(),
   initVoicePickerChannels(),
   initLikesStore(),
+  initLogoBrandStore(),
 ]);
 
 // ── HTTP server ───────────────────────────────────────────────────────────────

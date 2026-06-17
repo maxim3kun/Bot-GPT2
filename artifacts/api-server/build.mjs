@@ -111,6 +111,7 @@ async function buildAll() {
       "m3u8stream",
       "miniget",
       "mongodb",
+      "tesseract.js",
     ],
     sourcemap: "linked",
     plugins: [

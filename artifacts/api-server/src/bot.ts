@@ -20,6 +20,8 @@ import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
 import { isDbReady } from "./lib/db";
 import { setBotStats } from "./lib/bot-stats";
+import { getStoreStats, setBrandApproval } from "./discord/logo-brand-store";
+import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1552,6 +1554,114 @@ export function startBot(): void {
           break;
         }
 
+        case "logo": {
+          const logoSub = args[0]?.toLowerCase();
+          const logoArg = args[1]?.toLowerCase();
+
+          const requirePerm = () => {
+            if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+              message.reply("🔒 You need **Manage Server** permission to use this command.").catch(() => null);
+              return false;
+            }
+            return true;
+          };
+
+          if (logoSub === "stats") {
+            const s = getStoreStats();
+            const bar = (n: number, total: number) => {
+              const pct = total > 0 ? Math.round((n / total) * 10) : 0;
+              return "█".repeat(pct) + "░".repeat(10 - pct);
+            };
+            const embed = new EmbedBuilder()
+              .setTitle("🏷️ Logo Brand Store — Stats")
+              .setColor(0x5865f2)
+              .addFields(
+                { name: "Total brands",  value: `**${s.total}**`, inline: true },
+                { name: "Tested",        value: `**${s.tested}** / ${s.total}`, inline: true },
+                { name: "Untested",      value: `**${s.untested}**`, inline: true },
+                { name: "✅ Approved",   value: `**${s.approved}**\n${bar(s.approved, s.total)}`, inline: true },
+                { name: "📝 Text logos", value: `**${s.textLogos}** (excluded by OCR)`, inline: true },
+                { name: "❌ Invalid",    value: `**${s.invalid}** (no image on logo.dev)`, inline: true },
+              )
+              .setFooter({ text: "Use !logo test start to test untested brands • !logo test all to re-test everything" });
+            await message.reply({ embeds: [embed] });
+
+          } else if (logoSub === "test") {
+            if (!requirePerm()) break;
+
+            if (logoArg === "status") {
+              const p = getTestingProgress();
+              if (!p.running && p.total === 0) {
+                await message.reply("💤 No test job has been run yet. Use `!logo test start` to begin.");
+              } else {
+                const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                const bar = "█".repeat(Math.round(pct / 10)) + "░".repeat(10 - Math.round(pct / 10));
+                await message.reply(
+                  `🔬 **Logo test${p.running ? " in progress" : " — last run"}**\n` +
+                  `Progress: \`${bar}\` **${pct}%** (${p.done}/${p.total})\n` +
+                  `✅ Approved: **${p.approved}**  •  📝 Text logos: **${p.textLogos}**  •  ❌ Invalid: **${p.invalid}**`,
+                );
+              }
+
+            } else if (logoArg === "start" || logoArg === "all") {
+              if (isTestingRunning()) {
+                const p = getTestingProgress();
+                const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                await message.reply(`⏳ A test job is already running — **${pct}%** (${p.done}/${p.total}). Use \`!logo test status\` to check progress.`);
+                break;
+              }
+              const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
+              const retestAll = logoArg === "all";
+              startLogoTestingJob(token, retestAll);
+              const s = getStoreStats();
+              const toTest = retestAll ? s.total : s.untested;
+              await message.reply(
+                `🔬 Logo test job started — **${toTest} brand${toTest !== 1 ? "s" : ""}** to test${retestAll ? " (re-testing all)" : " (untested only)"}.\n` +
+                `Tesseract OCR will download language data on first run (~30s). Use \`!logo test status\` to check progress.`,
+              );
+
+            } else {
+              await message.reply(
+                "**!logo test** subcommands:\n" +
+                "`!logo test start` — test untested brands\n" +
+                "`!logo test all` — re-test ALL brands\n" +
+                "`!logo test status` — show progress",
+              );
+            }
+
+          } else if (logoSub === "approve" && args[1]) {
+            if (!requirePerm()) break;
+            const domain = args[1];
+            const ok = await setBrandApproval(domain, true, false);
+            await message.reply(ok ? `✅ **${domain}** marked as approved.` : `❌ Brand \`${domain}\` not found in the store.`);
+
+          } else if ((logoSub === "exclude" || logoSub === "ban") && args[1]) {
+            if (!requirePerm()) break;
+            const domain = args[1];
+            const ok = await setBrandApproval(domain, false, true);
+            await message.reply(ok ? `🚫 **${domain}** manually excluded from the game.` : `❌ Brand \`${domain}\` not found in the store.`);
+
+          } else if ((logoSub === "include" || logoSub === "unban") && args[1]) {
+            if (!requirePerm()) break;
+            const domain = args[1];
+            const ok = await setBrandApproval(domain, true, false);
+            await message.reply(ok ? `✅ **${domain}** re-included in the game.` : `❌ Brand \`${domain}\` not found in the store.`);
+
+          } else {
+            await message.reply(
+              "**!logo** — logo brand store admin\n" +
+              "`!logo stats` — database statistics\n" +
+              "`!logo test start` — test untested brands (image + OCR)\n" +
+              "`!logo test all` — re-test all brands\n" +
+              "`!logo test status` — current test progress\n" +
+              "`!logo approve <domain>` — manually approve a brand\n" +
+              "`!logo exclude <domain>` — manually exclude a brand\n" +
+              "`!logo include <domain>` — re-include a brand",
+            );
+          }
+          break;
+        }
+
         // ── Music — Suno AI ───────────────────────────────────────────────────────
         case "music": {
           const sub = args.shift()?.toLowerCase();
@@ -2620,6 +2730,42 @@ export function startBot(): void {
                 } else {
                   const ld = logoSub && ["easy","medium","hard"].includes(logoSub) ? logoSub : "easy";
                   playGuessLogo(message, ld).catch(() => null);
+                }
+                break;
+              }
+              case "logo": {
+                const lSub = args[0]?.toLowerCase();
+                const lArg = args[1]?.toLowerCase();
+                if (lSub === "stats") {
+                  const s = getStoreStats();
+                  const embed = new EmbedBuilder()
+                    .setTitle("🏷️ Logo Brand Store — Stats")
+                    .setColor(0x5865f2)
+                    .addFields(
+                      { name: "Total", value: `**${s.total}**`, inline: true },
+                      { name: "Tested", value: `**${s.tested}** / ${s.total}`, inline: true },
+                      { name: "Untested", value: `**${s.untested}**`, inline: true },
+                      { name: "✅ Approved", value: `**${s.approved}**`, inline: true },
+                      { name: "📝 Text logos", value: `**${s.textLogos}**`, inline: true },
+                      { name: "❌ Invalid", value: `**${s.invalid}**`, inline: true },
+                    );
+                  await message.reply({ embeds: [embed] });
+                } else if (lSub === "test" && (lArg === "start" || lArg === "all")) {
+                  if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) { await message.reply("🔒 Manage Server required."); break; }
+                  if (isTestingRunning()) { await message.reply("⏳ Test already running. Use `!logo test status`."); break; }
+                  const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
+                  startLogoTestingJob(token, lArg === "all");
+                  const s2 = getStoreStats();
+                  const n = lArg === "all" ? s2.total : s2.untested;
+                  await message.reply(`🔬 Testing **${n}** brands in background. Use \`!logo test status\` to follow progress.`);
+                } else if (lSub === "test" && lArg === "status") {
+                  const p = getTestingProgress();
+                  const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                  await message.reply(p.total === 0
+                    ? "💤 No test job run yet."
+                    : `🔬 ${p.running ? "Running" : "Last run"}: **${pct}%** (${p.done}/${p.total}) — ✅ ${p.approved} approved, 📝 ${p.textLogos} text, ❌ ${p.invalid} invalid`);
+                } else {
+                  await message.reply("`!logo stats` • `!logo test start` • `!logo test all` • `!logo test status`");
                 }
                 break;
               }

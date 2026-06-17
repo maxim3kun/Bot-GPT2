@@ -2,6 +2,7 @@ import { Message, EmbedBuilder, MessageReaction, User } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
+import { getApprovedBrandsForTiers } from "./discord/logo-brand-store";
 
 // ─────────────────────────────────────────
 // HELPERS
@@ -1142,11 +1143,17 @@ function buildLogoUrl(domain: string): string {
 
 function pickBrandForDifficulty(channelId: string, difficulty: LogoDifficulty): LogoBrand {
   const cfg = LOGO_DIFF_CONFIG[difficulty];
-  const pool = logoBrandPool.filter((b) => cfg.tiers.includes(b.tier) && !b.textLogo);
+
+  // Prefer OCR-validated brands from MongoDB store; fall back to hardcoded list if store is empty
+  let pool: LogoBrand[] = getApprovedBrandsForTiers(cfg.tiers as (1 | 2 | 3)[]);
+  if (pool.length === 0) {
+    pool = logoBrandPool.filter((b) => cfg.tiers.includes(b.tier) && !b.textLogo);
+  }
+
   const recent = recentLogoBrands.get(channelId) ?? new Set();
   const fresh = pool.filter((b) => !recent.has(b.name));
   const source = fresh.length > 0 ? fresh : pool;
-  const brand = source[Math.floor(Math.random() * source.length)];
+  const brand = source[Math.floor(Math.random() * source.length)]!;
   recent.add(brand.name);
   if (recent.size > Math.floor(pool.length / 2)) { recent.clear(); recent.add(brand.name); }
   recentLogoBrands.set(channelId, recent);
@@ -1179,7 +1186,10 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
   activeLogoGames.set(channel.id, game);
 
   const logoUrl = buildLogoUrl(brand.domain);
-  const poolSize = logoBrandPool.filter((b) => cfg.tiers.includes(b.tier)).length;
+  const storePool = getApprovedBrandsForTiers(cfg.tiers as (1 | 2 | 3)[]);
+  const poolSize = storePool.length > 0
+    ? storePool.length
+    : logoBrandPool.filter((b) => cfg.tiers.includes(b.tier)).length;
 
   const buildEmbed = (hintsShown: string[]): EmbedBuilder => {
     const embed = new EmbedBuilder()

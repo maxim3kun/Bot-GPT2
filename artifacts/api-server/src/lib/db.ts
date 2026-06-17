@@ -91,11 +91,36 @@ export interface LogoBrandCacheDoc {
   updatedAt: Date;
 }
 
+// ── Logo brands store (per-brand documents with OCR test results) ──────────────
+
+export interface LogoBrandMongoDoc {
+  _id: string;           // domain, e.g. "apple.com"
+  name: string;
+  aliases: string[];
+  domain: string;
+  category: string;
+  country: string;
+  tier: 1 | 2 | 3;
+  hints: string[];
+  textLogo?: boolean;    // manual flag (pre-OCR era)
+  // Image test results
+  imageOk: boolean | null;
+  imageSizeBytes: number | null;
+  hasTextLogo: boolean | null;   // OCR detected brand name in image
+  detectedText: string | null;   // raw OCR output
+  lastTested: Date | null;
+  // Admin overrides
+  manualExclude: boolean;
+  approved: boolean;     // imageOk && !hasTextLogo && !manualExclude
+  updatedAt: Date;
+}
+
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 export let usersCol: Collection<UserDoc> | null = null;
 export let guildsCol: Collection<GuildDoc> | null = null;
 export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
+export let logoBrandsCol: Collection<LogoBrandMongoDoc> | null = null;
 
 export function isDbReady(): boolean {
   return db !== null && encKey !== null;
@@ -117,6 +142,8 @@ export async function connectDb(): Promise<void> {
     usersCol  = db.collection<UserDoc>("users");
     guildsCol = db.collection<GuildDoc>("guilds");
     logoBrandsCacheCol = db.collection<LogoBrandCacheDoc>("logo_brands_cache");
+    logoBrandsCol = db.collection<LogoBrandMongoDoc>("logo_brands");
+    await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");
   } catch (err) {
