@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
 import { getApprovedBrandsForTiers } from "./discord/logo-brand-store";
+import { incrementGroqCalls } from "./lib/bot-stats";
 
 // ─────────────────────────────────────────
 // HELPERS
@@ -565,6 +566,7 @@ Respond ONLY with this JSON:
       ],
     });
 
+    incrementGroqCalls();
     const raw = gen.choices[0]?.message?.content ?? "{}";
     let data: { question: string; choices: Record<string, string>; answer: string; explanation: string };
 

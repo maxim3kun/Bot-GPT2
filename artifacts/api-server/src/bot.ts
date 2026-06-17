@@ -18,8 +18,8 @@ import { handleNewCommand } from "./discord/new-commands";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
-import { isDbReady } from "./lib/db";
-import { setBotStats } from "./lib/bot-stats";
+import { isDbReady, getDbStats } from "./lib/db";
+import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval } from "./discord/logo-brand-store";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 
@@ -814,6 +814,7 @@ async function runAiBattle(
       messages: [{ role: "system", content: systemFor }, ...battleHistory],
     });
 
+    incrementGroqCalls();
     const forArg = forResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "assistant", content: forArg });
     await channel.send(`🔵 **${bot1Name}** — Round ${round}:\n\n${forArg}`);
@@ -836,6 +837,7 @@ async function runAiBattle(
       messages: [{ role: "system", content: systemAgainst }, ...againstHistory],
     });
 
+    incrementGroqCalls();
     const againstArg = againstResponse.choices[0]?.message?.content ?? "...";
     battleHistory.push({ role: "user", content: againstArg });
     await bot2SendableChannel.send(`🔴 **${bot2Name}** — Round ${round}:\n\n${againstArg}`);
@@ -864,6 +866,7 @@ async function runAiBattle(
     ],
   });
 
+  incrementGroqCalls();
   const verdict = verdictResponse.choices[0]?.message?.content ?? "It's a tie!";
   await sleep(2000);
   await channel.send(`🏆 **VERDICT** 🏆\n\n${verdict}`);
@@ -1328,6 +1331,7 @@ export function startBot(): void {
             ...getHistory(message.channelId),
           ],
         });
+        incrementGroqCalls();
         const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
@@ -1354,6 +1358,7 @@ export function startBot(): void {
             ...getHistory(message.channelId),
           ],
         });
+        incrementGroqCalls();
         const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
@@ -1482,6 +1487,7 @@ export function startBot(): void {
                 { role: "user", content: prompt },
               ],
             });
+            incrementGroqCalls();
             const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
             await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
           } catch (err) {
@@ -1832,34 +1838,68 @@ export function startBot(): void {
             await message.reply("🔒 Commande réservée.");
             break;
           }
-          const mongoOk   = isDbReady();
-          const groqOk    = !!process.env["GROQ_API_KEY"];
-          const sunoOk    = !!process.env["SUNO_API_KEY"];
-          const hfOk      = !!process.env["HUGGINGFACE_TOKEN"];
-          const token2Ok  = !!process.env["DISCORD_TOKEN_2"];
-          const guilds    = client.guilds.cache.size;
-          const users     = client.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
-          const uptime    = process.uptime();
-          const h = Math.floor(uptime / 3600);
-          const m = Math.floor((uptime % 3600) / 60);
-          const s = Math.floor(uptime % 60);
-          const uptimeStr = `${h}h ${m}m ${s}s`;
-          const mem = process.memoryUsage();
-          const memMb = Math.round(mem.heapUsed / 1024 / 1024);
+          const mongoOk  = isDbReady();
+          const groqOk   = !!process.env["GROQ_API_KEY"];
+          const sunoOk   = !!process.env["SUNO_API_KEY"];
+          const hfOk     = !!process.env["HUGGINGFACE_TOKEN"];
+          const token2Ok = !!process.env["DISCORD_TOKEN_2"];
+          const guilds   = client.guilds.cache.size;
+          const users    = client.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
+          const uptime   = process.uptime();
+          const uh = Math.floor(uptime / 3600);
+          const um = Math.floor((uptime % 3600) / 60);
+          const us = Math.floor(uptime % 60);
+          const uptimeStr = `${uh}h ${um}m ${us}s`;
+          const mem    = process.memoryUsage();
+          const memMb  = Math.round(mem.heapUsed / 1024 / 1024);
+          const memMax = Math.round(mem.heapTotal / 1024 / 1024);
+
+          // MongoDB storage stats
+          const MONGO_LIMIT_MB = 512;
+          const dbSt = await getDbStats();
+          let mongoValue: string;
+          if (!mongoOk) {
+            mongoValue = "⚠️ Fallback JSON";
+          } else if (!dbSt) {
+            mongoValue = "✅ Connecté";
+          } else {
+            const usedMb = (dbSt.storageSize / 1024 / 1024).toFixed(1);
+            const pct    = Math.min((dbSt.storageSize / (MONGO_LIMIT_MB * 1024 * 1024)) * 100, 100);
+            const filled = Math.round(pct / 10);
+            const bar    = `\`${"█".repeat(filled)}${"░".repeat(10 - filled)}\``;
+            mongoValue   = `✅ ${usedMb} MB / ${MONGO_LIMIT_MB} MB\n${bar} **${pct.toFixed(1)}%**\n${dbSt.objects} docs • ${dbSt.collections} collections`;
+          }
+
+          // Groq call count
+          const groqCalls = getGroqCallCount();
+          const groqValue = groqOk
+            ? `✅ Active\n**${groqCalls}** appel${groqCalls !== 1 ? "s" : ""} cette session`
+            : "❌ Désactivée";
+
+          // RAM bar
+          const ramPct    = Math.min(Math.round((memMb / memMax) * 100), 100);
+          const ramFilled = Math.round(ramPct / 10);
+          const ramBar    = `\`${"█".repeat(ramFilled)}${"░".repeat(10 - ramFilled)}\``;
+          const ramValue  = `${memMb} MB / ${memMax} MB\n${ramBar} **${ramPct}%**`;
+
+          const SP = { name: "\u200b", value: "\u200b", inline: true }; // 2-col spacer
 
           const embed = new EmbedBuilder()
             .setTitle("🤖 Bot Status")
             .setColor(mongoOk ? 0x57f287 : 0xfee75c)
             .addFields(
-              { name: "🗄️ MongoDB",        value: mongoOk  ? "✅ Connecté"  : "⚠️ Fallback JSON", inline: true },
-              { name: "🧠 IA (Groq)",      value: groqOk   ? "✅ Active"    : "❌ Désactivée",    inline: true },
-              { name: "🎵 Suno",           value: sunoOk   ? "✅ Active"    : "❌ Désactivée",    inline: true },
-              { name: "🖼️ HuggingFace",   value: hfOk     ? "✅ Active"    : "❌ Désactivée",    inline: true },
-              { name: "⚔️ AI Battle",      value: token2Ok ? "✅ Active"    : "❌ Désactivée",    inline: true },
-              { name: "🏠 Serveurs",       value: `${guilds}`,                                    inline: true },
-              { name: "👥 Membres totaux", value: `${users}`,                                     inline: true },
-              { name: "⏱️ Uptime",         value: uptimeStr,                                       inline: true },
-              { name: "💾 RAM",            value: `${memMb} MB`,                                   inline: true },
+              { name: "🗄️ MongoDB",       value: mongoValue,                                  inline: true },
+              { name: "🧠 Groq IA",        value: groqValue,                                   inline: true },
+              SP,
+              { name: "🎵 Suno",           value: sunoOk   ? "✅ Active" : "❌ Désactivée",   inline: true },
+              { name: "🖼️ HuggingFace",   value: hfOk     ? "✅ Active" : "❌ Désactivée",   inline: true },
+              SP,
+              { name: "⚔️ AI Battle",      value: token2Ok ? "✅ Active" : "❌ Désactivée",   inline: true },
+              { name: "🏠 Serveurs",        value: `**${guilds}** serveur${guilds !== 1 ? "s" : ""}\n${users} membres`,  inline: true },
+              SP,
+              { name: "⏱️ Uptime",          value: uptimeStr,                                  inline: true },
+              { name: "💾 RAM",             value: ramValue,                                   inline: true },
+              SP,
             )
             .setTimestamp();
           await message.reply({ embeds: [embed] });

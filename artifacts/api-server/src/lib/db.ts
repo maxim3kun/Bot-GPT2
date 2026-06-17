@@ -283,3 +283,29 @@ export async function getAllGuildDocs(): Promise<GuildDoc[]> {
     return [];
   }
 }
+
+// ── DB storage stats ───────────────────────────────────────────────────────────
+
+export interface DbStats {
+  dataSize: number;    // bytes — uncompressed data
+  storageSize: number; // bytes — allocated on disk
+  objects: number;     // total document count
+  collections: number;
+}
+
+export async function getDbStats(): Promise<DbStats | null> {
+  if (!db) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s: any = await db.command({ dbStats: 1 });
+    return {
+      dataSize:    Number(s.dataSize    ?? 0),
+      storageSize: Number(s.storageSize ?? 0),
+      objects:     Number(s.objects     ?? 0),
+      collections: Number(s.collections ?? 0),
+    };
+  } catch (err) {
+    logger.error({ err }, "getDbStats failed");
+    return null;
+  }
+}
