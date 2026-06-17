@@ -875,6 +875,48 @@ async function runAiBattle(
 
 // ── Bot entry point ───────────────────────────────────────────────────────────
 
+// ── Website viewer helpers ────────────────────────────────────────────────────
+
+const WEBSITE_URL = "https://stable-flow-7r48.pagedrop.io/";
+const WEBSITE_SECTIONS = [
+  { label: "Top",    emoji: "🔝", scrollTo: 0    },
+  { label: "Middle", emoji: "📄", scrollTo: 700  },
+  { label: "Bottom", emoji: "⬇️", scrollTo: 1400 },
+];
+
+function buildWebsiteMessage(sectionIndex: number) {
+  const section = WEBSITE_SECTIONS[sectionIndex]!;
+  const scrollParam = section.scrollTo > 0 ? `&screenshot.scrollTo=${section.scrollTo}` : "";
+  const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(WEBSITE_URL)}&screenshot=true&meta=false${scrollParam}&embed=screenshot.url`;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🌐 MaximeGPT.com — ${section.emoji} ${section.label}`)
+    .setURL(WEBSITE_URL)
+    .setDescription(`Page ${sectionIndex + 1} / ${WEBSITE_SECTIONS.length} — Use the buttons below to scroll.`)
+    .setImage(screenshotUrl)
+    .setColor(0x5865f2)
+    .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`website_goto_${sectionIndex - 1}`)
+      .setLabel("↑ Scroll Up")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(sectionIndex === 0),
+    new ButtonBuilder()
+      .setLabel("🌐 Open Site")
+      .setStyle(ButtonStyle.Link)
+      .setURL(WEBSITE_URL),
+    new ButtonBuilder()
+      .setCustomId(`website_goto_${sectionIndex + 1}`)
+      .setLabel("↓ Scroll Down")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(sectionIndex === WEBSITE_SECTIONS.length - 1),
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
   const token2 = process.env["DISCORD_TOKEN_2"];
@@ -2616,29 +2658,7 @@ export function startBot(): void {
         // ── Website viewer ────────────────────────────────────────────────────────
         case "website":
         case "site": {
-          const SITE_URL = "https://www.maximeGPT.com";
-          const sections = [
-            { label: "🔝 Haut", crop: 900, offset: 0 },
-            { label: "📄 Milieu", crop: 900, offset: 900 },
-            { label: "⬇️ Bas", crop: 900, offset: 1800 },
-          ];
-          const requestedSection = args[0]?.toLowerCase();
-          let sectionIndex = 0;
-          if (requestedSection === "milieu" || requestedSection === "2") sectionIndex = 1;
-          if (requestedSection === "bas" || requestedSection === "3") sectionIndex = 2;
-          const section = sections[sectionIndex]!;
-          const screenshotUrl = `https://image.thum.io/get/width/1280/crop/${section.crop}/viewportWidth/1280/scroll/${section.offset}/noanimate/${SITE_URL}`;
-          const embed = new EmbedBuilder()
-            .setTitle(`🌐 MaximeGPT.com — ${section.label}`)
-            .setURL(SITE_URL)
-            .setDescription(`Aperçu du site officiel de Maxime.\nUtilise \`!website milieu\` ou \`!website bas\` pour voir d'autres sections.`)
-            .setImage(screenshotUrl)
-            .setColor(0x5865f2)
-            .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
-          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setLabel("🌐 Ouvrir le site").setStyle(ButtonStyle.Link).setURL(SITE_URL),
-          );
-          await message.reply({ embeds: [embed], components: [row] });
+          await message.reply(buildWebsiteMessage(0));
           break;
         }
 
@@ -3192,6 +3212,15 @@ export function startBot(): void {
         botId: client.user.id,
       });
     }
+  });
+
+  // ── Website scroll button interactions ──────────────────────────────────────
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isButton()) return;
+    if (!interaction.customId.startsWith("website_goto_")) return;
+    const newIndex = parseInt(interaction.customId.replace("website_goto_", ""), 10);
+    if (isNaN(newIndex) || newIndex < 0 || newIndex >= WEBSITE_SECTIONS.length) return;
+    await interaction.update(buildWebsiteMessage(newIndex));
   });
 
   client.on("guildCreate", () => setBotStats({ guildCount: client.guilds.cache.size }));
