@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { isDbReady, patchUserData, getAllUserDocs } from "../lib/db.js";
+import { getUserLang, USER_LANG_NAMES } from "./user-lang-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "../../data");
@@ -282,6 +283,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
 
         if (profile.bullying && openai) {
           const questTitles = pending.map(q => q.title).join(", ");
+          const reminderLang = USER_LANG_NAMES[getUserLang(profile.userId)] ?? "English";
           try {
             const res = await openai.chat.completions.create({
               model: "llama-3.3-70b-versatile",
@@ -292,7 +294,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
                     "You are a brutally honest, tough-love accountability coach. " +
                     "Write ONE short punchy reminder (max 2 sentences, no hashtags) to push someone to complete their tasks. " +
                     "Be direct, harsh but not cruel — like a drill sergeant who actually cares. No emojis except at the end. " +
-                    "Respond in the same language as the task names provided.",
+                    `Respond in ${reminderLang}.`,
                 },
                 {
                   role: "user",
@@ -342,6 +344,8 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
   recordChannel(profile, message);
   persistUser(profile.userId);
 
+  const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+
   const promptEmbed = new EmbedBuilder()
     .setTitle("🎯 Quest Setup")
     .setDescription(
@@ -384,7 +388,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
             "Return ONLY valid JSON, no markdown, no other text. Max 9 quests.\n" +
             'Schema: [{"title":"<max 40 chars>","description":"<one sentence>","difficulty":"easy|medium|hard","points":10|25|50}]\n' +
             "Rules: easy=10pts (daily/weekly habit), medium=25pts (monthly goal), hard=50pts (long-term project).\n" +
-            "Respond in the same language as the user.",
+            `Respond in ${userLang}.`,
         },
         { role: "user", content: userInput },
       ],
@@ -668,6 +672,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
   }
 
   const thinkMsg = await message.channel.send("🤔 One question before I add this...");
+  const userLangAdd = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
 
   try {
     const qRes = await openai.chat.completions.create({
@@ -679,7 +684,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
             "You are a goal-setting coach. The user wants to add a personal quest/goal. " +
             "Ask ONE short, sharp clarifying question to better define this goal. " +
             "Focus on: timeline, how to measure success, or the real motivation. " +
-            "One sentence only. No preamble, no label. Respond in the same language as the goal.",
+            `One sentence only. No preamble, no label. Respond in ${userLangAdd}.`,
         },
         { role: "user", content: `Goal: ${objective}` },
       ],
@@ -707,7 +712,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
             "Create ONE quest JSON from a user goal. Return ONLY valid JSON, no other text, no markdown.\n" +
             'Schema: {"title":"<max 40 chars>","description":"<one sentence>","difficulty":"easy|medium|hard","points":10|25|50}\n' +
             "easy=10pts (daily habit), medium=25pts (weekly/monthly goal), hard=50pts (long-term project).\n" +
-            "Respond in the same language as the goal.",
+            `Respond in ${userLangAdd}.`,
         },
         {
           role: "user",

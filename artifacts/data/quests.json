@@ -1,0 +1,86 @@
+{
+  "562005937884233730": {
+    "userId": "562005937884233730",
+    "username": "Maxime",
+    "quests": [
+      {
+        "id": 1,
+        "title": "Anglais quotidien",
+        "description": "Pratiquer l'anglais pendant 15 minutes chaque jour",
+        "difficulty": "easy",
+        "points": 10,
+        "completed": false
+      },
+      {
+        "id": 2,
+        "title": "Révision hebdomadaire",
+        "description": "Réviser les règles de grammaire anglaise chaque semaine",
+        "difficulty": "easy",
+        "points": 10,
+        "completed": false
+      },
+      {
+        "id": 3,
+        "title": "Lecture en anglais",
+        "description": "Lire un article en anglais chaque jour pendant une semaine",
+        "difficulty": "easy",
+        "points": 10,
+        "completed": false
+      },
+      {
+        "id": 4,
+        "title": "Objectif mensuel",
+        "description": "Améliorer la compréhension orale en anglais en écoutant des podcasts pendant une heure par semaine",
+        "difficulty": "medium",
+        "points": 25,
+        "completed": false
+      },
+      {
+        "id": 5,
+        "title": "Projet professionnel",
+        "description": "Créer un dossier professionnel en anglais pour le nouvel emploi",
+        "difficulty": "medium",
+        "points": 25,
+        "completed": false
+      },
+      {
+        "id": 6,
+        "title": "Sorties en anglais",
+        "description": "Participer à une sortie en anglais par mois pour améliorer la confiance en soi",
+        "difficulty": "medium",
+        "points": 25,
+        "completed": false
+      },
+      {
+        "id": 7,
+        "title": "Certification anglaise",
+        "description": "Préparer et passer un examen de certification en anglais dans les 6 prochains mois",
+        "difficulty": "hard",
+        "points": 50,
+        "completed": false
+      },
+      {
+        "id": 8,
+        "title": "Voyage en anglais",
+        "description": "Planifier un voyage dans un pays anglophone pour améliorer les compétences linguistiques dans les 12 prochains mois",
+        "difficulty": "hard",
+        "points": 50,
+        "completed": false
+      },
+      {
+        "id": 9,
+        "title": "Auto-formation",
+        "description": "Créer un plan d'apprentissage autonome pour améliorer les compétences en anglais pendant les 12 prochains mois",
+        "difficulty": "hard",
+        "points": 50,
+        "completed": false
+      }
+    ],
+    "totalPoints": 0,
+    "completedCount": 0,
+    "createdAt": "2026-06-17T21:59:32.116Z",
+    "notifyChannelId": "1512769130691035220",
+    "notifyGuildId": "1512769130082603161",
+    "bullying": true
+  }
+}

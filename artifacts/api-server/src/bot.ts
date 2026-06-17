@@ -13,7 +13,8 @@ import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQ
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { getLang } from "./discord/lang-store";
+import { getLang, setLang, GuildLang } from "./discord/lang-store";
+import { getUserLang, setUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
@@ -234,10 +235,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊"
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Changer ta langue (défaut: anglais)"
           : es
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊"
-          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊",
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Cambiar tu idioma (defecto: inglés)"
+          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!language [en|fr|es]` — Change your language (default: English)",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
@@ -334,10 +335,10 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
       {
         name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
         value: fr
-          ? "`!help admin` — Commandes d'administration\n`!help setup` / `!setup` — Clés API & secrets"
+          ? "`!help admin` — Commandes d'administration\n`!help setup` / `!setup` — Clés API & secrets\n`!server language [en|fr|es]` — Langue du serveur *(admin)*"
           : es
-          ? "`!help admin` — Comandos de administración\n`!help setup` / `!setup` — Claves API y secretos"
-          : "`!help admin` — Admin commands\n`!help setup` / `!setup` — API keys & secrets",
+          ? "`!help admin` — Comandos de administración\n`!help setup` / `!setup` — Claves API y secretos\n`!server language [en|fr|es]` — Idioma del servidor *(admin)*"
+          : "`!help admin` — Admin commands\n`!help setup` / `!setup` — API keys & secrets\n`!server language [en|fr|es]` — Server language *(admin)*",
       },
     );
   }
@@ -2883,6 +2884,75 @@ export function startBot(): void {
               `\`${guildPrefix}admin channel #salon\` — Set the alert channel\n` +
               `\`${guildPrefix}admin channel reset\` — Remove it`
             );
+          }
+          break;
+        }
+
+        // ── User language ─────────────────────────────────────────────────────────
+        case "language":
+        case "langue":
+        case "lang":
+        case "langage": {
+          const input = args[0]?.toLowerCase();
+          const currentLang = getUserLang(message.author.id);
+          if (!input) {
+            await message.reply(
+              `🌐 Your current bot language: **${USER_LANG_LABELS[currentLang]}**\n` +
+              `Change it with:\n` +
+              `\`${guildPrefix}language en\` — 🇬🇧 English\n` +
+              `\`${guildPrefix}language fr\` — 🇫🇷 Français\n` +
+              `\`${guildPrefix}language es\` — 🇪🇸 Español`,
+            );
+            break;
+          }
+          if (!isValidUserLang(input)) {
+            await message.reply(`❌ Invalid language. Use \`${guildPrefix}language en\`, \`fr\` or \`es\`.`);
+            break;
+          }
+          if (input === currentLang) {
+            await message.reply(`ℹ️ Your language is already set to **${USER_LANG_LABELS[input]}**.`);
+            break;
+          }
+          setUserLang(message.author.id, input);
+          await message.reply(`✅ Your bot language is now **${USER_LANG_LABELS[input]}**. Quests and AI replies will be in ${USER_LANG_NAMES[input]}.`);
+          break;
+        }
+
+        // ── Server settings ───────────────────────────────────────────────────────
+        case "server": {
+          const sub = args[0]?.toLowerCase();
+          if (sub === "language" || sub === "langue" || sub === "lang" || sub === "langage") {
+            const guildId = message.guildId;
+            if (!guildId) { await message.reply("❌ This command can only be used in a server."); break; }
+            const langArg = args[1]?.toLowerCase();
+            const currentGuildLang = getLang(guildId);
+            const GUILD_LANG_LABELS: Record<string, string> = { en: "🇬🇧 English", fr: "🇫🇷 Français", es: "🇪🇸 Español" };
+            if (!langArg) {
+              await message.reply(
+                `🌐 Server language: **${GUILD_LANG_LABELS[currentGuildLang] ?? currentGuildLang}**\n` +
+                `*(Admin only)* Change it with:\n` +
+                `\`${guildPrefix}server language en\` — 🇬🇧 English\n` +
+                `\`${guildPrefix}server language fr\` — 🇫🇷 Français\n` +
+                `\`${guildPrefix}server language es\` — 🇪🇸 Español`,
+              );
+              break;
+            }
+            const isAdmin =
+              message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+              message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+            if (!isAdmin) { await message.reply("🔒 Only admins can change the server language. (**Manage Server** required)"); break; }
+            if (!["en", "fr", "es"].includes(langArg)) {
+              await message.reply(`❌ Invalid language. Use \`${guildPrefix}server language en\`, \`fr\` or \`es\`.`);
+              break;
+            }
+            if (langArg === currentGuildLang) {
+              await message.reply(`ℹ️ Server language is already **${GUILD_LANG_LABELS[langArg] ?? langArg}**.`);
+              break;
+            }
+            setLang(guildId, langArg as GuildLang);
+            await message.reply(`✅ Server language set to **${GUILD_LANG_LABELS[langArg] ?? langArg}**. The \`!help\` menu will now default to this language.`);
+          } else {
+            await message.reply(`❓ Unknown server command. Try \`${guildPrefix}server language [en|fr|es]\`.`);
           }
           break;
         }

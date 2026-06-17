@@ -8,6 +8,7 @@ import { initBirthdayStore } from "./discord/birthdays.js";
 import { initSuggestPrefs } from "./discord/suggest-prefs.js";
 import { initPrefixStore } from "./discord/prefix-store.js";
 import { initLangStore } from "./discord/lang-store.js";
+import { initUserLangStore } from "./discord/user-lang-store.js";
 import { initPlaylists } from "./discord/playlist.js";
 import { initAdminChannels } from "./discord/command-suggest.js";
 import { initVoicePickerChannels } from "./discord/voice-picker-channels.js";
@@ -37,6 +38,7 @@ await Promise.all([
   initSuggestPrefs(),
   initPrefixStore(),
   initLangStore(),
+  initUserLangStore(),
   initPlaylists(),
   initAdminChannels(),
   initVoicePickerChannels(),
