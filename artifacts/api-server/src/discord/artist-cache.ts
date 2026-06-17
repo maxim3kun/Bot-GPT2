@@ -27,6 +27,23 @@ export function isKnownArtist(word: string): boolean {
 }
 
 /**
+ * Returns cached artist names that start with the given prefix (case-insensitive).
+ * Results are title-cased and sorted alphabetically.
+ */
+export function getMatchingArtists(prefix: string, limit = 25): string[] {
+  if (!prefix.trim()) return [];
+  const q = prefix.toLowerCase().trim();
+  const matches: string[] = [];
+  for (const name of knownArtists) {
+    if (name.startsWith(q)) {
+      // Title-case each word
+      matches.push(name.replace(/\b\w/g, c => c.toUpperCase()));
+    }
+  }
+  return matches.sort().slice(0, limit);
+}
+
+/**
  * Persist a new artist name.
  * Called after the user picks a search result whose title matches "Artist - Song".
  */

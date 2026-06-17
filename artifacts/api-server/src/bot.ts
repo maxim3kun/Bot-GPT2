@@ -22,7 +22,7 @@ import { isDbReady, getDbStats } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval } from "./discord/logo-brand-store";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
-import { saveArtist } from "./discord/artist-cache";
+import { saveArtist, getMatchingArtists } from "./discord/artist-cache";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -963,6 +963,82 @@ export function startBot(): void {
     onVoiceAloneChange(guildId, humanCount === 0);
   });
 
+  // ── Autocomplete handler ─────────────────────────────────────────────────────
+  // Lazy play-dl loader (separate instance from radio's, used only for autocomplete)
+  let _acPlay: typeof import("play-dl") | null = null;
+  const getAcPlay = async (): Promise<typeof import("play-dl")> => {
+    if (!_acPlay) _acPlay = await import("play-dl") as typeof import("play-dl");
+    return _acPlay;
+  };
+
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isAutocomplete()) return;
+    if (interaction.commandName !== "youtube") return;
+
+    const focused = interaction.options.getFocused(true);
+    try {
+      if (focused.name === "artist") {
+        const query = focused.value.trim();
+        if (!query) { await interaction.respond([]); return; }
+
+        // 1. Pull from local artist cache
+        const cached = getMatchingArtists(query, 15).map(a => ({ name: a, value: a }));
+        if (cached.length >= 20) { await interaction.respond(cached.slice(0, 25)); return; }
+
+        // 2. Supplement with YouTube channel names via play-dl
+        try {
+          const play = await getAcPlay();
+          const results = await Promise.race([
+            play.search(query, { source: { youtube: "video" }, limit: 10 }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 2400)),
+          ]);
+          const channels = [
+            ...new Set(
+              (results as any[])
+                .map((r: any) => (r.channel?.name as string | undefined)?.replace(/\s*-?\s*(Topic|VEVO|Official.*$)/i, "").trim())
+                .filter((n): n is string => !!n && n.toLowerCase().includes(query.toLowerCase())),
+            ),
+          ].map(n => n.replace(/\b\w/g, c => c.toUpperCase()));
+
+          const all = [...cached];
+          for (const ch of channels) {
+            if (!all.find(a => a.value.toLowerCase() === ch.toLowerCase())) all.push({ name: ch, value: ch });
+          }
+          await interaction.respond(all.slice(0, 25));
+        } catch {
+          await interaction.respond(cached.slice(0, 25));
+        }
+        return;
+      }
+
+      if (focused.name === "song") {
+        const artist = interaction.options.getString("artist") ?? "";
+        const partial = focused.value.trim();
+        const searchQ = [artist, partial].filter(Boolean).join(" ");
+        if (!searchQ) { await interaction.respond([]); return; }
+        try {
+          const play = await getAcPlay();
+          const results = await Promise.race([
+            play.search(searchQ, { source: { youtube: "video" }, limit: 8 }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 2400)),
+          ]);
+          const choices = (results as any[])
+            .filter((r: any) => r?.url && r?.title)
+            .map((r: any) => ({ name: (r.title as string).slice(0, 100), value: r.url as string }))
+            .slice(0, 25);
+          await interaction.respond(choices);
+        } catch {
+          await interaction.respond([]);
+        }
+        return;
+      }
+
+      await interaction.respond([]);
+    } catch {
+      await interaction.respond([]).catch(() => null);
+    }
+  });
+
   // ── Slash command handler ─────────────────────────────────────────────────────
 
   client.on("interactionCreate", async (interaction) => {
@@ -1104,6 +1180,110 @@ export function startBot(): void {
 
         case "shazam": {
           await shazam(fakeMsg);
+          break;
+        }
+
+        case "youtube": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const artist  = interaction.options.getString("artist", true);
+          const songVal = interaction.options.getString("song", true);
+          // songVal is a YouTube URL when the user picked from autocomplete, or free text otherwise
+          if (songVal.startsWith("http://") || songVal.startsWith("https://")) {
+            await playYoutube(fakeMsg, songVal);
+          } else {
+            await searchAndQueue(fakeMsg, `${artist} ${songVal}`.trim());
+          }
+          break;
+        }
+
+        case "play": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const q = interaction.options.getString("query", true);
+          if (q.startsWith("http://") || q.startsWith("https://")) {
+            await playYoutube(fakeMsg, q);
+          } else {
+            await searchAndQueue(fakeMsg, q);
+          }
+          break;
+        }
+
+        case "say": {
+          const text = interaction.options.getString("text", true);
+          if (interaction.channel && "send" in interaction.channel) {
+            await (interaction.channel as import("discord.js").TextChannel).send(text);
+            await interaction.deleteReply().catch(() => null);
+          } else {
+            await interaction.editReply(text);
+          }
+          break;
+        }
+
+        case "np": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          await nowPlaying(fakeMsg);
+          break;
+        }
+
+        case "skip": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const skipped = skipCurrentTrack(interaction.guildId);
+          if (!skipped) { await interaction.editReply("❌ Nothing is playing right now."); break; }
+          await interaction.editReply(`⏭️ Skipped **${skipped}**.`);
+          break;
+        }
+
+        case "stop": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const stopped = stopForGuild(interaction.guildId);
+          if (!stopped) { await interaction.editReply("❌ Nothing is playing right now."); break; }
+          await interaction.editReply("⏹️ Stopped and disconnected.");
+          break;
+        }
+
+        case "join": {
+          await joinVoice(fakeMsg);
+          break;
+        }
+
+        case "leave": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          leaveVoice(interaction.guildId);
+          await interaction.editReply("👋 Left the voice channel.");
+          break;
+        }
+
+        case "queue": {
+          if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
+          const qEmbed = getQueueEmbed(interaction.guildId);
+          if (!qEmbed) { await interaction.editReply("📭 The queue is empty."); break; }
+          await interaction.editReply({ embeds: [qEmbed] });
+          break;
+        }
+
+        case "joke": {
+          const jokeLang = (interaction.options.getString("lang") ?? "en") as "en" | "fr" | "es";
+          const jokeList = jokeLang === "fr" ? JOKES_FR : jokeLang === "es" ? JOKES_ES : JOKES;
+          await interaction.editReply(getRandom(jokeList));
+          break;
+        }
+
+        case "roll": {
+          const faces = interaction.options.getInteger("faces") ?? 6;
+          const rollResult = Math.floor(Math.random() * faces) + 1;
+          await interaction.editReply(`🎲 You rolled a **${faces}**-sided die and got: **${rollResult}**!`);
+          break;
+        }
+
+        case "8ball": {
+          const question = interaction.options.getString("question", true);
+          await interaction.editReply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(EIGHT_BALL_RESPONSES)}`);
+          break;
+        }
+
+        case "trivia": {
+          if (!openai) { await interaction.editReply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          await interaction.editReply("🧠 Trivia is starting — watch this channel for your question!");
+          playTrivia(fakeMsg, openai).catch((err) => logger.error({ err }, "/trivia error"));
           break;
         }
       }
