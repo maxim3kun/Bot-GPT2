@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive } from "./games";
@@ -2610,6 +2610,35 @@ export function startBot(): void {
             )
             .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
           await message.reply({ embeds: [embed] });
+          break;
+        }
+
+        // ── Website viewer ────────────────────────────────────────────────────────
+        case "website":
+        case "site": {
+          const SITE_URL = "https://www.maximeGPT.com";
+          const sections = [
+            { label: "🔝 Haut", crop: 900, offset: 0 },
+            { label: "📄 Milieu", crop: 900, offset: 900 },
+            { label: "⬇️ Bas", crop: 900, offset: 1800 },
+          ];
+          const requestedSection = args[0]?.toLowerCase();
+          let sectionIndex = 0;
+          if (requestedSection === "milieu" || requestedSection === "2") sectionIndex = 1;
+          if (requestedSection === "bas" || requestedSection === "3") sectionIndex = 2;
+          const section = sections[sectionIndex]!;
+          const screenshotUrl = `https://image.thum.io/get/width/1280/crop/${section.crop}/viewportWidth/1280/scroll/${section.offset}/noanimate/${SITE_URL}`;
+          const embed = new EmbedBuilder()
+            .setTitle(`🌐 MaximeGPT.com — ${section.label}`)
+            .setURL(SITE_URL)
+            .setDescription(`Aperçu du site officiel de Maxime.\nUtilise \`!website milieu\` ou \`!website bas\` pour voir d'autres sections.`)
+            .setImage(screenshotUrl)
+            .setColor(0x5865f2)
+            .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setLabel("🌐 Ouvrir le site").setStyle(ButtonStyle.Link).setURL(SITE_URL),
+          );
+          await message.reply({ embeds: [embed], components: [row] });
           break;
         }
 
