@@ -28,6 +28,8 @@ export function setChannelNameCallback(cb: (guildId: string, title: string | nul
   _channelNameCallback = cb;
 }
 
+import { isKnownArtist } from "./artist-cache.js";
+
 // ── Fast YouTube search via play-dl (in-process, no subprocess overhead) ─────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -102,13 +104,20 @@ const STREAM_HEADERS = {
 };
 
 async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
-  if (hops > 8) throw new Error("Too many redirects");
+  if (hops > 10) throw new Error("Too many redirects");
   return new Promise((resolve, reject) => {
+    const isStreamtheworld = url.includes("streamtheworld.com");
+    const headers: Record<string, string> = { ...STREAM_HEADERS };
+    if (isStreamtheworld) {
+      headers["Referer"] = "https://playerservices.streamtheworld.com/";
+      headers["Origin"] = "https://playerservices.streamtheworld.com";
+    }
     const getter = url.startsWith("https://") ? httpsGet : httpGet;
-    const req = getter(url, { headers: STREAM_HEADERS }, (res) => {
+    const timeoutMs = isStreamtheworld ? 15_000 : 8_000;
+    const req = getter(url, { headers }, (res) => {
       const loc = res.headers.location;
-      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303) && loc) {
-        res.resume(); // drain and discard redirect body
+      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303 || res.statusCode === 307 || res.statusCode === 308) && loc) {
+        res.resume();
         fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
           .then(resolve).catch(reject);
         return;
@@ -119,7 +128,7 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
         return;
       }
       const ct = (res.headers["content-type"] ?? "").toLowerCase();
-      // Some stations return an M3U/PLS playlist — parse first URL from it
+      // M3U/PLS playlists — parse first URL
       if (ct.includes("mpegurl") || ct.includes("x-scpls") || url.endsWith(".m3u") || url.endsWith(".m3u8") || url.endsWith(".pls")) {
         let body = "";
         res.setEncoding("utf8");
@@ -132,10 +141,57 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
         res.on("error", reject);
         return;
       }
+      // streamtheworld sometimes returns JSON instead of a proper 302 redirect
+      if (ct.includes("application/json") || (isStreamtheworld && ct.includes("text/"))) {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => { body += chunk; if (body.length > 16384) res.destroy(); });
+        res.on("end", () => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const json = JSON.parse(body) as Record<string, any>;
+            let streamUrl: string | null = null;
+            // Format 1: { streaming_hostname, station_key }
+            const hostname = json["streaming_hostname"] as string | undefined;
+            const stationKey = json["station_key"] as string | undefined;
+            if (hostname && stationKey) {
+              const port = json["port"] as number | undefined;
+              const base = hostname.replace(/\/$/, "");
+              streamUrl = (port && port !== 80 && port !== 443)
+                ? `${base}:${port}/${stationKey}`
+                : `${base}/${stationKey}`;
+            }
+            // Format 2: { primary: { ip, port, path } }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const primary = json["primary"] as Record<string, any> | undefined;
+            if (!streamUrl && primary) {
+              const transport = (primary["transport"] as string | undefined) ?? "http";
+              const ip   = primary["ip"]   as string | undefined;
+              const port = primary["port"] as number | undefined;
+              const path = (primary["path"] as string | undefined) ?? "";
+              if (ip) streamUrl = `${transport}://${ip}${port && port !== 80 && port !== 443 ? `:${port}` : ""}${path}`;
+            }
+            // Format 3: { data: { items: [{ stream }] } }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const items = (json["data"] as Record<string, any> | undefined)?.["items"] as Array<{ stream: string }> | undefined;
+            if (!streamUrl && items?.[0]?.stream) streamUrl = items[0].stream;
+            if (streamUrl) {
+              fetchStream(streamUrl.startsWith("http") ? streamUrl : `https://${streamUrl}`, hops + 1)
+                .then(resolve).catch(reject);
+            } else {
+              reject(new Error(`streamtheworld JSON: cannot extract stream URL from ${url}`));
+            }
+          } catch {
+            reject(new Error(`Non-audio JSON response from ${url}`));
+          }
+        });
+        res.on("error", reject);
+        return;
+      }
       resolve(res);
     });
     req.on("error", reject);
-    req.setTimeout(8_000, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
   });
 }
 
@@ -856,7 +912,20 @@ async function execPlayYoutube(
   state.paused = false;
   state.requestedBy = requestedBy ?? null;
 
+  // ── Loading bar animation ─────────────────────────────────────────────────
+  const LOAD_FRAMES = [
+    "▱▱▱▱▱▱▱▱▱▱", "▰▱▱▱▱▱▱▱▱▱", "▰▰▱▱▱▱▱▱▱▱", "▰▰▰▱▱▱▱▱▱▱",
+    "▰▰▰▰▱▱▱▱▱▱", "▰▰▰▰▰▱▱▱▱▱", "▰▰▰▰▰▰▱▱▱▱", "▰▰▰▰▰▰▰▱▱▱",
+    "▰▰▰▰▰▰▰▰▱▱", "▰▰▰▰▰▰▰▰▰▱", "▰▰▰▰▰▰▰▰▰▰",
+  ];
+  let loadFrame = 0;
+  const loadInterval = setInterval(async () => {
+    loadFrame = (loadFrame + 1) % LOAD_FRAMES.length;
+    await waitMsg.edit(`🎬 Loading… ${LOAD_FRAMES[loadFrame]}`).catch(() => null);
+  }, 1_200);
+
   const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
+    clearInterval(loadInterval);
     const cleanTitle = cleanYouTubeTitle(title);
     const s = radioStates.get(guildId);
     if (s) { s.youtubeTitle = cleanTitle; s.youtubeStartTime = Date.now(); }
@@ -877,6 +946,7 @@ async function execPlayYoutube(
   };
 
   const onError = async (err: Error) => {
+    clearInterval(loadInterval);
     logger.error({ err, url }, "YouTube playback error");
     state.nowPlayingMsg = null;
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] });
@@ -1153,6 +1223,7 @@ interface PendingSearchEntry {
   results: Array<{ url: string; title: string; duration: number; thumbnail: string | null }>;
   message: Message;
   requestedBy: string;
+  originalQuery: string;
   expires: ReturnType<typeof setTimeout>;
   page: number;
   loadMsg: Message;
@@ -1166,6 +1237,7 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
   pick: { url: string; title: string; duration: number; thumbnail: string | null };
   message: Message;
   requestedBy: string;
+  originalQuery: string;
 } | null {
   const ps = pendingSearches.get(msgId);
   if (!ps) return null;
@@ -1176,12 +1248,11 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
   clearTimeout(ps.expires);
   pendingSearches.delete(msgId);
   const basePick = ps.results[globalIdx]!;
-  // Use pre-fetched metadata if available (better thumbnail, confirmed duration)
   const cached = queueInfoCache.get(basePick.url);
   const pick = cached
     ? { url: basePick.url, title: cached.title, duration: cached.duration, thumbnail: cached.thumbnail }
     : basePick;
-  return { pick, message: ps.message, requestedBy: ps.requestedBy };
+  return { pick, message: ps.message, requestedBy: ps.requestedBy, originalQuery: ps.originalQuery };
 }
 
 /** Called by the bot.ts button handler when the user clicks ◀ or ▶ to navigate pages. */
@@ -1254,9 +1325,18 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   if (wordCount === 2) {
     const sel = cleaned[0]!;
+    const word1 = words[0] ?? "";
     const word2 = (words[1] ?? "").toLowerCase();
     const titleLower = sel.title.toLowerCase();
     const dashIdx = titleLower.indexOf(" - ");
+
+    // Known artist cache: if word1 is a recognized artist, word2 must be the song → auto-play
+    if (isKnownArtist(word1)) {
+      await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+      await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+      return;
+    }
+
     if (dashIdx !== -1) {
       const artistPart = titleLower.slice(0, dashIdx);
       const songPart   = titleLower.slice(dashIdx + 3);
@@ -1306,6 +1386,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     results: allResults,
     message,
     requestedBy: message.author.id,
+    originalQuery: query.trim(),
     expires,
     page: 0,
     loadMsg,

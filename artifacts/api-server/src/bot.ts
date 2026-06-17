@@ -22,6 +22,7 @@ import { isDbReady, getDbStats } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval } from "./discord/logo-brand-store";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
+import { saveArtist } from "./discord/artist-cache";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1230,6 +1231,19 @@ export function startBot(): void {
       await interaction.update({ content: `▶️ Playing **${pending.pick.title}**`, embeds: [], components: [] });
       try {
         await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail });
+        // Artist cache learning: if query was 2 words and title is "Artist - Song", save the artist
+        const queryWords = pending.originalQuery.trim().split(/\s+/).filter(w => w.length > 1);
+        if (queryWords.length === 2) {
+          const titleLower = pending.pick.title.toLowerCase();
+          const dashIdx = titleLower.indexOf(" - ");
+          if (dashIdx !== -1) {
+            const artistPart = titleLower.slice(0, dashIdx);
+            const word1 = (queryWords[0] ?? "").toLowerCase();
+            if (artistPart.includes(word1)) {
+              saveArtist(queryWords[0]!).catch(() => null);
+            }
+          }
+        }
       } catch (err) {
         logger.error({ err }, "yt:pick play error");
         await interaction.followUp({ content: "❌ Failed to play. Try `!y` again.", ephemeral: true }).catch(() => null);
