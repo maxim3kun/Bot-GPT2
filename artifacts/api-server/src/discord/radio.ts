@@ -929,20 +929,41 @@ async function execPlayYoutube(
   state.requestedBy = requestedBy ?? null;
 
   // ── Loading bar animation ─────────────────────────────────────────────────
-  const LOAD_FRAMES = [
+  const FILL_FRAMES = [
     "▱▱▱▱▱▱▱▱▱▱", "▰▱▱▱▱▱▱▱▱▱", "▰▰▱▱▱▱▱▱▱▱", "▰▰▰▱▱▱▱▱▱▱",
     "▰▰▰▰▱▱▱▱▱▱", "▰▰▰▰▰▱▱▱▱▱", "▰▰▰▰▰▰▱▱▱▱", "▰▰▰▰▰▰▰▱▱▱",
     "▰▰▰▰▰▰▰▰▱▱", "▰▰▰▰▰▰▰▰▰▱", "▰▰▰▰▰▰▰▰▰▰",
   ];
+  // Pulse frames shown after the bar fills if audio hasn't started yet
+  const PULSE_FRAMES = [
+    "▰▰▰▰▰▱▱▱▱▱", "▱▰▰▰▰▰▱▱▱▱", "▱▱▰▰▰▰▰▱▱▱", "▱▱▱▰▰▰▰▰▱▱",
+    "▱▱▱▱▰▰▰▰▰▱", "▱▱▱▱▱▰▰▰▰▰", "▱▱▱▱▰▰▰▰▰▱", "▱▱▱▰▰▰▰▰▱▱",
+    "▱▱▰▰▰▰▰▱▱▱", "▱▰▰▰▰▰▱▱▱▱",
+  ];
   let loadFrame = 0;
+  let pulsing = false;
+  let pulseFrame = 0;
   const loadStartTime = Date.now();
-  const MIN_BAR_MS = 2_500; // always show the bar for at least 2.5 s
+  const MIN_BAR_MS = 1_500; // show bar for at least 1.5 s before showing embed
   // Show first frame immediately so the bar is visible even on fast preloaded streams
-  await waitMsg.edit(`🎬 Loading… ${LOAD_FRAMES[0]}`).catch(() => null);
+  await waitMsg.edit(`🎬 Loading… ${FILL_FRAMES[0]}`).catch(() => null);
   const loadInterval = setInterval(async () => {
-    loadFrame = Math.min(loadFrame + 1, LOAD_FRAMES.length - 1);
-    await waitMsg.edit(`🎬 Loading… ${LOAD_FRAMES[loadFrame]}`).catch(() => null);
-  }, 450);
+    if (pulsing) {
+      // Scroll the pulse window to show progress is still happening
+      pulseFrame = (pulseFrame + 1) % PULSE_FRAMES.length;
+      await waitMsg.edit(`🎬 Buffering… ${PULSE_FRAMES[pulseFrame]}`).catch(() => null);
+    } else {
+      loadFrame++;
+      if (loadFrame >= FILL_FRAMES.length) {
+        // Bar filled but audio hasn't started — switch to pulse mode
+        pulsing = true;
+        pulseFrame = 0;
+        await waitMsg.edit(`🎬 Buffering… ${PULSE_FRAMES[0]}`).catch(() => null);
+      } else {
+        await waitMsg.edit(`🎬 Loading… ${FILL_FRAMES[loadFrame]}`).catch(() => null);
+      }
+    }
+  }, 400);
 
   const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
     // Wait until the bar has been visible for the minimum time, then clear
