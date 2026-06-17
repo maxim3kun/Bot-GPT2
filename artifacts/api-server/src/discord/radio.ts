@@ -82,7 +82,20 @@ export function registerPendingVoiceCmd(key: string, userId: string, fn: () => P
   for (const [k, v] of pendingVoiceCmds) {
     if (v.expires < now) pendingVoiceCmds.delete(k);
   }
-  pendingVoiceCmds.set(key, { fn, userId, expires: now + 5 * 60 * 1000 });
+  pendingVoiceCmds.set(key, { fn, userId, expires: now + 60 * 1000 }); // 1-minute window
+}
+
+/** Auto-run: find and consume any pending command for a user (called on voiceStateUpdate). */
+export function consumePendingVoiceCmdByUser(userId: string): (() => Promise<void>) | null {
+  const now = Date.now();
+  for (const [key, entry] of pendingVoiceCmds) {
+    if (entry.expires < now) { pendingVoiceCmds.delete(key); continue; }
+    if (entry.userId === userId) {
+      pendingVoiceCmds.delete(key);
+      return entry.fn;
+    }
+  }
+  return null;
 }
 
 export function consumePendingVoiceCmd(key: string, userId: string): (() => Promise<void>) | null {
@@ -519,27 +532,22 @@ export async function replyNotInVoice(message: Message, pendingKey?: string): Pr
     return;
   }
 
-  // One row per channel: [🔊 link] [✅ I'm ready!] — both on the same line
-  const baseId = pendingKey ?? `noop_${Date.now()}`;
-  const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map((ch, idx) =>
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
+  // One link button per channel — bot auto-runs the command when user joins within 1 min
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    ...voiceChannels.slice(0, 5).map((ch) =>
       new ButtonBuilder()
         .setLabel(`🔊 ${ch.name.slice(0, 77)}`)
         .setStyle(ButtonStyle.Link)
         .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`),
-      new ButtonBuilder()
-        .setCustomId(`voice_ready:${baseId}:${idx}`)
-        .setLabel("✅ I'm ready!")
-        .setStyle(ButtonStyle.Success),
     ),
   );
 
   const embed = new EmbedBuilder()
     .setColor(0xe67e22)
-    .setDescription("❌ **Join a voice channel first!**\nClick the channel link, join it, then press **✅ I'm ready!**");
+    .setDescription("❌ **Join a voice channel** — the command will run automatically.");
 
   try {
-    await message.reply({ embeds: [embed], components: rows });
+    await message.reply({ embeds: [embed], components: [row] });
   } catch (err) {
     logger.error({ err }, "replyNotInVoice: failed to send voice picker");
     await message.reply("❌ You need to be in a voice channel first!").catch(() => null);

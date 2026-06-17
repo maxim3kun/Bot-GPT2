@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -985,22 +985,29 @@ export function startBot(): void {
 
   // ── Voice state — auto-disconnect when bot is alone ──────────────────────────
 
-  client.on("voiceStateUpdate", (oldState, newState) => {
+  client.on("voiceStateUpdate", async (oldState, newState) => {
     const guildId = oldState.guild.id;
     const botId = client.user?.id;
     if (!botId) return;
 
-    // Find the bot's current voice channel
+    // ── Auto-run pending command when a user joins a voice channel ──────────────
+    const userId = newState.member?.user?.id;
+    const justJoined = !oldState.channelId && !!newState.channelId;
+    const switchedChannel = !!oldState.channelId && !!newState.channelId && oldState.channelId !== newState.channelId;
+    if (userId && userId !== botId && (justJoined || switchedChannel)) {
+      const fn = consumePendingVoiceCmdByUser(userId);
+      if (fn) {
+        await fn().catch((err) => logger.error({ err }, "voiceStateUpdate auto-run error"));
+      }
+    }
+
+    // ── Disconnect bot when left alone ─────────────────────────────────────────
     const botVoiceState = oldState.guild.members.cache.get(botId)?.voice;
     const botChannelId = botVoiceState?.channelId;
     if (!botChannelId) return;
-
-    // Only react if the change happened in the bot's channel
     if (oldState.channelId !== botChannelId && newState.channelId !== botChannelId) return;
-
     const botChannel = botVoiceState.channel;
     if (!botChannel) return;
-
     const humanCount = botChannel.members.filter((m) => !m.user.bot).size;
     onVoiceAloneChange(guildId, humanCount === 0);
   });
