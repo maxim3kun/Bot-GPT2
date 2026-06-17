@@ -2597,18 +2597,18 @@ export function startBot(): void {
         // ── Credits ──────────────────────────────────────────────────────────────
         case "credits": {
           const embed = new EmbedBuilder()
-            .setTitle("✨ Project Credits")
+            .setTitle("✨ Crédits du Projet")
             .setColor(0x5865f2)
-            .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
+            .setDescription("Ce bot n'existerait pas sans ces technologies et ces personnes. Merci à tous ! 🙏")
             .addFields(
-              { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
-              { name: "🧠 AI Assistants", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
-              { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
-              { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
-              { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment\n**GitHub** — Version control & collaboration", inline: false },
-              { name: "🛠️ Technologies", value: "**discord.js** — Discord API\n**Node.js + TypeScript** — Runtime & language\n**Express** — API server", inline: false },
+              { name: "👨‍💻 Créateur", value: "**Maxime** — Design, développement & idées", inline: false },
+              { name: "🧠 Assistants IA", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
+              { name: "🤖 Intelligence Artificielle", value: "**Meta LLaMA** — Modèle IA (via Groq)\n**Suno AI** — Génération musicale", inline: false },
+              { name: "🔊 Voix & Images", value: "**Google Translate** — Synthèse vocale (TTS gratuit)\n**HuggingFace / FLUX** — Génération d'images", inline: false },
+              { name: "🚀 Infrastructure", value: "**Railway** — Hébergement & déploiement\n**Replit** — Environnement de développement\n**GitHub** — Contrôle de version", inline: false },
+              { name: "🛠️ Technologies", value: "**discord.js** — API Discord\n**Node.js + TypeScript** — Runtime & langage\n**Express** — Serveur API", inline: false },
             )
-            .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" });
+            .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
           await message.reply({ embeds: [embed] });
           break;
         }
@@ -3009,18 +3009,18 @@ export function startBot(): void {
                 break;
               case "credits": {
                 const credEmbed = new EmbedBuilder()
-                  .setTitle("✨ Project Credits")
+                  .setTitle("✨ Crédits du Projet")
                   .setColor(0x5865f2)
-                  .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
+                  .setDescription("Ce bot n'existerait pas sans ces technologies et ces personnes. Merci à tous ! 🙏")
                   .addFields(
-                    { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
-                    { name: "🧠 AI Assistants", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
-                    { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
-                    { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
-                    { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment", inline: false },
-                    { name: "🛠️ Technologies", value: "**discord.js** — Discord API\n**Node.js + TypeScript** — Runtime & language", inline: false },
+                    { name: "👨‍💻 Créateur", value: "**Maxime** — Design, développement & idées", inline: false },
+                    { name: "🧠 Assistants IA", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
+                    { name: "🤖 Intelligence Artificielle", value: "**Meta LLaMA** — Modèle IA (via Groq)\n**Suno AI** — Génération musicale", inline: false },
+                    { name: "🔊 Voix & Images", value: "**Google Translate** — Synthèse vocale (TTS gratuit)\n**HuggingFace / FLUX** — Génération d'images", inline: false },
+                    { name: "🚀 Infrastructure", value: "**Railway** — Hébergement & déploiement\n**Replit** — Environnement de développement", inline: false },
+                    { name: "🛠️ Technologies", value: "**discord.js** — API Discord\n**Node.js + TypeScript** — Runtime & langage", inline: false },
                   )
-                  .setFooter({ text: "Made with ❤️ by Maxime · !help for commands" });
+                  .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
                 await message.reply({ embeds: [credEmbed] });
                 break;
               }
