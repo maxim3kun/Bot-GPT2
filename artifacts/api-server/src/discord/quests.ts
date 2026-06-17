@@ -284,7 +284,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
           const questTitles = pending.map(q => q.title).join(", ");
           try {
             const res = await openai.chat.completions.create({
-              model: "llama-3.1-70b-versatile",
+              model: "llama-3.3-70b-versatile",
               messages: [
                 {
                   role: "system",
@@ -347,7 +347,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     .setDescription(
       "Tell me your goals and I'll turn them into epic quests!\n\n" +
       "What do you want to accomplish? *(work, fitness, projects, habits, learning...)*\n\n" +
-      "You have **60 seconds** to reply. 📝",
+      "You have **5 minutes** to reply. 📝",
     )
     .setColor(0x3498db);
 
@@ -358,7 +358,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     collected = await message.channel.awaitMessages({
       filter: m => m.author.id === message.author.id,
       max: 1,
-      time: 60_000,
+      time: 300_000,
     });
   } catch {
     await message.channel.send("⏰ No response received. Use `!quest start` when you're ready!");
@@ -375,7 +375,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
   try {
     const response = await openai.chat.completions.create({
-      model: "llama-3.1-70b-versatile",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
@@ -671,7 +671,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
 
   try {
     const qRes = await openai.chat.completions.create({
-      model: "llama-3.1-70b-versatile",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
@@ -688,18 +688,18 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     });
 
     const question = qRes.choices[0]?.message?.content?.trim() ?? "What's your target timeline for this?";
-    await thinkMsg.edit(`💬 **${question}** *(60s to answer — or ignore and I'll use the goal as-is)*`);
+    await thinkMsg.edit(`💬 **${question}** *(5 minutes to answer — or ignore and I'll use the goal as-is)*`);
 
     const answered = await message.channel.awaitMessages({
       filter: m => m.author.id === message.author.id,
       max: 1,
-      time: 60_000,
+      time: 300_000,
     }).catch(() => null);
 
     const answer = answered && answered.size > 0 ? answered.first()!.content : "";
 
     const questRes = await openai.chat.completions.create({
-      model: "llama-3.1-70b-versatile",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
