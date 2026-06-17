@@ -2602,6 +2602,7 @@ export function startBot(): void {
             .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
             .addFields(
               { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
+              { name: "🧠 AI Assistants", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
               { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
               { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
               { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment\n**GitHub** — Version control & collaboration", inline: false },
@@ -3013,6 +3014,7 @@ export function startBot(): void {
                   .setDescription("This bot wouldn't exist without these technologies and people. Thank you all! 🙏")
                   .addFields(
                     { name: "👨‍💻 Creator", value: "**Maxime** — Design, development & ideas", inline: false },
+                    { name: "🧠 AI Assistants", value: "**Claude** — Suggestions, résolution de problèmes & site MaximeGPT.com\n**ChatGPT** — Vision créative", inline: false },
                     { name: "🤖 Artificial Intelligence", value: "**Meta LLaMA** — AI model (via Groq)\n**Suno AI** — Music generation", inline: false },
                     { name: "🔊 Voice & Images", value: "**Google Translate** — Text-to-speech (free TTS)\n**HuggingFace / FLUX** — Image generation", inline: false },
                     { name: "🚀 Infrastructure", value: "**Railway** — Hosting & deployment\n**Replit** — Development environment", inline: false },
