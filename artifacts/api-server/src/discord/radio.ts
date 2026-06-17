@@ -519,21 +519,27 @@ export async function replyNotInVoice(message: Message, pendingKey?: string): Pr
     return;
   }
 
-  // Compact layout: one row of green buttons (one per channel), no link buttons
+  // One row per channel: [🔊 link] [✅ I'm ready!] — both on the same line
   const baseId = pendingKey ?? `noop_${Date.now()}`;
-  const buttons = voiceChannels.slice(0, 5).map((ch, idx) =>
-    new ButtonBuilder()
-      .setCustomId(`voice_ready:${baseId}:${idx}`)
-      .setLabel(`🔊 ${ch.name.slice(0, 77)}`)
-      .setStyle(ButtonStyle.Success),
+  const rows: ActionRowBuilder<ButtonBuilder>[] = voiceChannels.map((ch, idx) =>
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel(`🔊 ${ch.name.slice(0, 77)}`)
+        .setStyle(ButtonStyle.Link)
+        .setURL(`https://discord.com/channels/${guild.id}/${ch.id}`),
+      new ButtonBuilder()
+        .setCustomId(`voice_ready:${baseId}:${idx}`)
+        .setLabel("✅ I'm ready!")
+        .setStyle(ButtonStyle.Success),
+    ),
   );
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xe67e22)
+    .setDescription("❌ **Join a voice channel first!**\nClick the channel link, join it, then press **✅ I'm ready!**");
 
   try {
-    await message.reply({
-      content: "❌ Join a voice channel first, then click your channel:",
-      components: [row],
-    });
+    await message.reply({ embeds: [embed], components: rows });
   } catch (err) {
     logger.error({ err }, "replyNotInVoice: failed to send voice picker");
     await message.reply("❌ You need to be in a voice channel first!").catch(() => null);
