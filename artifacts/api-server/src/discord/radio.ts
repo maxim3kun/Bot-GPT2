@@ -211,11 +211,11 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC",   emoji: "💃", genre: "Pop / Dance",              lang: "es" },
-  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/EUROPAFM_SC",    emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://20943.live.streamtheworld.com/CADENA100_SC.mp3",   emoji: "💃", genre: "Pop / Dance",              lang: "es" },
+  europafm:    { name: "Europa FM",      url: "https://20943.live.streamtheworld.com/EUROPAFM_SC.mp3",    emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
   dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC",  emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKFM_SC",      emoji: "🤘", genre: "Rock",                     lang: "es" },
-  cope:        { name: "COPE",           url: "https://cope.stream.cope.es/cope128.mp3",                                         emoji: "📢", genre: "News / Talk",              lang: "es" },
+  rock_es:     { name: "Rock FM ES",     url: "https://20943.live.streamtheworld.com/ROCKFM_SC.mp3",      emoji: "🤘", genre: "Rock",                     lang: "es" },
+  cope:        { name: "COPE",           url: "https://20943.live.streamtheworld.com/COPE_SC.mp3",                                emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
   heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartLondonMP3",                     emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
@@ -587,7 +587,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       if (!s) return;
 
       if (s.stationKey) {
-        // Radio stream dropped — reconnect after 3 s
+        // Radio stream dropped — reconnect after 400 ms
         const key = s.stationKey;
         const station = RADIO_STATIONS[key];
         if (!station) return;
@@ -602,7 +602,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
           } catch (err) {
             logger.error({ err, key }, "Radio reconnect failed");
           }
-        }, 3000);
+        }, 400);
         return;
       }
 
@@ -895,10 +895,26 @@ async function execPlayYoutube(
   const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
   preloadedStreamCache.delete(url);
 
-  // Info fetch runs in parallel with stream startup (skipped when metadata already known)
+  // Info fetch runs in parallel with stream startup (skipped when metadata already known).
+  // Try play-dl first (in-process, fast), then fall back to yt-dlp if it fails.
   const infoPromise: Promise<{ title: string; duration: number; thumbnail: string | null }> = knownMeta
     ? Promise.resolve(knownMeta)
-    : ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+    : (async () => {
+        try {
+          const play = await getPlay();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const info = await (play.video_info(url) as Promise<any>);
+          const det = info?.video_details;
+          if (det?.title) {
+            return {
+              title: det.title as string,
+              duration: (det.durationInSec as number) ?? 0,
+              thumbnail: (det.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null,
+            };
+          }
+        } catch { /* fall through */ }
+        return ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
+      })();
 
   // Discord API calls — these overlap with yt-dlp startup time above
   await disableNpButtonsForState(state);
@@ -919,12 +935,19 @@ async function execPlayYoutube(
     "▰▰▰▰▰▰▰▰▱▱", "▰▰▰▰▰▰▰▰▰▱", "▰▰▰▰▰▰▰▰▰▰",
   ];
   let loadFrame = 0;
+  const loadStartTime = Date.now();
+  const MIN_BAR_MS = 2_500; // always show the bar for at least 2.5 s
+  // Show first frame immediately so the bar is visible even on fast preloaded streams
+  await waitMsg.edit(`🎬 Loading… ${LOAD_FRAMES[0]}`).catch(() => null);
   const loadInterval = setInterval(async () => {
-    loadFrame = (loadFrame + 1) % LOAD_FRAMES.length;
+    loadFrame = Math.min(loadFrame + 1, LOAD_FRAMES.length - 1);
     await waitMsg.edit(`🎬 Loading… ${LOAD_FRAMES[loadFrame]}`).catch(() => null);
-  }, 1_200);
+  }, 450);
 
   const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
+    // Wait until the bar has been visible for the minimum time, then clear
+    const elapsed = Date.now() - loadStartTime;
+    if (elapsed < MIN_BAR_MS) await new Promise(r => setTimeout(r, MIN_BAR_MS - elapsed));
     clearInterval(loadInterval);
     const cleanTitle = cleanYouTubeTitle(title);
     const s = radioStates.get(guildId);
