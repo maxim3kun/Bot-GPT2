@@ -1,4 +1,4 @@
-import { Message, EmbedBuilder, MessageReaction, User } from "discord.js";
+import { Message, EmbedBuilder, MessageReaction, User, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
@@ -1126,12 +1126,28 @@ const LOGO_DIFF_CONFIG: Record<LogoDifficulty, {
   maxHints: number;
   timeMs: number;
   label: string;
+  popularityLabel: string;
   color: number;
 }> = {
-  easy:   { tiers: [1],    maxHints: 3, timeMs: 90_000, label: "🟢 Easy",   color: 0x2ecc71 },
-  medium: { tiers: [1, 2], maxHints: 2, timeMs: 60_000, label: "🟡 Medium", color: 0xf1c40f },
-  hard:   { tiers: [1, 2, 3], maxHints: 0, timeMs: 45_000, label: "🔴 Hard", color: 0xe74c3c },
+  easy:   { tiers: [1],       maxHints: 3, timeMs: 90_000, label: "🟢 Facile",   popularityLabel: "Marques ultra-célèbres",  color: 0x2ecc71 },
+  medium: { tiers: [1, 2],    maxHints: 2, timeMs: 60_000, label: "🟡 Moyen",    popularityLabel: "Marques connues",         color: 0xf1c40f },
+  hard:   { tiers: [1, 2, 3], maxHints: 0, timeMs: 45_000, label: "🔴 Difficile", popularityLabel: "Toutes marques, sans indice", color: 0xe74c3c },
 };
+
+// ── Play Again button row ─────────────────────────────────────────────────────
+function makePlayAgainRow(difficulty: LogoDifficulty): ActionRowBuilder<ButtonBuilder> {
+  const labels: Record<LogoDifficulty, string> = {
+    easy:   "🟢 Rejouer (Facile)",
+    medium: "🟡 Rejouer (Moyen)",
+    hard:   "🔴 Rejouer (Difficile)",
+  };
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`logo_again_${difficulty}`)
+      .setLabel(labels[difficulty]!)
+      .setStyle(ButtonStyle.Primary),
+  );
+}
 
 function pickLogoToken(): string {
   return process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
@@ -1167,12 +1183,10 @@ function isCorrectLogoBrand(guess: string, brand: LogoBrand): boolean {
   return [brand.name, ...brand.aliases].some((a) => normalize(a) === norm);
 }
 
-export async function playGuessLogo(message: Message, diffArg?: string): Promise<void> {
-  const channel = toSendable(message.channel);
-  if (!channel) return;
-
-  if (activeLogoGames.has(channel.id)) {
-    await channel.send("🏷️ A logo game is already running here! Guess the current logo or wait for it to end.");
+// ── Core game loop — shared between message command and button replay ─────────
+async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?: string): Promise<void> {
+  if (activeLogoGames.has(channelId)) {
+    await channel.send("🏷️ Une partie est déjà en cours ici ! Devine le logo ou attends la fin.");
     return;
   }
 
@@ -1183,9 +1197,9 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
 
   const difficulty: LogoDifficulty = (["easy", "medium", "hard"].includes(diffArg ?? "") ? diffArg : "easy") as LogoDifficulty;
   const cfg = LOGO_DIFF_CONFIG[difficulty];
-  const brand = pickBrandForDifficulty(channel.id, difficulty);
+  const brand = pickBrandForDifficulty(channelId, difficulty);
   const game: LogoGame = { brand, difficulty, maxHints: cfg.maxHints };
-  activeLogoGames.set(channel.id, game);
+  activeLogoGames.set(channelId, game);
 
   const logoUrl = buildLogoUrl(brand.domain);
   const storePool = getApprovedBrandsForTiers(cfg.tiers as (1 | 2 | 3)[]);
@@ -1195,25 +1209,25 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
 
   const buildEmbed = (hintsShown: string[]): EmbedBuilder => {
     const embed = new EmbedBuilder()
-      .setTitle(`🏷️ GUESS THE LOGO — ${cfg.label}`)
+      .setTitle(`🏷️ DEVINE LE LOGO — ${cfg.label} *(${cfg.popularityLabel})*`)
       .setImage(logoUrl)
       .setColor(cfg.color)
       .setFooter({
         text: cfg.maxHints > 0
-          ? `${cfg.maxHints} hint${cfg.maxHints > 1 ? "s" : ""} available • ${cfg.timeMs / 1000}s • !guessthelogo stop to give up • ${poolSize} logos in pool`
-          : `No hints • ${cfg.timeMs / 1000}s • !guessthelogo stop to give up • ${poolSize} logos in pool`,
+          ? `${cfg.maxHints} indice${cfg.maxHints > 1 ? "s" : ""} disponible${cfg.maxHints > 1 ? "s" : ""} • ${cfg.timeMs / 1000}s • !guessthelogo stop pour abandonner • ${poolSize} logos dans le pool`
+          : `Aucun indice • ${cfg.timeMs / 1000}s • !guessthelogo stop pour abandonner • ${poolSize} logos dans le pool`,
       });
 
     if (hintsShown.length === 0) {
       embed.setDescription(
         cfg.maxHints > 0
-          ? "🔍 Which brand does this logo belong to?\nType your answer — wrong answers reveal hints!"
-          : "🔍 Which brand does this logo belong to?\nNo hints in Hard mode — you're on your own! 😈"
+          ? "🔍 À quelle marque appartient ce logo ?\nTape ta réponse — les mauvaises réponses débloquent des indices !"
+          : "🔍 À quelle marque appartient ce logo ?\nMode Difficile — aucun indice, bonne chance ! 😈"
       );
     } else {
       embed.setDescription(
-        "🔍 Which brand does this logo belong to?\n\n" +
-        hintsShown.map((h, i) => `💡 **Hint ${i + 1}:** ${h}`).join("\n")
+        "🔍 À quelle marque appartient ce logo ?\n\n" +
+        hintsShown.map((h, i) => `💡 **Indice ${i + 1} :** ${h}`).join("\n")
       );
     }
     return embed;
@@ -1222,17 +1236,11 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
   await channel.send({ embeds: [buildEmbed([])] });
 
   const hintsUsed: string[] = [];
+  const playAgainRow = makePlayAgainRow(difficulty);
 
   try {
     while (true) {
-      const collected = await (message.channel as unknown as {
-        awaitMessages: (opts: {
-          filter: (m: Message) => boolean;
-          max: number;
-          time: number;
-          errors: string[];
-        }) => Promise<Map<string, Message>>;
-      }).awaitMessages({
+      const collected = await channel.awaitMessages({
         filter: (m: Message) => !m.author.bot,
         max: 1,
         time: cfg.timeMs,
@@ -1244,43 +1252,49 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
 
       const text = reply.content.trim();
 
-      if (normalize(text) === "!guessthelogo stop" || normalize(text) === "guessthelogo stop"
-       || normalize(text) === "!logo stop" || normalize(text) === "logo stop") {
-        await channel.send(`🏳️ Game over! The logo was **${brand.name}** (${brand.category} • ${brand.country})`);
+      if (
+        normalize(text) === "!guessthelogo stop" || normalize(text) === "guessthelogo stop" ||
+        normalize(text) === "!logo stop" || normalize(text) === "logo stop"
+      ) {
+        await channel.send({
+          content: `🏳️ Partie terminée ! Le logo était **${brand.name}** (${brand.category} • ${brand.country})`,
+          components: [playAgainRow],
+        });
         break;
       }
 
       if (isCorrectLogoBrand(text, brand)) {
         const hintsLabel =
           hintsUsed.length === 0
-            ? "without any hints — incredible! 🤯"
+            ? "sans aucun indice — incroyable ! 🤯"
             : hintsUsed.length === 1
-            ? "with just 1 hint"
-            : `with ${hintsUsed.length} hints`;
+            ? "avec seulement 1 indice"
+            : `avec ${hintsUsed.length} indices`;
 
         const score = cfg.maxHints + 1 - hintsUsed.length;
         const stars = "⭐".repeat(Math.max(1, score));
 
         const embed = new EmbedBuilder()
           .setColor(0x2ecc71)
-          .setTitle(`✅ ${reply.author.displayName} got it!`)
+          .setTitle(`✅ ${reply.author.displayName} a trouvé !`)
           .setDescription(
-            `The logo was **${brand.name}** ${hintsLabel}!\n` +
-            `**Category:** ${brand.category} • **Country:** ${brand.country}\n` +
-            `**Score:** ${stars} (${score}/${cfg.maxHints + 1})`
+            `Le logo était **${brand.name}** ${hintsLabel} !\n` +
+            `**Catégorie :** ${brand.category} • **Pays :** ${brand.country}\n` +
+            `**Score :** ${stars} (${score}/${cfg.maxHints + 1})`
           )
           .setThumbnail(logoUrl);
 
-        await channel.send({ embeds: [embed] });
+        await channel.send({ embeds: [embed], components: [playAgainRow] });
         break;
       }
 
-      // Wrong answer
+      // Mauvaise réponse
       const nextHint = brand.hints[hintsUsed.length];
       if (!nextHint || hintsUsed.length >= cfg.maxHints) {
-        await channel.send(
-          `❌ Wrong! No more hints.\nThe logo was **${brand.name}** — ${brand.category} from ${brand.country}. Better luck next time!`
-        );
+        await channel.send({
+          content: `❌ Raté ! Plus d'indices.\nLe logo était **${brand.name}** — ${brand.category} de ${brand.country}. Meilleure chance la prochaine fois !`,
+          components: [playAgainRow],
+        });
         break;
       }
 
@@ -1288,10 +1302,29 @@ export async function playGuessLogo(message: Message, diffArg?: string): Promise
       await channel.send({ embeds: [buildEmbed(hintsUsed)] });
     }
   } catch {
-    await channel.send(`⏱️ Time's up! The logo was **${brand.name}** — ${brand.category} from ${brand.country}.`);
+    await channel.send({
+      content: `⏱️ Temps écoulé ! Le logo était **${brand.name}** — ${brand.category} de ${brand.country}.`,
+      components: [playAgainRow],
+    });
   } finally {
-    activeLogoGames.delete(channel.id);
+    activeLogoGames.delete(channelId);
   }
+}
+
+export async function playGuessLogo(message: Message, diffArg?: string): Promise<void> {
+  const channel = toSendable(message.channel);
+  if (!channel) return;
+  await runLogoGame(channel, message.channelId, diffArg);
+}
+
+export async function startLogoGameFromButton(
+  channel: Message["channel"],
+  channelId: string,
+  diffArg?: string,
+): Promise<void> {
+  const ch = toSendable(channel);
+  if (!ch) return;
+  await runLogoGame(ch, channelId, diffArg);
 }
 
 export function stopGuessLogo(channelId: string): boolean {

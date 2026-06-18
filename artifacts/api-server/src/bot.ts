@@ -2,7 +2,7 @@ import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder
 import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
-import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive } from "./games";
+import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
@@ -354,7 +354,7 @@ function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): Embed
 
 // ── Topic-specific help ───────────────────────────────────────────────────────
 
-type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai" | "birthday";
+type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai" | "birthday" | "guesslogo";
 
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -377,6 +377,8 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
     voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
     ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
     birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" }, cumpleanos: { topic: "birthday", lang: "es" },
+    guesslogo: { topic: "guesslogo", lang: "fr" }, devinelelogo: { topic: "guesslogo", lang: "fr" }, guessthelogo: { topic: "guesslogo", lang: "fr" },
+    logo: { topic: "guesslogo", lang: "fr" },
   };
   const match = map[key];
   if (!match) return null;
@@ -510,6 +512,51 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): Em
         { name: fr ? "Alias" : es ? "Alias" : "Aliases",
           value: "`!anniversaire` · `!b`" },
       ); break;
+
+    case "guesslogo":
+      embed.setTitle("🏷️ Devine le Logo — Guide Modérateur");
+      embed.setColor(0x5865f2);
+      embed.addFields(
+        {
+          name: "🎮 Commandes joueurs",
+          value: [
+            "`!guessthelogo` — Lance une partie (facile par défaut)",
+            "`!guessthelogo easy` — 🟢 Marques ultra-célèbres • 3 indices • 90s",
+            "`!guessthelogo medium` — 🟡 Marques connues • 2 indices • 60s",
+            "`!guessthelogo hard` — 🔴 Toutes marques • 0 indice • 45s",
+            "`!guessthelogo stop` — Abandonner la partie en cours",
+            "",
+            "Alias : `!guesslogo` · `!devinelelogo`",
+          ].join("\n"),
+        },
+        {
+          name: "📊 Difficulté & Popularité",
+          value: [
+            "**🟢 Facile** → Tier 1 uniquement — logos iconiques mondiaux (Nike, Apple, McDonald's…)",
+            "**🟡 Moyen** → Tier 1 + 2 — marques connues du grand public",
+            "**🔴 Difficile** → Tous les tiers — inclut les marques moins connues, sans indice",
+          ].join("\n"),
+        },
+        {
+          name: "🛠️ Commandes admin (Manage Server requis)",
+          value: [
+            "`!logo stats` — Statistiques du pool de logos",
+            "`!logo add <domain> <nom> [tier 1-3] [catégorie] [pays] [indices…]` — Ajouter une marque",
+            "`!logo remove <domain>` — Supprimer une marque",
+            "`!logo approve <domain>` — Approuver manuellement un logo",
+            "`!logo exclude <domain>` — Exclure un logo (text-only)",
+            "`!logo test start` — Tester les logos non-testés via OCR",
+            "`!logo test all` — Re-tester tous les logos",
+            "`!logo test status` — Statut du test en cours",
+          ].join("\n"),
+        },
+        {
+          name: "ℹ️ Comment fonctionne le pool",
+          value: "Les marques sont sélectionnées **aléatoirement** dans le pool selon le tier de difficulté. Les logos déjà joués récemment sont exclus pour éviter les répétitions. Ajoute des marques via MongoDB (`!logo add`) pour enrichir le jeu.",
+        },
+      );
+      embed.setFooter({ text: "🔒 Page visible uniquement aux modérateurs (Manage Server)" });
+      break;
 
     case "ai":
       embed.setTitle(fr ? "🤖 IA & Avancé" : es ? "🤖 IA & Avanzado" : "🤖 AI & Advanced");
@@ -1420,6 +1467,21 @@ export function startBot(): void {
         logger.error({ err }, "np button error");
         await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
       }
+      return;
+    }
+
+    // ── Guess The Logo — Play Again buttons ──────────────────────────────────
+    if (interaction.customId.startsWith("logo_again_")) {
+      const diff = interaction.customId.replace("logo_again_", "") as "easy" | "medium" | "hard";
+      if (!["easy", "medium", "hard"].includes(diff)) return;
+      if (!interaction.channel) {
+        await interaction.reply({ content: "❌ Canal introuvable.", ephemeral: true });
+        return;
+      }
+      await interaction.reply({ content: `🔄 Nouvelle partie **${diff === "easy" ? "🟢 Facile" : diff === "medium" ? "🟡 Moyen" : "🔴 Difficile"}** lancée !`, ephemeral: true });
+      startLogoGameFromButton(interaction.channel, interaction.channelId, diff).catch((err) =>
+        logger.error({ err }, "logo_again button error")
+      );
       return;
     }
 
@@ -3114,6 +3176,10 @@ export function startBot(): void {
           // Topic-specific help
           const detected = detectTopicAndLang(arg0, arg1 || undefined);
           if (detected) {
+            if (detected.topic === "guesslogo" && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+              await message.reply({ content: "🔒 La page `!help guesslogo` est réservée aux modérateurs (permission **Manage Server** requise).", ephemeral: true } as Parameters<typeof message.reply>[0]);
+              break;
+            }
             await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
           } else {
             await sendPaginatedHelp(message, "en");
