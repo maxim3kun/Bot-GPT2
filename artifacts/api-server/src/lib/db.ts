@@ -4,10 +4,13 @@ import { logger } from "./logger.js";
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
-// MONGODB_URI is the dedicated MongoDB connection string.
-// DATABASE_URL is reserved for Postgres (Replit built-in) and is intentionally
-// NOT used as a MongoDB fallback to avoid connection failures.
-const MONGODB_URI        = process.env["MONGODB_URI"] ?? "";
+// Prefer MONGODB_URI; fall back to DATABASE_URL only when it looks like a
+// MongoDB connection string (starts with "mongodb"), so we never mistake a
+// Postgres DATABASE_URL for a MongoDB URI.
+const _dbUrl = process.env["DATABASE_URL"] ?? "";
+const MONGODB_URI =
+  process.env["MONGODB_URI"] ??
+  (_dbUrl.startsWith("mongodb") ? _dbUrl : "");
 const ENCRYPTION_KEY_HEX = process.env["ENCRYPTION_KEY"] ?? "";
 
 let encKey: Buffer | null = null;
