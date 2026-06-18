@@ -116,11 +116,11 @@ const STREAM_HEADERS = {
   "Accept": "*/*",
 };
 
-async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
+async function fetchStream(url: string, hops = 0, extraHeaders: Record<string, string> = {}): Promise<IncomingMessage> {
   if (hops > 10) throw new Error("Too many redirects");
   return new Promise((resolve, reject) => {
     const isStreamtheworld = url.includes("streamtheworld.com");
-    const headers: Record<string, string> = { ...STREAM_HEADERS };
+    const headers: Record<string, string> = { ...STREAM_HEADERS, ...extraHeaders };
     if (isStreamtheworld) {
       headers["Referer"] = "https://playerservices.streamtheworld.com/";
       headers["Origin"] = "https://playerservices.streamtheworld.com";
@@ -130,8 +130,12 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
     const req = getter(url, { headers }, (res) => {
       const loc = res.headers.location;
       if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 303 || res.statusCode === 307 || res.statusCode === 308) && loc) {
+        // Carry session cookies (e.g. streamtheworld uuid) into the next hop
+        const setCookies = res.headers["set-cookie"];
+        const cookieStr = setCookies ? setCookies.map(c => c.split(";")[0]!).join("; ") : "";
+        const nextExtra = cookieStr ? { ...extraHeaders, Cookie: cookieStr } : extraHeaders;
         res.resume();
-        fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1)
+        fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1, nextExtra)
           .then(resolve).catch(reject);
         return;
       }
@@ -148,7 +152,7 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
         res.on("data", (chunk: string) => { body += chunk; if (body.length > 8192) res.destroy(); });
         res.on("end", () => {
           const firstUrl = body.split("\n").map(l => l.trim()).find(l => l.startsWith("http"));
-          if (firstUrl) fetchStream(firstUrl, hops + 1).then(resolve).catch(reject);
+          if (firstUrl) fetchStream(firstUrl, hops + 1, extraHeaders).then(resolve).catch(reject);
           else reject(new Error("Empty playlist from " + url));
         });
         res.on("error", reject);
@@ -189,7 +193,7 @@ async function fetchStream(url: string, hops = 0): Promise<IncomingMessage> {
             const items = (json["data"] as Record<string, any> | undefined)?.["items"] as Array<{ stream: string }> | undefined;
             if (!streamUrl && items?.[0]?.stream) streamUrl = items[0].stream;
             if (streamUrl) {
-              fetchStream(streamUrl.startsWith("http") ? streamUrl : `https://${streamUrl}`, hops + 1)
+              fetchStream(streamUrl.startsWith("http") ? streamUrl : `https://${streamUrl}`, hops + 1, extraHeaders)
                 .then(resolve).catch(reject);
             } else {
               reject(new Error(`streamtheworld JSON: cannot extract stream URL from ${url}`));
@@ -223,12 +227,12 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl2.fr/rtl2-1-44-128",                             emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
-  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/pls/LOS40_SC.pls",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/pls/CADENA100_SC.pls",  emoji: "💃", genre: "Pop / Dance",              lang: "es" },
-  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/pls/EUROPAFM_SC.pls",   emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/pls/CADENADIAL_SC.pls", emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/pls/ROCKFM_SC.pls",     emoji: "🤘", genre: "Rock",                     lang: "es" },
-  cope:        { name: "COPE",           url: "https://playerservices.streamtheworld.com/pls/COPE_SC.pls",       emoji: "📢", genre: "News / Talk",              lang: "es" },
+  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "http://cadena100-streamers-mp3.flumotion.com/cope/cadena100.mp3",               emoji: "💃", genre: "Pop / Dance",             lang: "es" },
+  m80:         { name: "M80 Radio",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/M80RADIO_SC",  emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC",emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
+  rock_es:     { name: "Rock FM",        url: "http://flucast31-h-cloud.flumotion.com/cope/rockfm-low.mp3",                    emoji: "🤘", genre: "Rock",                    lang: "es" },
+  cope:        { name: "COPE",           url: "http://flucast28-h-cloud.flumotion.com/cope/net1.mp3",                          emoji: "📢", genre: "News / Talk",             lang: "es" },
   // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
   heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartLondonMP3",                     emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
