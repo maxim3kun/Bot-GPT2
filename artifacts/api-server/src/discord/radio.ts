@@ -223,14 +223,14 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
   musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
   ouifm:       { name: "OÜI FM",         url: "https://ouifm.ice.infomaniak.ch/ouifm-high.mp3",                    emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
-  nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/adwz2/fr/30601/mp3_128.mp3",               emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
-  rtl2:        { name: "RTL 2",          url: "https://icecast.rtl2.fr/rtl2-1-44-128",                             emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
+  nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",              emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
+  rtl2:        { name: "RTL 2",          url: "https://streaming.rtl2.fr/rtl2-1-44-128",                           emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
-  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "http://cadena100-streamers-mp3.flumotion.com/cope/cadena100.mp3",               emoji: "💃", genre: "Pop / Dance",             lang: "es" },
-  m80:         { name: "M80 Radio",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/M80RADIO_SC",  emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC",emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
+  los40:       { name: "Los 40",         url: "https://20983.live.streamtheworld.com/LOS40_SC.mp3",                            emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://streaming.cope.es/cope/cadena100/directo.mp3",                         emoji: "💃", genre: "Pop / Dance",             lang: "es" },
+  m80:         { name: "M80 Radio",      url: "https://20983.live.streamtheworld.com/M80RADIO_SC.mp3",                         emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://20983.live.streamtheworld.com/CADENADIAL_SC.mp3",                       emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
   rock_es:     { name: "Rock FM",        url: "http://flucast31-h-cloud.flumotion.com/cope/rockfm-low.mp3",                    emoji: "🤘", genre: "Rock",                    lang: "es" },
   cope:        { name: "COPE",           url: "http://flucast28-h-cloud.flumotion.com/cope/net1.mp3",                          emoji: "📢", genre: "News / Talk",             lang: "es" },
   // 🇬🇧 English
@@ -255,6 +255,7 @@ interface RadioState {
   youtubeStartTime: number | null;
   isLive: boolean;
   queue: string[];
+  queueMessages: (Message | null)[];
   queueName: string | null;
   notifyChannel: TextChannel | null;
   guildId: string;
@@ -325,24 +326,51 @@ export function buildNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuild
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId("np:like")
-        .setLabel("Like")
+        .setLabel("❤️")
         .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("np:dislike")
+        .setLabel("👎")
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId(paused ? "np:resume" : "np:pause")
         .setLabel(paused ? "▶️" : "⏸️")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("np:skip")
-        .setLabel("Skip")
+        .setLabel("⏭️")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("np:stop")
-        .setLabel("Stop")
+        .setLabel("⏹️")
         .setStyle(ButtonStyle.Danger),
+    ),
+  ];
+}
+
+export function buildRadioNpButtonRows(paused: boolean): ActionRowBuilder<ButtonBuilder>[] {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId("np:queue")
-        .setLabel("📋")
+        .setCustomId("np:like")
+        .setLabel("❤️")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("np:dislike")
+        .setLabel("👎")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(paused ? "np:resume" : "np:pause")
+        .setLabel(paused ? "▶️" : "⏸️")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("np:skip")
+        .setLabel("📻")
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("np:stop")
+        .setLabel("⏹️")
+        .setStyle(ButtonStyle.Danger),
     ),
   ];
 }
@@ -361,7 +389,7 @@ interface NowPlayingEmbedOpts {
 
 function youtubeThumbnail(url: string): string | null {
   const m = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-  return m ? `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg` : null;
+  return m ? `https://i.ytimg.com/vi/${m[1]}/mqdefault.jpg` : null;
 }
 
 function buildNowPlayingEmbed(opts: NowPlayingEmbedOpts): EmbedBuilder {
@@ -447,6 +475,7 @@ async function playNextFromQueue(guildId: string): Promise<void> {
   if (!state || state.queue.length === 0) return;
 
   const url = state.queue.shift()!;
+  const addedMsg = state.queueMessages.shift() ?? null;
 
   // Pre-fetch info AND pre-load audio stream for the next track in background
   if (state.queue.length > 0) {
@@ -491,6 +520,7 @@ async function playNextFromQueue(guildId: string): Promise<void> {
         thumbnail: thumbnail ?? null,
         queueCount: state.queue.length,
       });
+      if (addedMsg) addedMsg.delete().catch(() => null);
       await disableNpButtonsForState(state);
       const sent = await state.notifyChannel
         .send({ embeds: [embed], components: buildNpButtonRows(false) })
@@ -675,6 +705,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       youtubeStartTime: null,
       isLive: false,
       queue: [],
+      queueMessages: [],
       queueName: null,
       notifyChannel: null,
       guildId,
@@ -856,6 +887,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.queue = [];
+  state.queueMessages = [];
   _activityCallback?.(null);
   _channelNameCallback?.(guildId, null);
 
@@ -868,6 +900,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
     state.player.play(resource);
 
     state.player.once(AudioPlayerStatus.Playing, async () => {
+      state.paused = false;
       const embed = new EmbedBuilder()
         .setColor(0x57f287)
         .setTitle(`${station.emoji} Now playing — ${station.name}`)
@@ -876,7 +909,8 @@ export async function playRadio(message: Message, stationInput: string): Promise
           { name: "Stop", value: "`!radio leave`", inline: true },
         )
         .setFooter({ text: "Switch station anytime with !radio <key>" });
-      await loadMsg.edit({ content: "", embeds: [embed] });
+      await loadMsg.edit({ content: "", embeds: [embed], components: buildRadioNpButtonRows(false) });
+      state.nowPlayingMsg = loadMsg;
     });
 
     state.player.once("error", async (err) => {
@@ -976,7 +1010,7 @@ async function execPlayYoutube(
   let pulsing = false;
   let pulseFrame = 0;
   const loadStartTime = Date.now();
-  const MIN_BAR_MS = 1_500; // show bar for at least 1.5 s before showing embed
+  const MIN_BAR_MS = 600; // show bar for at least 0.6 s before showing embed
   // Show first frame immediately so the bar is visible even on fast preloaded streams
   await waitMsg.edit(`🎬 Loading… ${FILL_FRAMES[0]}`).catch(() => null);
   const loadInterval = setInterval(async () => {
@@ -995,7 +1029,7 @@ async function execPlayYoutube(
         await waitMsg.edit(`🎬 Loading… ${FILL_FRAMES[loadFrame]}`).catch(() => null);
       }
     }
-  }, 400);
+  }, 200);
 
   const postNowPlaying = async (title: string, duration: number, thumbnail: string | null) => {
     // Wait until the bar has been visible for the minimum time, then clear
@@ -1058,7 +1092,9 @@ export async function playYoutube(
   // ── YouTube already playing → add to queue ────────────────────────────────
   if (state.youtubeTitle) {
     state.queue.push(url);
-    const pos = state.queue.length; // items after current (#1)
+    state.queueMessages.push(null); // placeholder — updated below after fetch
+    const pos = state.queue.length; // 1-indexed display position
+    const qMsgIdx = pos - 1;        // 0-indexed position in queueMessages
     const waitMsg = await message.reply("⏳ Adding to queue…");
     try {
       // Use play-dl video_info (fast, in-process) and cache it for when the track plays
@@ -1085,17 +1121,16 @@ export async function playYoutube(
         .setColor(0x5865f2)
         .setTitle("📋 Added to Queue")
         .setURL(url)
-        .setDescription(`**[${cleanYouTubeTitle(title)}](${url})**`)
-        .addFields(
-          { name: "Duration", value: duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—", inline: true },
-          { name: "Position", value: `#${pos + 1}`, inline: true },
-          { name: "Requested by", value: `<@${message.author.id}>`, inline: true },
+        .setDescription(
+          `**[${cleanYouTubeTitle(title)}](${url})**\n` +
+          `\`${duration > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "—"}\` • \`#${pos}\` • <@${message.author.id}>`
         )
-        .setFooter({ text: "!queue to see all  •  !skip to skip current" });
-      if (thumbnail) embed.setThumbnail(thumbnail);
+        .setFooter({ text: "!queue  •  !skip" });
       await waitMsg.edit({ content: "", embeds: [embed] });
+      // Store message for auto-deletion when this song starts playing
+      if (qMsgIdx < state.queueMessages.length) state.queueMessages[qMsgIdx] = waitMsg;
     } catch {
-      await waitMsg.edit(`Added to queue at position #${pos + 1}.`);
+      await waitMsg.edit(`Added to queue at position #${pos}.`);
     }
     return;
   }
@@ -1105,6 +1140,7 @@ export async function playYoutube(
     state.stationKey = null;
     state.player.stop();
     state.queue = [];
+    state.queueMessages = [];
     state.queueName = null;
   }
 
@@ -1394,7 +1430,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   if (wordCount >= 3) {
     const sel = cleaned[0]!;
-    await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+    await loadMsg.delete().catch(() => null);
     await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
     return;
   }
@@ -1408,7 +1444,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
     // Known artist cache: if word1 is a recognized artist, word2 must be the song → auto-play
     if (isKnownArtist(word1)) {
-      await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+      await loadMsg.delete().catch(() => null);
       await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
       return;
     }
@@ -1418,7 +1454,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
       const songPart   = titleLower.slice(dashIdx + 3);
       // word2 is in song part but NOT in artist part → it's a song title → auto-play
       if (songPart.includes(word2) && !artistPart.includes(word2)) {
-        await loadMsg.edit(`▶️ Playing **${sel.title}**`);
+        await loadMsg.delete().catch(() => null);
         await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
         return;
       }
@@ -1490,7 +1526,7 @@ export async function skipYoutube(message: Message): Promise<void> {
 /** Toggle pause/resume. Returns the new state or "not_playing". */
 export function pauseToggle(guildId: string): "paused" | "resumed" | "not_playing" {
   const state = radioStates.get(guildId);
-  if (!state || !state.youtubeTitle) return "not_playing";
+  if (!state || (!state.youtubeTitle && !state.stationKey)) return "not_playing";
   if (state.paused) {
     state.player.unpause();
     state.paused = false;
@@ -1529,6 +1565,52 @@ export function stopForGuild(guildId: string): boolean {
   radioStates.delete(guildId);
   getVoiceConnection(guildId)?.destroy();
   return true;
+}
+
+// ── Radio station navigation helpers ─────────────────────────────────────────
+
+/** Returns the key of the next station in the same language as the current one. */
+export function nextRadioStation(guildId: string): string | null {
+  const state = radioStates.get(guildId);
+  if (!state?.stationKey) return null;
+  const currentKey = state.stationKey;
+  const lang = RADIO_STATIONS[currentKey]?.lang;
+  if (!lang) return null;
+  const sameLang = Object.keys(RADIO_STATIONS).filter(k => RADIO_STATIONS[k]?.lang === lang);
+  const idx = sameLang.indexOf(currentKey);
+  return sameLang[(idx + 1) % sameLang.length] ?? null;
+}
+
+/** Switch to a different radio station using an existing message (from button handler). */
+export async function execSwitchRadioStation(guildId: string, stationKey: string, replyMsg: Message): Promise<void> {
+  const state = radioStates.get(guildId);
+  if (!state) return;
+  const station = RADIO_STATIONS[stationKey];
+  if (!station) return;
+  state.stationKey = stationKey;
+  state.queue = [];
+  state.queueMessages = [];
+  try {
+    const stream = await fetchStream(station.url);
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+    state.player.play(resource);
+    state.player.once(AudioPlayerStatus.Playing, async () => {
+      state.paused = false;
+      const embed = new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle(`${station.emoji} Now playing — ${station.name}`)
+        .addFields(
+          { name: "Genre", value: station.genre, inline: true },
+          { name: "Stop", value: "`!radio leave`", inline: true },
+        )
+        .setFooter({ text: "Switch station anytime with !radio <key>" });
+      await replyMsg.edit({ content: "", embeds: [embed], components: buildRadioNpButtonRows(false) }).catch(() => null);
+      state.nowPlayingMsg = replyMsg;
+    });
+  } catch (err) {
+    logger.error({ err, stationKey }, "Radio switch error");
+    await replyMsg.edit({ content: `❌ Failed to switch to **${station.name}**.` }).catch(() => null);
+  }
 }
 
 // ── Vote skip ─────────────────────────────────────────────────────────────────
@@ -1765,12 +1847,22 @@ export async function playLive(message: Message, input: string): Promise<void> {
       const results: any[] = await play.search(input, { source: { youtube: "video" }, limit: 15 });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const liveResults = results.filter((v: any) => v.isLive || v.isLiveContent || v.durationInSec === 0);
-      if (liveResults.length === 0) {
+      if (liveResults.length > 0) {
+        liveUrl = liveResults[0].url as string;
+        liveTitle = (liveResults[0].title as string) ?? "Live Stream";
+      } else {
+        // play-dl found no live results — fall back to yt-dlp which detects live reliably
+        try {
+          const ytResults = await ytdlpSearch(`${input} live`, 5);
+          const ytLive = ytResults.filter(r => r.isLive || r.duration === 0);
+          const pick = ytLive.length > 0 ? ytLive[0] : ytResults[0];
+          if (pick) { liveUrl = pick.url; liveTitle = pick.title ?? "Live Stream"; }
+        } catch { /* ignore */ }
+      }
+      if (!liveUrl) {
         await waitMsg.edit("❌ No live streams found for that query. Try a direct URL instead.");
         return;
       }
-      liveUrl = liveResults[0].url as string;
-      liveTitle = (liveResults[0].title as string) ?? "Live Stream";
       await waitMsg.edit(`🔴 Found: **${liveTitle}** — connecting to stream…`);
     } catch (err) {
       logger.error({ err, input }, "Live stream search error");

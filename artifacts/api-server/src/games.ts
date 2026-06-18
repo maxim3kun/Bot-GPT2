@@ -1142,6 +1142,10 @@ function makePlayAgainRow(difficulty: LogoDifficulty): ActionRowBuilder<ButtonBu
         .setCustomId("logo_again_easy")
         .setLabel("▶ Play Again (Easy)")
         .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("logo_again_medium")
+        .setLabel("⬆️ Next Level (Medium)")
+        .setStyle(ButtonStyle.Primary),
     );
   }
   if (difficulty === "medium") {
@@ -1283,7 +1287,11 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
         normalize(text) === "!logo stop" || normalize(text) === "logo stop"
       ) {
         await channel.send({
-          content: `🏳️ Game abandoned! The logo was **${brand.name}** (${brand.category} • ${brand.country})`,
+          embeds: [new EmbedBuilder()
+            .setColor(0x95a5a6)
+            .setTitle("🏳️ Game abandoned!")
+            .setDescription(`The logo was **${brand.name}** — ${brand.category} ${brand.country.split(" ")[0] ?? ""}`)
+            .setThumbnail(logoUrl)],
           components: [playAgainRow],
         });
         break;
@@ -1305,7 +1313,7 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
           .setTitle(`✅ ${reply.author.displayName} got it!`)
           .setDescription(
             `The logo was **${brand.name}** ${hintsLabel}!\n` +
-            `**Category:** ${brand.category} • **Country:** ${brand.country}\n` +
+            `**Category:** ${brand.category} ${brand.country.split(" ")[0] ?? ""}\n` +
             `**Score:** ${stars} (${score}/${cfg.maxHints + 1})`
           )
           .setThumbnail(logoUrl);
@@ -1318,7 +1326,11 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
       const nextHint = brand.hints[hintsUsed.length];
       if (!nextHint || hintsUsed.length >= cfg.maxHints) {
         await channel.send({
-          content: `❌ Wrong! No more hints.\nThe logo was **${brand.name}** — ${brand.category} from ${brand.country}. Better luck next time!`,
+          embeds: [new EmbedBuilder()
+            .setColor(0xe74c3c)
+            .setTitle("❌ No more hints!")
+            .setDescription(`The logo was **${brand.name}** — ${brand.category} ${brand.country.split(" ")[0] ?? ""}\nBetter luck next time!`)
+            .setThumbnail(logoUrl)],
           components: [playAgainRow],
         });
         break;
@@ -1330,7 +1342,11 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
     }
   } catch {
     await channel.send({
-      content: `⏱️ Time's up! The logo was **${brand.name}** — ${brand.category} from ${brand.country}.`,
+      embeds: [new EmbedBuilder()
+        .setColor(0xe74c3c)
+        .setTitle("⏱️ Time's up!")
+        .setDescription(`The logo was **${brand.name}** — ${brand.category} ${brand.country.split(" ")[0] ?? ""}`)
+        .setThumbnail(logoUrl)],
       components: [playAgainRow],
     });
   } finally {

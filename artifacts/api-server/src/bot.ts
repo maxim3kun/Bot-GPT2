@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -25,7 +25,7 @@ import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-sta
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
-import { saveArtist, getMatchingArtists } from "./discord/artist-cache";
+import { saveArtist, getMatchingArtists, isKnownArtist } from "./discord/artist-cache";
 
 
 // ── Response pools ────────────────────────────────────────────────────────────
@@ -1415,11 +1415,20 @@ export function startBot(): void {
           }
           const currentEmbed = interaction.message.embeds[0];
           const updatedEmbed = currentEmbed ? EmbedBuilder.from(currentEmbed) : new EmbedBuilder();
-          await interaction.update({ embeds: [updatedEmbed], components: buildNpButtonRows(result === "paused") });
+          const isRadioPause = !!(radioStates.get(guildId)?.stationKey);
+          await interaction.update({ embeds: [updatedEmbed], components: isRadioPause ? buildRadioNpButtonRows(result === "paused") : buildNpButtonRows(result === "paused") });
           return;
         }
 
         if (action === "skip") {
+          const skipState = radioStates.get(guildId);
+          if (skipState?.stationKey) {
+            const nextKey = nextRadioStation(guildId);
+            if (!nextKey) { await interaction.reply({ content: "❌ No next station found.", ephemeral: true }); return; }
+            await interaction.deferUpdate();
+            await execSwitchRadioStation(guildId, nextKey, interaction.message as Message);
+            return;
+          }
           const skipped = skipCurrentTrack(guildId);
           if (!skipped) {
             await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
@@ -1431,17 +1440,39 @@ export function startBot(): void {
 
         if (action === "like") {
           const state = radioStates.get(guildId);
-          if (!state?.youtubeTitle || !state?.youtubeUrl) {
+          const isRadio = !!(state?.stationKey);
+          const title = isRadio ? (RADIO_STATIONS[state!.stationKey!]?.name ?? state!.stationKey!) : state?.youtubeTitle;
+          const url = isRadio ? `radio:${state!.stationKey}` : state?.youtubeUrl;
+          if (!title || !url) {
             await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
             return;
           }
-          const { youtubeTitle: title, youtubeUrl: url } = state;
           if (isLiked(interaction.user.id, url)) {
             await removeLike(interaction.user.id, url);
             await interaction.reply({ content: `💔 Removed **${title}** from your likes.`, ephemeral: true });
           } else {
             await addLike(interaction.user.id, { title, url });
-            await interaction.reply({ content: `💚 Added **${title}** to your likes!\nUse \`!likes\` to see your list.`, ephemeral: true });
+            await interaction.reply({ content: `❤️ Added **${title}** to your likes!\nUse \`!likes\` to see your list.`, ephemeral: true });
+          }
+          return;
+        }
+
+        if (action === "dislike") {
+          const state = radioStates.get(guildId);
+          const isRadio = !!(state?.stationKey);
+          if (isRadio) {
+            const stationUrl = `radio:${state!.stationKey}`;
+            if (isLiked(interaction.user.id, stationUrl)) await removeLike(interaction.user.id, stationUrl);
+            const nextKey = nextRadioStation(guildId);
+            if (!nextKey) { await interaction.reply({ content: "👎 Disliked.", ephemeral: true }); return; }
+            await interaction.deferUpdate();
+            await execSwitchRadioStation(guildId, nextKey, interaction.message as Message);
+          } else {
+            const title = state?.youtubeTitle;
+            const url = state?.youtubeUrl;
+            if (!title || !url) { await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true }); return; }
+            if (isLiked(interaction.user.id, url)) await removeLike(interaction.user.id, url);
+            await interaction.reply({ content: `👎 Disliked **${title}**.`, ephemeral: true });
           }
           return;
         }
@@ -2467,8 +2498,8 @@ export function startBot(): void {
         case "radio": {
           const sub = args[0]?.toLowerCase();
 
-          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche") {
-            let page = langToPage(args[1]?.toLowerCase()) as 1 | 2 | 3;
+          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche" || sub === "fr" || sub === "es" || sub === "en") {
+            let page = langToPage((sub === "fr" || sub === "es" || sub === "en") ? sub : args[1]?.toLowerCase()) as 1 | 2 | 3;
             const radioMsg = await message.reply({ embeds: [buildRadioListEmbed(page)] });
             await radioMsg.react("⬅️").catch(() => null);
             await radioMsg.react("➡️").catch(() => null);
@@ -2498,8 +2529,8 @@ export function startBot(): void {
         // ── Radio shortcut !r ────────────────────────────────────────────────────
         case "r": {
           const sub = args[0]?.toLowerCase();
-          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche") {
-            let page = langToPage(args[1]?.toLowerCase()) as 1 | 2 | 3;
+          if (!sub || sub === "list" || sub === "liste" || sub === "search" || sub === "recherche" || sub === "fr" || sub === "es" || sub === "en") {
+            let page = langToPage((sub === "fr" || sub === "es" || sub === "en") ? sub : args[1]?.toLowerCase()) as 1 | 2 | 3;
             const radioMsg = await message.reply({ embeds: [buildRadioListEmbed(page)] });
             await radioMsg.react("⬅️").catch(() => null);
             await radioMsg.react("➡️").catch(() => null);
@@ -2518,6 +2549,11 @@ export function startBot(): void {
           } else {
             await playRadio(message, args.join(" "));
           }
+          break;
+        }
+
+        case "classic": {
+          await playRadio(message, "classicfm");
           break;
         }
 
@@ -3270,6 +3306,12 @@ export function startBot(): void {
               await playRadio(message, compound);
               break;
             }
+          }
+
+          // If command matches a known artist in the cache, treat as a music search
+          if (command && isKnownArtist(command)) {
+            await searchAndQueue(message, args.length > 0 ? `${command} ${args.join(" ")}` : command);
+            break;
           }
 
           // Fuzzy command suggestion (with opt-in preference per user)
