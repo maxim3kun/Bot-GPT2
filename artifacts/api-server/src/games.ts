@@ -1,4 +1,4 @@
-import { Message, EmbedBuilder, MessageReaction, User, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { Message, EmbedBuilder, MessageReaction, User, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
@@ -1168,6 +1168,19 @@ function buildLogoUrl(domain: string): string {
   return token ? `${base}&token=${token}` : base;
 }
 
+async function fetchAndBlurLogo(url: string): Promise<Buffer | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return await sharp(buf).blur(5).png().toBuffer();
+  } catch (err) {
+    logger.warn({ err }, "fetchAndBlurLogo failed — will use original URL");
+    return null;
+  }
+}
+
 function pickBrandForDifficulty(channelId: string, difficulty: LogoDifficulty): LogoBrand {
   const cfg = LOGO_DIFF_CONFIG[difficulty];
 
@@ -1211,6 +1224,9 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
   activeLogoGames.set(channelId, game);
 
   const logoUrl = buildLogoUrl(brand.domain);
+  const blurredBuffer = await fetchAndBlurLogo(logoUrl);
+  const makeAttachment = () => blurredBuffer ? new AttachmentBuilder(blurredBuffer, { name: "logo.png" }) : null;
+
   const storePool = getApprovedBrandsForTiers(cfg.tiers as (1 | 2 | 3)[]);
   const poolSize = storePool.length > 0
     ? storePool.length
@@ -1219,7 +1235,7 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
   const buildEmbed = (hintsShown: string[]): EmbedBuilder => {
     const embed = new EmbedBuilder()
       .setTitle(`🏷️ GUESS THE LOGO — ${cfg.label} *(${cfg.popularityLabel})*`)
-      .setImage(logoUrl)
+      .setImage(blurredBuffer ? "attachment://logo.png" : logoUrl)
       .setColor(cfg.color)
       .setFooter({
         text: cfg.maxHints > 0
@@ -1242,7 +1258,8 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
     return embed;
   };
 
-  await channel.send({ embeds: [buildEmbed([])] });
+  const initFile = makeAttachment();
+  await channel.send(initFile ? { embeds: [buildEmbed([])], files: [initFile] } : { embeds: [buildEmbed([])] });
 
   const hintsUsed: string[] = [];
   const playAgainRow = makePlayAgainRow(difficulty);
@@ -1308,7 +1325,8 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
       }
 
       hintsUsed.push(nextHint);
-      await channel.send({ embeds: [buildEmbed(hintsUsed)] });
+      const hintFile = makeAttachment();
+      await channel.send(hintFile ? { embeds: [buildEmbed(hintsUsed)], files: [hintFile] } : { embeds: [buildEmbed(hintsUsed)] });
     }
   } catch {
     await channel.send({
