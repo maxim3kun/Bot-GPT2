@@ -1,4 +1,5 @@
 import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive } from "./games";
@@ -2095,8 +2096,8 @@ export function startBot(): void {
           const us = Math.floor(uptime % 60);
           const uptimeStr = `${uh}h ${um}m ${us}s`;
           const mem    = process.memoryUsage();
-          const memMb  = Math.round(mem.heapUsed / 1024 / 1024);
-          const memMax = Math.round(mem.heapTotal / 1024 / 1024);
+          const memMb  = Math.round(mem.rss / 1024 / 1024);
+          const memMax = Math.round(os.totalmem() / 1024 / 1024);
 
           // MongoDB storage stats
           const MONGO_LIMIT_MB = 512;
