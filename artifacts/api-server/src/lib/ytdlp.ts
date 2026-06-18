@@ -21,19 +21,38 @@ let _cookiesReady = false;
 
 function initCookies(): void {
   const raw = process.env["YT_COOKIES"];
-  if (!raw) return;
+  if (!raw) {
+    logger.warn("yt-dlp: YT_COOKIES not set — YouTube may block requests from datacenter IPs");
+    return;
+  }
 
   try {
-    // Accept both plain Netscape format and base64-encoded
+    // Trim surrounding whitespace/newlines first — copy-pasting into secrets often adds them
+    const trimmed = raw.trim();
+
     let content: string;
-    if (raw.startsWith("# Netscape HTTP Cookie File") || raw.startsWith("# HTTP Cookie File")) {
-      content = raw;
+    if (trimmed.startsWith("# Netscape HTTP Cookie File") || trimmed.startsWith("# HTTP Cookie File")) {
+      // Already plain-text Netscape format
+      content = trimmed;
     } else {
-      content = Buffer.from(raw, "base64").toString("utf8");
+      // Assume base64-encoded — decode it
+      content = Buffer.from(trimmed, "base64").toString("utf8");
+      // Sanity-check: decoded result must look like a Netscape cookie file
+      if (!content.startsWith("# Netscape HTTP Cookie File") && !content.startsWith("# HTTP Cookie File")) {
+        logger.warn(
+          "yt-dlp: YT_COOKIES decoded from base64 but doesn't look like a Netscape cookie file — check the value",
+        );
+        // Still write it; yt-dlp might tolerate minor header differences
+      }
     }
+
     writeFileSync(COOKIES_PATH, content, { encoding: "utf8", mode: 0o600 });
     _cookiesReady = true;
-    logger.info("yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active");
+    const lineCount = content.split("\n").filter(l => l.trim() && !l.startsWith("#")).length;
+    logger.info(
+      { cookieEntries: lineCount },
+      "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active",
+    );
   } catch (err) {
     logger.warn({ err }, "yt-dlp: failed to write cookies file — continuing without cookies");
   }
@@ -69,6 +88,11 @@ function rotateClient(fromIdx: number): void {
     "yt-dlp: YouTube client blocked — rotated to next",
   );
 }
+
+// Matches client-level block (format unsupported) → rotating client may help
+const CLIENT_BLOCKED_RE = /no longer supported|po_token required/i;
+// Matches IP-level bot-check → rotating client WON'T help, cookies are needed
+const SIGNIN_RE = /Sign in to confirm|bot.*check|cookies.*required/i;
 
 const BLOCKED_RE = /no longer supported|Sign in|po_token required/i;
 
@@ -111,7 +135,14 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
     };
   } catch (err) {
     const msg = String((err as { stderr?: string })?.stderr ?? err);
-    if (BLOCKED_RE.test(msg) && _retry < YT_CLIENTS.length - 1) {
+    if (SIGNIN_RE.test(msg)) {
+      // IP-level bot-check — rotating client won't help
+      if (!_cookiesReady) {
+        logger.error("yt-dlp: YouTube requires authentication — set the YT_COOKIES secret with your exported cookies (base64 or plain Netscape format)");
+      }
+      throw err;
+    }
+    if (CLIENT_BLOCKED_RE.test(msg) && _retry < YT_CLIENTS.length - 1) {
       rotateClient(idx);
       return ytdlpInfo(url, _retry + 1);
     }
@@ -137,14 +168,20 @@ export function ytdlpStream(url: string): Readable {
     url,
   ]);
 
-  // Monitor stderr — if YouTube blocks, rotate client so next stream uses the new one
+  // Monitor stderr — distinguish IP-level bot-check (needs cookies) from client-level block (rotate)
   let stderrBuf = "";
   proc.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString();
     stderrBuf += text;
-    if (BLOCKED_RE.test(stderrBuf)) {
+    if (SIGNIN_RE.test(stderrBuf)) {
+      // IP-level block — rotating client won't help, cookies are needed
+      if (!_cookiesReady) {
+        logger.error("yt-dlp: YouTube bot-check on stream — set YT_COOKIES secret (base64 or plain Netscape format)");
+      }
+      stderrBuf = "";
+    } else if (CLIENT_BLOCKED_RE.test(stderrBuf)) {
       rotateClient(idx);
-      stderrBuf = ""; // prevent re-triggering
+      stderrBuf = "";
     }
     process.stderr.write(text);
   });
