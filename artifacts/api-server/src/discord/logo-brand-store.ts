@@ -1,4 +1,4 @@
-import { logoBrandsCol, isDbReady, type LogoBrandMongoDoc } from "../lib/db.js";
+import { logoBrandsCol, isMongoConnected, type LogoBrandMongoDoc } from "../lib/db.js";
 import { HARDCODED_BRANDS, type LogoBrand } from "./logo-brands.js";
 import { logger } from "../lib/logger.js";
 
@@ -88,7 +88,7 @@ function _hardcodedToMongoDoc(b: LogoBrand): LogoBrandMongoDoc {
 }
 
 export async function initLogoBrandStore(): Promise<void> {
-  if (!isDbReady() || !logoBrandsCol) {
+  if (!isMongoConnected() || !logoBrandsCol) {
     // No MongoDB — fall back to in-memory hardcoded list
     _all = HARDCODED_BRANDS.map(_hardcodedToMongoDoc);
     _rebuildTierMap();

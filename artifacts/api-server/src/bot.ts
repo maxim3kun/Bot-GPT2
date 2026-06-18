@@ -23,6 +23,7 @@ import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-
 import { isDbReady, getDbStats } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
+import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists } from "./discord/artist-cache";
 
@@ -3327,77 +3328,51 @@ export function startBot(): void {
                   if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) { await message.reply("🔒 Manage Server required."); break; }
                   const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
                   if (!token) { await message.reply("❌ `LOGO_DEV_PUBLIC_KEY` is not set. Ask a moderator to configure it."); break; }
-                  const maxCount = Math.min(Math.max(parseInt(args[1] ?? "20", 10) || 20, 1), 100);
-                  const statusMsg = await message.reply(`🔍 Fetching up to **${maxCount}** logos from logo.dev... (this may take a minute)`);
-                  // Run in background
+                  const statusMsg = await message.reply(
+                    `🔍 Searching logos across **36 categories** on logo.dev...\n` +
+                    `This fetches all discoverable brands and saves them to the database. Please wait (~30s).`,
+                  );
+                  // Run in background — uses the existing loadDynamicBrands pipeline
                   (async () => {
                     try {
-                      const { get: httpsGet } = await import("https");
-                      // Use logo.dev search to discover brands across popular categories
-                      const queries = ["tech", "food", "fashion", "finance", "automotive", "media", "retail", "sport", "health", "travel"];
-                      const seen = new Set<string>();
-                      const candidates: Array<{ domain: string; name: string }> = [];
-                      for (const q of queries) {
-                        if (candidates.length >= maxCount * 3) break;
-                        await new Promise<void>((resolve) => {
-                          const req = httpsGet(
-                            `https://api.logo.dev/search?q=${encodeURIComponent(q)}&token=${token}`,
-                            { headers: { "Accept": "application/json" } },
-                            (res) => {
-                              let body = "";
-                              res.setEncoding("utf8");
-                              res.on("data", (c: string) => { body += c; });
-                              res.on("end", () => {
-                                try {
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  const items = JSON.parse(body) as Array<{ domain?: string; name?: string }>;
-                                  if (Array.isArray(items)) {
-                                    for (const item of items) {
-                                      if (item.domain && item.name && !seen.has(item.domain)) {
-                                        seen.add(item.domain);
-                                        candidates.push({ domain: item.domain, name: item.name });
-                                      }
-                                    }
-                                  }
-                                } catch { /* ignore parse errors */ }
-                                resolve();
-                              });
-                              res.on("error", () => resolve());
-                            },
-                          );
-                          req.on("error", () => resolve());
-                          req.setTimeout(8000, () => { req.destroy(); resolve(); });
-                        });
-                      }
-
+                      const before = getStoreStats();
+                      // Fetch all brands from logo.dev across 36 search terms
+                      const discovered = await loadDynamicBrands(token);
                       let added = 0;
                       let skipped = 0;
-                      let rejected = 0;
-                      for (const c of candidates) {
-                        if (added >= maxCount) break;
-                        const result = await addBrandToStore({ domain: c.domain, name: c.name, tier: 2 });
-                        if (!result.ok) { skipped++; continue; }
-                        // Queue for OCR test immediately
-                        startLogoTestingJob(token, false);
-                        added++;
+                      for (const brand of discovered) {
+                        const result = await addBrandToStore({
+                          domain: brand.domain,
+                          name: brand.name,
+                          tier: brand.tier,
+                          aliases: brand.aliases,
+                          category: brand.category,
+                          country: brand.country,
+                          hints: brand.hints,
+                        });
+                        if (result.ok) added++;
+                        else skipped++;
                       }
-
-                      const finalStats = getStoreStats();
+                      const after = getStoreStats();
+                      // Kick off OCR validation for newly added logos
+                      if (added > 0 && !isTestingRunning()) {
+                        startLogoTestingJob(token, false);
+                      }
                       await statusMsg.edit(
-                        `✅ Logo fetch complete:\n` +
-                        `• **${added}** new brands added (pending OCR validation)\n` +
-                        `• **${skipped}** already in store\n` +
-                        `• **${rejected}** rejected\n` +
-                        `• Pool now: **${finalStats.total}** total, **${finalStats.approved}** approved\n` +
-                        `Use \`!logo test start\` to run OCR on newly added logos.`,
+                        `✅ **Logo fetch complete!**\n` +
+                        `• **${discovered.length}** brands discovered from logo.dev\n` +
+                        `• **${added}** new brands added to the store\n` +
+                        `• **${skipped}** already existed (skipped)\n` +
+                        `• Store: **${after.total}** total (was ${before.total}) — **${after.approved}** approved\n` +
+                        (added > 0 ? `• 🔬 OCR validation started automatically — use \`!logo test status\` to track.` : ""),
                       );
                     } catch (err) {
                       logger.error({ err }, "Logo fetch job failed");
-                      await statusMsg.edit("❌ Logo fetch failed. Check that `LOGO_DEV_PUBLIC_KEY` is valid.").catch(() => null);
+                      await statusMsg.edit("❌ Logo fetch failed. Check that `LOGO_DEV_PUBLIC_KEY` is valid and try again.").catch(() => null);
                     }
                   })().catch(() => null);
                 } else {
-                  await message.reply("`!logo stats` • `!logo fetch <count>` • `!logo test start` • `!logo test all` • `!logo test status`");
+                  await message.reply("`!logo stats` • `!logo fetch` • `!logo test start` • `!logo test all` • `!logo test status`");
                 }
                 break;
               }

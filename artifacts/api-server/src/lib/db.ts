@@ -4,7 +4,10 @@ import { logger } from "./logger.js";
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
-const DATABASE_URL      = process.env["DATABASE_URL"] ?? "";
+// MONGODB_URI is the dedicated MongoDB connection string.
+// DATABASE_URL is reserved for Postgres (Replit built-in) and is intentionally
+// NOT used as a MongoDB fallback to avoid connection failures.
+const MONGODB_URI        = process.env["MONGODB_URI"] ?? "";
 const ENCRYPTION_KEY_HEX = process.env["ENCRYPTION_KEY"] ?? "";
 
 let encKey: Buffer | null = null;
@@ -128,21 +131,26 @@ export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
 export let logoBrandsCol: Collection<LogoBrandMongoDoc> | null = null;
 export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
 
+/** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
   return db !== null && encKey !== null;
 }
 
+/** True when MongoDB is connected (no encryption key required). Used for non-sensitive collections like logo_brands. */
+export function isMongoConnected(): boolean {
+  return db !== null;
+}
+
 export async function connectDb(): Promise<void> {
-  if (!DATABASE_URL) {
-    logger.warn("DATABASE_URL not set — running without MongoDB (JSON fallback active)");
+  if (!MONGODB_URI) {
+    logger.warn("MONGODB_URI not set — running without MongoDB (JSON fallback active)");
     return;
   }
   if (!encKey) {
-    logger.warn("ENCRYPTION_KEY not set — running without MongoDB (JSON fallback active)");
-    return;
+    logger.warn("ENCRYPTION_KEY not set — user-data encryption disabled; logo/guild data will still use MongoDB if MONGODB_URI is set");
   }
   try {
-    mongoClient = new MongoClient(DATABASE_URL);
+    mongoClient = new MongoClient(MONGODB_URI);
     await mongoClient.connect();
     db = mongoClient.db();
     usersCol  = db.collection<UserDoc>("users");
