@@ -81,6 +81,8 @@
     "createdAt": "2026-06-17T21:59:32.116Z",
     "notifyChannelId": "1512769130691035220",
     "notifyGuildId": "1512769130082603161",
-    "bullying": true
+    "bullying": true,
+    "lastRemindedDate": "2026-06-18",
+    "lastRemindedHour": 15
   }
 }
