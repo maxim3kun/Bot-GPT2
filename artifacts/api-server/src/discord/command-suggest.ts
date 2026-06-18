@@ -6,7 +6,7 @@ import {
   ComponentType,
 } from "discord.js";
 import { getSuggestPref, setSuggestPref } from "./suggest-prefs.js";
-import { isDbReady, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
 
 // ── Command registry ──────────────────────────────────────────────────────────
 
@@ -298,7 +298,7 @@ function fmtDuration(ms: number): string {
 const adminChannelIds = new Map<string, string>(); // guildId → channelId
 
 export async function initAdminChannels(): Promise<void> {
-  if (!isDbReady()) return;
+  if (!isMongoConnected()) return;
   try {
     const guilds = await getAllGuildDocs();
     for (const guild of guilds) {
@@ -317,7 +317,7 @@ export function setAdminChannel(guildId: string, channelId: string | null): void
   } else {
     adminChannelIds.set(guildId, channelId);
   }
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     upsertGuildDoc(guildId, { adminChannelId: channelId }).catch(() => null);
   }
 }

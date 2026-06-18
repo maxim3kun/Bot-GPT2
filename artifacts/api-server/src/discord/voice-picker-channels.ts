@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
-import { isDbReady, getGuildDoc, upsertGuildDoc } from "../lib/db.js";
+import { isMongoConnected, getGuildDoc, upsertGuildDoc } from "../lib/db.js";
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "voice-picker-channels.json");
@@ -27,7 +27,7 @@ function saveToJson(): void {
 }
 
 export async function initVoicePickerChannels(): Promise<void> {
-  if (!isDbReady()) {
+  if (!isMongoConnected()) {
     loadFromJson();
     logger.info({ count: Object.keys(store).length }, "Voice-picker channels loaded from JSON (no MongoDB)");
     return;
@@ -36,7 +36,7 @@ export async function initVoicePickerChannels(): Promise<void> {
 }
 
 export function getVoicePickerChannels(guildId: string): string[] {
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     getGuildDoc(guildId).then(doc => {
       if (doc?.voicePickerChannelIds) store[guildId] = doc.voicePickerChannelIds;
     }).catch(() => null);
@@ -46,7 +46,7 @@ export function getVoicePickerChannels(guildId: string): string[] {
 
 export async function setVoicePickerChannels(guildId: string, channelIds: string[]): Promise<void> {
   store[guildId] = channelIds;
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     await upsertGuildDoc(guildId, { voicePickerChannelIds: channelIds } as Parameters<typeof upsertGuildDoc>[1]);
   } else {
     saveToJson();

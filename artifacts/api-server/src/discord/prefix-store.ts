@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
-import { isDbReady, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "prefixes.json");
@@ -33,7 +33,7 @@ function saveToJson(): void {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initPrefixStore(): Promise<void> {
-  if (!isDbReady()) {
+  if (!isMongoConnected()) {
     loadFromJson();
     logger.info({ count: Object.keys(store).length }, "Prefix store loaded from JSON (no MongoDB)");
     return;
@@ -56,7 +56,7 @@ export function getPrefix(guildId: string | null | undefined): string {
 
 export function setPrefix(guildId: string, prefix: string): void {
   store[guildId] = prefix;
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     upsertGuildDoc(guildId, { prefix })
       .catch(err => logger.error({ err, guildId }, "Failed to persist prefix to MongoDB"));
   } else {
@@ -66,7 +66,7 @@ export function setPrefix(guildId: string, prefix: string): void {
 
 export function resetPrefix(guildId: string): void {
   delete store[guildId];
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     upsertGuildDoc(guildId, { prefix: DEFAULT_PREFIX })
       .catch(err => logger.error({ err, guildId }, "Failed to reset prefix in MongoDB"));
   } else {

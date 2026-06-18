@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
-import { isDbReady, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
 
 export type GuildLang = "en" | "fr" | "es";
 
@@ -35,7 +35,7 @@ function saveToJson(): void {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initLangStore(): Promise<void> {
-  if (!isDbReady()) {
+  if (!isMongoConnected()) {
     loadFromJson();
     logger.info({ count: Object.keys(store).length }, "Lang store loaded from JSON (no MongoDB)");
     return;
@@ -58,7 +58,7 @@ export function getLang(guildId: string | null | undefined): GuildLang {
 
 export function setLang(guildId: string, lang: GuildLang): void {
   store[guildId] = lang;
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     upsertGuildDoc(guildId, { lang })
       .catch(err => logger.error({ err, guildId }, "Failed to persist lang to MongoDB"));
   } else {

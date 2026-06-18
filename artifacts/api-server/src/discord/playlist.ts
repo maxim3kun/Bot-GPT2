@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { logger } from "../lib/logger.js";
 import { startQueue } from "./radio.js";
-import { isDbReady, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
 
 // ── In-memory store ───────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ async function saveGuildToJson(guildId: string): Promise<void> {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initPlaylists(): Promise<void> {
-  if (!isDbReady()) {
+  if (!isMongoConnected()) {
     await loadFromJson();
     logger.info({ guilds: allPlaylists.size }, "Playlists loaded from JSON (no MongoDB)");
     return;
@@ -59,7 +59,7 @@ export async function initPlaylists(): Promise<void> {
 
 function persistGuild(guildId: string): void {
   const playlists = allPlaylists.get(guildId) ?? {};
-  if (isDbReady()) {
+  if (isMongoConnected()) {
     upsertGuildDoc(guildId, { playlists })
       .catch(err => logger.error({ err, guildId }, "Failed to persist playlists to MongoDB"));
   } else {

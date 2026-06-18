@@ -20,7 +20,7 @@ import { handleNewCommand } from "./discord/new-commands";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
-import { isDbReady, getDbStats } from "./lib/db";
+import { isMongoConnected, getDbStats } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
 import { loadDynamicBrands } from "./discord/logo-brands";
@@ -2245,7 +2245,7 @@ export function startBot(): void {
             await message.reply("🔒 Commande réservée.");
             break;
           }
-          const mongoOk  = isDbReady();
+          const mongoOk  = isMongoConnected();
           const groqOk   = !!process.env["GROQ_API_KEY"];
           const sunoOk   = !!process.env["SUNO_API_KEY"];
           const hfOk     = !!process.env["HUGGINGFACE_TOKEN"];
