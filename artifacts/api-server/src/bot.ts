@@ -1922,7 +1922,8 @@ export function startBot(): void {
               if (isTestingRunning()) {
                 const p = getTestingProgress();
                 const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-                await message.reply(`⏳ A test job is already running — **${pct}%** (${p.done}/${p.total}). Use \`!logo test status\` to check progress.`);
+                const bar = "█".repeat(Math.round(pct / 10)) + "░".repeat(10 - Math.round(pct / 10));
+                await message.reply(`⏳ A test job is already running — \`${bar}\` **${pct}%** (${p.done}/${p.total})`);
                 break;
               }
               const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
@@ -1930,10 +1931,35 @@ export function startBot(): void {
               startLogoTestingJob(token, retestAll);
               const s = getStoreStats();
               const toTest = retestAll ? s.total : s.untested;
-              await message.reply(
-                `🔬 Logo test job started — **${toTest} brand${toTest !== 1 ? "s" : ""}** to test${retestAll ? " (re-testing all)" : " (untested only)"}.\n` +
-                `Tesseract OCR will download language data on first run (~30s). Use \`!logo test status\` to check progress.`,
-              );
+
+              const buildTestContent = (): string => {
+                const p = getTestingProgress();
+                const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                const filled = Math.round(pct / 10);
+                const bar = "█".repeat(filled) + "░".repeat(10 - filled);
+                if (!p.running && p.total > 0) {
+                  return (
+                    `✅ **Logo test complete!**\n` +
+                    `\`${bar}\` **100%** (${p.total}/${p.total})\n` +
+                    `✅ Approved: **${p.approved}**  •  📝 Text logos: **${p.textLogos}**  •  ❌ Invalid: **${p.invalid}**`
+                  );
+                }
+                return (
+                  `🔬 **Logo test in progress…** *(${toTest} brand${toTest !== 1 ? "s" : ""}${retestAll ? " — re-testing all" : ""})*\n` +
+                  `\`${bar}\` **${pct}%** (${p.done}/${p.total})\n` +
+                  `✅ Approved: **${p.approved}**  •  📝 Text logos: **${p.textLogos}**  •  ❌ Invalid: **${p.invalid}**`
+                );
+              };
+
+              const liveMsg = await message.reply(buildTestContent());
+              const liveInterval = setInterval(async () => {
+                try {
+                  await liveMsg.edit(buildTestContent());
+                  if (!isTestingRunning()) clearInterval(liveInterval);
+                } catch {
+                  clearInterval(liveInterval);
+                }
+              }, 5_000);
 
             } else {
               await message.reply(
