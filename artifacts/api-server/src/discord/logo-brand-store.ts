@@ -245,6 +245,59 @@ export async function bulkAddBrandsToStore(
   return { added: toInsert.length, skipped: brands.length - toInsert.length };
 }
 
+/**
+ * Seeds the store from a raw [domain, name] list (e.g. BULK_DOMAINS).
+ * Entries are added as untested (imageOk: null, approved: false) so they can
+ * be validated later with !logo test start.
+ * Already-existing domains are skipped.
+ */
+export async function bulkSeedFromDomainList(
+  list: [string, string][],
+): Promise<{ added: number; skipped: number }> {
+  const now = new Date();
+  const existing = new Set(_all.map((b) => b._id));
+  const toInsert: LogoBrandMongoDoc[] = [];
+
+  for (const [rawDomain, name] of list) {
+    const domain = rawDomain.toLowerCase().trim();
+    if (!domain || existing.has(domain)) continue;
+    existing.add(domain);
+    toInsert.push({
+      _id: domain,
+      name,
+      aliases: [name.toLowerCase()],
+      domain,
+      category: "Brand",
+      country: "🌍",
+      tier: 2,
+      hints: [],
+      imageOk: null,
+      imageSizeBytes: null,
+      hasTextLogo: null,
+      detectedText: null,
+      lastTested: null,
+      manualExclude: false,
+      approved: false,
+      updatedAt: now,
+    });
+  }
+
+  if (toInsert.length === 0) return { added: 0, skipped: list.length };
+
+  _all.push(...toInsert);
+  _rebuildTierMap();
+
+  if (logoBrandsCol) {
+    try {
+      await logoBrandsCol.insertMany(toInsert, { ordered: false });
+    } catch (err) {
+      logger.warn({ err }, "bulkSeedFromDomainList: partial batch insert failure");
+    }
+  }
+
+  return { added: toInsert.length, skipped: list.length - toInsert.length };
+}
+
 export async function removeBrandFromStore(domain: string): Promise<boolean> {
   const key = domain.toLowerCase().trim();
   const idx = _all.findIndex((b) => b._id === key);

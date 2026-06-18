@@ -1136,16 +1136,25 @@ const LOGO_DIFF_CONFIG: Record<LogoDifficulty, {
 
 // ── Play Again button row ─────────────────────────────────────────────────────
 function makePlayAgainRow(difficulty: LogoDifficulty): ActionRowBuilder<ButtonBuilder> {
-  const labels: Record<LogoDifficulty, string> = {
-    easy:   "🟢 Rejouer (Facile)",
-    medium: "🟡 Rejouer (Moyen)",
-    hard:   "🔴 Rejouer (Difficile)",
-  };
+  if (difficulty === "easy") {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("logo_again_easy")
+        .setLabel("▶ Play Again (Easy)")
+        .setStyle(ButtonStyle.Success),
+    );
+  }
+  if (difficulty === "medium") {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("logo_again_easy").setLabel("🟢 Play (Easy)").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("logo_again_medium").setLabel("🟡 Play Again (Medium)").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("logo_again_hard").setLabel("🔴 Play (Hard)").setStyle(ButtonStyle.Danger),
+    );
+  }
+  // hard
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`logo_again_${difficulty}`)
-      .setLabel(labels[difficulty]!)
-      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("logo_again_medium").setLabel("🟡 Play (Medium)").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("logo_again_hard").setLabel("🔴 Play Again (Hard)").setStyle(ButtonStyle.Danger),
   );
 }
 

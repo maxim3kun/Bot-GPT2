@@ -1480,7 +1480,7 @@ export function startBot(): void {
         await interaction.reply({ content: "❌ Canal introuvable.", ephemeral: true });
         return;
       }
-      await interaction.reply({ content: `🔄 Nouvelle partie **${diff === "easy" ? "🟢 Facile" : diff === "medium" ? "🟡 Moyen" : "🔴 Difficile"}** lancée !`, ephemeral: true });
+      await interaction.reply({ content: `🔄 New **${diff === "easy" ? "🟢 Easy" : diff === "medium" ? "🟡 Medium" : "🔴 Hard"}** game started!`, ephemeral: true });
       startLogoGameFromButton(interaction.channel, interaction.channelId, diff).catch((err) =>
         logger.error({ err }, "logo_again button error")
       );
@@ -1992,20 +1992,59 @@ export function startBot(): void {
               ? `🗑️ **${domain}** removed from the store.`
               : `❌ Brand \`${domain}\` not found in the store.`);
 
-          } else {
-            await message.reply(
-              "**!logo** — logo brand store admin\n" +
-              "`!logo stats` — database statistics\n" +
-              "`!logo add <domain> <name> [tier] [category] [country] [hint…]` — add a brand\n" +
-              "  → e.g. `!logo add zara.com Zara 2 Fashion 🇪🇸` or `!logo add lvmh.com LVMH 2`\n" +
-              "`!logo remove <domain>` — remove a brand\n" +
-              "`!logo test start` — test untested brands (image + OCR)\n" +
-              "`!logo test all` — re-test all brands\n" +
-              "`!logo test status` — current test progress\n" +
-              "`!logo approve <domain>` — manually approve a brand\n" +
-              "`!logo exclude <domain>` — manually exclude a brand\n" +
-              "`!logo include <domain>` — re-include a brand",
+          } else if (logoSub === "bulkload") {
+            if (!requirePerm()) break;
+            const { BULK_DOMAINS } = await import("./discord/logo-domains-bulk.js");
+            const { bulkSeedFromDomainList } = await import("./discord/logo-brand-store.js");
+            const statusMsg = await message.reply(`⏳ Loading **${BULK_DOMAINS.length}** domains into the store…`);
+            const result = await bulkSeedFromDomainList(BULK_DOMAINS);
+            const s = getStoreStats();
+            await statusMsg.edit(
+              `✅ Bulk load complete!\n` +
+              `**${result.added}** new brands added · **${result.skipped}** already in store\n` +
+              `Store now has **${s.total}** brands total.\n` +
+              `💡 Run \`!logo test start\` to OCR-validate all untested entries.`,
             );
+
+          } else {
+            const embed = new EmbedBuilder()
+              .setTitle("🏷️ Logo Brand Store — Admin")
+              .setColor(0x5865f2)
+              .addFields(
+                {
+                  name: "📊 Info",
+                  value:
+                    "`!logo stats` — database statistics",
+                },
+                {
+                  name: "➕ Add / Remove",
+                  value:
+                    "`!logo add <domain> <name> [tier] [category] [country] [hint…]`\n" +
+                    "  → e.g. `!logo add zara.com Zara 2 Fashion 🇪🇸`\n" +
+                    "`!logo remove <domain>` — remove a brand",
+                },
+                {
+                  name: "📦 Bulk Load",
+                  value:
+                    "`!logo bulkload` — import ~1 200 domains from the built-in list",
+                },
+                {
+                  name: "🔬 OCR Testing",
+                  value:
+                    "`!logo test start` — test untested brands (image + OCR)\n" +
+                    "`!logo test all` — re-test all brands\n" +
+                    "`!logo test status` — current test progress",
+                },
+                {
+                  name: "✅ Approval",
+                  value:
+                    "`!logo approve <domain>` — manually approve a brand\n" +
+                    "`!logo exclude <domain>` — manually exclude a brand\n" +
+                    "`!logo include <domain>` — re-include a brand",
+                },
+              )
+              .setFooter({ text: "Manage Server permission required for all commands" });
+            await message.reply({ embeds: [embed] });
           }
           break;
         }
