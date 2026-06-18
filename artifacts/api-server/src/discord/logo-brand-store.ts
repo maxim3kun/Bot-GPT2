@@ -141,6 +141,9 @@ export async function addBrandToStore(brand: {
   category?: string;
   country?: string;
   hints?: string[];
+  approved?: boolean;
+  imageOk?: boolean | null;
+  imageSizeBytes?: number | null;
 }): Promise<{ ok: boolean; reason?: string }> {
   const domain = brand.domain.toLowerCase().trim();
   if (_all.find((b) => b._id === domain)) {
@@ -156,13 +159,13 @@ export async function addBrandToStore(brand: {
     country: brand.country ?? "🌍",
     tier: brand.tier,
     hints: brand.hints ?? [],
-    imageOk: null,
-    imageSizeBytes: null,
+    imageOk: brand.imageOk ?? null,
+    imageSizeBytes: brand.imageSizeBytes ?? null,
     hasTextLogo: null,
     detectedText: null,
     lastTested: null,
     manualExclude: false,
-    approved: true,
+    approved: brand.approved ?? true,
     updatedAt: new Date(),
   };
 
@@ -178,6 +181,68 @@ export async function addBrandToStore(brand: {
   }
 
   return { ok: true };
+}
+
+/**
+ * Bulk-inserts many pre-validated brands in one MongoDB batch.
+ * Each brand has already been probed (imageOk=true, imageSizeBytes set).
+ * Returns counts of added vs already-existing.
+ */
+export async function bulkAddBrandsToStore(
+  brands: Array<{
+    domain: string;
+    name: string;
+    tier: 1 | 2 | 3;
+    category?: string;
+    imageOk: boolean;
+    imageSizeBytes: number;
+  }>,
+): Promise<{ added: number; skipped: number }> {
+  const now = new Date();
+  const existing = new Set(_all.map((b) => b._id));
+  const toInsert: LogoBrandMongoDoc[] = [];
+
+  for (const b of brands) {
+    const domain = b.domain.toLowerCase().trim();
+    if (existing.has(domain)) continue;
+    existing.add(domain);
+    const doc: LogoBrandMongoDoc = {
+      _id: domain,
+      name: b.name,
+      aliases: [b.name.toLowerCase()],
+      domain,
+      category: b.category ?? "Brand",
+      country: "🌍",
+      tier: b.tier,
+      hints: [],
+      imageOk: b.imageOk,
+      imageSizeBytes: b.imageSizeBytes,
+      hasTextLogo: null,
+      detectedText: null,
+      lastTested: null,
+      manualExclude: false,
+      approved: b.imageOk,      // approved only if image is valid
+      updatedAt: now,
+    };
+    toInsert.push(doc);
+  }
+
+  if (toInsert.length === 0) return { added: 0, skipped: brands.length };
+
+  // In-memory
+  _all.push(...toInsert);
+  _rebuildTierMap();
+
+  // MongoDB batch insert
+  if (logoBrandsCol) {
+    try {
+      await logoBrandsCol.insertMany(toInsert, { ordered: false });
+    } catch (err) {
+      logger.error({ err }, "bulkAddBrandsToStore batch insert partial failure");
+    }
+  }
+
+  return { added: toInsert.length, skipped: brands.length - toInsert.length };
 }
 
 export async function removeBrandFromStore(domain: string): Promise<boolean> {
