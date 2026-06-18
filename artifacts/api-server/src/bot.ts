@@ -378,8 +378,8 @@ function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; la
     voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
     ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
     birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" }, cumpleanos: { topic: "birthday", lang: "es" },
-    guesslogo: { topic: "guesslogo", lang: "fr" }, devinelelogo: { topic: "guesslogo", lang: "fr" }, guessthelogo: { topic: "guesslogo", lang: "fr" },
-    logo: { topic: "guesslogo", lang: "fr" },
+    guesslogo: { topic: "guesslogo", lang: "en" }, devinelelogo: { topic: "guesslogo", lang: "en" }, guessthelogo: { topic: "guesslogo", lang: "en" },
+    logo: { topic: "guesslogo", lang: "en" },
   };
   const match = map[key];
   if (!match) return null;

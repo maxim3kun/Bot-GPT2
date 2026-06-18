@@ -223,12 +223,12 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl2.fr/rtl2-1-44-128",                             emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
-  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC",  emoji: "💃", genre: "Pop / Dance",              lang: "es" },
-  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/EUROPAFM_SC",   emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC", emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKFM_SC",     emoji: "🤘", genre: "Rock",                     lang: "es" },
-  cope:        { name: "COPE",           url: "https://playerservices.streamtheworld.com/api/livestream-redirect/COPE_SC",       emoji: "📢", genre: "News / Talk",              lang: "es" },
+  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/pls/LOS40_SC.pls",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/pls/CADENA100_SC.pls",  emoji: "💃", genre: "Pop / Dance",              lang: "es" },
+  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/pls/EUROPAFM_SC.pls",   emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/pls/CADENADIAL_SC.pls", emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
+  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/pls/ROCKFM_SC.pls",     emoji: "🤘", genre: "Rock",                     lang: "es" },
+  cope:        { name: "COPE",           url: "https://playerservices.streamtheworld.com/pls/COPE_SC.pls",       emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
   heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartLondonMP3",                     emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
