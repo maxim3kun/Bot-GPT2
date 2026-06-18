@@ -49,10 +49,10 @@ function cookieArgs(): string[] {
 // YouTube blocks clients from datacenter IPs periodically. We keep a list and
 // auto-rotate when one gets blocked, so the bot heals itself without restarts.
 const YT_CLIENTS = [
-  "android,formats=missing_pot", // works as of 2025-06 from Replit IPs
-  "tv_embedded",                  // was working before android; keep as fallback
-  "mweb",                         // mobile web — last resort
-  "ios",                          // ios — often missing formats but worth a try
+  "android_vr",   // works as of 2025-06 from Replit IPs — confirmed working
+  "mweb",         // mobile web fallback
+  "web",          // generic web fallback
+  "ios",          // ios — often missing formats but worth a try
 ];
 let _clientIdx = 0;
 
