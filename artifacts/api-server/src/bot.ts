@@ -1320,7 +1320,9 @@ export function startBot(): void {
 
         case "np": {
           if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
-          await nowPlaying(fakeMsg);
+          const npEmbed = nowPlaying(interaction.guildId);
+          if (!npEmbed) { await interaction.editReply("❌ Nothing is playing right now."); break; }
+          await interaction.editReply({ embeds: [npEmbed] });
           break;
         }
 
@@ -1347,8 +1349,7 @@ export function startBot(): void {
 
         case "leave": {
           if (!interaction.guildId) { await interaction.editReply("❌ This command only works in a server."); break; }
-          leaveVoice(interaction.guildId);
-          await interaction.editReply("👋 Left the voice channel.");
+          await leaveVoice(fakeMsg);
           break;
         }
 

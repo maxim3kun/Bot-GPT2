@@ -1386,7 +1386,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
 
   const loadMsg = await message.reply("🔍 Searching…");
 
-  let results: { url: string; title: string; duration: number; channel: string | null }[];
+  let results: { url: string; title: string; duration: number; channel: string | null; isLive?: boolean }[];
   try {
     // Fetch 15 candidates so we have enough after filtering out compilations/mixes
     results = await fastYouTubeSearch(query, 15);
