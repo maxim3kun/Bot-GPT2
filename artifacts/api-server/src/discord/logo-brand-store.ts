@@ -131,6 +131,72 @@ export async function initLogoBrandStore(): Promise<void> {
   logger.info({ total: _all.length }, "Logo brand store loaded from MongoDB");
 }
 
+// ── Add / Remove ──────────────────────────────────────────────────────────────
+
+export async function addBrandToStore(brand: {
+  domain: string;
+  name: string;
+  tier: 1 | 2 | 3;
+  aliases?: string[];
+  category?: string;
+  country?: string;
+  hints?: string[];
+}): Promise<{ ok: boolean; reason?: string }> {
+  const domain = brand.domain.toLowerCase().trim();
+  if (_all.find((b) => b._id === domain)) {
+    return { ok: false, reason: `\`${domain}\` already exists in the store.` };
+  }
+
+  const doc: LogoBrandMongoDoc = {
+    _id: domain,
+    name: brand.name,
+    aliases: brand.aliases ?? [brand.name.toLowerCase()],
+    domain,
+    category: brand.category ?? "Brand",
+    country: brand.country ?? "🌍",
+    tier: brand.tier,
+    hints: brand.hints ?? [],
+    imageOk: null,
+    imageSizeBytes: null,
+    hasTextLogo: null,
+    detectedText: null,
+    lastTested: null,
+    manualExclude: false,
+    approved: true,
+    updatedAt: new Date(),
+  };
+
+  _all.push(doc);
+  _rebuildTierMap();
+
+  if (logoBrandsCol) {
+    try {
+      await logoBrandsCol.insertOne(doc);
+    } catch (err) {
+      logger.error({ err, domain }, "addBrandToStore DB write failed");
+    }
+  }
+
+  return { ok: true };
+}
+
+export async function removeBrandFromStore(domain: string): Promise<boolean> {
+  const key = domain.toLowerCase().trim();
+  const idx = _all.findIndex((b) => b._id === key);
+  if (idx === -1) return false;
+
+  _all.splice(idx, 1);
+  _rebuildTierMap();
+
+  if (logoBrandsCol) {
+    await logoBrandsCol.deleteOne({ _id: key }).catch((err) =>
+      logger.error({ err, domain: key }, "removeBrandFromStore DB delete failed"),
+    );
+  }
+
+  return true;
+}
+
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 export async function updateBrandTestResult(

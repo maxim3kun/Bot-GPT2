@@ -22,7 +22,7 @@ import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
 import { isDbReady, getDbStats } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
-import { getStoreStats, setBrandApproval } from "./discord/logo-brand-store";
+import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists } from "./discord/artist-cache";
 
@@ -1898,10 +1898,43 @@ export function startBot(): void {
             const ok = await setBrandApproval(domain, true, false);
             await message.reply(ok ? `✅ **${domain}** re-included in the game.` : `❌ Brand \`${domain}\` not found in the store.`);
 
+          } else if (logoSub === "add" && args[1] && args[2]) {
+            if (!requirePerm()) break;
+            // !logo add <domain> <name> [tier:1|2|3] [category] [country] [hint...]
+            const domain  = args[1]!;
+            const name    = args[2]!;
+            const tierRaw = Number(args[3] ?? "2");
+            const tier: 1 | 2 | 3 = (tierRaw === 1 || tierRaw === 3) ? tierRaw : 2;
+            const category = args[4] ?? "Brand";
+            const country  = args[5] ?? "🌍";
+            const hints    = args.slice(6);
+            const result   = await addBrandToStore({ domain, name, tier, category, country, hints: hints.length ? hints : [] });
+            if (result.ok) {
+              const s = getStoreStats();
+              await message.reply(
+                `✅ **${name}** (\`${domain}\`) added to the store — tier **${tier}**, auto-approved.\n` +
+                `Store now has **${s.total}** brand${s.total !== 1 ? "s" : ""} (${s.approved} approved).\n` +
+                `💡 Run \`!logo test start\` to OCR-test the new brand.`,
+              );
+            } else {
+              await message.reply(`❌ ${result.reason}`);
+            }
+
+          } else if ((logoSub === "remove" || logoSub === "delete") && args[1]) {
+            if (!requirePerm()) break;
+            const domain = args[1]!;
+            const ok = await removeBrandFromStore(domain);
+            await message.reply(ok
+              ? `🗑️ **${domain}** removed from the store.`
+              : `❌ Brand \`${domain}\` not found in the store.`);
+
           } else {
             await message.reply(
               "**!logo** — logo brand store admin\n" +
               "`!logo stats` — database statistics\n" +
+              "`!logo add <domain> <name> [tier] [category] [country] [hint…]` — add a brand\n" +
+              "  → e.g. `!logo add zara.com Zara 2 Fashion 🇪🇸` or `!logo add lvmh.com LVMH 2`\n" +
+              "`!logo remove <domain>` — remove a brand\n" +
               "`!logo test start` — test untested brands (image + OCR)\n" +
               "`!logo test all` — re-test all brands\n" +
               "`!logo test status` — current test progress\n" +
