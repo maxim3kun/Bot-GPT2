@@ -344,6 +344,26 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
   recordChannel(profile, message);
   persistUser(profile.userId);
 
+  // If the user already has quests, show them instead of re-running setup
+  if (profile.quests.length > 0) {
+    const embed = buildQuestEmbed(profile);
+    const questMsg = await message.reply({
+      content: "✅ You already have quests set up! Here's your current list:",
+      embeds: [embed],
+    });
+    const activeIndices = profile.quests
+      .map((q, i) => ({ q, i }))
+      .filter(({ q }) => !q.completed)
+      .map(({ i }) => i);
+    for (const i of activeIndices) {
+      await questMsg.react(QUEST_NUMS[i]!).catch(() => null);
+    }
+    if (activeIndices.length > 0) {
+      attachReactionCollector(questMsg, profile, message.channel as TextChannel);
+    }
+    return;
+  }
+
   const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
 
   const promptEmbed = new EmbedBuilder()
@@ -883,6 +903,148 @@ export function getUserQuestData(userId: string): {
     reminderActive: !!profile.notifyChannelId,
     reminderHours: profile.reminderHours ?? [10, 15, 18],
   };
+}
+
+export async function negotiateQuests(message: Message, openai: OpenAI | null): Promise<void> {
+  if (!openai) {
+    await message.reply("❌ AI features aren't available right now. GROQ_API_KEY is required for negotiation.");
+    return;
+  }
+
+  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
+  recordChannel(profile, message);
+
+  if (profile.quests.length === 0) {
+    await message.reply("❌ You don't have any quests yet. Use `!quest start` to create some first.");
+    return;
+  }
+
+  const pending = profile.quests.filter(q => !q.completed);
+  if (pending.length === 0) {
+    await message.reply("✅ All your quests are completed! Use `!quest start` or `!quest add` to create new ones.");
+    return;
+  }
+
+  const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+
+  const questList = pending
+    .map((q, i) => `${i + 1}. **${q.title}** (${q.difficulty}, ${q.points} XP) — ${q.description}`)
+    .join("\n");
+
+  const promptEmbed = new EmbedBuilder()
+    .setTitle("⚔️ Quest Negotiation")
+    .setColor(0xe67e22)
+    .setDescription(
+      `Here are your active quests:\n\n${questList}\n\n` +
+      "Make your case — what do you want to change and **why**? Be specific.\n" +
+      "⚠️ The AI negotiator is tough. You'll need a real reason, not just 'it's too hard'.\n\n" +
+      "You have **5 minutes** to reply. 📝",
+    );
+
+  await message.reply({ embeds: [promptEmbed] });
+
+  let collected;
+  try {
+    collected = await message.channel.awaitMessages({
+      filter: m => m.author.id === message.author.id,
+      max: 1,
+      time: 300_000,
+    });
+  } catch {
+    await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
+    return;
+  }
+
+  if (collected.size === 0) {
+    await message.channel.send("⏰ No response. Your quests remain unchanged.");
+    return;
+  }
+
+  const userArgument = collected.first()!.content;
+  const waitMsg = await message.channel.send("⚖️ Evaluating your case...");
+
+  try {
+    const currentQuestsJson = JSON.stringify(pending.map(q => ({
+      id: q.id,
+      title: q.title,
+      description: q.description,
+      difficulty: q.difficulty,
+      points: q.points,
+    })));
+
+    const response = await openai.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a tough but fair quest negotiator. Your goal is to maintain challenge — NOT to make life easier for the user.\n" +
+            "Rules:\n" +
+            "- If the user's argument is weak, vague, or just 'it's too hard' → REJECT the negotiation. Explain why briefly.\n" +
+            "- Only accept renegotiation if the user provides a SPECIFIC, LEGITIMATE reason (injury, life event, wrong scope, genuinely impossible constraint).\n" +
+            "- When you accept, you may ADJUST quests — but keep them genuinely challenging. You can change wording, scope, or split a quest, but NEVER reduce XP points or make it trivially easy.\n" +
+            "- You may accept some changes and reject others.\n" +
+            "- Respond in JSON format ONLY:\n" +
+            '{"verdict":"accept"|"partial"|"reject","message":"<short explanation, 2-3 sentences, direct>","updatedQuests":[{"id":<number>,"title":"<string>","description":"<string>","difficulty":"easy|medium|hard","points":<number>}]}\n' +
+            "If verdict is reject, updatedQuests must be an empty array [].\n" +
+            `Respond in ${userLang}.`,
+        },
+        {
+          role: "user",
+          content: `Current quests:\n${currentQuestsJson}\n\nUser's negotiation argument:\n"${userArgument}"`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 600,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON in response");
+
+    const result = JSON.parse(jsonMatch[0]) as {
+      verdict: "accept" | "partial" | "reject";
+      message: string;
+      updatedQuests: Array<{ id: number; title: string; description: string; difficulty: string; points: number }>;
+    };
+
+    if (result.verdict === "reject") {
+      const embed = new EmbedBuilder()
+        .setColor(0xe74c3c)
+        .setTitle("⚔️ Negotiation Rejected")
+        .setDescription(`**${result.message}**\n\nYour quests remain unchanged. Try again with a better argument.`);
+      await waitMsg.edit({ content: "", embeds: [embed] });
+      return;
+    }
+
+    if (result.updatedQuests && result.updatedQuests.length > 0) {
+      for (const updated of result.updatedQuests) {
+        const quest = profile.quests.find(q => q.id === updated.id);
+        if (!quest) continue;
+        quest.title = (updated.title ?? quest.title).slice(0, 40);
+        quest.description = updated.description ?? quest.description;
+        quest.difficulty = (["easy", "medium", "hard"].includes(updated.difficulty) ? updated.difficulty : quest.difficulty) as "easy" | "medium" | "hard";
+        quest.points = typeof updated.points === "number" && updated.points > 0 ? updated.points : quest.points;
+      }
+      persistUser(profile.userId);
+    }
+
+    const verdictLabel = result.verdict === "accept" ? "✅ Negotiation Accepted" : "🔶 Partial Renegotiation";
+    const color = result.verdict === "accept" ? 0x2ecc71 : 0xe67e22;
+
+    const updatedEmbed = buildQuestEmbed(profile);
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setTitle(`⚔️ ${verdictLabel}`)
+      .setDescription(`**${result.message}**`);
+
+    await waitMsg.edit({ content: "", embeds: [embed] });
+    await message.channel.send({ embeds: [updatedEmbed] });
+
+  } catch (err) {
+    logger.error({ err }, "Quest negotiation error");
+    await waitMsg.edit("❌ Negotiation failed. Try again with `!quest negotiate`.");
+  }
 }
 
 export async function setBullyMode(message: Message, enable: boolean): Promise<void> {

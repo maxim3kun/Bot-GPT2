@@ -224,11 +224,11 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC",       emoji: "🔊", genre: "Pop / Hits",               lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://20943.live.streamtheworld.com/CADENA100_SC.mp3",   emoji: "💃", genre: "Pop / Dance",              lang: "es" },
-  europafm:    { name: "Europa FM",      url: "https://20943.live.streamtheworld.com/EUROPAFM_SC.mp3",    emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC",  emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
-  rock_es:     { name: "Rock FM ES",     url: "https://20943.live.streamtheworld.com/ROCKFM_SC.mp3",      emoji: "🤘", genre: "Rock",                     lang: "es" },
-  cope:        { name: "COPE",           url: "https://20943.live.streamtheworld.com/COPE_SC.mp3",                                emoji: "📢", genre: "News / Talk",              lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC",  emoji: "💃", genre: "Pop / Dance",              lang: "es" },
+  europafm:    { name: "Europa FM",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/EUROPAFM_SC",   emoji: "🌟", genre: "Rock / Pop",               lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC", emoji: "🎶", genre: "Spanish Pop / Romántica",  lang: "es" },
+  rock_es:     { name: "Rock FM ES",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKFM_SC",     emoji: "🤘", genre: "Rock",                     lang: "es" },
+  cope:        { name: "COPE",           url: "https://playerservices.streamtheworld.com/api/livestream-redirect/COPE_SC",       emoji: "📢", genre: "News / Talk",              lang: "es" },
   // 🇬🇧 English
   capital:     { name: "Capital FM",     url: "https://media-ice.musicradio.com/CapitalMP3",                        emoji: "🏙️", genre: "Pop / Dance Hits",        lang: "en" },
   heart:       { name: "Heart FM",       url: "https://media-ice.musicradio.com/HeartLondonMP3",                     emoji: "❤️", genre: "Easy Listening / Pop",    lang: "en" },
@@ -256,6 +256,8 @@ interface RadioState {
   guildId: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
   aloneTimer: ReturnType<typeof setTimeout> | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  reconnectAttempt: number;
   nowPlayingMsg: Message | null;
   paused: boolean;
   requestedBy: string | null;
@@ -596,22 +598,37 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       if (!s) return;
 
       if (s.stationKey) {
-        // Radio stream dropped — reconnect after 400 ms
+        // Radio stream dropped — reconnect with exponential backoff
         const key = s.stationKey;
         const station = RADIO_STATIONS[key];
         if (!station) return;
-        setTimeout(async () => {
+        const MAX_ATTEMPTS = 6;
+        const attempt = s.reconnectAttempt + 1;
+        if (attempt > MAX_ATTEMPTS) {
+          logger.warn({ key, attempt }, "Radio reconnect gave up after max attempts");
+          s.stationKey = null;
+          s.reconnectAttempt = 0;
+          s.notifyChannel?.send(`📻 Stream for **${station.name}** is unavailable after ${MAX_ATTEMPTS} retries. Try another with \`!radio list\`.`).catch(() => null);
+          startIdleTimer(guildId);
+          return;
+        }
+        s.reconnectAttempt = attempt;
+        const delayMs = Math.min(400 * Math.pow(2, attempt - 1), 30_000);
+        if (s.reconnectTimer) clearTimeout(s.reconnectTimer);
+        s.reconnectTimer = setTimeout(async () => {
           const cur = radioStates.get(guildId);
-          if (!cur || cur.stationKey !== key) return; // stopped or switched in the meantime
+          if (!cur || cur.stationKey !== key) return;
+          cur.reconnectTimer = null;
           try {
             const stream = await fetchStream(station.url);
             const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
             cur.player.play(resource);
-            logger.info({ key }, "Radio auto-reconnected after stream drop");
+            cur.reconnectAttempt = 0;
+            logger.info({ key, attempt }, "Radio auto-reconnected after stream drop");
           } catch (err) {
-            logger.error({ err, key }, "Radio reconnect failed");
+            logger.error({ err, key, attempt }, "Radio reconnect failed");
           }
-        }, 400);
+        }, delayMs);
         return;
       }
 
@@ -659,6 +676,8 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       guildId,
       idleTimer: null,
       aloneTimer: null,
+      reconnectTimer: null,
+      reconnectAttempt: 0,
       nowPlayingMsg: null,
       paused: false,
       requestedBy: null,

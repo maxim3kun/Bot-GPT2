@@ -1129,9 +1129,9 @@ const LOGO_DIFF_CONFIG: Record<LogoDifficulty, {
   popularityLabel: string;
   color: number;
 }> = {
-  easy:   { tiers: [1],       maxHints: 3, timeMs: 90_000, label: "🟢 Facile",   popularityLabel: "Marques ultra-célèbres",  color: 0x2ecc71 },
-  medium: { tiers: [1, 2],    maxHints: 2, timeMs: 60_000, label: "🟡 Moyen",    popularityLabel: "Marques connues",         color: 0xf1c40f },
-  hard:   { tiers: [1, 2, 3], maxHints: 0, timeMs: 45_000, label: "🔴 Difficile", popularityLabel: "Toutes marques, sans indice", color: 0xe74c3c },
+  easy:   { tiers: [1],       maxHints: 3, timeMs: 90_000, label: "🟢 Easy",   popularityLabel: "World-famous brands",  color: 0x2ecc71 },
+  medium: { tiers: [1, 2],    maxHints: 2, timeMs: 60_000, label: "🟡 Medium",  popularityLabel: "Well-known brands",    color: 0xf1c40f },
+  hard:   { tiers: [1, 2, 3], maxHints: 0, timeMs: 45_000, label: "🔴 Hard", popularityLabel: "All brands, no hints", color: 0xe74c3c },
 };
 
 // ── Play Again button row ─────────────────────────────────────────────────────
@@ -1186,7 +1186,7 @@ function isCorrectLogoBrand(guess: string, brand: LogoBrand): boolean {
 // ── Core game loop — shared between message command and button replay ─────────
 async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?: string): Promise<void> {
   if (activeLogoGames.has(channelId)) {
-    await channel.send("🏷️ Une partie est déjà en cours ici ! Devine le logo ou attends la fin.");
+    await channel.send("🏷️ A game is already running here! Guess the logo or wait for it to end.");
     return;
   }
 
@@ -1209,25 +1209,25 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
 
   const buildEmbed = (hintsShown: string[]): EmbedBuilder => {
     const embed = new EmbedBuilder()
-      .setTitle(`🏷️ DEVINE LE LOGO — ${cfg.label} *(${cfg.popularityLabel})*`)
+      .setTitle(`🏷️ GUESS THE LOGO — ${cfg.label} *(${cfg.popularityLabel})*`)
       .setImage(logoUrl)
       .setColor(cfg.color)
       .setFooter({
         text: cfg.maxHints > 0
-          ? `${cfg.maxHints} indice${cfg.maxHints > 1 ? "s" : ""} disponible${cfg.maxHints > 1 ? "s" : ""} • ${cfg.timeMs / 1000}s • !guessthelogo stop pour abandonner • ${poolSize} logos dans le pool`
-          : `Aucun indice • ${cfg.timeMs / 1000}s • !guessthelogo stop pour abandonner • ${poolSize} logos dans le pool`,
+          ? `${cfg.maxHints} hint${cfg.maxHints > 1 ? "s" : ""} available • ${cfg.timeMs / 1000}s • !guessthelogo stop to quit • ${poolSize} logos in pool`
+          : `No hints • ${cfg.timeMs / 1000}s • !guessthelogo stop to quit • ${poolSize} logos in pool`,
       });
 
     if (hintsShown.length === 0) {
       embed.setDescription(
         cfg.maxHints > 0
-          ? "🔍 À quelle marque appartient ce logo ?\nTape ta réponse — les mauvaises réponses débloquent des indices !"
-          : "🔍 À quelle marque appartient ce logo ?\nMode Difficile — aucun indice, bonne chance ! 😈"
+          ? "🔍 Which brand does this logo belong to?\nType your answer — wrong answers unlock hints!"
+          : "🔍 Which brand does this logo belong to?\nHard mode — no hints, good luck! 😈"
       );
     } else {
       embed.setDescription(
-        "🔍 À quelle marque appartient ce logo ?\n\n" +
-        hintsShown.map((h, i) => `💡 **Indice ${i + 1} :** ${h}`).join("\n")
+        "🔍 Which brand does this logo belong to?\n\n" +
+        hintsShown.map((h, i) => `💡 **Hint ${i + 1}:** ${h}`).join("\n")
       );
     }
     return embed;
@@ -1257,7 +1257,7 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
         normalize(text) === "!logo stop" || normalize(text) === "logo stop"
       ) {
         await channel.send({
-          content: `🏳️ Partie terminée ! Le logo était **${brand.name}** (${brand.category} • ${brand.country})`,
+          content: `🏳️ Game abandoned! The logo was **${brand.name}** (${brand.category} • ${brand.country})`,
           components: [playAgainRow],
         });
         break;
@@ -1266,21 +1266,21 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
       if (isCorrectLogoBrand(text, brand)) {
         const hintsLabel =
           hintsUsed.length === 0
-            ? "sans aucun indice — incroyable ! 🤯"
+            ? "with no hints at all — incredible! 🤯"
             : hintsUsed.length === 1
-            ? "avec seulement 1 indice"
-            : `avec ${hintsUsed.length} indices`;
+            ? "with only 1 hint"
+            : `with ${hintsUsed.length} hints`;
 
         const score = cfg.maxHints + 1 - hintsUsed.length;
         const stars = "⭐".repeat(Math.max(1, score));
 
         const embed = new EmbedBuilder()
           .setColor(0x2ecc71)
-          .setTitle(`✅ ${reply.author.displayName} a trouvé !`)
+          .setTitle(`✅ ${reply.author.displayName} got it!`)
           .setDescription(
-            `Le logo était **${brand.name}** ${hintsLabel} !\n` +
-            `**Catégorie :** ${brand.category} • **Pays :** ${brand.country}\n` +
-            `**Score :** ${stars} (${score}/${cfg.maxHints + 1})`
+            `The logo was **${brand.name}** ${hintsLabel}!\n` +
+            `**Category:** ${brand.category} • **Country:** ${brand.country}\n` +
+            `**Score:** ${stars} (${score}/${cfg.maxHints + 1})`
           )
           .setThumbnail(logoUrl);
 
@@ -1288,11 +1288,11 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
         break;
       }
 
-      // Mauvaise réponse
+      // Wrong answer
       const nextHint = brand.hints[hintsUsed.length];
       if (!nextHint || hintsUsed.length >= cfg.maxHints) {
         await channel.send({
-          content: `❌ Raté ! Plus d'indices.\nLe logo était **${brand.name}** — ${brand.category} de ${brand.country}. Meilleure chance la prochaine fois !`,
+          content: `❌ Wrong! No more hints.\nThe logo was **${brand.name}** — ${brand.category} from ${brand.country}. Better luck next time!`,
           components: [playAgainRow],
         });
         break;
@@ -1303,7 +1303,7 @@ async function runLogoGame(channel: DiscordChannel, channelId: string, diffArg?:
     }
   } catch {
     await channel.send({
-      content: `⏱️ Temps écoulé ! Le logo était **${brand.name}** — ${brand.category} de ${brand.country}.`,
+      content: `⏱️ Time's up! The logo was **${brand.name}** — ${brand.category} from ${brand.country}.`,
       components: [playAgainRow],
     });
   } finally {

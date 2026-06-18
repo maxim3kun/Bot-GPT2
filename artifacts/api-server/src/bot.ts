@@ -10,7 +10,7 @@ import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getG
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
@@ -514,48 +514,49 @@ function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): Em
       ); break;
 
     case "guesslogo":
-      embed.setTitle("🏷️ Devine le Logo — Guide Modérateur");
+      embed.setTitle("🏷️ Guess the Logo — Moderator Guide");
       embed.setColor(0x5865f2);
       embed.addFields(
         {
-          name: "🎮 Commandes joueurs",
+          name: "🎮 Player Commands",
           value: [
-            "`!guessthelogo` — Lance une partie (facile par défaut)",
-            "`!guessthelogo easy` — 🟢 Marques ultra-célèbres • 3 indices • 90s",
-            "`!guessthelogo medium` — 🟡 Marques connues • 2 indices • 60s",
-            "`!guessthelogo hard` — 🔴 Toutes marques • 0 indice • 45s",
-            "`!guessthelogo stop` — Abandonner la partie en cours",
+            "`!guessthelogo` — Start a game (easy by default)",
+            "`!guessthelogo easy` — 🟢 World-famous brands • 3 hints • 90s",
+            "`!guessthelogo medium` — 🟡 Well-known brands • 2 hints • 60s",
+            "`!guessthelogo hard` — 🔴 All brands • 0 hints • 45s",
+            "`!guessthelogo stop` — Abandon the current game",
             "",
-            "Alias : `!guesslogo` · `!devinelelogo`",
+            "Aliases: `!guesslogo` · `!devinelelogo`",
           ].join("\n"),
         },
         {
-          name: "📊 Difficulté & Popularité",
+          name: "📊 Difficulty & Popularity",
           value: [
-            "**🟢 Facile** → Tier 1 uniquement — logos iconiques mondiaux (Nike, Apple, McDonald's…)",
-            "**🟡 Moyen** → Tier 1 + 2 — marques connues du grand public",
-            "**🔴 Difficile** → Tous les tiers — inclut les marques moins connues, sans indice",
+            "**🟢 Easy** → Tier 1 only — iconic global logos (Nike, Apple, McDonald's…)",
+            "**🟡 Medium** → Tier 1 + 2 — brands known to the general public",
+            "**🔴 Hard** → All tiers — includes lesser-known brands, no hints",
           ].join("\n"),
         },
         {
-          name: "🛠️ Commandes admin (Manage Server requis)",
+          name: "🛠️ Admin Commands (Manage Server required)",
           value: [
-            "`!logo stats` — Statistiques du pool de logos",
-            "`!logo add <domain> <nom> [tier 1-3] [catégorie] [pays] [indices…]` — Ajouter une marque",
-            "`!logo remove <domain>` — Supprimer une marque",
-            "`!logo approve <domain>` — Approuver manuellement un logo",
-            "`!logo exclude <domain>` — Exclure un logo (text-only)",
-            "`!logo test start` — Tester les logos non-testés via OCR",
-            "`!logo test all` — Re-tester tous les logos",
-            "`!logo test status` — Statut du test en cours",
+            "`!logo stats` — Logo pool statistics",
+            "`!logo add <domain> <name> [tier 1-3] [category] [country] [hints…]` — Add a brand",
+            "`!logo remove <domain>` — Remove a brand",
+            "`!logo approve <domain>` — Manually approve a logo",
+            "`!logo exclude <domain>` — Exclude a logo (text-only)",
+            "`!logo fetch <count>` — Auto-fetch logos from logo.dev API (with OCR validation)",
+            "`!logo test start` — Test untested logos via OCR",
+            "`!logo test all` — Re-test all logos",
+            "`!logo test status` — Status of the current test run",
           ].join("\n"),
         },
         {
-          name: "ℹ️ Comment fonctionne le pool",
-          value: "Les marques sont sélectionnées **aléatoirement** dans le pool selon le tier de difficulté. Les logos déjà joués récemment sont exclus pour éviter les répétitions. Ajoute des marques via MongoDB (`!logo add`) pour enrichir le jeu.",
+          name: "ℹ️ How the pool works",
+          value: "Brands are picked **randomly** from the pool based on the difficulty tier. Recently played logos are excluded to avoid repetition. Add brands via `!logo add` or auto-fetch via `!logo fetch` to grow the game.",
         },
       );
-      embed.setFooter({ text: "🔒 Page visible uniquement aux modérateurs (Manage Server)" });
+      embed.setFooter({ text: "🔒 Visible to moderators only (Manage Server)" });
       break;
 
     case "ai":
@@ -2829,8 +2830,10 @@ export function startBot(): void {
             if (toggle === "on") await setBullyMode(message, true);
             else if (toggle === "off") await setBullyMode(message, false);
             else await message.reply("❓ Usage: `!quest bully on` or `!quest bully off`");
+          } else if (sub === "negotiate") {
+            await negotiateQuests(message, openai);
           } else {
-            await message.reply("❓ Commands: `!quest start` · `!quest add <goal>` · `!quest list` · `!quest done <n>` · `!quest profile` · `!quest reset`");
+            await message.reply("❓ Commands: `!quest start` · `!quest add <goal>` · `!quest list` · `!quest done <n>` · `!quest profile` · `!quest negotiate` · `!quest reset`");
           }
           break;
         }
@@ -3320,8 +3323,81 @@ export function startBot(): void {
                   await message.reply(p.total === 0
                     ? "💤 No test job run yet."
                     : `🔬 ${p.running ? "Running" : "Last run"}: **${pct}%** (${p.done}/${p.total}) — ✅ ${p.approved} approved, 📝 ${p.textLogos} text, ❌ ${p.invalid} invalid`);
+                } else if (lSub === "fetch") {
+                  if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) { await message.reply("🔒 Manage Server required."); break; }
+                  const token = process.env["LOGO_DEV_PUBLIC_KEY"] ?? process.env["LOGO_DEV_TOKEN"] ?? "";
+                  if (!token) { await message.reply("❌ `LOGO_DEV_PUBLIC_KEY` is not set. Ask a moderator to configure it."); break; }
+                  const maxCount = Math.min(Math.max(parseInt(args[1] ?? "20", 10) || 20, 1), 100);
+                  const statusMsg = await message.reply(`🔍 Fetching up to **${maxCount}** logos from logo.dev... (this may take a minute)`);
+                  // Run in background
+                  (async () => {
+                    try {
+                      const { get: httpsGet } = await import("https");
+                      // Use logo.dev search to discover brands across popular categories
+                      const queries = ["tech", "food", "fashion", "finance", "automotive", "media", "retail", "sport", "health", "travel"];
+                      const seen = new Set<string>();
+                      const candidates: Array<{ domain: string; name: string }> = [];
+                      for (const q of queries) {
+                        if (candidates.length >= maxCount * 3) break;
+                        await new Promise<void>((resolve) => {
+                          const req = httpsGet(
+                            `https://api.logo.dev/search?q=${encodeURIComponent(q)}&token=${token}`,
+                            { headers: { "Accept": "application/json" } },
+                            (res) => {
+                              let body = "";
+                              res.setEncoding("utf8");
+                              res.on("data", (c: string) => { body += c; });
+                              res.on("end", () => {
+                                try {
+                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                  const items = JSON.parse(body) as Array<{ domain?: string; name?: string }>;
+                                  if (Array.isArray(items)) {
+                                    for (const item of items) {
+                                      if (item.domain && item.name && !seen.has(item.domain)) {
+                                        seen.add(item.domain);
+                                        candidates.push({ domain: item.domain, name: item.name });
+                                      }
+                                    }
+                                  }
+                                } catch { /* ignore parse errors */ }
+                                resolve();
+                              });
+                              res.on("error", () => resolve());
+                            },
+                          );
+                          req.on("error", () => resolve());
+                          req.setTimeout(8000, () => { req.destroy(); resolve(); });
+                        });
+                      }
+
+                      let added = 0;
+                      let skipped = 0;
+                      let rejected = 0;
+                      for (const c of candidates) {
+                        if (added >= maxCount) break;
+                        const result = await addBrandToStore({ domain: c.domain, name: c.name, tier: 2 });
+                        if (!result.ok) { skipped++; continue; }
+                        // Queue for OCR test immediately
+                        startLogoTestingJob(token, false);
+                        added++;
+                      }
+
+                      const finalStats = getStoreStats();
+                      await statusMsg.edit(
+                        `✅ Logo fetch complete:\n` +
+                        `• **${added}** new brands added (pending OCR validation)\n` +
+                        `• **${skipped}** already in store\n` +
+                        `• **${rejected}** rejected\n` +
+                        `• Pool now: **${finalStats.total}** total, **${finalStats.approved}** approved\n` +
+                        `Use \`!logo test start\` to run OCR on newly added logos.`,
+                      );
+                    } catch (err) {
+                      logger.error({ err }, "Logo fetch job failed");
+                      await statusMsg.edit("❌ Logo fetch failed. Check that `LOGO_DEV_PUBLIC_KEY` is valid.").catch(() => null);
+                    }
+                  })().catch(() => null);
                 } else {
-                  await message.reply("`!logo stats` • `!logo test start` • `!logo test all` • `!logo test status`");
+                  await message.reply("`!logo stats` • `!logo fetch <count>` • `!logo test start` • `!logo test all` • `!logo test status`");
                 }
                 break;
               }
