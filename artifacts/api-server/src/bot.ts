@@ -2345,6 +2345,81 @@ export function startBot(): void {
           break;
         }
 
+        // ── YouTube cookie/stream test (owner only) ──────────────────────────────
+        case "yt-test":
+        case "yttest": {
+          if (message.author.username.toLowerCase() !== "maxim3kun") {
+            await message.reply("🔒 Commande réservée.");
+            break;
+          }
+
+          const statusMsg = await message.reply("🔍 Test YouTube en cours…");
+
+          // 1. Cookie file status
+          const ytCookiesRaw = process.env["YT_COOKIES"] ?? "";
+          const cookieSet = ytCookiesRaw.length > 0;
+          let cookieEntries = 0;
+          if (cookieSet) {
+            try {
+              const { readFileSync, existsSync } = await import("fs");
+              const cookiePath = "/tmp/yt-cookies.txt";
+              if (existsSync(cookiePath)) {
+                const content = readFileSync(cookiePath, "utf8");
+                cookieEntries = content.split("\n").filter(l => l.trim() && !l.startsWith("#")).length;
+              }
+            } catch { /* ignore */ }
+          }
+
+          // 2. Live yt-dlp test on a short public video (Rick Astley — 3:32)
+          const testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+          let ytResult = "⏳ test…";
+          let ytError = "";
+          try {
+            const { execFile } = await import("child_process");
+            const { promisify } = await import("util");
+            const exec = promisify(execFile);
+            const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
+            const { existsSync } = await import("fs");
+            const bin = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
+            const cookieArgs = cookieEntries > 0 ? ["--cookies", "/tmp/yt-cookies.txt"] : [];
+            const { stdout } = await exec(
+              bin,
+              [
+                "--print", "%(title)s",
+                "--no-playlist",
+                "--extractor-args=youtube:player_client=ios",
+                ...cookieArgs,
+                testUrl,
+              ],
+              { timeout: 25_000, maxBuffer: 256 * 1024 },
+            );
+            ytResult = `✅ \`${stdout.trim().slice(0, 60)}\``;
+          } catch (err) {
+            const msg = String((err as { stderr?: string })?.stderr ?? err);
+            ytResult = "❌ Échec";
+            ytError = msg.slice(0, 200);
+          }
+
+          const embed = new EmbedBuilder()
+            .setTitle("🧪 Diagnostic YouTube")
+            .setColor(ytResult.startsWith("✅") ? 0x57f287 : 0xed4245)
+            .addFields(
+              {
+                name: "🍪 Cookies",
+                value: cookieSet
+                  ? (cookieEntries > 0 ? `✅ ${cookieEntries} entrées chargées` : "⚠️ Secret défini mais 0 entrées — les sauts de ligne sont perdus à la saisie. Encode en base64 avant de coller.")
+                  : "❌ `YT_COOKIES` non défini",
+                inline: false,
+              },
+              { name: "▶️ Lecture test", value: ytResult, inline: false },
+              ...(ytError ? [{ name: "⚠️ Erreur yt-dlp", value: `\`\`\`${ytError}\`\`\``, inline: false }] : []),
+            )
+            .setFooter({ text: "Client utilisé : ios • Vidéo test : Rick Astley" });
+
+          await statusMsg.edit({ content: "", embeds: [embed] });
+          break;
+        }
+
         // ── Prefix ───────────────────────────────────────────────────────────────
         case "prefix": {
           const currentPfx = getPrefix(message.guildId);
@@ -3443,6 +3518,71 @@ export function startBot(): void {
         case "aide": {
           const arg0 = (args[0] ?? "").toLowerCase();
           const arg1 = (args[1] ?? "").toLowerCase();
+
+          // Owner-only guide — !help Maxim3kun
+          if (arg0 === "maxim3kun") {
+            if (message.author.username.toLowerCase() !== "maxim3kun") {
+              await message.reply("🔒 Commande réservée.");
+              break;
+            }
+            const ownerEmbed = new EmbedBuilder()
+              .setTitle("👑 Commandes Owner — Maxim3kun")
+              .setColor(0xf1c40f)
+              .setDescription("Commandes exclusives, visibles uniquement par toi.")
+              .addFields(
+                {
+                  name: "🔧 Diagnostic & Statut",
+                  value:
+                    `\`${guildPrefix}status\` — Statut complet du bot (RAM, MongoDB, Groq, Suno…)\n` +
+                    `\`${guildPrefix}yt-test\` — Teste les cookies YouTube & yt-dlp en live`,
+                  inline: false,
+                },
+                {
+                  name: "🍪 Cookies YouTube",
+                  value:
+                    "Si `!yt-test` montre **0 entrées** :\n" +
+                    "1. Exporte `cookies.txt` depuis Firefox (extension *Get cookies.txt LOCALLY*)\n" +
+                    "2. Dans un terminal : `base64 cookies.txt` (ou `base64 -w0 cookies.txt` sur Linux)\n" +
+                    "3. Colle la chaîne base64 (une seule ligne) comme secret `YT_COOKIES`\n" +
+                    "4. Relance le bot",
+                  inline: false,
+                },
+                {
+                  name: "🛡️ Modération",
+                  value:
+                    `\`${guildPrefix}unblock @user\` — Débloque un utilisateur\n` +
+                    `\`${guildPrefix}banlist\` — Liste des utilisateurs bloqués\n` +
+                    `\`${guildPrefix}admin channel #salon\` — Définit le salon de notifs admin`,
+                  inline: false,
+                },
+                {
+                  name: "📻 Radios custom",
+                  value:
+                    `\`${guildPrefix}radio add <clé> <nom> <url>\` — Ajoute une station\n` +
+                    `\`${guildPrefix}radio remove <clé>\` — Supprime une station custom`,
+                  inline: false,
+                },
+                {
+                  name: "🎨 Logo Brands (admin)",
+                  value:
+                    `\`${guildPrefix}logo test\` — Lance les tests OCR sur les logos\n` +
+                    `\`${guildPrefix}logo approve <domain>\` — Approuve manuellement un logo\n` +
+                    `\`${guildPrefix}logo exclude <domain>\` — Exclut manuellement un logo`,
+                  inline: false,
+                },
+                {
+                  name: "⚙️ Serveur",
+                  value:
+                    `\`${guildPrefix}prefix <nouveau>\` — Change le préfixe\n` +
+                    `\`${guildPrefix}server language [en|fr|es]\` — Langue par défaut\n` +
+                    `\`${guildPrefix}voicechannels <id1> <id2>\` — Salons vocaux du picker`,
+                  inline: false,
+                },
+              )
+              .setFooter({ text: "Ces commandes ne sont pas listées dans !help public." });
+            await message.reply({ embeds: [ownerEmbed] });
+            break;
+          }
 
           // Admin commands guide — !help admin
           if (arg0 === "admin") {
