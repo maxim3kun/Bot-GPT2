@@ -126,6 +126,17 @@ export interface ArtistCacheDoc {
   updatedAt: Date;
 }
 
+export interface CustomStationDoc {
+  _id: string;
+  name: string;
+  url: string;
+  emoji: string;
+  genre: string;
+  lang: "fr" | "es" | "en";
+  addedBy: string;
+  addedAt: Date;
+}
+
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 export let usersCol: Collection<UserDoc> | null = null;
@@ -133,6 +144,7 @@ export let guildsCol: Collection<GuildDoc> | null = null;
 export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
 export let logoBrandsCol: Collection<LogoBrandMongoDoc> | null = null;
 export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
+export let customStationsCol: Collection<CustomStationDoc> | null = null;
 
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
@@ -161,6 +173,7 @@ export async function connectDb(): Promise<void> {
     logoBrandsCacheCol = db.collection<LogoBrandCacheDoc>("logo_brands_cache");
     logoBrandsCol = db.collection<LogoBrandMongoDoc>("logo_brands");
     artistCacheCol = db.collection<ArtistCacheDoc>("artist_cache");
+    customStationsCol = db.collection<CustomStationDoc>("custom_radio_stations");
     await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");

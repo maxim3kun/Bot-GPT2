@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, loadCustomStations, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -2519,6 +2519,190 @@ export function startBot(): void {
 
           if (sub === "leave" || sub === "stop") {
             await stopRadio(message);
+            break;
+          }
+
+          // ── !radio custom ──────────────────────────────────────────────────
+          if (sub === "custom") {
+            if (customStations.size === 0) {
+              await message.reply(
+                "📭 Aucune station personnalisée pour le moment.\n" +
+                "Les admins peuvent en ajouter avec `!radio addurl <Nom> | <URL>`."
+              );
+              break;
+            }
+            const lines = Array.from(customStations.entries())
+              .map(([k, s]) => `${s.emoji} \`${k}\` — **${s.name}** · *${s.genre}*`)
+              .join("\n");
+            const customEmbed = new EmbedBuilder()
+              .setTitle("📻 Stations personnalisées")
+              .setColor(0xf39c12)
+              .setDescription(lines)
+              .setFooter({ text: "!radio <clé> pour jouer · !radio remove <clé> pour supprimer (admin)" });
+            await message.reply({ embeds: [customEmbed] });
+            break;
+          }
+
+          // ── !radio remove <clé> ───────────────────────────────────────────
+          if (sub === "remove") {
+            const isAdminRemove = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+              || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+            if (!isAdminRemove) {
+              await message.reply("❌ Cette commande est réservée aux membres avec la permission **Gérer le serveur**.");
+              break;
+            }
+            const removeKey = args[1]?.toLowerCase();
+            if (!removeKey) {
+              await message.reply("❌ Format : `!radio remove <clé>`\nExemple : `!radio remove kbs2fm`");
+              break;
+            }
+            if (removeKey in RADIO_STATIONS) {
+              await message.reply("❌ Impossible de supprimer une station intégrée — seulement les stations ajoutées via `!radio addurl`.");
+              break;
+            }
+            const wasRemoved = await removeCustomRadio(removeKey);
+            if (wasRemoved) {
+              await message.reply(`✅ Station \`${removeKey}\` supprimée de la liste personnalisée.`);
+            } else {
+              await message.reply(`❌ Station \`${removeKey}\` introuvable dans les stations personnalisées. Vérifie avec \`!radio custom\`.`);
+            }
+            break;
+          }
+
+          // ── !radio addurl <Nom> | <URL> ───────────────────────────────────
+          if (sub === "addurl") {
+            const isAdminAdd = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+              || message.member?.permissions.has(PermissionFlagsBits.Administrator);
+            if (!isAdminAdd) {
+              await message.reply(
+                "❌ Cette commande est réservée aux membres avec la permission **Gérer le serveur**.\n" +
+                "Elle permet d'ajouter une radio personnalisée à `!radio`."
+              );
+              break;
+            }
+
+            // Parse: !radio addurl Nom Station | https://url
+            const fullArg = args.slice(1).join(" ");
+            const pipeIdx = fullArg.indexOf("|");
+            let customName: string;
+            let customUrl: string;
+
+            if (pipeIdx > 0) {
+              customName = fullArg.slice(0, pipeIdx).trim();
+              customUrl  = fullArg.slice(pipeIdx + 1).trim();
+            } else {
+              // Try to find the URL in the args (starts with http)
+              const urlArg = args.slice(1).find(a => a.startsWith("http"));
+              if (urlArg) {
+                customUrl  = urlArg;
+                customName = args.slice(1).filter(a => a !== urlArg).join(" ").trim() || "Custom Radio";
+              } else {
+                await message.reply(
+                  "❌ Format : `!radio addurl <Nom> | <URL>`\n" +
+                  "Exemple : `!radio addurl KBS World | https://stream.url.com/kbs`\n\n" +
+                  "💡 Pour les radios coréennes : trouve l'URL du stream dans les outils développeur de ton navigateur (onglet Réseau → filtre `audio` ou `media`) et colle-la ici."
+                );
+                break;
+              }
+            }
+
+            if (!customUrl.startsWith("http")) {
+              await message.reply("❌ L'URL doit commencer par `http://` ou `https://`.");
+              break;
+            }
+            if (!customName) {
+              await message.reply("❌ Le nom de la station ne peut pas être vide.");
+              break;
+            }
+
+            // Generate a slug key from the name
+            const customKey = customName.toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]/g, "")
+              .slice(0, 20);
+            if (!customKey) {
+              await message.reply("❌ Le nom ne contient aucun caractère valide. Utilise des lettres ou chiffres.");
+              break;
+            }
+
+            // Check for key conflict
+            if (customKey in RADIO_STATIONS || customStations.has(customKey)) {
+              await message.reply(
+                `❌ La clé \`${customKey}\` (générée depuis le nom) est déjà utilisée.\n` +
+                `Choisis un nom différent.`
+              );
+              break;
+            }
+
+            const testMsg = await message.reply(`⏳ Test de l'URL…`);
+
+            try {
+              // Quick connectivity test
+              const testRes = await fetch(customUrl, {
+                method: "HEAD",
+                signal: AbortSignal.timeout(8000),
+              }).catch(() =>
+                fetch(customUrl, { signal: AbortSignal.timeout(10000) })
+              );
+
+              if (!testRes.ok && testRes.status !== 0) {
+                await testMsg.edit(
+                  `❌ L'URL a répondu \`HTTP ${testRes.status}\`. Vérifie qu'elle est correcte et accessible.`
+                );
+                break;
+              }
+
+              // Add to in-memory only first (so playRadio can find it)
+              customStations.set(customKey, { name: customName, url: customUrl, emoji: "📻", genre: "Custom", lang: "fr" });
+
+              await testMsg.edit(`✅ URL accessible ! Connexion en cours…`);
+
+              // Play immediately
+              await playRadio(message, customKey);
+
+              // Ask admin whether to save permanently
+              const saveMsg = await message.channel.send(
+                `💾 Veux-tu ajouter **${customName}** (\`!radio ${customKey}\`) **en permanence** à la liste radio ?\n` +
+                `✅ = Oui, sauvegarder pour tout le monde  ·  ❌ = Non, juste cette session`
+              );
+              await saveMsg.react("✅").catch(() => null);
+              await saveMsg.react("❌").catch(() => null);
+
+              const saveCollector = saveMsg.createReactionCollector({
+                filter: (r, u) => ["✅", "❌"].includes(r.emoji.name ?? "") && !u.bot && u.id === message.author.id,
+                time: 120_000,
+                max: 1,
+              });
+
+              saveCollector.on("collect", async (reaction) => {
+                if (reaction.emoji.name === "✅") {
+                  await addCustomRadio(customKey, customName, customUrl, "📻", "Custom", "fr", message.author.id);
+                  await saveMsg.edit(
+                    `✅ **${customName}** sauvegardée ! Disponible pour tous avec \`!radio ${customKey}\`.\n` +
+                    `Voir toutes les stations custom : \`!radio custom\` · Supprimer : \`!radio remove ${customKey}\``
+                  );
+                } else {
+                  // Remove from in-memory (not saved to DB)
+                  customStations.delete(customKey);
+                  await saveMsg.edit(`👍 Station non sauvegardée. Elle était jouée pour cette session uniquement.`);
+                }
+              });
+
+              saveCollector.on("end", (collected, reason) => {
+                if (reason === "time" && collected.size === 0) {
+                  // Auto-save after timeout? No, remove from memory silently.
+                  customStations.delete(customKey);
+                  saveMsg.edit(`⏰ Pas de réponse — station non sauvegardée.`).catch(() => null);
+                }
+              });
+
+            } catch {
+              customStations.delete(customKey);
+              await testMsg.edit(
+                `❌ Impossible de se connecter à l'URL. Vérifie qu'elle est accessible depuis Internet.\n\n` +
+                `💡 **Astuce pour les radios coréennes** : ouvre le site de la radio dans ton navigateur, active les outils développeur (F12) → onglet **Réseau** → filtre **Media** → lance la lecture → copie l'URL du flux audio.`
+              );
+            }
             break;
           }
 

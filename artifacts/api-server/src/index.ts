@@ -15,6 +15,7 @@ import { initVoicePickerChannels } from "./discord/voice-picker-channels.js";
 import { initLikesStore } from "./discord/likes-store.js";
 import { initLogoBrandStore } from "./discord/logo-brand-store.js";
 import { initArtistCache } from "./discord/artist-cache.js";
+import { loadCustomStations } from "./discord/radio.js";
 
 const rawPort = process.env["PORT"];
 
@@ -45,6 +46,7 @@ await Promise.all([
   initLikesStore(),
   initLogoBrandStore(),
   initArtistCache(),
+  loadCustomStations(),
 ]);
 
 // ── HTTP server ───────────────────────────────────────────────────────────────

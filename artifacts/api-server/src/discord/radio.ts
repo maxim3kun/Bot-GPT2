@@ -15,6 +15,72 @@ import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
+import { customStationsCol } from "../lib/db.js";
+
+// ── Custom stations (admin-added, persisted in MongoDB) ───────────────────────
+
+export interface RadioStation {
+  name: string;
+  url: string;
+  emoji: string;
+  genre: string;
+  lang: "fr" | "es" | "en";
+}
+
+export const customStations = new Map<string, RadioStation>();
+
+export async function loadCustomStations(): Promise<void> {
+  if (!customStationsCol) return;
+  try {
+    const docs = await customStationsCol.find({}).toArray();
+    for (const doc of docs) {
+      customStations.set(doc._id, {
+        name: doc.name,
+        url: doc.url,
+        emoji: doc.emoji,
+        genre: doc.genre,
+        lang: doc.lang,
+      });
+    }
+    if (docs.length > 0) logger.info({ count: docs.length }, "Custom radio stations loaded");
+  } catch (err) {
+    logger.error({ err }, "Failed to load custom radio stations");
+  }
+}
+
+export async function addCustomRadio(
+  key: string,
+  name: string,
+  url: string,
+  emoji: string,
+  genre: string,
+  lang: "fr" | "es" | "en",
+  addedBy: string,
+): Promise<void> {
+  customStations.set(key, { name, url, emoji, genre, lang });
+  if (!customStationsCol) return;
+  try {
+    await customStationsCol.replaceOne(
+      { _id: key },
+      { _id: key, name, url, emoji, genre, lang, addedBy, addedAt: new Date() },
+      { upsert: true },
+    );
+  } catch (err) {
+    logger.error({ err, key }, "Failed to save custom station to DB");
+  }
+}
+
+export async function removeCustomRadio(key: string): Promise<boolean> {
+  if (!customStations.has(key)) return false;
+  customStations.delete(key);
+  if (!customStationsCol) return true;
+  try {
+    await customStationsCol.deleteOne({ _id: key });
+  } catch (err) {
+    logger.error({ err, key }, "Failed to delete custom station from DB");
+  }
+  return true;
+}
 
 // ── Activity callback — bot.ts registers this to update client presence ────────
 let _activityCallback: ((title: string | null) => void) | null = null;
@@ -843,22 +909,32 @@ function levenshtein(a: string, b: string): number {
 }
 
 /**
- * Resolve a raw user input to a RADIO_STATIONS key.
- * Returns the key if found, or null.
- * Also returns fuzzy suggestions when not found.
+ * Resolve a raw user input to a station key (built-in or custom).
+ * Returns the key if found, or fuzzy suggestions when not found.
  */
 function resolveStation(input: string): { key: string } | { suggestions: string[] } {
   const norm = normalizeForSearch(input);
   if (!norm) return { suggestions: [] };
 
+  // Exact match — built-in first, then custom
   for (const [key, station] of Object.entries(RADIO_STATIONS)) {
     if (normalizeForSearch(key) === norm || normalizeForSearch(station.name) === norm) {
       return { key };
     }
   }
+  for (const [key, station] of customStations) {
+    if (normalizeForSearch(key) === norm || normalizeForSearch(station.name) === norm) {
+      return { key };
+    }
+  }
 
+  // Fuzzy match across built-in + custom
   const scored: { key: string; score: number }[] = [];
-  for (const [key, station] of Object.entries(RADIO_STATIONS)) {
+  const allStations: [string, { name: string }][] = [
+    ...Object.entries(RADIO_STATIONS),
+    ...Array.from(customStations.entries()),
+  ];
+  for (const [key, station] of allStations) {
     const keyNorm  = normalizeForSearch(key);
     const nameNorm = normalizeForSearch(station.name);
 
@@ -905,7 +981,11 @@ export async function playRadio(message: Message, stationInput: string): Promise
     return;
   }
 
-  const station = RADIO_STATIONS[stationKey]!;
+  const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
+  if (!station) {
+    await message.reply(`❌ Station \`${stationKey}\` introuvable. Voir la liste avec \`!radio list\`.`);
+    return;
+  }
 
   const ready = await ensureVoiceConnection(message, () => playRadio(message, stationInput));
   if (!ready) return;
