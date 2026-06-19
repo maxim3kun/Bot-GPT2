@@ -261,7 +261,14 @@ export function cleanYouTubeTitle(title: string): string {
     .trim();
 }
 
+const _searchCache = new Map<string, { results: YtSearchResult[]; expiresAt: number }>();
+const SEARCH_CACHE_TTL_MS = 3 * 60 * 1000;
+
 export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchResult[]> {
+  const cacheKey = `${count}:${query}`;
+  const cached = _searchCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.results;
+
   const { stdout } = await execFileAsync(
     YT_DLP_BIN,
     [
@@ -274,7 +281,7 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
     { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 },
   );
   const lines = stdout.trim().split("\n").filter(Boolean);
-  return lines.map((line) => {
+  const results = lines.map((line) => {
     const parts = line.split("\t");
     const id = parts[0] ?? "";
     const title = parts[1] ?? "Unknown";
@@ -289,4 +296,6 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
       isLive,
     };
   });
+  _searchCache.set(cacheKey, { results, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
+  return results;
 }
