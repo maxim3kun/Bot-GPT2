@@ -1176,10 +1176,53 @@ async function execPlayYoutube(
 
   const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
   state.player.play(resource);
-  state.player.once(AudioPlayerStatus.Playing, async () => {
+
+  let started = false;
+
+  const cleanup = () => {
+    clearTimeout(bufferTimeout);
+    state.player.off(AudioPlayerStatus.Playing, onPlaying);
+    state.player.off(AudioPlayerStatus.Idle, onIdleBeforePlaying);
+    state.player.off("error", onError);
+  };
+
+  const onPlaying = async () => {
+    if (started) return;
+    started = true;
+    cleanup();
     const { title, duration, thumbnail } = await infoPromise;
     await postNowPlaying(title, duration, thumbnail);
-  });
+  };
+
+  // Player went Idle before ever playing → stream produced no audio (yt-dlp failed silently)
+  const onIdleBeforePlaying = async () => {
+    if (started) return;
+    started = true;
+    cleanup();
+    clearInterval(loadInterval);
+    logger.warn({ url }, "YouTube stream went idle before playing — likely bot-check or unavailable video");
+    state.nowPlayingMsg = null;
+    await waitMsg.edit({ content: "❌ Impossible de lire cette vidéo. YouTube bloque peut-être le bot (cookies requis) ou la vidéo est indisponible.", components: [] }).catch(() => null);
+    if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
+    else startIdleTimer(guildId);
+  };
+
+  // Hard timeout — if still buffering after 35s, give up
+  const bufferTimeout = setTimeout(async () => {
+    if (started) return;
+    started = true;
+    cleanup();
+    state.player.stop();
+    clearInterval(loadInterval);
+    logger.warn({ url }, "YouTube stream timed out after 35s in buffering state");
+    state.nowPlayingMsg = null;
+    await waitMsg.edit({ content: "❌ Délai dépassé — YouTube bloque peut-être les requêtes depuis ce serveur. Vérifie les cookies (`YT_COOKIES`).", components: [] }).catch(() => null);
+    if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
+    else startIdleTimer(guildId);
+  }, 35_000);
+
+  state.player.once(AudioPlayerStatus.Playing, onPlaying);
+  state.player.once(AudioPlayerStatus.Idle, onIdleBeforePlaying);
   state.player.once("error", onError);
 }
 

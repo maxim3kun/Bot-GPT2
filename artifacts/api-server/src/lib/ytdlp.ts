@@ -56,19 +56,38 @@ function initCookies(): void {
     }
 
     // Normalise Windows line endings
-    const normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    let normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-    writeFileSync(COOKIES_PATH, normalised, { encoding: "utf8", mode: 0o600 });
-    _cookiesReady = true;
+    // ── Detect collapsed single-line format ──────────────────────────────────
+    // When a multi-line cookies.txt is pasted into some secret stores (e.g. Replit UI),
+    // newlines can be stripped, turning each cookie line into a space-separated blob.
+    // Heuristic: if there are no newlines but we can see tab-separated token groups,
+    // try to split on the domain prefix ".youtube.com" or ".google.com" to recover lines.
+    const newlineCount = (normalised.match(/\n/g) ?? []).length;
+    if (newlineCount === 0 && normalised.includes("\t")) {
+      // Re-insert newlines before each domain token
+      normalised = normalised
+        .replace(/\s+(\.[\w.-]+\s+(?:TRUE|FALSE)\s+)/g, "\n$1")
+        .trim();
+      logger.info("yt-dlp: cookies — detected collapsed single-line format, reconstructed newlines");
+    }
+
     const lines = normalised.split("\n").filter(l => l.trim() && !l.startsWith("#"));
     const lineCount = lines.length;
+
+    writeFileSync(COOKIES_PATH, normalised, { encoding: "utf8", mode: 0o600 });
+
     if (lineCount === 0) {
       logger.warn(
+        { rawLength: content.length },
         "yt-dlp: YT_COOKIES written but contains 0 cookie entries — " +
-        "make sure you paste the FULL content of the cookies.txt file, not just its filename or header. " +
-        "Each cookie is a tab-separated line like: .youtube.com\\tTRUE\\t/\\tTRUE\\t...",
+        "the secret likely lost its newlines when pasted. " +
+        "Fix: run  base64 cookies.txt  in a terminal, then paste the resulting single-line string as the secret.",
       );
+      // Still mark ready — yt-dlp will try with the file and report its own error
+      _cookiesReady = true;
     } else {
+      _cookiesReady = true;
       logger.info(
         { cookieEntries: lineCount },
         "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active",
