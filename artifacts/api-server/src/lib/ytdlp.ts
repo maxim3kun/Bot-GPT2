@@ -59,17 +59,49 @@ function initCookies(): void {
     let normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
     // ── Detect collapsed single-line format ──────────────────────────────────
-    // When a multi-line cookies.txt is pasted into some secret stores (e.g. Replit UI),
-    // newlines can be stripped, turning each cookie line into a space-separated blob.
-    // Heuristic: if there are no newlines but we can see tab-separated token groups,
-    // try to split on the domain prefix ".youtube.com" or ".google.com" to recover lines.
+    // Some secret stores (e.g. Replit) strip newlines and/or tabs when a
+    // multi-line cookies.txt is pasted. We try to recover:
+    //   1. Newlines stripped but tabs preserved → split on domain tokens
+    //   2. Both newlines AND tabs stripped → split on domain tokens (space-sep),
+    //      then re-insert tabs inside each reconstructed line
     const newlineCount = (normalised.match(/\n/g) ?? []).length;
-    if (newlineCount === 0 && normalised.includes("\t")) {
-      // Re-insert newlines before each domain token
+    const hasTabSep    = normalised.includes("\t");
+
+    if (newlineCount === 0) {
+      // Re-insert newlines before each domain token (handles both tab and space sep)
       normalised = normalised
-        .replace(/\s+(\.[\w.-]+\s+(?:TRUE|FALSE)\s+)/g, "\n$1")
+        .replace(/[\t ]+(\.[\w.-]+[\t ](?:TRUE|FALSE)[\t ])/g, "\n$1")
         .trim();
       logger.info("yt-dlp: cookies — detected collapsed single-line format, reconstructed newlines");
+    }
+
+    // ── Detect tab-stripped lines ─────────────────────────────────────────────
+    // Replit secret store preserves newlines reconstructed above but may strip
+    // tabs within each line, leaving fields concatenated:
+    //   ".youtube.comTRUE/FALSE0PREFvalue" → needs tabs re-inserted
+    if (!hasTabSep) {
+      const tabRestored = normalised
+        .split("\n")
+        .map(line => {
+          if (line.startsWith("#") || !line.trim()) return line;
+          // Already has tabs — leave as-is
+          if (line.includes("\t")) return line;
+          // Netscape format: domain TRUE/FALSE path TRUE/FALSE expiry name [value]
+          // Try to re-insert tabs. Path always starts with "/" and ends before the
+          // second TRUE/FALSE token; expiry is a run of digits after path+secure.
+          const m = line.match(
+            /^(\S+?)(TRUE|FALSE)(\/[^A-Z0-9]*?)(TRUE|FALSE)(\d{1,15})([^\s=]+)(.*)?$/
+          );
+          if (m) {
+            return [m[1], m[2], m[3] || "/", m[4], m[5], m[6], m[7] ?? ""].join("\t");
+          }
+          return line; // couldn't parse — leave unchanged
+        })
+        .join("\n");
+      if (tabRestored !== normalised) {
+        normalised = tabRestored;
+        logger.info("yt-dlp: cookies — re-inserted tabs stripped by secret store");
+      }
     }
 
     const lines = normalised.split("\n").filter(l => l.trim() && !l.startsWith("#"));
@@ -105,18 +137,21 @@ function cookieArgs(): string[] {
 }
 
 // ── Client rotation ────────────────────────────────────────────────────────────
-// YouTube blocks clients from datacenter IPs periodically. We keep a list and
-// auto-rotate when one gets blocked, so the bot heals itself without restarts.
+// YouTube blocks most player clients from datacenter IPs. Only `android` with
+// `formats=missing_pot` reliably streams audio from Replit/Railway IPs (as of 2025-06).
+// `formats=missing_pot` tells yt-dlp to use non-HTTPS formats that don't require
+// a GVS PO Token, which is needed for HTTPS delivery on the android client.
+// Re-test with: yt-dlp --extractor-args="youtube:player_client=<CLIENT>,formats=missing_pot"
+//               -f "bestaudio/best" --quiet -o - <URL> 2>/dev/null | wc -c
 const YT_CLIENTS = [
-  "ios",          // ios — confirmed working, good format availability
-  "mweb",         // mobile web fallback
-  "web",          // generic web fallback
-  "android_vr",   // limited formats but worth a try
+  "android",    // primary — streams fine with formats=missing_pot
+  "mweb",       // fallback 1
+  "web",        // fallback 2
 ];
 let _clientIdx = 0;
 
 function clientArgs(): string {
-  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]}`;
+  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]},formats=missing_pot`;
 }
 
 /** Called when current client is confirmed blocked — moves to the next one. */
