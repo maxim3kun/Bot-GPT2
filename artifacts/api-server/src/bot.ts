@@ -766,7 +766,7 @@ export function startBot(): void {
       const diff = interaction.customId.replace("logo_again_", "") as "easy" | "medium" | "hard";
       if (!["easy", "medium", "hard"].includes(diff)) return;
       if (!interaction.channel) {
-        await interaction.reply({ content: "❌ Canal introuvable.", ephemeral: true });
+        await interaction.reply({ content: "❌ Channel not found.", ephemeral: true });
         return;
       }
       await interaction.reply({ content: `🔄 New **${diff === "easy" ? "🟢 Easy" : diff === "medium" ? "🟡 Medium" : "🔴 Hard"}** game started!`, ephemeral: true });
@@ -1531,7 +1531,7 @@ export function startBot(): void {
         // ── Status (owner only) ──────────────────────────────────────────────────
         case "status": {
           if (message.author.username.toLowerCase() !== "maxim3kun") {
-            await message.reply("🔒 Commande réservée.");
+            await message.reply("🔒 Owner-only command.");
             break;
           }
           const mongoOk  = isMongoConnected();
@@ -1606,11 +1606,11 @@ export function startBot(): void {
         case "yt-test":
         case "yttest": {
           if (message.author.username.toLowerCase() !== "maxim3kun") {
-            await message.reply("🔒 Commande réservée.");
+            await message.reply("🔒 Owner-only command.");
             break;
           }
 
-          const statusMsg = await message.reply("🔍 Test YouTube en cours…");
+          const statusMsg = await message.reply("🔍 Testing YouTube…");
 
           // 1. Cookie file status
           const ytCookiesRaw = process.env["YT_COOKIES"] ?? "";
@@ -1880,23 +1880,23 @@ export function startBot(): void {
             const isAdminRemove = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
               || message.member?.permissions.has(PermissionFlagsBits.Administrator);
             if (!isAdminRemove) {
-              await message.reply("❌ Cette commande est réservée aux membres avec la permission **Gérer le serveur**.");
+              await message.reply("❌ This command requires the **Manage Server** permission.");
               break;
             }
             const removeKey = args[1]?.toLowerCase();
             if (!removeKey) {
-              await message.reply("❌ Format : `!radio remove <clé>`\nExemple : `!radio remove kbs2fm`");
+              await message.reply("❌ Format: `!radio remove <key>`\nExample: `!radio remove kbs2fm`");
               break;
             }
             if (removeKey in RADIO_STATIONS) {
-              await message.reply("❌ Impossible de supprimer une station intégrée — seulement les stations ajoutées via `!radio addurl`.");
+              await message.reply("❌ Cannot remove a built-in station — only stations added via `!radio addurl` can be removed.");
               break;
             }
             const wasRemoved = await removeCustomRadio(removeKey);
             if (wasRemoved) {
-              await message.reply(`✅ Station \`${removeKey}\` supprimée de la liste personnalisée.`);
+              await message.reply(`✅ Station \`${removeKey}\` removed from custom stations.`);
             } else {
-              await message.reply(`❌ Station \`${removeKey}\` introuvable dans les stations personnalisées. Vérifie avec \`!radio custom\`.`);
+              await message.reply(`❌ Station \`${removeKey}\` not found in custom stations. Check with \`!radio custom\`.`);
             }
             break;
           }
@@ -1907,8 +1907,8 @@ export function startBot(): void {
               || message.member?.permissions.has(PermissionFlagsBits.Administrator);
             if (!isAdminAdd) {
               await message.reply(
-                "❌ Cette commande est réservée aux membres avec la permission **Gérer le serveur**.\n" +
-                "Elle permet d'ajouter une radio personnalisée à `!radio`."
+                "❌ This command requires the **Manage Server** permission.\n" +
+                "It allows you to add a custom radio station to `!radio`."
               );
               break;
             }
@@ -1930,9 +1930,9 @@ export function startBot(): void {
                 customName = args.slice(1).filter(a => a !== urlArg).join(" ").trim() || "Custom Radio";
               } else {
                 await message.reply(
-                  "❌ Format : `!radio addurl <Nom> | <URL>`\n" +
-                  "Exemple : `!radio addurl KBS World | https://stream.url.com/kbs`\n\n" +
-                  "💡 Pour les radios coréennes : trouve l'URL du stream dans les outils développeur de ton navigateur (onglet Réseau → filtre `audio` ou `media`) et colle-la ici."
+                  "❌ Format: `!radio addurl <Name> | <URL>`\n" +
+                  "Example: `!radio addurl KBS World | https://stream.url.com/kbs`\n\n" +
+                  "💡 For Korean radios: find the stream URL in your browser developer tools (Network tab → filter by `audio` or `media`) and paste it here."
                 );
                 break;
               }
@@ -1979,7 +1979,7 @@ export function startBot(): void {
 
               if (!testRes.ok && testRes.status !== 0) {
                 await testMsg.edit(
-                  `❌ L'URL a répondu \`HTTP ${testRes.status}\`. Vérifie qu'elle est correcte et accessible.`
+                  `❌ The URL responded with \`HTTP ${testRes.status}\`. Make sure it is correct and accessible.`
                 );
                 break;
               }
@@ -1987,7 +1987,7 @@ export function startBot(): void {
               // Add to in-memory only first (so playRadio can find it)
               customStations.set(customKey, { name: customName, url: customUrl, emoji: "📻", genre: "Custom", lang: "fr" });
 
-              await testMsg.edit(`✅ URL accessible ! Connexion en cours…`);
+              await testMsg.edit(`✅ URL reachable! Connecting…`);
 
               // Play immediately
               await playRadio(message, customKey);
@@ -2031,8 +2031,8 @@ export function startBot(): void {
             } catch {
               customStations.delete(customKey);
               await testMsg.edit(
-                `❌ Impossible de se connecter à l'URL. Vérifie qu'elle est accessible depuis Internet.\n\n` +
-                `💡 **Astuce pour les radios coréennes** : ouvre le site de la radio dans ton navigateur, active les outils développeur (F12) → onglet **Réseau** → filtre **Media** → lance la lecture → copie l'URL du flux audio.`
+                `❌ Could not connect to the URL. Make sure it is accessible from the Internet.\n\n` +
+                `💡 **Tip for Korean radios**: open the radio site in your browser, open developer tools (F12) → **Network** tab → filter by **Media** → start playback → copy the audio stream URL.`
               );
             }
             break;
@@ -2599,7 +2599,7 @@ export function startBot(): void {
             const current = chId ? `<#${chId}>` : "*(not configured)*";
             await message.reply(
               `⚙️ **Admin channel:** ${current}\n` +
-              `\`${guildPrefix}admin channel #salon\` — Set the alert channel\n` +
+              `\`${guildPrefix}admin channel #channel\` — Set the alert channel\n` +
               `\`${guildPrefix}admin channel reset\` — Remove it`
             );
           }
@@ -2779,27 +2779,27 @@ export function startBot(): void {
           // Owner-only guide — !help Maxim3kun
           if (arg0 === "maxim3kun") {
             if (message.author.username.toLowerCase() !== "maxim3kun") {
-              await message.reply("🔒 Commande réservée.");
+              await message.reply("🔒 Owner-only command.");
               break;
             }
             const ownerEmbed = new EmbedBuilder()
-              .setTitle("👑 Commandes Owner — Maxim3kun")
+              .setTitle("👑 Owner Commands — Maxim3kun")
               .setColor(0xf1c40f)
-              .setDescription("Commandes exclusives, visibles uniquement par toi.")
+              .setDescription("Owner-only commands, visible only to you.")
               .addFields(
                 {
-                  name: "🔧 Diagnostic & Statut",
+                  name: "🔧 Diagnostics & Status",
                   value:
-                    `\`${guildPrefix}status\` — Statut complet du bot (RAM, MongoDB, Groq, Suno…)\n` +
-                    `\`${guildPrefix}yt-test\` — Teste les cookies YouTube & yt-dlp en live`,
+                    `\`${guildPrefix}status\` — Full bot status (RAM, MongoDB, Groq, Suno…)\n` +
+                    `\`${guildPrefix}yt-test\` — Test YouTube cookies & yt-dlp live`,
                   inline: false,
                 },
                 {
-                  name: "🛡️ Modération",
+                  name: "🛡️ Moderation",
                   value:
-                    `\`${guildPrefix}unblock @user\` — Débloque un utilisateur\n` +
-                    `\`${guildPrefix}banlist\` — Liste des utilisateurs bloqués\n` +
-                    `\`${guildPrefix}admin channel #salon\` — Définit le salon de notifs admin`,
+                    `\`${guildPrefix}unblock @user\` — Unblock a user\n` +
+                    `\`${guildPrefix}banlist\` — List blocked users\n` +
+                    `\`${guildPrefix}admin channel #channel\` — Set the admin notification channel`,
                   inline: false,
                 },
                 {
@@ -2854,7 +2854,7 @@ export function startBot(): void {
           const detected = detectTopicAndLang(arg0, arg1 || undefined);
           if (detected) {
             if (detected.topic === "guesslogo" && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
-              await message.reply({ content: "🔒 La page `!help guesslogo` est réservée aux modérateurs (permission **Manage Server** requise).", ephemeral: true } as Parameters<typeof message.reply>[0]);
+              await message.reply({ content: "🔒 The `!help guesslogo` page is restricted to moderators (requires **Manage Server** permission).", ephemeral: true } as Parameters<typeof message.reply>[0]);
               break;
             }
             await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
@@ -3062,7 +3062,7 @@ export function startBot(): void {
                 break;
               }
               case "music":
-                await message.reply(`🎵 Usage: \`${guildPrefix}music generator <description>\`\nExemple : \`${guildPrefix}music generator lo-fi chill beats\``);
+                await message.reply(`🎵 Usage: \`${guildPrefix}music generator <description>\`\nExample: \`${guildPrefix}music generator lo-fi chill beats\``);
                 break;
               case "credits": {
                 const credEmbed = new EmbedBuilder()

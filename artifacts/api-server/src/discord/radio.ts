@@ -1005,7 +1005,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
   if (!station) {
-    await message.reply(`❌ Station \`${stationKey}\` introuvable. Voir la liste avec \`!radio list\`.`);
+    await message.reply(`❌ Station \`${stationKey}\` not found. See the list with \`!radio list\`.`);
     return;
   }
 
@@ -1208,7 +1208,7 @@ async function execPlayYoutube(
     clearInterval(loadInterval);
     logger.warn({ url }, "YouTube stream went idle before playing — likely bot-check or unavailable video");
     state.nowPlayingMsg = null;
-    await waitMsg.edit({ content: "❌ Impossible de lire cette vidéo. YouTube bloque peut-être le bot (cookies requis) ou la vidéo est indisponible.", components: [] }).catch(() => null);
+    await waitMsg.edit({ content: "❌ Could not play this video. YouTube may be blocking the bot (cookies required) or the video is unavailable.", components: [] }).catch(() => null);
     if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
     else startIdleTimer(guildId);
   };
@@ -1222,7 +1222,7 @@ async function execPlayYoutube(
     clearInterval(loadInterval);
     logger.warn({ url }, "YouTube stream timed out after 35s in buffering state");
     state.nowPlayingMsg = null;
-    await waitMsg.edit({ content: "❌ Délai dépassé — YouTube bloque peut-être les requêtes depuis ce serveur. Vérifie les cookies (`YT_COOKIES`).", components: [] }).catch(() => null);
+    await waitMsg.edit({ content: "❌ Timed out — YouTube may be blocking requests from this server. Check your cookies (`YT_COOKIES`).", components: [] }).catch(() => null);
     if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
     else startIdleTimer(guildId);
   }, 35_000);
