@@ -926,52 +926,103 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
   }
 
   const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+  const userId = message.author.id;
 
   const questList = pending
     .map((q, i) => `${i + 1}. **${q.title}** (${q.difficulty}, ${q.points} XP) — ${q.description}`)
     .join("\n");
 
-  const promptEmbed = new EmbedBuilder()
-    .setTitle("⚔️ Quest Negotiation")
+  // ── Round 1: show quests and open the negotiation ────────────────────────────
+  const introEmbed = new EmbedBuilder()
+    .setTitle("⚔️ Quest Negotiation — Round 1/2")
     .setColor(0xe67e22)
     .setDescription(
       `Here are your active quests:\n\n${questList}\n\n` +
-      "Make your case — what do you want to change and **why**? Be specific.\n" +
-      "⚠️ The AI negotiator is tough. You'll need a real reason, not just 'it's too hard'.\n\n" +
-      "You have **5 minutes** to reply. 📝",
+      "Tell me what you'd like to change and **why**. Be specific — which quest(s), what's the problem?\n" +
+      "*(You have 5 minutes to reply)*",
     );
+  await message.reply({ embeds: [introEmbed] });
 
-  await message.reply({ embeds: [promptEmbed] });
+  const waitFilter = (m: Message) => m.author.id === userId;
 
-  let collected;
+  // Collect first user message
+  let collected1;
   try {
-    collected = await message.channel.awaitMessages({
-      filter: m => m.author.id === message.author.id,
-      max: 1,
-      time: 300_000,
-    });
+    collected1 = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
   } catch {
     await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
     return;
   }
-
-  if (collected.size === 0) {
+  if (collected1.size === 0) {
     await message.channel.send("⏰ No response. Your quests remain unchanged.");
     return;
   }
+  const firstAnswer = collected1.first()!.content;
 
-  const userArgument = collected.first()!.content;
+  // ── Round 2: AI asks a targeted follow-up question ───────────────────────────
+  const thinkingMsg = await message.channel.send("💭 Thinking...");
+
+  const currentQuestsJson = JSON.stringify(pending.map(q => ({
+    id: q.id,
+    title: q.title,
+    description: q.description,
+    difficulty: q.difficulty,
+    points: q.points,
+  })));
+
+  let followUpQuestion = "";
+  try {
+    const followUpRes = await openai.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content:
+            `You are a tough but fair quest negotiator having a real conversation. The user wants to renegotiate their quests.\n` +
+            `Your job in this step is to ask ONE targeted follow-up question to better understand their situation.\n` +
+            `Ask about things like: daily schedule, wake-up time, available free time, specific obstacles, or which quest feels most misaligned and why.\n` +
+            `Be direct and conversational. One question only — no preamble. Respond in ${userLang}.`,
+        },
+        {
+          role: "user",
+          content: `Current quests:\n${currentQuestsJson}\n\nUser says:\n"${firstAnswer}"`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 150,
+    });
+    followUpQuestion = followUpRes.choices[0]?.message?.content?.trim() ?? "";
+  } catch (err) {
+    logger.error({ err }, "Quest negotiation follow-up error");
+  }
+
+  const round2Embed = new EmbedBuilder()
+    .setTitle("⚔️ Quest Negotiation — Round 2/2")
+    .setColor(0xe67e22)
+    .setDescription(
+      (followUpQuestion || "Tell me more — what does your daily schedule look like? What time do you wake up, and how much free time do you realistically have?") +
+      "\n\n*(You have 5 minutes to reply)*",
+    );
+  await thinkingMsg.edit({ content: "", embeds: [round2Embed] });
+
+  // Collect second user message
+  let collected2;
+  try {
+    collected2 = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
+  } catch {
+    await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
+    return;
+  }
+  if (collected2.size === 0) {
+    await message.channel.send("⏰ No response. Your quests remain unchanged.");
+    return;
+  }
+  const secondAnswer = collected2.first()!.content;
+
+  // ── Final verdict ─────────────────────────────────────────────────────────────
   const waitMsg = await message.channel.send("⚖️ Evaluating your case...");
 
   try {
-    const currentQuestsJson = JSON.stringify(pending.map(q => ({
-      id: q.id,
-      title: q.title,
-      description: q.description,
-      difficulty: q.difficulty,
-      points: q.points,
-    })));
-
     const response = await openai.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
@@ -979,23 +1030,27 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
           role: "system",
           content:
             "You are a tough but fair quest negotiator. Your goal is to maintain challenge — NOT to make life easier for the user.\n" +
+            "You have now heard two rounds of explanation from the user. Make your final decision.\n" +
             "Rules:\n" +
-            "- If the user's argument is weak, vague, or just 'it's too hard' → REJECT the negotiation. Explain why briefly.\n" +
-            "- Only accept renegotiation if the user provides a SPECIFIC, LEGITIMATE reason (injury, life event, wrong scope, genuinely impossible constraint).\n" +
-            "- When you accept, you may ADJUST quests — but keep them genuinely challenging. You can change wording, scope, or split a quest, but NEVER reduce XP points or make it trivially easy.\n" +
+            "- If the user's argument is weak, vague, or just 'it's too hard' → REJECT the negotiation.\n" +
+            "- Only accept renegotiation if there is a SPECIFIC, LEGITIMATE reason (injury, life event, wrong scope, impossible schedule constraint).\n" +
+            "- When you accept, ADJUST quests — keep them genuinely challenging. You can change wording, scope, timing, or split a quest, but NEVER reduce XP or make it trivially easy.\n" +
             "- You may accept some changes and reject others.\n" +
             "- Respond in JSON format ONLY:\n" +
-            '{"verdict":"accept"|"partial"|"reject","message":"<short explanation, 2-3 sentences, direct>","updatedQuests":[{"id":<number>,"title":"<string>","description":"<string>","difficulty":"easy|medium|hard","points":<number>}]}\n' +
-            "If verdict is reject, updatedQuests must be an empty array [].\n" +
+            '{"verdict":"accept"|"partial"|"reject","message":"<explanation, 2-4 sentences, direct>","updatedQuests":[{"id":<number>,"title":"<string>","description":"<string>","difficulty":"easy|medium|hard","points":<number>}]}\n' +
+            "If verdict is reject, updatedQuests must be [].\n" +
             `Respond in ${userLang}.`,
         },
         {
           role: "user",
-          content: `Current quests:\n${currentQuestsJson}\n\nUser's negotiation argument:\n"${userArgument}"`,
+          content:
+            `Current quests:\n${currentQuestsJson}\n\n` +
+            `Round 1 — User says:\n"${firstAnswer}"\n\n` +
+            `Round 2 — User says:\n"${secondAnswer}"`,
         },
       ],
       temperature: 0.7,
-      max_tokens: 600,
+      max_tokens: 700,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
@@ -1012,7 +1067,7 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       const embed = new EmbedBuilder()
         .setColor(0xe74c3c)
         .setTitle("⚔️ Negotiation Rejected")
-        .setDescription(`**${result.message}**\n\nYour quests remain unchanged. Try again with a better argument.`);
+        .setDescription(`**${result.message}**\n\nYour quests remain unchanged.`);
       await waitMsg.edit({ content: "", embeds: [embed] });
       return;
     }

@@ -28,7 +28,18 @@ export function setChannelNameCallback(cb: (guildId: string, title: string | nul
   _channelNameCallback = cb;
 }
 
-import { isKnownArtist } from "./artist-cache.js";
+import { isKnownArtist, saveArtist } from "./artist-cache.js";
+
+/** Extract artist name from "Artist - Song Title" format and save to cache. */
+function maybeSaveArtistFromTitle(title: string): void {
+  const dashIdx = title.indexOf(" - ");
+  if (dashIdx > 0) {
+    const artist = title.slice(0, dashIdx).trim();
+    if (artist.length >= 2 && artist.length <= 50) {
+      saveArtist(artist).catch(() => null);
+    }
+  }
+}
 
 // ── Fast YouTube search via play-dl (in-process, no subprocess overhead) ─────
 
@@ -224,13 +235,14 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
   ouifm:       { name: "OÜI FM",         url: "https://ouifm.ice.infomaniak.ch/ouifm-high.mp3",                    emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",              emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
-  rtl2:        { name: "RTL 2",          url: "https://streaming.rtl2.fr/rtl2-1-44-128",                           emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
+  rtl2:        { name: "RTL 2",          url: "https://icecast.rtl.fr/rtl2-1-44-128",                              emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
+  sanef:       { name: "Sanef 107.7",    url: "https://sanef1077.ice.infomaniak.ch/sanef1077-128.mp3",             emoji: "🛣️", genre: "Info / Trafic autoroute",  lang: "fr" },
   // 🇪🇸 Spanish
-  los40:       { name: "Los 40",         url: "https://20983.live.streamtheworld.com/LOS40_SC.mp3",                            emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://streaming.cope.es/cope/cadena100/directo.mp3",                         emoji: "💃", genre: "Pop / Dance",             lang: "es" },
-  m80:         { name: "M80 Radio",      url: "https://20983.live.streamtheworld.com/M80RADIO_SC.mp3",                         emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
-  dial:        { name: "Cadena Dial",    url: "https://20983.live.streamtheworld.com/CADENADIAL_SC.mp3",                       emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
+  los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC.mp3",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC.mp3",   emoji: "💃", genre: "Pop / Dance",             lang: "es" },
+  m80:         { name: "M80 Radio",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/M80RADIO_SC.mp3",    emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
+  dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC.mp3",  emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
   rock_es:     { name: "Rock FM",        url: "http://flucast31-h-cloud.flumotion.com/cope/rockfm-low.mp3",                    emoji: "🤘", genre: "Rock",                    lang: "es" },
   cope:        { name: "COPE",           url: "http://flucast28-h-cloud.flumotion.com/cope/net1.mp3",                          emoji: "📢", genre: "News / Talk",             lang: "es" },
   // 🇬🇧 English
@@ -507,6 +519,7 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     state.youtubeStartTime = Date.now();
     state.paused = false;
     state.player.play(resource);
+    maybeSaveArtistFromTitle(cleanTitle);
     _activityCallback?.(cleanTitle);
     _channelNameCallback?.(guildId, cleanTitle);
 
@@ -1039,6 +1052,7 @@ async function execPlayYoutube(
     const cleanTitle = cleanYouTubeTitle(title);
     const s = radioStates.get(guildId);
     if (s) { s.youtubeTitle = cleanTitle; s.youtubeStartTime = Date.now(); }
+    maybeSaveArtistFromTitle(cleanTitle);
     _activityCallback?.(cleanTitle);
     _channelNameCallback?.(guildId, cleanTitle);
     const mins = Math.floor(duration / 60);
@@ -1129,8 +1143,11 @@ export async function playYoutube(
       await waitMsg.edit({ content: "", embeds: [embed] });
       // Store message for auto-deletion when this song starts playing
       if (qMsgIdx < state.queueMessages.length) state.queueMessages[qMsgIdx] = waitMsg;
+      // Also auto-delete after 10 s so it doesn't clutter the channel
+      setTimeout(() => waitMsg.delete().catch(() => null), 10_000);
     } catch {
       await waitMsg.edit(`Added to queue at position #${pos}.`);
+      setTimeout(() => waitMsg.delete().catch(() => null), 8_000);
     }
     return;
   }
