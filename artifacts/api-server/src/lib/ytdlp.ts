@@ -139,9 +139,15 @@ function cookieArgs(): string[] {
 // ── Client rotation ────────────────────────────────────────────────────────────
 // YouTube blocks most player clients from datacenter IPs. Only `android` with
 // `formats=missing_pot` reliably streams audio from Replit/Railway IPs (as of 2025-06).
-// `formats=missing_pot` tells yt-dlp to use non-HTTPS formats that don't require
-// a GVS PO Token, which is needed for HTTPS delivery on the android client.
-// Re-test with: yt-dlp --extractor-args="youtube:player_client=<CLIENT>,formats=missing_pot"
+// `formats=missing_pot` tells yt-dlp to skip the GVS PO Token check on android client.
+//
+// SYNTAX NOTE: yt-dlp extractor args use SEMICOLONS to separate multiple args for
+// the same extractor. Commas are used to specify multiple client names (not what we want).
+//   CORRECT:  youtube:player_client=android;formats=missing_pot
+//   WRONG:    youtube:player_client=android,formats=missing_pot  ← treats "formats=missing_pot"
+//                                                                    as a second client name
+//
+// Re-test with: yt-dlp --extractor-args="youtube:player_client=android;formats=missing_pot"
 //               -f "bestaudio/best" --quiet -o - <URL> 2>/dev/null | wc -c
 const YT_CLIENTS = [
   "android",    // primary — streams fine with formats=missing_pot
@@ -151,7 +157,7 @@ const YT_CLIENTS = [
 let _clientIdx = 0;
 
 function clientArgs(): string {
-  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]},formats=missing_pot`;
+  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]};formats=missing_pot`;
 }
 
 /** Called when current client is confirmed blocked — moves to the next one. */
