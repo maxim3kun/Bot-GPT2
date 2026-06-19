@@ -89,8 +89,8 @@ function rotateClient(fromIdx: number): void {
   );
 }
 
-// Matches client-level block (format unsupported) → rotating client may help
-const CLIENT_BLOCKED_RE = /no longer supported|po_token required/i;
+// Matches client-level block (format unsupported or 403 on segment) → rotating client may help
+const CLIENT_BLOCKED_RE = /no longer supported|po_token required|HTTP Error 403/i;
 // Matches IP-level bot-check → rotating client WON'T help, cookies are needed
 const SIGNIN_RE = /Sign in to confirm|bot.*check|cookies.*required/i;
 

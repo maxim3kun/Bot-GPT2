@@ -1145,6 +1145,9 @@ export async function playYoutube(
   }
 
   // ── Play immediately ───────────────────────────────────────────────────────
+  // Reserve the title slot NOW — before any await — so concurrent !y calls queue instead of cutting.
+  state.youtubeTitle = "Loading…";
+  state.youtubeUrl = url;
   // Pre-warm yt-dlp before the Discord message round-trip (~200ms saved)
   preloadStream(url);
   const waitMsg = await message.reply("🎬 Loading…");

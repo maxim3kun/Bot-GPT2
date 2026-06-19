@@ -3315,6 +3315,12 @@ export function startBot(): void {
             break;
           }
 
+          // Unknown command + args → treat as a YouTube music search (e.g. !Gims ninao)
+          if (command && args.length > 0) {
+            await searchAndQueue(message, `${command} ${args.join(" ")}`);
+            break;
+          }
+
           // Fuzzy command suggestion (with opt-in preference per user)
           if (!command) break;
 
