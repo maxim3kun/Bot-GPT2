@@ -249,6 +249,7 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   rire:        { name: "Rire & Chansons",url: "https://icecast.rtl.fr/rire-1-44-128",                              emoji: "😂", genre: "Humour / Chansons",         lang: "fr" },
   beur:        { name: "Beur FM",        url: "https://icecast.rtl.fr/beur-1-44-128",                              emoji: "🌙", genre: "Musique Arabe / Oriental",  lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
+  sanef:       { name: "Sanef 107.7",    url: "https://sanef.ice.infomaniak.ch/sanef1077-nord.mp3",                 emoji: "🛣️", genre: "Info Trafic / Musique",     lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC.mp3",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
   cadena100:   { name: "Cadena 100",     url: "https://streaming.cope.es/cope/cadena100/directo.mp3",              emoji: "💃", genre: "Pop / Dance",             lang: "es" },
