@@ -146,8 +146,13 @@ async function fetchStream(url: string, hops = 0, extraHeaders: Record<string, s
         const cookieStr = setCookies ? setCookies.map(c => c.split(";")[0]!).join("; ") : "";
         const nextExtra = cookieStr ? { ...extraHeaders, Cookie: cookieStr } : extraHeaders;
         res.resume();
-        fetchStream(loc.startsWith("http") ? loc : new URL(loc, url).toString(), hops + 1, nextExtra)
-          .then(resolve).catch(reject);
+        // Streamtheworld CDN URLs without a file extension serve ICY/Shoutcast protocol
+        // which Node.js http cannot parse. Append .mp3 to force proper HTTP response.
+        let nextUrl = loc.startsWith("http") ? loc : new URL(loc, url).toString();
+        if (nextUrl.includes("live.streamtheworld.com") && !/\.(mp3|aac|ogg|m4a|m3u8|pls)$/i.test(nextUrl)) {
+          nextUrl = nextUrl + ".mp3";
+        }
+        fetchStream(nextUrl, hops + 1, nextExtra).then(resolve).catch(reject);
         return;
       }
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
@@ -237,10 +242,9 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",              emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl.fr/rtl2-1-44-128",                              emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
-  sanef:       { name: "Sanef 107.7",    url: "https://sanef1077.ice.infomaniak.ch/sanef1077-128.mp3",             emoji: "🛣️", genre: "Info / Trafic autoroute",  lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC.mp3",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
-  cadena100:   { name: "Cadena 100",     url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENA100_SC.mp3",   emoji: "💃", genre: "Pop / Dance",             lang: "es" },
+  cadena100:   { name: "Cadena 100",     url: "https://streaming.cope.es/cope/cadena100/directo.mp3",              emoji: "💃", genre: "Pop / Dance",             lang: "es" },
   m80:         { name: "M80 Radio",      url: "https://playerservices.streamtheworld.com/api/livestream-redirect/M80RADIO_SC.mp3",    emoji: "🌟", genre: "Pop / Hits 80s-90s",      lang: "es" },
   dial:        { name: "Cadena Dial",    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/CADENADIAL_SC.mp3",  emoji: "🎶", genre: "Spanish Pop / Romántica", lang: "es" },
   rock_es:     { name: "Rock FM",        url: "http://flucast31-h-cloud.flumotion.com/cope/rockfm-low.mp3",                    emoji: "🤘", genre: "Rock",                    lang: "es" },

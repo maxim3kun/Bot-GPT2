@@ -68,10 +68,10 @@ function cookieArgs(): string[] {
 // YouTube blocks clients from datacenter IPs periodically. We keep a list and
 // auto-rotate when one gets blocked, so the bot heals itself without restarts.
 const YT_CLIENTS = [
-  "android_vr",   // works as of 2025-06 from Replit IPs — confirmed working
+  "ios",          // ios — confirmed working, good format availability
   "mweb",         // mobile web fallback
   "web",          // generic web fallback
-  "ios",          // ios — often missing formats but worth a try
+  "android_vr",   // limited formats but worth a try
 ];
 let _clientIdx = 0;
 
@@ -90,7 +90,7 @@ function rotateClient(fromIdx: number): void {
 }
 
 // Matches client-level block (format unsupported or 403 on segment) → rotating client may help
-const CLIENT_BLOCKED_RE = /no longer supported|po_token required|HTTP Error 403/i;
+const CLIENT_BLOCKED_RE = /no longer supported|po_token required|HTTP Error 403|Requested format is not available/i;
 // Matches IP-level bot-check → rotating client WON'T help, cookies are needed
 const SIGNIN_RE = /Sign in to confirm|bot.*check|cookies.*required/i;
 
