@@ -959,7 +959,7 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
   }
   const firstAnswer = collected1.first()!.content;
 
-  // ── Round 2: AI asks a targeted follow-up question ───────────────────────────
+  // ── Conversation loop — AI decides when it has enough info ──────────────────
   const thinkingMsg = await message.channel.send("💭 Thinking...");
 
   const currentQuestsJson = JSON.stringify(pending.map(q => ({
@@ -970,105 +970,118 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
     points: q.points,
   })));
 
-  let followUpQuestion = "";
-  try {
-    const followUpRes = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content:
-            `You are a tough but fair quest negotiator having a real conversation. The user wants to renegotiate their quests.\n` +
-            `Your job in this step is to ask ONE targeted follow-up question to better understand their situation.\n` +
-            `Ask about things like: daily schedule, wake-up time, available free time, specific obstacles, or which quest feels most misaligned and why.\n` +
-            `Be direct and conversational. One question only — no preamble. Respond in ${userLang}.`,
-        },
-        {
-          role: "user",
-          content: `Current quests:\n${currentQuestsJson}\n\nUser says:\n"${firstAnswer}"`,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 150,
-    });
-    followUpQuestion = followUpRes.choices[0]?.message?.content?.trim() ?? "";
-  } catch (err) {
-    logger.error({ err }, "Quest negotiation follow-up error");
-  }
+  const SYSTEM_PROMPT =
+    `You are a tough but fair quest negotiator. Your goal is to maintain challenge — NOT to make life easier for the user.\n` +
+    `You are in an ongoing conversation. After reading the conversation so far, decide ONE of two things:\n` +
+    `1. If you need more information → respond ONLY with JSON: {"action":"followup","question":"<your follow-up question>"}\n` +
+    `2. If you have enough to decide → respond ONLY with JSON: {"action":"verdict","verdict":"accept"|"partial"|"reject","message":"<2-4 sentences, direct>","updatedQuests":[{"id":<number>,"title":"<string>","description":"<string>","difficulty":"easy|medium|hard","points":<number>}]}\n\n` +
+    `Rules for verdict:\n` +
+    `- If the argument is weak, vague, or just "it's too hard" → REJECT\n` +
+    `- Only accept if there is a SPECIFIC, LEGITIMATE reason (injury, life event, wrong scope, impossible schedule constraint)\n` +
+    `- When accepting: ADJUST quests — keep them genuinely challenging, NEVER reduce XP\n` +
+    `- You may accept some and reject others (partial)\n` +
+    `- If verdict is reject, updatedQuests must be []\n` +
+    `JSON only, no other text. Respond in ${userLang}.`;
 
-  const round2Embed = new EmbedBuilder()
-    .setTitle("⚔️ Quest Negotiation — Round 2/2")
-    .setColor(0xe67e22)
-    .setDescription(
-      (followUpQuestion || "Tell me more — what does your daily schedule look like? What time do you wake up, and how much free time do you realistically have?") +
-      "\n\n*(You have 5 minutes to reply)*",
-    );
-  await thinkingMsg.edit({ content: "", embeds: [round2Embed] });
+  // Accumulate conversation: starts with the user's first answer
+  const conversationMessages: { role: "user" | "assistant"; content: string }[] = [
+    { role: "user", content: firstAnswer },
+  ];
 
-  // Collect second user message
-  let collected2;
-  try {
-    collected2 = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
-  } catch {
-    await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
-    return;
-  }
-  if (collected2.size === 0) {
-    await message.channel.send("⏰ No response. Your quests remain unchanged.");
-    return;
-  }
-  const secondAnswer = collected2.first()!.content;
+  const MAX_ROUNDS = 10;
+  let roundNum = 1;
+  let statusMsg = thinkingMsg;
 
-  // ── Final verdict ─────────────────────────────────────────────────────────────
-  const waitMsg = await message.channel.send("⚖️ Evaluating your case...");
+  while (roundNum <= MAX_ROUNDS) {
+    // Ask AI: followup or verdict?
+    let aiRaw = "";
+    try {
+      const aiRes = await openai.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: `Current quests:\n${currentQuestsJson}\n\nConversation so far:\n${
+              conversationMessages.map((m, i) => `${m.role === "user" ? "User" : "You"} (turn ${i + 1}): "${m.content}"`).join("\n\n")
+            }`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      });
+      aiRaw = aiRes.choices[0]?.message?.content?.trim() ?? "{}";
+    } catch (err) {
+      logger.error({ err }, "Quest negotiation AI error");
+      await statusMsg.edit("❌ AI error. Try again with `!quest negotiate`.");
+      return;
+    }
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a tough but fair quest negotiator. Your goal is to maintain challenge — NOT to make life easier for the user.\n" +
-            "You have now heard two rounds of explanation from the user. Make your final decision.\n" +
-            "Rules:\n" +
-            "- If the user's argument is weak, vague, or just 'it's too hard' → REJECT the negotiation.\n" +
-            "- Only accept renegotiation if there is a SPECIFIC, LEGITIMATE reason (injury, life event, wrong scope, impossible schedule constraint).\n" +
-            "- When you accept, ADJUST quests — keep them genuinely challenging. You can change wording, scope, timing, or split a quest, but NEVER reduce XP or make it trivially easy.\n" +
-            "- You may accept some changes and reject others.\n" +
-            "- Respond in JSON format ONLY:\n" +
-            '{"verdict":"accept"|"partial"|"reject","message":"<explanation, 2-4 sentences, direct>","updatedQuests":[{"id":<number>,"title":"<string>","description":"<string>","difficulty":"easy|medium|hard","points":<number>}]}\n' +
-            "If verdict is reject, updatedQuests must be [].\n" +
-            `Respond in ${userLang}.`,
-        },
-        {
-          role: "user",
-          content:
-            `Current quests:\n${currentQuestsJson}\n\n` +
-            `Round 1 — User says:\n"${firstAnswer}"\n\n` +
-            `Round 2 — User says:\n"${secondAnswer}"`,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 700,
-    });
+    const jsonMatch = aiRaw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.warn({ aiRaw }, "Quest negotiation: no JSON in AI response");
+      await statusMsg.edit("❌ Unexpected AI response. Try again with `!quest negotiate`.");
+      return;
+    }
 
-    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON in response");
+    let parsed: { action: string; question?: string; verdict?: string; message?: string; updatedQuests?: unknown[] };
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      await statusMsg.edit("❌ Unexpected AI response. Try again with `!quest negotiate`.");
+      return;
+    }
 
-    const result = JSON.parse(jsonMatch[0]) as {
+    // ── AI asks a follow-up ───────────────────────────────────────────────────
+    if (parsed.action === "followup" && parsed.question) {
+      const question = parsed.question;
+      conversationMessages.push({ role: "assistant", content: question });
+
+      const followUpEmbed = new EmbedBuilder()
+        .setTitle(`⚔️ Quest Negotiation — Round ${roundNum + 1}`)
+        .setColor(0xe67e22)
+        .setDescription(question + "\n\n*(You have 5 minutes to reply)*");
+      await statusMsg.edit({ content: "", embeds: [followUpEmbed] });
+
+      let nextCollected;
+      try {
+        nextCollected = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
+      } catch {
+        await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
+        return;
+      }
+      if (nextCollected.size === 0) {
+        await message.channel.send("⏰ No response. Your quests remain unchanged.");
+        return;
+      }
+
+      const userAnswer = nextCollected.first()!.content;
+      conversationMessages.push({ role: "user", content: userAnswer });
+
+      statusMsg = await message.channel.send("💭 Thinking...");
+      roundNum++;
+      continue;
+    }
+
+    // ── AI renders a verdict ──────────────────────────────────────────────────
+    const result = parsed as {
+      action: string;
       verdict: "accept" | "partial" | "reject";
       message: string;
       updatedQuests: Array<{ id: number; title: string; description: string; difficulty: string; points: number }>;
     };
+
+    await statusMsg.edit("⚖️ Evaluating your case...");
 
     if (result.verdict === "reject") {
       const embed = new EmbedBuilder()
         .setColor(0xe74c3c)
         .setTitle("⚔️ Negotiation Rejected")
         .setDescription(`**${result.message}**\n\nYour quests remain unchanged.`);
-      await waitMsg.edit({ content: "", embeds: [embed] });
+      await statusMsg.edit({ content: "", embeds: [embed] });
       return;
     }
 
@@ -1093,13 +1106,14 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       .setTitle(`⚔️ ${verdictLabel}`)
       .setDescription(`**${result.message}**`);
 
-    await waitMsg.edit({ content: "", embeds: [embed] });
+    await statusMsg.edit({ content: "", embeds: [embed] });
     await message.channel.send({ embeds: [updatedEmbed] });
-
-  } catch (err) {
-    logger.error({ err }, "Quest negotiation error");
-    await waitMsg.edit("❌ Negotiation failed. Try again with `!quest negotiate`.");
+    return;
   }
+
+  // Safety: max rounds reached — force verdict
+  await statusMsg.edit("⚖️ Max rounds reached — rendering final verdict...");
+  await message.channel.send("⏰ Max negotiation rounds reached. The negotiator will now make a final decision based on everything you've shared.");
 }
 
 export async function setBullyMode(message: Message, enable: boolean): Promise<void> {

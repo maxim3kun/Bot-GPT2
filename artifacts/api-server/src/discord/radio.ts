@@ -238,9 +238,16 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   franceinter: { name: "France Inter",   url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3",              emoji: "🎙️", genre: "Culture / Talk",          lang: "fr" },
   franceinfo:  { name: "France Info",    url: "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",               emoji: "📰", genre: "News / Info",              lang: "fr" },
   musique:     { name: "France Musique", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3",            emoji: "🎼", genre: "Classical",                lang: "fr" },
+  fip:         { name: "FIP",            url: "https://icecast.radiofrance.fr/fip-midfi.mp3",                      emoji: "🎨", genre: "Éclectique / Jazz / World", lang: "fr" },
+  mouv:        { name: "Mouv'",          url: "https://icecast.radiofrance.fr/mouv-midfi.mp3",                     emoji: "🎤", genre: "Hip-Hop / Urbain",          lang: "fr" },
+  culture:     { name: "France Culture", url: "https://icecast.radiofrance.fr/franceculture-midfi.mp3",            emoji: "📚", genre: "Culture / Podcast",         lang: "fr" },
   ouifm:       { name: "OÜI FM",         url: "https://ouifm.ice.infomaniak.ch/ouifm-high.mp3",                    emoji: "🎸", genre: "Rock / Alternative",       lang: "fr" },
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",              emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
+  rtl:         { name: "RTL",            url: "https://icecast.rtl.fr/rtl-1-44-128",                               emoji: "📡", genre: "Généraliste / Info",        lang: "fr" },
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl.fr/rtl2-1-44-128",                              emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
+  rtlgold:     { name: "RTL Gold",       url: "https://icecast.rtl.fr/rtlgold-1-44-128",                           emoji: "🥇", genre: "Oldies / Rétro",            lang: "fr" },
+  rire:        { name: "Rire & Chansons",url: "https://icecast.rtl.fr/rire-1-44-128",                              emoji: "😂", genre: "Humour / Chansons",         lang: "fr" },
+  beur:        { name: "Beur FM",        url: "https://icecast.rtl.fr/beur-1-44-128",                              emoji: "🌙", genre: "Musique Arabe / Oriental",  lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   // 🇪🇸 Spanish
   los40:       { name: "Los 40",         url: "https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_SC.mp3",       emoji: "🔊", genre: "Pop / Hits",              lang: "es" },
@@ -259,6 +266,11 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   groove:      { name: "Groove Salad",   url: "http://ice3.somafm.com/groovesalad-128-mp3",                         emoji: "🌿", genre: "Ambient / Electronic",     lang: "en" },
   lush:        { name: "Lush",           url: "http://ice3.somafm.com/lush-128-mp3",                                emoji: "🌸", genre: "Pop / Chill",              lang: "en" },
   defcon:      { name: "DEF CON Radio",  url: "http://ice3.somafm.com/defcon-128-mp3",                              emoji: "🔒", genre: "Electronic / Hacker",      lang: "en" },
+  jazz:        { name: "Jazz Radio",     url: "https://jazz.streamr.ru/jazz-64.mp3",                                emoji: "🎷", genre: "Jazz",                      lang: "en" },
+  // 🌍 International / Genre
+  hits90s:     { name: "90s Hits",       url: "https://streams.90s90s.de/90er/mp3-128/streams.90s90s.de/",          emoji: "💿", genre: "90s Pop / Rock",           lang: "en" },
+  hits2000s:   { name: "2000s Hits",     url: "https://streams.90s90s.de/2000er/mp3-128/streams.90s90s.de/",        emoji: "📀", genre: "2000s Pop / R&B",          lang: "en" },
+  hiphop:      { name: "Hip-Hop Radio",  url: "https://streams.90s90s.de/hiphop/mp3-128/streams.90s90s.de/",        emoji: "🎤", genre: "Hip-Hop",                   lang: "en" },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
