@@ -154,6 +154,14 @@ const pendingVoiceCmds = new Map<string, {
   expires: number;
 }>();
 
+// ── Bug 2 fix: periodic cleanup so expired closures don't accumulate forever ──
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of pendingVoiceCmds) {
+    if (v.expires < now) pendingVoiceCmds.delete(k);
+  }
+}, 5 * 60 * 1000);
+
 export function registerPendingVoiceCmd(key: string, userId: string, fn: () => Promise<void>): void {
   const now = Date.now();
   for (const [k, v] of pendingVoiceCmds) {
@@ -687,6 +695,15 @@ export async function replyNotInVoice(message: Message, pendingKey?: string): Pr
   }
 }
 
+// ── Bug 1 fix: hook so voice.ts can register a cleanup callback ───────────────
+// voice.ts already imports from radio.ts (one-way dep), so radio.ts cannot
+// import from voice.ts. Instead voice.ts registers a cleanup function here
+// that radio.ts calls before taking over the voice connection.
+let _voiceCleanupHook: ((guildId: string) => void) | null = null;
+export function setVoiceCleanupHook(fn: (guildId: string) => void): void {
+  _voiceCleanupHook = fn;
+}
+
 // ── Voice connection helper ───────────────────────────────────────────────────
 
 export async function ensureVoiceConnection(message: Message, onReady?: () => Promise<void>): Promise<boolean> {
@@ -720,6 +737,10 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
   }
 
   if (!radioStates.has(guildId)) {
+    // Bug 1 fix: if voice.ts has an active TTS session for this guild, clean it
+    // up before radio takes over the connection (avoids two players on one conn)
+    _voiceCleanupHook?.(guildId);
+
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
     connection.subscribe(player);
 

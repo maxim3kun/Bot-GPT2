@@ -226,17 +226,30 @@ export async function upsertUserData(discordId: string, data: UserData): Promise
 
 /**
  * Read-modify-write: merges `patch` over the stored UserData for a given Discord user.
- * This ensures one module's write (e.g. quest progress) never clobbers another's (e.g. birthday).
+ * Bug 3 fix: per-user mutex (Promise chain) so concurrent writes for the same user
+ * are serialized instead of overwriting each other.
  */
+const _patchLocks = new Map<string, Promise<void>>();
+
 export async function patchUserData(discordId: string, patch: Partial<UserData>): Promise<void> {
   if (!usersCol || !encKey) return;
-  try {
-    const existing = (await getUserData(discordId)) ?? {};
-    const merged: UserData = { ...existing, ...patch };
-    await upsertUserData(discordId, merged);
-  } catch (err) {
-    logger.error({ err }, "patchUserData failed");
-  }
+  const key = hashUserId(discordId);
+  const prev = _patchLocks.get(key) ?? Promise.resolve();
+  const next = prev.then(async () => {
+    try {
+      const existing = (await getUserData(discordId)) ?? {};
+      const merged: UserData = { ...existing, ...patch };
+      await upsertUserData(discordId, merged);
+    } catch (err) {
+      logger.error({ err }, "patchUserData failed");
+    }
+  });
+  _patchLocks.set(key, next);
+  // Clean up the lock entry once the chain settles to avoid growing the map indefinitely
+  next.finally(() => {
+    if (_patchLocks.get(key) === next) _patchLocks.delete(key);
+  }).catch(() => null);
+  await next;
 }
 
 export async function getAllUserDocs(): Promise<Array<{ hash: string; data: UserData }>> {

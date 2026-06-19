@@ -11,7 +11,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import { type Message, type TextChannel, type GuildMember } from "discord.js";
-import { replyNotInVoice } from "./radio.js";
+import { replyNotInVoice, setVoiceCleanupHook, stopForGuild } from "./radio.js";
 import { Readable } from "stream";
 import prism from "prism-media";
 import { logger } from "../lib/logger";
@@ -109,6 +109,18 @@ interface GuildVoiceState {
 
 const guildStates = new Map<string, GuildVoiceState>();
 
+// Bug 1 fix: register a cleanup callback so radio.ts can evict our state when
+// it takes over the voice connection (radio.ts can't import voice.ts — circular dep)
+setVoiceCleanupHook((guildId: string) => {
+  const s = guildStates.get(guildId);
+  if (s) {
+    s.active = false;
+    s.player.stop();
+    guildStates.delete(guildId);
+    logger.info({ guildId }, "Voice: TTS state cleaned up — radio took over connection");
+  }
+});
+
 // ── Subtitle receiver setup ───────────────────────────────────────────────────
 
 function setupReceiverForGuild(
@@ -184,6 +196,8 @@ export async function joinVoice(message: Message): Promise<void> {
   }
 
   const guildId = message.guildId!;
+  // Bug 1 fix: stop radio cleanly before taking over the connection
+  stopForGuild(guildId);
   getVoiceConnection(guildId)?.destroy();
 
   const connection = joinVoiceChannel({

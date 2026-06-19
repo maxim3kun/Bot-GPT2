@@ -220,10 +220,15 @@ export function ytdlpStream(url: string): Readable {
     const text = chunk.toString();
     stderrBuf += text;
     if (SIGNIN_RE.test(stderrBuf)) {
-      // IP-level block — rotating client won't help, cookies are needed
+      // Bug 4 fix: emit an error immediately so the caller gets user-facing feedback
+      // right away instead of waiting 35 seconds for the hard timeout.
       if (!_cookiesReady) {
         logger.error("yt-dlp: YouTube bot-check on stream — set YT_COOKIES secret (base64 or plain Netscape format)");
+      } else {
+        logger.warn("yt-dlp: YouTube bot-check despite cookies — try refreshing YT_COOKIES");
       }
+      proc.stdout.destroy(new Error("youtube-bot-check"));
+      proc.kill();
       stderrBuf = "";
     } else if (CLIENT_BLOCKED_RE.test(stderrBuf)) {
       rotateClient(idx);
