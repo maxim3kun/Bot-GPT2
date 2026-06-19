@@ -3538,16 +3538,6 @@ export function startBot(): void {
                   inline: false,
                 },
                 {
-                  name: "🍪 Cookies YouTube",
-                  value:
-                    "Si `!yt-test` montre **0 entrées** :\n" +
-                    "1. Exporte `cookies.txt` depuis Firefox (extension *Get cookies.txt LOCALLY*)\n" +
-                    "2. Dans un terminal : `base64 cookies.txt` (ou `base64 -w0 cookies.txt` sur Linux)\n" +
-                    "3. Colle la chaîne base64 (une seule ligne) comme secret `YT_COOKIES`\n" +
-                    "4. Relance le bot",
-                  inline: false,
-                },
-                {
                   name: "🛡️ Modération",
                   value:
                     `\`${guildPrefix}unblock @user\` — Débloque un utilisateur\n` +
