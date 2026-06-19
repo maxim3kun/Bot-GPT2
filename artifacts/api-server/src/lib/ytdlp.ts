@@ -35,24 +35,45 @@ function initCookies(): void {
       // Already plain-text Netscape format
       content = trimmed;
     } else {
-      // Assume base64-encoded — decode it
-      content = Buffer.from(trimmed, "base64").toString("utf8");
-      // Sanity-check: decoded result must look like a Netscape cookie file
-      if (!content.startsWith("# Netscape HTTP Cookie File") && !content.startsWith("# HTTP Cookie File")) {
+      // Attempt base64 decode
+      let decoded: string;
+      try {
+        decoded = Buffer.from(trimmed, "base64").toString("utf8");
+      } catch {
+        decoded = "";
+      }
+      if (decoded.startsWith("# Netscape HTTP Cookie File") || decoded.startsWith("# HTTP Cookie File")) {
+        content = decoded;
+      } else {
+        // Not valid base64 of a cookie file — treat the raw value as plain text (may be malformed)
         logger.warn(
-          "yt-dlp: YT_COOKIES decoded from base64 but doesn't look like a Netscape cookie file — check the value",
+          "yt-dlp: YT_COOKIES is neither a Netscape cookie file nor valid base64 of one — " +
+          "export cookies from your browser with the 'Get cookies.txt LOCALLY' extension, " +
+          "then paste the file content (or its base64) as the YT_COOKIES secret",
         );
-        // Still write it; yt-dlp might tolerate minor header differences
+        content = trimmed;
       }
     }
 
-    writeFileSync(COOKIES_PATH, content, { encoding: "utf8", mode: 0o600 });
+    // Normalise Windows line endings
+    const normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+    writeFileSync(COOKIES_PATH, normalised, { encoding: "utf8", mode: 0o600 });
     _cookiesReady = true;
-    const lineCount = content.split("\n").filter(l => l.trim() && !l.startsWith("#")).length;
-    logger.info(
-      { cookieEntries: lineCount },
-      "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active",
-    );
+    const lines = normalised.split("\n").filter(l => l.trim() && !l.startsWith("#"));
+    const lineCount = lines.length;
+    if (lineCount === 0) {
+      logger.warn(
+        "yt-dlp: YT_COOKIES written but contains 0 cookie entries — " +
+        "make sure you paste the FULL content of the cookies.txt file, not just its filename or header. " +
+        "Each cookie is a tab-separated line like: .youtube.com\\tTRUE\\t/\\tTRUE\\t...",
+      );
+    } else {
+      logger.info(
+        { cookieEntries: lineCount },
+        "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active",
+      );
+    }
   } catch (err) {
     logger.warn({ err }, "yt-dlp: failed to write cookies file — continuing without cookies");
   }

@@ -287,9 +287,13 @@ async function fetchStream(url: string, hops = 0, extraHeaders: Record<string, s
         res.on("error", reject);
         return;
       }
+      // Disable the connection timeout once the audio stream is live —
+      // keeping it active would destroy the socket on any brief silence/buffer pause.
+      req.setTimeout(0);
       resolve(res);
     });
     req.on("error", reject);
+    // Timeout only applies to the initial TCP connection phase, not to the live stream.
     req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`Timeout connecting to ${url}`)); });
   });
 }
@@ -311,9 +315,6 @@ export const RADIO_STATIONS: Record<string, { name: string; url: string; emoji: 
   nostalgie:   { name: "Nostalgie",      url: "https://cdn.nrjaudio.fm/audio1/fr/30601/mp3_128.mp3",              emoji: "🕰️", genre: "Oldies / French classics", lang: "fr" },
   rtl:         { name: "RTL",            url: "https://icecast.rtl.fr/rtl-1-44-128",                               emoji: "📡", genre: "Généraliste / Info",        lang: "fr" },
   rtl2:        { name: "RTL 2",          url: "https://icecast.rtl.fr/rtl2-1-44-128",                              emoji: "🔊", genre: "Rock / Pop",               lang: "fr" },
-  rtlgold:     { name: "RTL Gold",       url: "https://icecast.rtl.fr/rtlgold-1-44-128",                           emoji: "🥇", genre: "Oldies / Rétro",            lang: "fr" },
-  rire:        { name: "Rire & Chansons",url: "https://icecast.rtl.fr/rire-1-44-128",                              emoji: "😂", genre: "Humour / Chansons",         lang: "fr" },
-  beur:        { name: "Beur FM",        url: "https://icecast.rtl.fr/beur-1-44-128",                              emoji: "🌙", genre: "Musique Arabe / Oriental",  lang: "fr" },
   evasion:     { name: "Évasion FM",     url: "https://stream.evasionfm.com/stream",                               emoji: "🌅", genre: "Variété / Détente",        lang: "fr" },
   sanef:       { name: "Sanef 107.7",    url: "https://sanef.ice.infomaniak.ch/sanef1077-nord.mp3",                 emoji: "🛣️", genre: "Info Trafic / Musique",     lang: "fr" },
   // 🇪🇸 Spanish
