@@ -154,11 +154,14 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
       [
         "--print", "%(title)s\t%(duration)s\t%(thumbnail)s\t%(is_live)s",
         "--no-playlist",
+        "--no-check-formats",    // skip format URL validation — saves 1-2s
+        "--retries", "1",
+        "--socket-timeout", "8",
         clientArgs(),
         ...cookieArgs(),
         url,
       ],
-      { timeout: 20_000, maxBuffer: 512 * 1024 },
+      { timeout: 15_000, maxBuffer: 512 * 1024 },
     );
     stderr = se ?? "";
     const line = stdout.trim();
@@ -193,14 +196,17 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
 export function ytdlpStream(url: string): Readable {
   const idx = _clientIdx;
   const proc = spawn(YT_DLP_BIN, [
-    "-f", "bestaudio/best",
+    "-f", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
     "--no-playlist",
     "--quiet",
     "--no-warnings",
     "--no-part",
     "--no-cache-dir",
-    "--socket-timeout", "10",
-    "--concurrent-fragments", "1",
+    "--no-check-formats",        // skip HEAD validation of format URL — saves 1-2s per video
+    "--retries", "1",            // fail fast instead of retrying multiple times
+    "--fragment-retries", "1",
+    "--socket-timeout", "8",
+    "--concurrent-fragments", "3", // fetch 3 fragments in parallel for faster initial buffer fill
     "--hls-use-mpegts",          // required to pipe HLS live streams as a continuous TS stream
     clientArgs(),
     ...cookieArgs(),

@@ -1073,25 +1073,10 @@ async function execPlayYoutube(
   preloadedStreamCache.delete(url);
 
   // Info fetch runs in parallel with stream startup (skipped when metadata already known).
-  // Try play-dl first (in-process, fast), then fall back to yt-dlp if it fails.
+  // Go straight to yt-dlp — play-dl is unreliable on YouTube and adds serial latency when it fails.
   const infoPromise: Promise<{ title: string; duration: number; thumbnail: string | null }> = knownMeta
     ? Promise.resolve(knownMeta)
-    : (async () => {
-        try {
-          const play = await getPlay();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const info = await (play.video_info(url) as Promise<any>);
-          const det = info?.video_details;
-          if (det?.title) {
-            return {
-              title: det.title as string,
-              duration: (det.durationInSec as number) ?? 0,
-              thumbnail: (det.thumbnails as Array<{ url: string }>)?.[0]?.url ?? null,
-            };
-          }
-        } catch { /* fall through */ }
-        return ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
-      })();
+    : ytdlpInfo(url).catch((): YtInfo => ({ title: "Unknown", duration: 0, thumbnail: null }));
 
   // Discord API calls — these overlap with yt-dlp startup time above
   await disableNpButtonsForState(state);
