@@ -1003,7 +1003,8 @@ export function startBot(): void {
           if (!text) {
             await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`");
           } else {
-            await message.delete();
+            // Delete silently — bot may lack MANAGE_MESSAGES permission
+            await message.delete().catch(() => null);
             if (isSendable(message.channel)) await message.channel.send(text);
           }
           break;

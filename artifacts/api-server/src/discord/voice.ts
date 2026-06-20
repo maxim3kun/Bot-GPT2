@@ -268,11 +268,13 @@ export async function joinVoice(message: Message): Promise<void> {
 
   const botName = message.guild?.members.me?.displayName ?? "Bot";
 
+  const groqKey = process.env["GROQ_API_KEY"];
+
   guildStates.set(guildId, {
     textChannel: message.channel as TextChannel,
     player,
     active: true,
-    subtitles: false,
+    subtitles: groqKey ? true : false, // enable listening immediately if Groq is available
     listeningUsers: new Set(),
     botName,
     botSpeaking: false,
@@ -282,10 +284,7 @@ export async function joinVoice(message: Message): Promise<void> {
 
   connection.on(VoiceConnectionStatus.Ready, () => {
     logger.info({ guildId, channel: voiceChannel.name }, "Voice ready");
-
-    // If subtitles are already enabled and we have a Groq key, set up receiver
     const state = guildStates.get(guildId);
-    const groqKey = process.env["GROQ_API_KEY"];
     if (state?.subtitles && groqKey) {
       setupReceiverForGuild(guildId, connection, groqKey);
     }
@@ -296,11 +295,16 @@ export async function joinVoice(message: Message): Promise<void> {
     logger.info({ guildId }, "Voice disconnected");
   });
 
+  const listeningNote = groqKey
+    ? `• 📝 Live transcription **ON** — I'll show what you say\n`
+    : `• ⚠️ No \`GROQ_API_KEY\` — transcription disabled\n`;
+
   await message.reply(
     `✅ Connected to **${voiceChannel.name}**! 🎙️\n` +
     `• \`!voice say <text>\` → I speak in the channel\n` +
-    `• \`!subtitles\` → toggle live subtitles (bot speech + your voice)\n` +
-    `• \`!voice stop\` / \`!voice resume\` → mute / unmute\n` +
+    listeningNote +
+    `• \`!subtitles\` → toggle transcription on/off\n` +
+    `• \`!voice stop\` / \`!voice resume\` → mute / unmute TTS\n` +
     `• \`!leave\` → disconnect`,
   );
 }
