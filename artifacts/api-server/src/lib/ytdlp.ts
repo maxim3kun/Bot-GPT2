@@ -137,27 +137,32 @@ function cookieArgs(): string[] {
 }
 
 // ── Client rotation ────────────────────────────────────────────────────────────
-// YouTube blocks most player clients from datacenter IPs. Only `android` with
-// `formats=missing_pot` reliably streams audio from Replit/Railway IPs (as of 2025-06).
-// `formats=missing_pot` tells yt-dlp to skip the GVS PO Token check on android client.
+// YouTube blocks most player clients from datacenter IPs. We rotate through
+// several clients when one is blocked. Each client has its own extractor args
+// because `formats=missing_pot` only makes sense for `android` — applying it to
+// mweb/ios/web causes "Requested format is not available".
 //
 // SYNTAX NOTE: yt-dlp extractor args use SEMICOLONS to separate multiple args for
 // the same extractor. Commas are used to specify multiple client names (not what we want).
 //   CORRECT:  youtube:player_client=android;formats=missing_pot
-//   WRONG:    youtube:player_client=android,formats=missing_pot  ← treats "formats=missing_pot"
-//                                                                    as a second client name
+//   WRONG:    youtube:player_client=android,formats=missing_pot
 //
 // Re-test with: yt-dlp --extractor-args="youtube:player_client=android;formats=missing_pot"
 //               -f "bestaudio/best" --quiet -o - <URL> 2>/dev/null | wc -c
-const YT_CLIENTS = [
-  "android",    // primary — streams fine with formats=missing_pot
-  "mweb",       // fallback 1
-  "web",        // fallback 2
+interface YtClient { name: string; extraArgs?: string }
+const YT_CLIENTS: YtClient[] = [
+  { name: "android",       extraArgs: "formats=missing_pot" }, // primary
+  { name: "mweb" },                                            // fallback 1 — no missing_pot
+  { name: "ios" },                                             // fallback 2
+  { name: "android_music" },                                   // fallback 3
+  { name: "web" },                                             // fallback 4
 ];
 let _clientIdx = 0;
 
 function clientArgs(): string {
-  return `--extractor-args=youtube:player_client=${YT_CLIENTS[_clientIdx]};formats=missing_pot`;
+  const c = YT_CLIENTS[_clientIdx]!;
+  const args = c.extraArgs ? `${c.name};${c.extraArgs}` : c.name;
+  return `--extractor-args=youtube:player_client=${args}`;
 }
 
 /** Called when current client is confirmed blocked — moves to the next one. */
@@ -165,7 +170,7 @@ function rotateClient(fromIdx: number): void {
   if (_clientIdx !== fromIdx) return; // already rotated by a concurrent call
   _clientIdx = (_clientIdx + 1) % YT_CLIENTS.length;
   logger.warn(
-    { prev: YT_CLIENTS[fromIdx], next: YT_CLIENTS[_clientIdx] },
+    { prev: YT_CLIENTS[fromIdx]!.name, next: YT_CLIENTS[_clientIdx]!.name },
     "yt-dlp: YouTube client blocked — rotated to next",
   );
 }
