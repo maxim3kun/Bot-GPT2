@@ -63,3 +63,25 @@ export async function saveArtist(name: string): Promise<void> {
     logger.error({ err, artist: key }, "Artist cache: save failed");
   }
 }
+
+/** Remove an artist from the cache and MongoDB. Returns true if it existed. */
+export async function removeArtist(name: string): Promise<boolean> {
+  const key = name.toLowerCase().trim();
+  if (!key || !knownArtists.has(key)) return false;
+  knownArtists.delete(key);
+  if (artistCacheCol) {
+    try {
+      await artistCacheCol.deleteOne({ _id: key });
+    } catch (err) {
+      logger.error({ err, artist: key }, "Artist cache: remove failed");
+    }
+  }
+  return true;
+}
+
+/** Returns all known artist names, title-cased and sorted. */
+export function listArtists(): string[] {
+  return [...knownArtists]
+    .map(n => n.replace(/\b\w/g, c => c.toUpperCase()))
+    .sort();
+}

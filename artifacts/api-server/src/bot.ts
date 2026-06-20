@@ -25,7 +25,7 @@ import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-sta
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
-import { saveArtist, getMatchingArtists, isKnownArtist } from "./discord/artist-cache";
+import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, JOKES, JOKES_FR, JOKES_ES, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, HUGS, HUGS_FR, HUGS_ES, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
 import { type HelpLanguage, buildHelpEmbed, detectTopicAndLang, buildTopicEmbed, sendPaginatedHelp, sendPaginatedHelpSlash, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 
@@ -1604,6 +1604,49 @@ export function startBot(): void {
         }
 
         // ── YouTube cookie/stream test (owner only) ──────────────────────────────
+        case "artist": {
+          const isArtistAdmin =
+            message.author.username.toLowerCase() === "maxim3kun" ||
+            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isArtistAdmin) {
+            await message.reply("🔒 Only admins can manage the artist list.");
+            break;
+          }
+          const subCmd = args[0]?.toLowerCase();
+          const artistName = args.slice(1).join(" ").trim();
+
+          if (subCmd === "add") {
+            if (!artistName) { await message.reply("❓ Usage: `!artist add <name>`"); break; }
+            await saveArtist(artistName);
+            await message.reply(`✅ **${artistName}** added to the artist list. \`!${artistName.toLowerCase()}\` now works.`);
+          } else if (subCmd === "remove" || subCmd === "delete") {
+            if (!artistName) { await message.reply("❓ Usage: `!artist remove <name>`"); break; }
+            const removed = await removeArtist(artistName);
+            await message.reply(removed
+              ? `🗑️ **${artistName}** removed from the artist list.`
+              : `❓ **${artistName}** was not in the list.`);
+          } else if (subCmd === "list" || !subCmd) {
+            const all = listArtists();
+            if (all.length === 0) {
+              await message.reply("📋 No artists registered yet. Use `!artist add <name>` to add one.");
+            } else {
+              const chunks: string[] = [];
+              let chunk = "";
+              for (const name of all) {
+                const line = `• ${name}\n`;
+                if (chunk.length + line.length > 1800) { chunks.push(chunk); chunk = ""; }
+                chunk += line;
+              }
+              if (chunk) chunks.push(chunk);
+              await message.reply(`📋 **Registered artists (${all.length}):**\n${chunks[0]}`);
+              for (let i = 1; i < chunks.length; i++) await message.channel.send(chunks[i]!);
+            }
+          } else {
+            await message.reply("❓ Usage:\n`!artist add <name>` — register an artist\n`!artist remove <name>` — unregister\n`!artist list` — show all");
+          }
+          break;
+        }
+
         case "yt-test":
         case "yttest": {
           if (message.author.username.toLowerCase() !== "maxim3kun") {
@@ -2884,12 +2927,6 @@ export function startBot(): void {
           // If command matches a known artist in the cache, treat as a music search
           if (command && isKnownArtist(command)) {
             await searchAndQueue(message, args.length > 0 ? `${command} ${args.join(" ")}` : command);
-            break;
-          }
-
-          // Unknown command + args → treat as a YouTube music search (e.g. !Gims ninao)
-          if (command && args.length > 0) {
-            await searchAndQueue(message, `${command} ${args.join(" ")}`);
             break;
           }
 
