@@ -136,6 +136,12 @@ interface GuildVoiceState {
   botSpeaking: boolean;
   /** Timestamp (ms) when the bot last finished speaking — short cooldown. */
   botSpeakingUntil: number;
+  /**
+   * True once setupReceiverForGuild has registered its listener on this
+   * connection. Prevents duplicate listeners when !subtitles is toggled
+   * multiple times — the single listener checks state.subtitles at runtime.
+   */
+  receiverSetUp: boolean;
 }
 
 const guildStates = new Map<string, GuildVoiceState>();
@@ -159,10 +165,18 @@ function setupReceiverForGuild(
   connection: VoiceConnection,
   groqKey: string,
 ): void {
+  // Guard: register the listener only once per connection.
+  // After !subtitles is toggled off and back on, state.subtitles is checked
+  // inside the listener at runtime — no second listener is ever needed.
+  const state0 = guildStates.get(guildId);
+  if (!state0 || state0.receiverSetUp) return;
+  state0.receiverSetUp = true;
+
   const receiver = connection.receiver;
 
   receiver.speaking.on("start", (userId) => {
     const state = guildStates.get(guildId);
+    // Respect the subtitles toggle at runtime — never capture audio when OFF
     if (!state?.subtitles || state.listeningUsers.has(userId)) return;
     state.listeningUsers.add(userId);
 
@@ -263,6 +277,7 @@ export async function joinVoice(message: Message): Promise<void> {
     botName,
     botSpeaking: false,
     botSpeakingUntil: 0,
+    receiverSetUp: false,
   });
 
   connection.on(VoiceConnectionStatus.Ready, () => {
@@ -358,6 +373,7 @@ export async function toggleSubtitles(message: Message): Promise<void> {
       botName,
       botSpeaking: false,
       botSpeakingUntil: 0,
+      receiverSetUp: false,
     };
     guildStates.set(guildId, state);
 
