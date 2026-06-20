@@ -96,6 +96,33 @@ async function transcribeGroq(wav: Buffer, groqKey: string): Promise<string | nu
   return text || null;
 }
 
+// ── Whisper hallucination denylist ────────────────────────────────────────────
+// Whisper reliably outputs these phrases on near-silence or very short audio.
+// We drop any transcript that matches (case-insensitive, after trimming punctuation).
+const HALLUCINATION_DENYLIST = [
+  /^thank you\.?$/i,
+  /^thanks\.?$/i,
+  /^thanks for watching\.?$/i,
+  /^you\.?$/i,
+  /^\.\.\.$/,
+  /^bye\.?$/i,
+  /^goodbye\.?$/i,
+  /^see you\.?$/i,
+  /^okay\.?$/i,
+  /^ok\.?$/i,
+  /^yes\.?$/i,
+  /^no\.?$/i,
+  /^um\.?$/i,
+  /^uh\.?$/i,
+  /^hmm\.?$/i,
+  /^subscribe\.?$/i,
+];
+
+function isHallucination(text: string): boolean {
+  const t = text.trim();
+  return HALLUCINATION_DENYLIST.some((re) => re.test(t));
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 interface GuildVoiceState {
@@ -105,6 +132,10 @@ interface GuildVoiceState {
   subtitles: boolean;
   listeningUsers: Set<string>;
   botName: string;
+  /** True while the bot is playing TTS — suppress self-transcription. */
+  botSpeaking: boolean;
+  /** Timestamp (ms) when the bot last finished speaking — short cooldown. */
+  botSpeakingUntil: number;
 }
 
 const guildStates = new Map<string, GuildVoiceState>();
@@ -152,15 +183,25 @@ function setupReceiverForGuild(
 
       if (pcmChunks.length === 0) return;
       const pcm = Buffer.concat(pcmChunks);
-      if (pcm.length < 19200) return; // skip clips shorter than ~0.1s
+
+      // Skip clips shorter than 1.5 s (48000 Hz × 2 ch × 2 bytes × 1.5 s = 288 000 bytes).
+      // Whisper hallucinates "Thank you." and similar on short/silent audio.
+      if (pcm.length < 288000) return;
+
+      // Drop audio captured while the bot was speaking (self-echo) plus a 1 s cooldown.
+      if (s.botSpeaking || Date.now() < s.botSpeakingUntil) return;
 
       try {
         const wav = pcmToWav(pcm);
         const transcript = await transcribeGroq(wav, groqKey);
         if (!transcript) return;
 
-        // Try to resolve member display name
-        const guild = (connection as unknown as { joinConfig?: { guildId?: string } }).joinConfig;
+        // Drop known Whisper hallucinations
+        if (isHallucination(transcript)) {
+          logger.debug({ transcript }, "Voice: dropping hallucinated transcript");
+          return;
+        }
+
         const displayName = `<@${userId}>`;
         await s.textChannel.send(`👤 ${displayName}: *${transcript}*`);
       } catch (err) {
@@ -220,6 +261,8 @@ export async function joinVoice(message: Message): Promise<void> {
     subtitles: false,
     listeningUsers: new Set(),
     botName,
+    botSpeaking: false,
+    botSpeakingUntil: 0,
   });
 
   connection.on(VoiceConnectionStatus.Ready, () => {
@@ -326,15 +369,24 @@ export async function speakText(
 
     const mp3 = await textToSpeech(text, lang);
     const resource = createAudioResource(Readable.from(mp3), { inputType: StreamType.Arbitrary });
+
+    // Mark bot as speaking so the receiver ignores its own audio output
+    state.botSpeaking = true;
     state.player.play(resource);
 
     await new Promise<void>((resolve) => {
       state.player.once(AudioPlayerStatus.Idle, resolve);
     });
 
+    // 1 s cooldown after speaking so reverb/echo doesn't get transcribed
+    state.botSpeaking = false;
+    state.botSpeakingUntil = Date.now() + 1000;
+
     return true;
   } catch (err) {
     logger.error({ err, guildId }, "TTS error");
+    state.botSpeaking = false;
+    state.botSpeakingUntil = Date.now() + 1000;
     return false;
   }
 }
