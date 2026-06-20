@@ -316,33 +316,90 @@ export async function voiceResume(message: Message): Promise<void> {
 
 export async function toggleSubtitles(message: Message): Promise<void> {
   const guildId = message.guildId!;
-  const state = guildStates.get(guildId);
+  let state = guildStates.get(guildId);
 
+  // Auto-join in silent mode if not already in a voice channel
   if (!state) {
-    await message.reply("❌ I'm not in a voice channel. Use `!join` first, then `!subtitles`.");
+    const voiceChannel = (message.member as GuildMember | null)?.voice.channel;
+    if (!voiceChannel) {
+      await message.reply("❌ Rejoins d'abord un salon vocal, puis refais `!subtitles`.");
+      return;
+    }
+
+    const groqKey = process.env["GROQ_API_KEY"];
+    if (!groqKey) {
+      await message.reply("⚠️ `GROQ_API_KEY` manquant — impossible de transcrire la voix.");
+      return;
+    }
+
+    // Stop radio if it was using the connection
+    stopForGuild(guildId);
+    getVoiceConnection(guildId)?.destroy();
+
+    const connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId,
+      adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: true, // silent — listen only, no TTS
+    });
+
+    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    connection.subscribe(player);
+
+    const botName = message.guild?.members.me?.displayName ?? "Bot";
+
+    state = {
+      textChannel: message.channel as TextChannel,
+      player,
+      active: false, // silent by default — no TTS
+      subtitles: true,
+      listeningUsers: new Set(),
+      botName,
+      botSpeaking: false,
+      botSpeakingUntil: 0,
+    };
+    guildStates.set(guildId, state);
+
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      logger.info({ guildId, channel: voiceChannel.name }, "Voice ready (subtitles-only mode)");
+      setupReceiverForGuild(guildId, connection, groqKey);
+    });
+
+    connection.on(VoiceConnectionStatus.Disconnected, () => {
+      guildStates.delete(guildId);
+      logger.info({ guildId }, "Voice disconnected");
+    });
+
+    await message.reply(
+      `✅ **Sous-titres ON** 📝 — connecté à **${voiceChannel.name}** en mode écoute\n` +
+      `• Quand **tu parles** → je transcris ce que j'entends\n` +
+      `• Le bot est **silencieux** (utilise \`!voice resume\` pour qu'il parle)\n` +
+      `• \`!subtitles\` à nouveau pour désactiver • \`!leave\` pour quitter`,
+    );
     return;
   }
 
+  // Already in voice — toggle subtitles
   state.subtitles = !state.subtitles;
 
   if (state.subtitles) {
     const groqKey = process.env["GROQ_API_KEY"];
     if (!groqKey) {
       await message.reply(
-        "⚠️ Subtitles for **bot speech** are ON — but voice transcription requires `GROQ_API_KEY`.\n" +
-        "Set it up in secrets to also see subtitles when you speak.",
+        "⚠️ `GROQ_API_KEY` manquant — impossible de transcrire la voix.",
       );
     } else {
       const connection = getVoiceConnection(guildId);
       if (connection) setupReceiverForGuild(guildId, connection, groqKey);
       await message.reply(
-        "✅ **Subtitles ON** 📝\n" +
-        "• When **I speak** → text appears in this channel\n" +
-        "• When **you speak** → I transcribe and show what I heard",
+        "✅ **Sous-titres ON** 📝\n" +
+        "• Quand **je parle** → le texte apparaît ici\n" +
+        "• Quand **tu parles** → je transcris ce que j'entends",
       );
     }
   } else {
-    await message.reply("🔕 **Subtitles OFF** — no more live captions.");
+    await message.reply("🔕 **Sous-titres OFF** — plus de transcription en direct.");
   }
 }
 
