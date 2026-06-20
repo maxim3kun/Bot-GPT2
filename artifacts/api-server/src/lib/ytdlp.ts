@@ -1,6 +1,7 @@
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync, writeFileSync } from "fs";
+import { PassThrough } from "stream";
 import type { Readable } from "stream";
 import { logger } from "./logger";
 
@@ -151,11 +152,10 @@ function cookieArgs(): string[] {
 //               -f "bestaudio/best" --quiet -o - <URL> 2>/dev/null | wc -c
 interface YtClient { name: string; extraArgs?: string }
 const YT_CLIENTS: YtClient[] = [
-  { name: "android",       extraArgs: "formats=missing_pot" }, // primary
-  { name: "mweb" },                                            // fallback 1 — no missing_pot
-  { name: "ios" },                                             // fallback 2
-  { name: "android_music" },                                   // fallback 3
-  { name: "web" },                                             // fallback 4
+  { name: "android", extraArgs: "formats=missing_pot" }, // primary — no PO token needed
+  { name: "mweb" },                                      // fallback 1 — respects browser cookies
+  { name: "web" },                                       // fallback 2 — best browser cookie support
+  { name: "ios" },                                       // fallback 3
 ];
 let _clientIdx = 0;
 
@@ -225,9 +225,14 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
   } catch (err) {
     const msg = String((err as { stderr?: string })?.stderr ?? err);
     if (SIGNIN_RE.test(msg)) {
-      // IP-level bot-check — rotating client won't help
+      if (_cookiesReady && _retry < YT_CLIENTS.length - 1) {
+        // Cookies present but android rejected — rotate to mweb/web which respect browser cookies
+        rotateClient(idx);
+        logger.warn({ nextClient: YT_CLIENTS[_clientIdx]!.name }, "yt-dlp: bot-check on info — retrying with next client");
+        return ytdlpInfo(url, _retry + 1);
+      }
       if (!_cookiesReady) {
-        logger.error("yt-dlp: YouTube requires authentication — set the YT_COOKIES secret with your exported cookies (base64 or plain Netscape format)");
+        logger.error("yt-dlp: YouTube requires authentication — set the YT_COOKIES secret (base64 or plain Netscape format)");
       }
       throw err;
     }
@@ -239,8 +244,10 @@ export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
   }
 }
 
-export function ytdlpStream(url: string): Readable {
+export function ytdlpStream(url: string, _retry = 0): Readable {
+  const pass = new PassThrough();
   const idx = _clientIdx;
+
   const proc = spawn(YT_DLP_BIN, [
     "-f", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
     "--no-playlist",
@@ -248,34 +255,46 @@ export function ytdlpStream(url: string): Readable {
     "--no-warnings",
     "--no-part",
     "--no-cache-dir",
-    "--no-check-formats",        // skip HEAD validation of format URL — saves 1-2s per video
-    "--retries", "1",            // fail fast instead of retrying multiple times
+    "--no-check-formats",
+    "--retries", "1",
     "--fragment-retries", "1",
     "--socket-timeout", "8",
-    "--concurrent-fragments", "3", // fetch 3 fragments in parallel for faster initial buffer fill
-    "--hls-use-mpegts",          // required to pipe HLS live streams as a continuous TS stream
+    "--concurrent-fragments", "3",
+    "--hls-use-mpegts",
     clientArgs(),
     ...cookieArgs(),
     "-o", "-",
     url,
   ]);
 
-  // Monitor stderr — distinguish IP-level bot-check (needs cookies) from client-level block (rotate)
+  proc.stdout.pipe(pass, { end: false });
+
   let stderrBuf = "";
   proc.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString();
     stderrBuf += text;
+
     if (SIGNIN_RE.test(stderrBuf)) {
-      // Bug 4 fix: emit an error immediately so the caller gets user-facing feedback
-      // right away instead of waiting 35 seconds for the hard timeout.
-      if (!_cookiesReady) {
-        logger.error("yt-dlp: YouTube bot-check on stream — set YT_COOKIES secret (base64 or plain Netscape format)");
-      } else {
-        logger.warn("yt-dlp: YouTube bot-check despite cookies — try refreshing YT_COOKIES");
-      }
-      proc.stdout.destroy(new Error("youtube-bot-check"));
-      proc.kill();
       stderrBuf = "";
+      proc.kill();
+      // With cookies: rotate client and retry — mweb/web handle browser cookies better than android
+      if (_cookiesReady && _retry < YT_CLIENTS.length - 1) {
+        rotateClient(idx);
+        logger.warn(
+          { nextClient: YT_CLIENTS[_clientIdx]!.name, retry: _retry + 1 },
+          "yt-dlp: bot-check with cookies — retrying with next client",
+        );
+        const next = ytdlpStream(url, _retry + 1);
+        next.pipe(pass, { end: true });
+        next.on("error", (err) => pass.destroy(err));
+      } else {
+        if (!_cookiesReady) {
+          logger.error("yt-dlp: YouTube bot-check — set YT_COOKIES secret (base64 or plain Netscape format)");
+        } else {
+          logger.error({ url }, "yt-dlp: YouTube bot-check on all clients — cookies may be expired");
+        }
+        pass.destroy(new Error("youtube-bot-check"));
+      }
     } else if (CLIENT_BLOCKED_RE.test(stderrBuf)) {
       rotateClient(idx);
       stderrBuf = "";
@@ -283,7 +302,10 @@ export function ytdlpStream(url: string): Readable {
     process.stderr.write(text);
   });
 
-  return proc.stdout as Readable;
+  proc.stdout.on("end", () => pass.end());
+  proc.on("error", (err) => pass.destroy(err));
+
+  return pass;
 }
 
 export interface YtSearchResult {
