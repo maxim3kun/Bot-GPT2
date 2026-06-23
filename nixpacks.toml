@@ -3,16 +3,19 @@
 #   - libopus / pkg-config: native build for @discordjs/opus
 #   - ffmpeg: audio encoding/decoding
 #   - python3: required by node-gyp (opus native build)
-#   - yt-dlp: YouTube audio streaming
+#   - yt-dlp: base install (ensure-ytdlp.sh upgrades to latest at start)
 
 [phases.setup]
-nixPkgs = ["python3", "libopus", "pkg-config", "ffmpeg", "yt-dlp"]
+nixPkgs = ["python3", "libopus", "pkg-config", "ffmpeg", "yt-dlp", "curl"]
 
 [phases.install]
 cmds = ["pnpm install --frozen-lockfile"]
 
 [phases.build]
-cmds = ["pnpm --filter @workspace/api-server run build"]
+cmds = [
+  "bash scripts/ensure-ytdlp.sh",
+  "pnpm --filter @workspace/api-server run build"
+]
 
 [start]
 cmd = "pnpm --filter @workspace/api-server run start"

@@ -7,8 +7,10 @@ import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
 
-const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
-const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
+// Check $HOME/.local/bin/yt-dlp first (works on Replit and Railway),
+// then fall back to system yt-dlp (from Nix/PATH).
+const HOME_BIN = `${process.env["HOME"] ?? "/home/runner"}/.local/bin/yt-dlp`;
+const YT_DLP_BIN = existsSync(HOME_BIN) ? HOME_BIN : "yt-dlp";
 
 // ── YouTube cookies ────────────────────────────────────────────────────────────
 const COOKIES_PATH = "/tmp/yt-cookies.txt";
