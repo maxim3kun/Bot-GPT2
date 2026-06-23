@@ -1679,16 +1679,17 @@ export function startBot(): void {
             const { execFile } = await import("child_process");
             const { promisify } = await import("util");
             const exec = promisify(execFile);
-            const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
             const { existsSync } = await import("fs");
-            const bin = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
+            const homeBin = `${process.env["HOME"] ?? "/home/runner"}/.local/bin/yt-dlp`;
+            const bin = existsSync(homeBin) ? homeBin : "yt-dlp";
             const cookieArgs = cookieEntries > 0 ? ["--cookies", "/tmp/yt-cookies.txt"] : [];
             const { stdout } = await exec(
               bin,
               [
                 "--print", "%(title)s",
                 "--no-playlist",
-                "--extractor-args=youtube:player_client=ios",
+                "--no-check-formats",
+                "--extractor-args=youtube:player_client=android;formats=missing_pot",
                 ...cookieArgs,
                 testUrl,
               ],
@@ -1715,7 +1716,7 @@ export function startBot(): void {
               { name: "▶️ Lecture test", value: ytResult, inline: false },
               ...(ytError ? [{ name: "⚠️ Erreur yt-dlp", value: `\`\`\`${ytError}\`\`\``, inline: false }] : []),
             )
-            .setFooter({ text: "Client utilisé : ios • Vidéo test : Rick Astley" });
+            .setFooter({ text: "Client utilisé : android+formats=missing_pot • Vidéo test : Rick Astley" });
 
           await statusMsg.edit({ content: "", embeds: [embed] });
           break;
