@@ -11,12 +11,6 @@ const LOCAL_BIN = "/home/runner/.local/bin/yt-dlp";
 const YT_DLP_BIN = existsSync(LOCAL_BIN) ? LOCAL_BIN : "yt-dlp";
 
 // ── YouTube cookies ────────────────────────────────────────────────────────────
-// Set YT_COOKIES to a Netscape-format cookies file content (plain text or
-// base64-encoded). Export cookies from your browser with the "Get cookies.txt
-// LOCALLY" extension (chrome/firefox), then store the file content as the
-// YT_COOKIES secret in Railway / Replit secrets.
-// yt-dlp will use these cookies to bypass the "Sign in to confirm" bot-check.
-
 const COOKIES_PATH = "/tmp/yt-cookies.txt";
 let _cookiesReady = false;
 
@@ -26,105 +20,51 @@ function initCookies(): void {
     logger.warn("yt-dlp: YT_COOKIES not set — YouTube may block requests from datacenter IPs");
     return;
   }
-
   try {
-    // Trim surrounding whitespace/newlines first — copy-pasting into secrets often adds them
     const trimmed = raw.trim();
-
     let content: string;
     if (trimmed.startsWith("# Netscape HTTP Cookie File") || trimmed.startsWith("# HTTP Cookie File")) {
-      // Already plain-text Netscape format
       content = trimmed;
     } else {
-      // Attempt base64 decode
-      let decoded: string;
-      try {
-        decoded = Buffer.from(trimmed, "base64").toString("utf8");
-      } catch {
-        decoded = "";
-      }
+      let decoded = "";
+      try { decoded = Buffer.from(trimmed, "base64").toString("utf8"); } catch { /* ignore */ }
       if (decoded.startsWith("# Netscape HTTP Cookie File") || decoded.startsWith("# HTTP Cookie File")) {
         content = decoded;
       } else {
-        // Not valid base64 of a cookie file — treat the raw value as plain text (may be malformed)
-        logger.warn(
-          "yt-dlp: YT_COOKIES is neither a Netscape cookie file nor valid base64 of one — " +
-          "export cookies from your browser with the 'Get cookies.txt LOCALLY' extension, " +
-          "then paste the file content (or its base64) as the YT_COOKIES secret",
-        );
+        logger.warn("yt-dlp: YT_COOKIES is neither Netscape nor valid base64 — export cookies with 'Get cookies.txt LOCALLY'");
         content = trimmed;
       }
     }
 
-    // Normalise Windows line endings
     let normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-    // ── Detect collapsed single-line format ──────────────────────────────────
-    // Some secret stores (e.g. Replit) strip newlines and/or tabs when a
-    // multi-line cookies.txt is pasted. We try to recover:
-    //   1. Newlines stripped but tabs preserved → split on domain tokens
-    //   2. Both newlines AND tabs stripped → split on domain tokens (space-sep),
-    //      then re-insert tabs inside each reconstructed line
     const newlineCount = (normalised.match(/\n/g) ?? []).length;
-    const hasTabSep    = normalised.includes("\t");
+    const hasTabSep = normalised.includes("\t");
 
     if (newlineCount === 0) {
-      // Re-insert newlines before each domain token (handles both tab and space sep)
       normalised = normalised
         .replace(/[\t ]+(\.[\w.-]+[\t ](?:TRUE|FALSE)[\t ])/g, "\n$1")
         .trim();
-      logger.info("yt-dlp: cookies — detected collapsed single-line format, reconstructed newlines");
+      logger.info("yt-dlp: cookies — reconstructed newlines from collapsed format");
     }
-
-    // ── Detect tab-stripped lines ─────────────────────────────────────────────
-    // Replit secret store preserves newlines reconstructed above but may strip
-    // tabs within each line, leaving fields concatenated:
-    //   ".youtube.comTRUE/FALSE0PREFvalue" → needs tabs re-inserted
     if (!hasTabSep) {
-      const tabRestored = normalised
-        .split("\n")
-        .map(line => {
-          if (line.startsWith("#") || !line.trim()) return line;
-          // Already has tabs — leave as-is
-          if (line.includes("\t")) return line;
-          // Netscape format: domain TRUE/FALSE path TRUE/FALSE expiry name [value]
-          // Try to re-insert tabs. Path always starts with "/" and ends before the
-          // second TRUE/FALSE token; expiry is a run of digits after path+secure.
-          const m = line.match(
-            /^(\S+?)(TRUE|FALSE)(\/[^A-Z0-9]*?)(TRUE|FALSE)(\d{1,15})([^\s=]+)(.*)?$/
-          );
-          if (m) {
-            return [m[1], m[2], m[3] || "/", m[4], m[5], m[6], m[7] ?? ""].join("\t");
-          }
-          return line; // couldn't parse — leave unchanged
-        })
-        .join("\n");
+      const tabRestored = normalised.split("\n").map(line => {
+        if (line.startsWith("#") || !line.trim() || line.includes("\t")) return line;
+        const m = line.match(/^(\S+?)(TRUE|FALSE)(\/[^A-Z0-9]*?)(TRUE|FALSE)(\d{1,15})([^\s=]+)(.*)?$/);
+        return m ? [m[1], m[2], m[3] || "/", m[4], m[5], m[6], m[7] ?? ""].join("\t") : line;
+      }).join("\n");
       if (tabRestored !== normalised) {
         normalised = tabRestored;
         logger.info("yt-dlp: cookies — re-inserted tabs stripped by secret store");
       }
     }
 
-    const lines = normalised.split("\n").filter(l => l.trim() && !l.startsWith("#"));
-    const lineCount = lines.length;
-
+    const lineCount = normalised.split("\n").filter(l => l.trim() && !l.startsWith("#")).length;
     writeFileSync(COOKIES_PATH, normalised, { encoding: "utf8", mode: 0o600 });
-
+    _cookiesReady = true;
     if (lineCount === 0) {
-      logger.warn(
-        { rawLength: content.length },
-        "yt-dlp: YT_COOKIES written but contains 0 cookie entries — " +
-        "the secret likely lost its newlines when pasted. " +
-        "Fix: run  base64 cookies.txt  in a terminal, then paste the resulting single-line string as the secret.",
-      );
-      // Still mark ready — yt-dlp will try with the file and report its own error
-      _cookiesReady = true;
+      logger.warn("yt-dlp: YT_COOKIES written but 0 entries — try base64-encoding cookies.txt");
     } else {
-      _cookiesReady = true;
-      logger.info(
-        { cookieEntries: lineCount },
-        "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active",
-      );
+      logger.info({ cookieEntries: lineCount }, "yt-dlp: cookies loaded from YT_COOKIES — YouTube bot-check bypass active");
     }
   } catch (err) {
     logger.warn({ err }, "yt-dlp: failed to write cookies file — continuing without cookies");
@@ -137,50 +77,21 @@ function cookieArgs(): string[] {
   return _cookiesReady ? ["--cookies", COOKIES_PATH] : [];
 }
 
-// ── Client rotation ────────────────────────────────────────────────────────────
-// YouTube blocks most player clients from datacenter IPs. We rotate through
-// several clients when one is blocked. Each client has its own extractor args
-// because `formats=missing_pot` only makes sense for `android` — applying it to
-// mweb/ios/web causes "Requested format is not available".
-//
-// SYNTAX NOTE: yt-dlp extractor args use SEMICOLONS to separate multiple args for
-// the same extractor. Commas are used to specify multiple client names (not what we want).
-//   CORRECT:  youtube:player_client=android;formats=missing_pot
-//   WRONG:    youtube:player_client=android,formats=missing_pot
-//
-// Re-test with: yt-dlp --extractor-args="youtube:player_client=android;formats=missing_pot"
-//               -f "bestaudio/best" --quiet -o - <URL> 2>/dev/null | wc -c
-interface YtClient { name: string; extraArgs?: string }
-const YT_CLIENTS: YtClient[] = [
-  { name: "android", extraArgs: "formats=missing_pot" }, // primary — no PO token needed
-  { name: "mweb" },                                      // fallback 1 — respects browser cookies
-  { name: "web" },                                       // fallback 2 — best browser cookie support
-  { name: "ios" },                                       // fallback 3
-];
-let _clientIdx = 0;
+// ── Client ────────────────────────────────────────────────────────────────────
+// Only the android client with formats=missing_pot works from datacenter IPs
+// without a GVS PO Token. mweb/web/ios all return "Requested format is not
+// available" on Replit without a PO token. So we use android only.
+// No rotation: rotating to broken clients just delays failure.
+const ANDROID_ARGS = "--extractor-args=youtube:player_client=android;formats=missing_pot";
 
-function clientArgs(): string {
-  const c = YT_CLIENTS[_clientIdx]!;
-  const args = c.extraArgs ? `${c.name};${c.extraArgs}` : c.name;
-  return `--extractor-args=youtube:player_client=${args}`;
+function clientArgsForIdx(_idx: number): string {
+  return ANDROID_ARGS;
 }
 
-/** Called when current client is confirmed blocked — moves to the next one. */
-function rotateClient(fromIdx: number): void {
-  if (_clientIdx !== fromIdx) return; // already rotated by a concurrent call
-  _clientIdx = (_clientIdx + 1) % YT_CLIENTS.length;
-  logger.warn(
-    { prev: YT_CLIENTS[fromIdx]!.name, next: YT_CLIENTS[_clientIdx]!.name },
-    "yt-dlp: YouTube client blocked — rotated to next",
-  );
-}
-
-// Matches client-level block (format unsupported or 403 on segment) → rotating client may help
-const CLIENT_BLOCKED_RE = /no longer supported|po_token required|HTTP Error 403|Requested format is not available/i;
-// Matches IP-level bot-check → rotating client WON'T help, cookies are needed
-const SIGNIN_RE = /Sign in to confirm|bot.*check|cookies.*required/i;
-
-const BLOCKED_RE = /no longer supported|Sign in|po_token required/i;
+// SIGNIN_RE          → video requires authentication (age-restricted, bot-check)
+// COOKIES_INVALID_RE → cookies expired; yt-dlp warns but continues playing public videos
+const SIGNIN_RE         = /Sign in to confirm|bot.*check|cookies.*required/i;
+const COOKIES_INVALID_RE = /cookies are no longer valid/i;
 
 // ── Public exports ─────────────────────────────────────────────────────────────
 
@@ -191,62 +102,43 @@ export interface YtInfo {
   isLive?: boolean;
 }
 
-export async function ytdlpInfo(url: string, _retry = 0): Promise<YtInfo> {
-  const idx = _clientIdx;
-  let stderr = "";
+export async function ytdlpInfo(url: string): Promise<YtInfo> {
   try {
-    const { stdout, stderr: se } = await execFileAsync(
+    const { stdout } = await execFileAsync(
       YT_DLP_BIN,
       [
         "--print", "%(title)s\t%(duration)s\t%(thumbnail)s\t%(is_live)s",
         "--no-playlist",
-        "--no-check-formats",    // skip format URL validation — saves 1-2s
+        "--no-check-formats",
         "--retries", "1",
         "--socket-timeout", "8",
-        clientArgs(),
+        ANDROID_ARGS,
         ...cookieArgs(),
         url,
       ],
       { timeout: 15_000, maxBuffer: 512 * 1024 },
     );
-    stderr = se ?? "";
-    const line = stdout.trim();
-    const parts = line.split("\t");
-    const title = parts[0]?.trim() || "Unknown";
+    const parts = stdout.trim().split("\t");
+    const title    = parts[0]?.trim() || "Unknown";
     const duration = parseInt(parts[1] ?? "0", 10);
-    const thumb = parts[2]?.trim() || null;
-    const isLive = parts[3]?.trim() === "True";
-    return {
-      title,
-      duration: isNaN(duration) ? 0 : duration,
-      thumbnail: thumb && thumb !== "NA" ? thumb : null,
-      isLive,
-    };
+    const thumb    = parts[2]?.trim() || null;
+    const isLive   = parts[3]?.trim() === "True";
+    return { title, duration: isNaN(duration) ? 0 : duration, thumbnail: thumb && thumb !== "NA" ? thumb : null, isLive };
   } catch (err) {
     const msg = String((err as { stderr?: string })?.stderr ?? err);
     if (SIGNIN_RE.test(msg)) {
-      if (_cookiesReady && _retry < YT_CLIENTS.length - 1) {
-        // Cookies present but android rejected — rotate to mweb/web which respect browser cookies
-        rotateClient(idx);
-        logger.warn({ nextClient: YT_CLIENTS[_clientIdx]!.name }, "yt-dlp: bot-check on info — retrying with next client");
-        return ytdlpInfo(url, _retry + 1);
-      }
-      if (!_cookiesReady) {
-        logger.error("yt-dlp: YouTube requires authentication — set the YT_COOKIES secret (base64 or plain Netscape format)");
-      }
-      throw err;
-    }
-    if (CLIENT_BLOCKED_RE.test(msg) && _retry < YT_CLIENTS.length - 1) {
-      rotateClient(idx);
-      return ytdlpInfo(url, _retry + 1);
+      logger.error(
+        _cookiesReady
+          ? "yt-dlp: YouTube bot-check — cookies may be expired. Re-export from browser."
+          : "yt-dlp: YouTube requires authentication — set the YT_COOKIES secret (base64 format)",
+      );
     }
     throw err;
   }
 }
 
-export function ytdlpStream(url: string, _retry = 0): Readable {
+export function ytdlpStream(url: string): Readable {
   const pass = new PassThrough();
-  const idx = _clientIdx;
 
   const proc = spawn(YT_DLP_BIN, [
     "-f", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
@@ -261,49 +153,42 @@ export function ytdlpStream(url: string, _retry = 0): Readable {
     "--socket-timeout", "8",
     "--concurrent-fragments", "3",
     "--hls-use-mpegts",
-    clientArgs(),
+    ANDROID_ARGS,
     ...cookieArgs(),
     "-o", "-",
     url,
   ]);
 
   proc.stdout.pipe(pass, { end: false });
+  proc.stdout.on("end", () => pass.end());
+  proc.on("error", (err) => pass.destroy(err));
 
   let stderrBuf = "";
+  let cookiesWarnedThisStream = false;
+
   proc.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString();
     stderrBuf += text;
+    process.stderr.write(text);
+
+    // Expired cookies: warn once, but yt-dlp continues for non-auth videos
+    if (!cookiesWarnedThisStream && COOKIES_INVALID_RE.test(stderrBuf)) {
+      cookiesWarnedThisStream = true;
+      logger.warn("yt-dlp: YouTube cookies are expired — public videos still work, auth-required videos will fail.");
+    }
 
     if (SIGNIN_RE.test(stderrBuf)) {
       stderrBuf = "";
       proc.kill();
-      // With cookies: rotate client and retry — mweb/web handle browser cookies better than android
-      if (_cookiesReady && _retry < YT_CLIENTS.length - 1) {
-        rotateClient(idx);
-        logger.warn(
-          { nextClient: YT_CLIENTS[_clientIdx]!.name, retry: _retry + 1 },
-          "yt-dlp: bot-check with cookies — retrying with next client",
-        );
-        const next = ytdlpStream(url, _retry + 1);
-        next.pipe(pass, { end: true });
-        next.on("error", (err) => pass.destroy(err));
-      } else {
-        if (!_cookiesReady) {
-          logger.error("yt-dlp: YouTube bot-check — set YT_COOKIES secret (base64 or plain Netscape format)");
-        } else {
-          logger.error({ url }, "yt-dlp: YouTube bot-check on all clients — cookies may be expired");
-        }
-        pass.destroy(new Error("youtube-bot-check"));
-      }
-    } else if (CLIENT_BLOCKED_RE.test(stderrBuf)) {
-      rotateClient(idx);
-      stderrBuf = "";
+      logger.error(
+        { url },
+        _cookiesReady
+          ? "yt-dlp: YouTube requires sign-in for this video and cookies are expired — cannot play"
+          : "yt-dlp: YouTube bot-check — set YT_COOKIES secret to play restricted videos",
+      );
+      pass.destroy(new Error("youtube-signin-required"));
     }
-    process.stderr.write(text);
   });
-
-  proc.stdout.on("end", () => pass.end());
-  proc.on("error", (err) => pass.destroy(err));
 
   return pass;
 }
@@ -351,18 +236,12 @@ export async function ytdlpSearch(query: string, count = 5): Promise<YtSearchRes
   const lines = stdout.trim().split("\n").filter(Boolean);
   const results = lines.map((line) => {
     const parts = line.split("\t");
-    const id = parts[0] ?? "";
+    const id  = parts[0] ?? "";
     const title = parts[1] ?? "Unknown";
     const dur = parseInt(parts[2] ?? "0", 10);
     const channel = parts[3] && parts[3] !== "NA" ? parts[3] : null;
     const isLive = parts[4]?.trim() === "True";
-    return {
-      title,
-      url: `https://www.youtube.com/watch?v=${id}`,
-      duration: isNaN(dur) ? 0 : dur,
-      channel,
-      isLive,
-    };
+    return { title, url: `https://www.youtube.com/watch?v=${id}`, duration: isNaN(dur) ? 0 : dur, channel, isLive };
   });
   _searchCache.set(cacheKey, { results, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
   return results;
