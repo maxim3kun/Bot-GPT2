@@ -201,22 +201,57 @@ async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | n
   }
 }
 
-async function ocrImageBuffer(buffer: Buffer): Promise<string> {
-  // Write to /tmp, run tesseract, delete immediately — no permanent storage
-  const tmpPath = `${tmpdir()}/food_ocr_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+async function preprocessForOcr(buffer: Buffer): Promise<Buffer> {
   try {
-    await writeFile(tmpPath, buffer);
-    const { stdout } = await execFileAsync(
-      "tesseract",
-      [tmpPath, "stdout", "-l", "eng+fra", "--psm", "1"],
-      { timeout: 15_000 },
-    );
-    return stdout.trim();
+    const sharp = (await import("sharp")).default;
+    return await sharp(buffer)
+      .grayscale()
+      .normalize()
+      .sharpen({ sigma: 1.5 })
+      .linear(1.4, -30)
+      .toBuffer();
+  } catch {
+    return buffer;
+  }
+}
+
+async function ocrImageBuffer(buffer: Buffer): Promise<string> {
+  const processed = await preprocessForOcr(buffer);
+  const base = `${tmpdir()}/food_ocr_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const tmpPath = `${base}.png`;
+
+  const PSM_MODES = ["3", "6", "11", "1"];
+
+  try {
+    await writeFile(tmpPath, processed);
+    const results: string[] = [];
+
+    for (const psm of PSM_MODES) {
+      try {
+        const { stdout } = await execFileAsync(
+          "tesseract",
+          [tmpPath, "stdout", "-l", "eng+fra", "--psm", psm],
+          { timeout: 12_000 },
+        );
+        const text = stdout.trim();
+        if (text) results.push(text);
+      } catch { /* skip failed PSM mode */ }
+    }
+
+    if (results.length === 0) return "";
+
+    // Pick the result with the most meaningful words
+    const scored = results.map((r) => ({
+      text: r,
+      score: r.split(/\s+/).filter((w) => /[a-zA-ZÀ-ÿ]{2,}/.test(w)).length,
+    }));
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0]!.text;
   } catch (err) {
     logger.warn({ err }, "Tesseract OCR error");
     return "";
   } finally {
-    await unlink(tmpPath).catch(() => null); // always clean up
+    await unlink(tmpPath).catch(() => null);
   }
 }
 
@@ -599,40 +634,55 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
         return;
       }
 
-      // OCR found text but no product match — offer AI or manual search
-      const noMatchMsg = `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n` +
-        `• Try manually: \`!food ${ocrQuery}\``;
-
+      // OCR found text but no product match — try AI automatically, or fall back to manual
       if (openai) {
-        storePendingVision(message.author.id, attachment.url);
-        const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`food_vision_${message.author.id}`)
-            .setLabel("🤖 Try with AI")
-            .setStyle(ButtonStyle.Primary),
-        );
-        await waitMsg.edit({ content: noMatchMsg, components: [aiRow] });
+        await waitMsg.edit(`🔍 OCR read "**${ocrQuery}**" but no match — asking AI 🤖…`);
+        const identified = await identifyWithAI(attachment.url, openai);
+        if (identified) {
+          const product2 = isBarcode(identified) ? await fetchByBarcode(identified) : await smartSearch(identified);
+          if (product2) {
+            const embed = buildProductEmbed(product2, false, `🤖 AI: "${identified}"`);
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder().setLabel("🔗 View on Open Food Facts").setStyle(ButtonStyle.Link)
+                .setURL(product2.url ?? `https://world.openfoodfacts.org/product/${product2.code ?? ""}`),
+            );
+            await waitMsg.delete().catch(() => null);
+            await message.reply({ embeds: [embed], components: [row] });
+            return;
+          }
+        }
+        await waitMsg.edit(`❌ OCR read "**${ocrQuery}**" but couldn't find a match. Try: \`!food ${ocrQuery}\``);
       } else {
-        await waitMsg.edit(noMatchMsg);
+        await waitMsg.edit(
+          `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n• Try manually: \`!food ${ocrQuery}\``,
+        );
       }
       return;
     }
 
-    // ── Step 2: OCR found nothing — offer AI or manual search ─────────────────
-    const noOcrMsg = "📷 OCR couldn't read any text from this photo.\n" +
-      "• Type the product name: `!food <name>`";
-
+    // ── Step 2: OCR found nothing — try AI automatically ──────────────────────
     if (openai) {
-      storePendingVision(message.author.id, attachment.url);
-      const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`food_vision_${message.author.id}`)
-          .setLabel("🤖 Try with AI")
-          .setStyle(ButtonStyle.Primary),
-      );
-      await waitMsg.edit({ content: noOcrMsg, components: [aiRow] });
+      await waitMsg.edit("🤖 OCR found nothing — asking AI vision…");
+      const identified = await identifyWithAI(attachment.url, openai);
+      if (identified) {
+        await waitMsg.edit(`🤖 AI detected: **${identified}** — searching Open Food Facts…`);
+        const product = isBarcode(identified) ? await fetchByBarcode(identified) : await smartSearch(identified);
+        if (product) {
+          const embed = buildProductEmbed(product, false, `🤖 AI: "${identified}"`);
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setLabel("🔗 View on Open Food Facts").setStyle(ButtonStyle.Link)
+              .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
+          );
+          await waitMsg.delete().catch(() => null);
+          await message.reply({ embeds: [embed], components: [row] });
+          return;
+        }
+        await waitMsg.edit(`❌ AI detected "**${identified}**" but no match on Open Food Facts. Try: \`!food ${identified}\``);
+      } else {
+        await waitMsg.edit("❌ Neither OCR nor AI could identify this product. Try: `!food <name>`");
+      }
     } else {
-      await waitMsg.edit(noOcrMsg);
+      await waitMsg.edit("📷 OCR couldn't read any text from this photo.\n• Type the product name: `!food <name>`");
     }
     return;
   }
