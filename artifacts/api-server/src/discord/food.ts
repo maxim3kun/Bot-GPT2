@@ -6,6 +6,7 @@ import { promisify } from "util";
 import { Message, ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
+import { saveFoodHistory, getFoodHistory, clearFoodHistory, isMongoConnected } from "../lib/db.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -378,6 +379,7 @@ export async function handleFoodVisionButton(
     return;
   }
 
+  recordToHistory(interaction.user.id, product, `AI: "${identified}"`);
   const embed = buildProductEmbed(product, false, `🤖 AI: "${identified}"`);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -546,6 +548,50 @@ function buildVerdict(nutrigrade: string, nova: number | undefined): string {
   return pool[Math.floor(Math.random() * pool.length)]!;
 }
 
+// ── History helpers ────────────────────────────────────────────────────────────
+
+function recordToHistory(discordId: string, product: OffProduct, detectedAs: string): void {
+  const name = getProductName(product);
+  saveFoodHistory(discordId, {
+    productName: name,
+    brand: product.brands ?? "Unknown brand",
+    nutriscoreGrade: (product.nutriscore_grade ?? "").toLowerCase(),
+    code: product.code ?? "",
+    detectedAs,
+    lookedUpAt: new Date(),
+  }).catch(() => null);
+}
+
+const NUTRISCORE_BADGE: Record<string, string> = { a: "🟢 A", b: "🟩 B", c: "🟡 C", d: "🟠 D", e: "🔴 E" };
+
+async function handleFoodHistory(message: Message): Promise<void> {
+  if (!isMongoConnected()) {
+    await message.reply("❌ History unavailable — database not connected.");
+    return;
+  }
+
+  const entries = await getFoodHistory(message.author.id);
+
+  if (entries.length === 0) {
+    await message.reply("📭 No food history yet. Look up a product with `!food <name>` or a photo!");
+    return;
+  }
+
+  const lines = [...entries].reverse().map((e, i) => {
+    const badge = NUTRISCORE_BADGE[e.nutriscoreGrade] ?? "❓";
+    const ts = `<t:${Math.floor(new Date(e.lookedUpAt).getTime() / 1000)}:R>`;
+    return `**${i + 1}.** ${badge} **${e.productName}** — *${e.brand}* ${ts}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🍽️ Your food history")
+    .setDescription(lines.join("\n"))
+    .setFooter({ text: `Last ${entries.length} products • !food clear to reset` });
+
+  await message.reply({ embeds: [embed] });
+}
+
 // ── Core lookup (shared by both handlers) ─────────────────────────────────────
 
 async function lookupAndReply(
@@ -568,6 +614,8 @@ async function lookupAndReply(
     return;
   }
 
+  recordToHistory(message.author.id, product, detectedAs ?? "manual");
+
   const embed = buildProductEmbed(product, showRate, detectedAs);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -583,8 +631,27 @@ async function lookupAndReply(
 // ── Public handlers ─────────────────────────────────────────────────────────────
 
 export async function handleFood(message: Message, args: string[], openai: OpenAI | null): Promise<void> {
+  const sub = args[0]?.toLowerCase();
+
+  // !food history
+  if (sub === "history") {
+    await handleFoodHistory(message);
+    return;
+  }
+
+  // !food clear
+  if (sub === "clear") {
+    if (!isMongoConnected()) {
+      await message.reply("❌ History unavailable — database not connected.");
+      return;
+    }
+    await clearFoodHistory(message.author.id);
+    await message.reply("🗑️ Your food history has been cleared.");
+    return;
+  }
+
   // !food rate <product> → rate mode
-  if (args[0]?.toLowerCase() === "rate") {
+  if (sub === "rate") {
     args.shift();
     await handleFoodRate(message, args, openai);
     return;
@@ -622,6 +689,7 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
         : await smartSearch(ocrQuery);
 
       if (product) {
+        recordToHistory(message.author.id, product, `OCR: "${ocrQuery}"`);
         const embed = buildProductEmbed(product, false, `📷 OCR: "${ocrQuery}"`);
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()

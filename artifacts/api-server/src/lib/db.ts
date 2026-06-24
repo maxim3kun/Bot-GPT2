@@ -137,6 +137,25 @@ export interface CustomStationDoc {
   addedAt: Date;
 }
 
+// ── Food history ────────────────────────────────────────────────────────────────
+
+export interface FoodHistoryEntry {
+  productName: string;
+  brand: string;
+  nutriscoreGrade: string;
+  code: string;
+  detectedAs: string; // "manual", "OCR: ...", "AI: ..."
+  lookedUpAt: Date;
+}
+
+export interface FoodHistoryDoc {
+  _id: string;           // hashed userId
+  entries: FoodHistoryEntry[];
+  updatedAt: Date;
+}
+
+export const FOOD_HISTORY_MAX = 10;
+
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 export let usersCol: Collection<UserDoc> | null = null;
@@ -145,6 +164,7 @@ export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
 export let logoBrandsCol: Collection<LogoBrandMongoDoc> | null = null;
 export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
 export let customStationsCol: Collection<CustomStationDoc> | null = null;
+export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
@@ -174,6 +194,7 @@ export async function connectDb(): Promise<void> {
     logoBrandsCol = db.collection<LogoBrandMongoDoc>("logo_brands");
     artistCacheCol = db.collection<ArtistCacheDoc>("artist_cache");
     customStationsCol = db.collection<CustomStationDoc>("custom_radio_stations");
+    foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
     await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");
@@ -325,6 +346,50 @@ export async function getAllGuildDocs(): Promise<GuildDoc[]> {
   } catch (err) {
     logger.error({ err }, "getAllGuildDocs failed");
     return [];
+  }
+}
+
+// ── Food history CRUD ──────────────────────────────────────────────────────────
+
+export async function saveFoodHistory(discordId: string, entry: FoodHistoryEntry): Promise<void> {
+  if (!foodHistoryCol) return;
+  try {
+    const hash = hashUserId(discordId);
+    await foodHistoryCol.updateOne(
+      { _id: hash },
+      {
+        $push: {
+          entries: {
+            $each: [entry],
+            $slice: -FOOD_HISTORY_MAX,
+          },
+        } as never,
+        $set: { updatedAt: new Date() },
+      },
+      { upsert: true },
+    );
+  } catch (err) {
+    logger.error({ err }, "saveFoodHistory failed");
+  }
+}
+
+export async function getFoodHistory(discordId: string): Promise<FoodHistoryEntry[]> {
+  if (!foodHistoryCol) return [];
+  try {
+    const doc = await foodHistoryCol.findOne({ _id: hashUserId(discordId) });
+    return doc?.entries ?? [];
+  } catch (err) {
+    logger.error({ err }, "getFoodHistory failed");
+    return [];
+  }
+}
+
+export async function clearFoodHistory(discordId: string): Promise<void> {
+  if (!foodHistoryCol) return;
+  try {
+    await foodHistoryCol.deleteOne({ _id: hashUserId(discordId) });
+  } catch (err) {
+    logger.error({ err }, "clearFoodHistory failed");
   }
 }
 
