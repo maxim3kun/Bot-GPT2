@@ -634,55 +634,40 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
         return;
       }
 
-      // OCR found text but no product match — try AI automatically, or fall back to manual
+      // OCR found text but no product match — offer AI or manual search
+      const noMatchMsg = `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n` +
+        `• Try manually: \`!food ${ocrQuery}\``;
+
       if (openai) {
-        await waitMsg.edit(`🔍 OCR read "**${ocrQuery}**" but no match — asking AI 🤖…`);
-        const identified = await identifyWithAI(attachment.url, openai);
-        if (identified) {
-          const product2 = isBarcode(identified) ? await fetchByBarcode(identified) : await smartSearch(identified);
-          if (product2) {
-            const embed = buildProductEmbed(product2, false, `🤖 AI: "${identified}"`);
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-              new ButtonBuilder().setLabel("🔗 View on Open Food Facts").setStyle(ButtonStyle.Link)
-                .setURL(product2.url ?? `https://world.openfoodfacts.org/product/${product2.code ?? ""}`),
-            );
-            await waitMsg.delete().catch(() => null);
-            await message.reply({ embeds: [embed], components: [row] });
-            return;
-          }
-        }
-        await waitMsg.edit(`❌ OCR read "**${ocrQuery}**" but couldn't find a match. Try: \`!food ${ocrQuery}\``);
-      } else {
-        await waitMsg.edit(
-          `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n• Try manually: \`!food ${ocrQuery}\``,
+        storePendingVision(message.author.id, attachment.url);
+        const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`food_vision_${message.author.id}`)
+            .setLabel("🤖 Try with AI")
+            .setStyle(ButtonStyle.Primary),
         );
+        await waitMsg.edit({ content: noMatchMsg, components: [aiRow] });
+      } else {
+        await waitMsg.edit(noMatchMsg);
       }
       return;
     }
 
-    // ── Step 2: OCR found nothing — try AI automatically ──────────────────────
+    // ── Step 2: OCR found nothing — offer AI button or manual search ───────────
+    const noOcrMsg = "📷 OCR couldn't read any text from this photo.\n" +
+      "• Type the product name: `!food <name>`";
+
     if (openai) {
-      await waitMsg.edit("🤖 OCR found nothing — asking AI vision…");
-      const identified = await identifyWithAI(attachment.url, openai);
-      if (identified) {
-        await waitMsg.edit(`🤖 AI detected: **${identified}** — searching Open Food Facts…`);
-        const product = isBarcode(identified) ? await fetchByBarcode(identified) : await smartSearch(identified);
-        if (product) {
-          const embed = buildProductEmbed(product, false, `🤖 AI: "${identified}"`);
-          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setLabel("🔗 View on Open Food Facts").setStyle(ButtonStyle.Link)
-              .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
-          );
-          await waitMsg.delete().catch(() => null);
-          await message.reply({ embeds: [embed], components: [row] });
-          return;
-        }
-        await waitMsg.edit(`❌ AI detected "**${identified}**" but no match on Open Food Facts. Try: \`!food ${identified}\``);
-      } else {
-        await waitMsg.edit("❌ Neither OCR nor AI could identify this product. Try: `!food <name>`");
-      }
+      storePendingVision(message.author.id, attachment.url);
+      const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`food_vision_${message.author.id}`)
+          .setLabel("🤖 Try with AI")
+          .setStyle(ButtonStyle.Primary),
+      );
+      await waitMsg.edit({ content: noOcrMsg, components: [aiRow] });
     } else {
-      await waitMsg.edit("📷 OCR couldn't read any text from this photo.\n• Type the product name: `!food <name>`");
+      await waitMsg.edit(noOcrMsg);
     }
     return;
   }
