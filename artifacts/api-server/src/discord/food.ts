@@ -1,4 +1,5 @@
 import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
 
 // ── Open Food Facts API ────────────────────────────────────────────────────────
@@ -107,7 +108,6 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
       return null;
     }
     const text = await res.text();
-    // Guard against HTML error pages
     if (text.trimStart().startsWith("<")) {
       logger.warn("OFF search returned HTML instead of JSON");
       return null;
@@ -122,6 +122,48 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
     return null;
   }
 }
+
+// ── Vision: identify product from photo ───────────────────────────────────────
+
+async function identifyProductFromImage(
+  imageUrl: string,
+  openai: OpenAI,
+): Promise<string | null> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "llama-3.2-11b-vision-preview",
+      max_completion_tokens: 120,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: imageUrl },
+            },
+            {
+              type: "text",
+              text:
+                "Look at this food product image. " +
+                "Reply with ONLY the brand name and product name (e.g. 'Nutella hazelnut spread' or 'Coca-Cola Zero'). " +
+                "If you can read a barcode number, reply with ONLY the barcode digits. " +
+                "If you cannot identify any food product, reply with exactly: UNKNOWN",
+            },
+          ],
+        },
+      ],
+    });
+    const content = response.choices[0]?.message?.content?.trim() ?? "";
+    logger.info({ content }, "Vision product identification");
+    if (!content || content === "UNKNOWN") return null;
+    return content;
+  } catch (err) {
+    logger.error({ err }, "Vision API error");
+    return null;
+  }
+}
+
+// ── Embed builder ─────────────────────────────────────────────────────────────
 
 function getProductName(product: OffProduct): string {
   return product.product_name_en || product.product_name || product.product_name_fr || "Unknown product";
@@ -142,7 +184,7 @@ function nutriscoreLabel(grade: string): string {
   return labels[grade] ?? "Unknown quality";
 }
 
-function buildProductEmbed(product: OffProduct, showRate = false): EmbedBuilder {
+function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: string): EmbedBuilder {
   const name = getProductName(product);
   const brand = product.brands || "Unknown brand";
   const quantity = product.quantity ? ` — ${product.quantity}` : "";
@@ -153,11 +195,15 @@ function buildProductEmbed(product: OffProduct, showRate = false): EmbedBuilder 
 
   const color = NUTRISCORE_COLORS[nutrigrade] ?? 0x5865f2;
 
+  const description = detectedAs
+    ? `**${brand}**${quantity}\n*📸 Identified from photo as: "${detectedAs}"*`
+    : `**${brand}**${quantity}`;
+
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(`🍽️ ${name}`)
     .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`)
-    .setDescription(`**${brand}**${quantity}`)
+    .setDescription(description)
     .setFooter({ text: "Data: Open Food Facts • openfoodfacts.org" });
 
   const image = product.image_front_url || product.image_url;
@@ -275,37 +321,18 @@ function buildVerdict(nutrigrade: string, nova: number | undefined): string {
   return pool[Math.floor(Math.random() * pool.length)]!;
 }
 
-// ── Public handlers ─────────────────────────────────────────────────────────────
+// ── Core lookup (shared by both handlers) ─────────────────────────────────────
 
-export async function handleFood(message: Message, args: string[]): Promise<void> {
-  if (args[0]?.toLowerCase() === "rate") {
-    args.shift();
-    await handleFoodRate(message, args);
-    return;
-  }
-
-  const query = args.join(" ").trim();
-  if (!query) {
-    const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle("🍽️ Food Command")
-      .setDescription(
-        "Look up any food product on Open Food Facts!\n\n" +
-        "**`!food <name or barcode>`** — Nutritional info\n" +
-        "**`!food rate <name>`** — Rate & verdict for a product\n" +
-        "**`!rate food <name>`** — Same thing\n\n" +
-        "**Examples:**\n" +
-        "`!food nutella`\n" +
-        "`!food coca-cola`\n" +
-        "`!food 3017620422003`\n" +
-        "`!food rate oreo`",
-      )
-      .setFooter({ text: "Data: Open Food Facts (openfoodfacts.org)" });
-    await message.reply({ embeds: [embed] });
-    return;
-  }
-
-  const waitMsg = await message.reply("🔍 Searching Open Food Facts…");
+async function lookupAndReply(
+  message: Message,
+  query: string,
+  showRate: boolean,
+  openai: OpenAI | null,
+  detectedAs?: string,
+): Promise<void> {
+  const waitMsg = await message.reply(
+    showRate ? `⚖️ Analysing **${query}**…` : "🔍 Searching Open Food Facts…",
+  );
 
   const product = isBarcode(query)
     ? await fetchByBarcode(query)
@@ -316,7 +343,7 @@ export async function handleFood(message: Message, args: string[]): Promise<void
     return;
   }
 
-  const embed = buildProductEmbed(product);
+  const embed = buildProductEmbed(product, showRate, detectedAs);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setLabel("🔗 View on Open Food Facts")
@@ -328,32 +355,95 @@ export async function handleFood(message: Message, args: string[]): Promise<void
   await message.reply({ embeds: [embed], components: [row] });
 }
 
-export async function handleFoodRate(message: Message, args: string[]): Promise<void> {
+// ── Public handlers ─────────────────────────────────────────────────────────────
+
+export async function handleFood(message: Message, args: string[], openai: OpenAI | null): Promise<void> {
+  // !food rate <product> → rate mode
+  if (args[0]?.toLowerCase() === "rate") {
+    args.shift();
+    await handleFoodRate(message, args, openai);
+    return;
+  }
+
+  // Photo detection — image attached with no text query
+  const attachment = message.attachments.first();
+  const query = args.join(" ").trim();
+
+  if (attachment && !query) {
+    const isImage = attachment.contentType?.startsWith("image/") ?? false;
+    if (!isImage) {
+      await message.reply("❌ Please attach an image file (JPG, PNG, WEBP…).");
+      return;
+    }
+    if (!openai) {
+      await message.reply("❌ AI features are not configured — image detection requires GROQ_API_KEY.");
+      return;
+    }
+
+    const waitMsg = await message.reply("📸 Analysing your photo with AI…");
+
+    const identified = await identifyProductFromImage(attachment.url, openai);
+    if (!identified) {
+      await waitMsg.edit("❌ Couldn't identify any food product in this photo. Try a clearer picture or type the name: `!food coca-cola`");
+      return;
+    }
+
+    await waitMsg.edit(`🔍 Detected **${identified}** — searching Open Food Facts…`);
+    await new Promise((r) => setTimeout(r, 800));
+
+    const searchQuery = identified;
+    const product = isBarcode(searchQuery)
+      ? await fetchByBarcode(searchQuery)
+      : await searchProduct(searchQuery);
+
+    if (!product) {
+      await waitMsg.edit(`❌ AI detected "**${identified}**" but found no match on Open Food Facts. Try typing the name manually: \`!food ${identified}\``);
+      return;
+    }
+
+    const embed = buildProductEmbed(product, false, identified);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("🔗 View on Open Food Facts")
+        .setStyle(ButtonStyle.Link)
+        .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
+    );
+
+    await waitMsg.delete().catch(() => null);
+    await message.reply({ embeds: [embed], components: [row] });
+    return;
+  }
+
+  // No query and no image → show help
+  if (!query && !attachment) {
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("🍽️ Food Command")
+      .setDescription(
+        "Look up any food product on Open Food Facts!\n\n" +
+        "**`!food <name or barcode>`** — Nutritional info\n" +
+        "**`!food rate <name>`** — Rate & verdict for a product\n" +
+        "**`!rate food <name>`** — Same thing\n" +
+        "**`!food` + 📎 photo** — Detect product from a photo\n\n" +
+        "**Examples:**\n" +
+        "`!food nutella`\n" +
+        "`!food coca-cola`\n" +
+        "`!food 3017620422003`\n" +
+        "`!food rate oreo`",
+      )
+      .setFooter({ text: "Data: Open Food Facts (openfoodfacts.org)" });
+    await message.reply({ embeds: [embed] });
+    return;
+  }
+
+  await lookupAndReply(message, query, false, openai);
+}
+
+export async function handleFoodRate(message: Message, args: string[], openai: OpenAI | null): Promise<void> {
   const query = args.join(" ").trim();
   if (!query) {
     await message.reply("❓ Tell me what to rate! Example: `!food rate nutella`");
     return;
   }
-
-  const waitMsg = await message.reply(`⚖️ Analysing **${query}**…`);
-
-  const product = isBarcode(query)
-    ? await fetchByBarcode(query)
-    : await searchProduct(query);
-
-  if (!product) {
-    await waitMsg.edit(`❌ No product found for **${query}**. Try a different name or use the barcode.`);
-    return;
-  }
-
-  const embed = buildProductEmbed(product, true);
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setLabel("🔗 View on Open Food Facts")
-      .setStyle(ButtonStyle.Link)
-      .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
-  );
-
-  await waitMsg.delete().catch(() => null);
-  await message.reply({ embeds: [embed], components: [row] });
+  await lookupAndReply(message, query, true, openai);
 }

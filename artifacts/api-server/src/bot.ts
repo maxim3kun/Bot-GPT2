@@ -1145,17 +1145,17 @@ export function startBot(): void {
         case "food":
         case "aliment":
         case "produit": {
-          await handleFood(message, args);
+          await handleFood(message, args, openai);
           break;
         }
 
         case "rate": {
-          // !rate food <produit> → food rate
+          // !rate food <product> → food rate
           if (args[0]?.toLowerCase() === "food") {
             args.shift();
-            await handleFoodRate(message, args);
+            await handleFoodRate(message, args, openai);
           } else {
-            await message.reply(`❓ Essaie \`${guildPrefix}rate food <produit>\` pour noter un aliment !`);
+            await message.reply(`❓ Try \`${guildPrefix}rate food <product>\` to rate a food product!`);
           }
           break;
         }
