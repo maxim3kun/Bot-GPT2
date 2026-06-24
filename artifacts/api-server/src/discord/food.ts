@@ -125,11 +125,37 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
 
 // ── Vision: identify product from photo ───────────────────────────────────────
 
+async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; MaximeGPT/1.0)" },
+    });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") ?? "image/jpeg";
+    const mimeType = contentType.split(";")[0]!.trim();
+    const buffer = await res.arrayBuffer();
+    const data = Buffer.from(buffer).toString("base64");
+    return { data, mimeType };
+  } catch (err) {
+    logger.error({ err }, "Failed to download image for Vision");
+    return null;
+  }
+}
+
 async function identifyProductFromImage(
   imageUrl: string,
   openai: OpenAI,
 ): Promise<string | null> {
   try {
+    // Download the image and encode as base64 — Groq Vision cannot reach Discord CDN URLs
+    const encoded = await imageUrlToBase64(imageUrl);
+    if (!encoded) {
+      logger.warn("Could not download image for Vision");
+      return null;
+    }
+
+    const dataUrl = `data:${encoded.mimeType};base64,${encoded.data}`;
+
     const response = await openai.chat.completions.create({
       model: "llama-3.2-11b-vision-preview",
       max_completion_tokens: 120,
@@ -139,15 +165,15 @@ async function identifyProductFromImage(
           content: [
             {
               type: "image_url",
-              image_url: { url: imageUrl },
+              image_url: { url: dataUrl },
             },
             {
               type: "text",
               text:
                 "Look at this food product image. " +
-                "Reply with ONLY the brand name and product name (e.g. 'Nutella hazelnut spread' or 'Coca-Cola Zero'). " +
-                "If you can read a barcode number, reply with ONLY the barcode digits. " +
-                "If you cannot identify any food product, reply with exactly: UNKNOWN",
+                "Reply with ONLY the brand name and product name (e.g. 'Nutella hazelnut spread' or 'Haribo Goldbears' or 'Coca-Cola Zero'). " +
+                "If you can read a barcode number clearly, reply with ONLY the barcode digits. " +
+                "Do not add any explanation. If you cannot identify any food product at all, reply with exactly: UNKNOWN",
             },
           ],
         },
@@ -155,7 +181,7 @@ async function identifyProductFromImage(
     });
     const content = response.choices[0]?.message?.content?.trim() ?? "";
     logger.info({ content }, "Vision product identification");
-    if (!content || content === "UNKNOWN") return null;
+    if (!content || content.toUpperCase() === "UNKNOWN") return null;
     return content;
   } catch (err) {
     logger.error({ err }, "Vision API error");
