@@ -205,11 +205,23 @@ async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | n
 async function preprocessForOcr(buffer: Buffer): Promise<Buffer> {
   try {
     const sharp = (await import("sharp")).default;
+    const img = sharp(buffer);
+    const meta = await img.metadata();
+    const w = meta.width ?? 600;
+    const h = meta.height ?? 600;
+
+    // Crop to the central 65% — main product is usually centred/foreground
+    const cropW = Math.round(w * 0.65);
+    const cropH = Math.round(h * 0.65);
+    const left  = Math.round((w - cropW) / 2);
+    const top   = Math.round((h - cropH) / 2);
+
     return await sharp(buffer)
+      .extract({ left, top, width: cropW, height: cropH })
       .grayscale()
       .normalize()
-      .sharpen({ sigma: 1.5 })
-      .linear(1.4, -30)
+      .sharpen({ sigma: 1.2 })
+      .linear(1.3, -20)
       .toBuffer();
   } catch {
     return buffer;
@@ -256,6 +268,15 @@ async function ocrImageBuffer(buffer: Buffer): Promise<string> {
   }
 }
 
+function lineScore(line: string): number {
+  // Count tokens that look like real words (4+ letters, no special chars)
+  const realWords = line.split(/\s+/).filter((w) => /^[a-zA-ZÀ-ÿ]{4,}$/.test(w));
+  const allTokens = line.split(/\s+/).filter(Boolean);
+  if (allTokens.length === 0) return 0;
+  // Score = real-word ratio weighted by count
+  return (realWords.length / allTokens.length) * realWords.length;
+}
+
 function extractProductQuery(ocrText: string): string | null {
   if (!ocrText) return null;
 
@@ -264,16 +285,33 @@ function extractProductQuery(ocrText: string): string | null {
     .map((l) => l.trim())
     .filter((l) => {
       if (l.length < 3) return false;
-      if (!/[a-zA-ZÀ-ÿ]{2,}/.test(l)) return false;   // must have at least 2 letters
-      if (/^\d[\d\s,.%kKgGmMlL°]*$/.test(l)) return false; // pure numbers/units
+      // Must contain at least one real word (4+ letters, no special chars)
+      if (!/[a-zA-ZÀ-ÿ]{4,}/.test(l)) return false;
+      // Reject pure numbers/units lines
+      if (/^\d[\d\s,.%kKgGmMlL°]*$/.test(l)) return false;
+      // Reject lines with too many special characters (price tags, garbled OCR)
+      const specialRatio = (l.match(/[^a-zA-ZÀ-ÿ0-9\s]/g) ?? []).length / l.length;
+      if (specialRatio > 0.3) return false;
+      // Reject lines that are mostly 1-3 char tokens (garbled OCR noise)
+      const tokens = l.split(/\s+/).filter(Boolean);
+      const shortTokens = tokens.filter((w) => w.length <= 2).length;
+      if (tokens.length > 0 && shortTokens / tokens.length > 0.6) return false;
       return true;
     });
 
   if (lines.length === 0) return null;
 
-  // Take first 2 meaningful lines (brand + product name are usually at the top)
-  const query = lines.slice(0, 2).join(" ").replace(/\s+/g, " ").trim().slice(0, 100);
-  return query.length >= 2 ? query : null;
+  // Pick the two highest-scoring lines (most real words)
+  const scored = lines
+    .map((l) => ({ line: l, score: lineScore(l) }))
+    .filter((x) => x.score >= 0.5)        // must have at least some real words
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return null;
+
+  const query = scored.slice(0, 2).map((x) => x.line).join(" ")
+    .replace(/\s+/g, " ").trim().slice(0, 100);
+  return query.length >= 4 ? query : null;
 }
 
 // ── Pending vision requests (RAM only, TTL 10 min) ────────────────────────────
