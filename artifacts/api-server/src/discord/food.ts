@@ -125,15 +125,39 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
 
 // ── Vision: identify product from photo ───────────────────────────────────────
 
-async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
+// Only vision model available on Groq (llama-3.2-11b-vision-preview does NOT exist on this account)
+const VISION_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct"];
+
+// Discord CDN supports ?width=N&height=N for server-side resizing
+function discordResizedUrl(url: string, maxPx = 800): string {
   try {
-    const res = await fetch(url, {
+    const u = new URL(url);
+    // Only apply to Discord/proxy CDN hosts
+    if (u.hostname.endsWith("discordapp.com") || u.hostname.endsWith("discordapp.net")) {
+      u.searchParams.set("width", String(maxPx));
+      u.searchParams.set("height", String(maxPx));
+      return u.toString();
+    }
+  } catch { /* non-URL fallback */ }
+  return url;
+}
+
+async function downloadImageAsBase64(url: string, maxPx = 800): Promise<{ data: string; mimeType: string } | null> {
+  // Use Discord server-side resize — smaller image, no disk storage
+  const resized = discordResizedUrl(url, maxPx);
+  try {
+    const res = await fetch(resized, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; MaximeGPT/1.0)" },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logger.warn({ status: res.status, url: resized }, "Image download failed");
+      return null;
+    }
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     const mimeType = contentType.split(";")[0]!.trim();
     const buffer = await res.arrayBuffer();
+    const sizeKb = Math.round(buffer.byteLength / 1024);
+    logger.info({ sizeKb, url: resized }, "Image downloaded for Vision");
     const data = Buffer.from(buffer).toString("base64");
     return { data, mimeType };
   } catch (err) {
@@ -142,51 +166,54 @@ async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: 
   }
 }
 
+const VISION_PROMPT =
+  "This is a food product photo. Identify the product and reply with ONLY the brand + product name " +
+  "(examples: 'Haribo Goldbears', 'Nutella hazelnut spread', 'Coca-Cola Zero'). " +
+  "If you clearly see a barcode number, reply with ONLY those digits. " +
+  "No explanation. If you truly cannot identify any food product, reply exactly: UNKNOWN";
+
+async function callVision(imageInput: string, openai: OpenAI): Promise<string | null> {
+  for (const model of VISION_MODELS) {
+    try {
+      logger.info({ model, inputType: imageInput.startsWith("data:") ? "base64" : "url" }, "Trying vision model");
+      const response = await openai.chat.completions.create({
+        model,
+        max_completion_tokens: 80,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: imageInput } },
+              { type: "text", text: VISION_PROMPT },
+            ],
+          },
+        ],
+      });
+      const content = response.choices[0]?.message?.content?.trim() ?? "";
+      logger.info({ model, content }, "Vision result");
+      if (content && content.toUpperCase() !== "UNKNOWN" && content.length > 0) return content;
+    } catch (err) {
+      logger.warn({ model, err }, "Vision model error");
+    }
+  }
+  return null;
+}
+
 async function identifyProductFromImage(
-  imageUrl: string,
+  cdnUrl: string,
+  _proxyUrl: string,  // kept for signature compat, Groq blocks all external URLs
   openai: OpenAI,
 ): Promise<string | null> {
-  try {
-    // Download the image and encode as base64 — Groq Vision cannot reach Discord CDN URLs
-    const encoded = await imageUrlToBase64(imageUrl);
-    if (!encoded) {
-      logger.warn("Could not download image for Vision");
-      return null;
-    }
-
-    const dataUrl = `data:${encoded.mimeType};base64,${encoded.data}`;
-
-    const response = await openai.chat.completions.create({
-      model: "llama-3.2-11b-vision-preview",
-      max_completion_tokens: 120,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: { url: dataUrl },
-            },
-            {
-              type: "text",
-              text:
-                "Look at this food product image. " +
-                "Reply with ONLY the brand name and product name (e.g. 'Nutella hazelnut spread' or 'Haribo Goldbears' or 'Coca-Cola Zero'). " +
-                "If you can read a barcode number clearly, reply with ONLY the barcode digits. " +
-                "Do not add any explanation. If you cannot identify any food product at all, reply with exactly: UNKNOWN",
-            },
-          ],
-        },
-      ],
-    });
-    const content = response.choices[0]?.message?.content?.trim() ?? "";
-    logger.info({ content }, "Vision product identification");
-    if (!content || content.toUpperCase() === "UNKNOWN") return null;
-    return content;
-  } catch (err) {
-    logger.error({ err }, "Vision API error");
+  // Groq Vision cannot fetch any external URL (403 for all origins).
+  // Only base64 works. Download a small 400px thumbnail to minimise RAM usage.
+  const encoded = await downloadImageAsBase64(cdnUrl, 400);
+  if (!encoded) {
+    logger.warn("Image download failed");
     return null;
   }
+  const dataUrl = `data:${encoded.mimeType};base64,${encoded.data}`;
+  logger.info({ sizeKb: Math.round(encoded.data.length * 0.75 / 1024) }, "Sending base64 image to Groq Vision");
+  return callVision(dataUrl, openai);
 }
 
 // ── Embed builder ─────────────────────────────────────────────────────────────
@@ -408,7 +435,7 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
 
     const waitMsg = await message.reply("📸 Analysing your photo with AI…");
 
-    const identified = await identifyProductFromImage(attachment.url, openai);
+    const identified = await identifyProductFromImage(attachment.url, attachment.proxyURL, openai);
     if (!identified) {
       await waitMsg.edit("❌ Couldn't identify any food product in this photo. Try a clearer picture or type the name: `!food coca-cola`");
       return;
