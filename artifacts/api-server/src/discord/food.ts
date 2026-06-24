@@ -205,19 +205,34 @@ async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | n
 // ── Barcode detection (zbarimg — EAN/UPC/QR) ──────────────────────────────────
 
 async function detectBarcode(buffer: Buffer): Promise<string | null> {
-  const tmpPath = `${tmpdir()}/food_barcode_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+  const tmpPath = `${tmpdir()}/food_barcode_${Date.now()}_${Math.random().toString(36).slice(2)}.png`;
   try {
-    await writeFile(tmpPath, buffer);
+    // Scale up to 1600px wide — zbarimg needs high resolution to decode barcodes reliably
+    const sharp = (await import("sharp")).default;
+    const meta = await sharp(buffer).metadata();
+    const w = meta.width ?? 800;
+    const upscaled = w < 1600
+      ? await sharp(buffer).resize(1600, null, { kernel: "lanczos3" }).grayscale().toBuffer()
+      : await sharp(buffer).grayscale().toBuffer();
+
+    await writeFile(tmpPath, upscaled);
+
+    // Simple flags: just raw output and quiet — let zbar use all symbologies
     const { stdout } = await execFileAsync(
       "zbarimg",
-      ["--raw", "-q", "--set", "*.enable=0", "--set", "ean13.enable=1", "--set", "ean8.enable=1",
-        "--set", "upca.enable=1", "--set", "upce.enable=1", "--set", "qrcode.enable=1", tmpPath],
-      { timeout: 8_000 },
+      ["--raw", "-q", tmpPath],
+      { timeout: 10_000 },
     );
-    const code = stdout.trim().split("\n")[0]?.trim() ?? "";
-    // Keep only digit-only codes (EAN/UPC) — 8 to 14 digits
-    return /^\d{8,14}$/.test(code) ? code : null;
-  } catch {
+
+    // zbarimg outputs one code per line, take first digit-only EAN/UPC (8-14 digits)
+    const code = stdout.trim().split("\n")
+      .map((l) => l.trim())
+      .find((l) => /^\d{8,14}$/.test(l)) ?? null;
+
+    logger.info({ code, stdout: stdout.trim().slice(0, 100) }, "zbarimg output");
+    return code;
+  } catch (err) {
+    logger.warn({ err }, "detectBarcode error");
     return null;
   } finally {
     await unlink(tmpPath).catch(() => null);
@@ -717,7 +732,7 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
 
     const waitMsg = await message.reply("📸 Scanning photo…");
 
-    const buffer = await downloadImageBuffer(attachment.url, 800);
+    const buffer = await downloadImageBuffer(attachment.url, 2000);
     if (!buffer) {
       await waitMsg.edit("❌ Couldn't download the image. Try again.");
       return;
