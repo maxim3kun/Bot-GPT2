@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.zbar
     pkgs.tesseract
     pkgs.ffmpeg
     pkgs.yt-dlp

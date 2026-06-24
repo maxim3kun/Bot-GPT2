@@ -202,6 +202,28 @@ async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | n
   }
 }
 
+// ── Barcode detection (zbarimg — EAN/UPC/QR) ──────────────────────────────────
+
+async function detectBarcode(buffer: Buffer): Promise<string | null> {
+  const tmpPath = `${tmpdir()}/food_barcode_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+  try {
+    await writeFile(tmpPath, buffer);
+    const { stdout } = await execFileAsync(
+      "zbarimg",
+      ["--raw", "-q", "--set", "*.enable=0", "--set", "ean13.enable=1", "--set", "ean8.enable=1",
+        "--set", "upca.enable=1", "--set", "upce.enable=1", "--set", "qrcode.enable=1", tmpPath],
+      { timeout: 8_000 },
+    );
+    const code = stdout.trim().split("\n")[0]?.trim() ?? "";
+    // Keep only digit-only codes (EAN/UPC) — 8 to 14 digits
+    return /^\d{8,14}$/.test(code) ? code : null;
+  } catch {
+    return null;
+  } finally {
+    await unlink(tmpPath).catch(() => null);
+  }
+}
+
 async function preprocessForOcr(buffer: Buffer): Promise<Buffer> {
   try {
     const sharp = (await import("sharp")).default;
@@ -257,11 +279,10 @@ async function ocrImageBuffer(buffer: Buffer): Promise<string> {
 }
 
 function lineScore(line: string): number {
-  // Count tokens that look like real words (4+ letters, no special chars)
-  const realWords = line.split(/\s+/).filter((w) => /^[a-zA-ZÀ-ÿ]{4,}$/.test(w));
+  // Count tokens that look like real words (3+ letters, no special chars)
+  const realWords = line.split(/\s+/).filter((w) => /^[a-zA-ZÀ-ÿ]{3,}$/.test(w));
   const allTokens = line.split(/\s+/).filter(Boolean);
   if (allTokens.length === 0) return 0;
-  // Score = real-word ratio weighted by count
   return (realWords.length / allTokens.length) * realWords.length;
 }
 
@@ -272,18 +293,18 @@ function extractProductQuery(ocrText: string): string | null {
     .split(/\n+/)
     .map((l) => l.trim())
     .filter((l) => {
-      if (l.length < 3) return false;
-      // Must contain at least one real word (4+ letters, no special chars)
-      if (!/[a-zA-ZÀ-ÿ]{4,}/.test(l)) return false;
+      if (l.length < 2) return false;
+      // Must contain at least one letter sequence (3+)
+      if (!/[a-zA-ZÀ-ÿ]{3,}/.test(l)) return false;
       // Reject pure numbers/units lines
       if (/^\d[\d\s,.%kKgGmMlL°]*$/.test(l)) return false;
       // Reject lines with too many special characters (price tags, garbled OCR)
       const specialRatio = (l.match(/[^a-zA-ZÀ-ÿ0-9\s]/g) ?? []).length / l.length;
-      if (specialRatio > 0.3) return false;
-      // Reject lines that are mostly 1-3 char tokens (garbled OCR noise)
+      if (specialRatio > 0.35) return false;
+      // Reject lines that are mostly 1-2 char tokens (garbled OCR noise like "mm TN E")
       const tokens = l.split(/\s+/).filter(Boolean);
       const shortTokens = tokens.filter((w) => w.length <= 2).length;
-      if (tokens.length > 0 && shortTokens / tokens.length > 0.6) return false;
+      if (tokens.length >= 3 && shortTokens / tokens.length > 0.6) return false;
       return true;
     });
 
@@ -292,14 +313,14 @@ function extractProductQuery(ocrText: string): string | null {
   // Pick the two highest-scoring lines (most real words)
   const scored = lines
     .map((l) => ({ line: l, score: lineScore(l) }))
-    .filter((x) => x.score >= 0.5)        // must have at least some real words
+    .filter((x) => x.score >= 0.3)
     .sort((a, b) => b.score - a.score);
 
   if (scored.length === 0) return null;
 
   const query = scored.slice(0, 2).map((x) => x.line).join(" ")
     .replace(/\s+/g, " ").trim().slice(0, 100);
-  return query.length >= 4 ? query : null;
+  return query.length >= 3 ? query : null;
 }
 
 // ── Pending vision requests (RAM only, TTL 10 min) ────────────────────────────
@@ -694,15 +715,39 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
       return;
     }
 
-    const waitMsg = await message.reply("📸 Reading photo with OCR…");
+    const waitMsg = await message.reply("📸 Scanning photo…");
 
-    // ── Step 1: OCR (local, no AI, no external calls) ─────────────────────────
-    const buffer = await downloadImageBuffer(attachment.url, 600);
+    const buffer = await downloadImageBuffer(attachment.url, 800);
     if (!buffer) {
       await waitMsg.edit("❌ Couldn't download the image. Try again.");
       return;
     }
 
+    // ── Step 1: Barcode (most reliable — EAN/UPC on every food product) ────────
+    const barcode = await detectBarcode(buffer);
+    logger.info({ barcode }, "Barcode detection result");
+
+    if (barcode) {
+      await waitMsg.edit(`🔢 Barcode detected: **${barcode}** — searching Open Food Facts…`);
+      const product = await fetchByBarcode(barcode);
+      if (product) {
+        recordToHistory(message.author.id, product, `barcode: ${barcode}`);
+        const embed = buildProductEmbed(product, false, `🔢 Barcode: ${barcode}`);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel("🔗 View on Open Food Facts")
+            .setStyle(ButtonStyle.Link)
+            .setURL(product.url ?? `https://world.openfoodfacts.org/product/${barcode}`),
+        );
+        await waitMsg.delete().catch(() => null);
+        await message.reply({ embeds: [embed], components: [row] });
+        return;
+      }
+      await waitMsg.edit(`🔢 Barcode **${barcode}** not found on Open Food Facts. Trying OCR…`);
+    }
+
+    // ── Step 2: OCR text recognition ──────────────────────────────────────────
+    await waitMsg.edit("🔍 Trying text recognition (OCR)…");
     const ocrText = await ocrImageBuffer(buffer);
     const ocrQuery = extractProductQuery(ocrText);
     logger.info({ ocrQuery, ocrLines: ocrText.split("\n").length }, "OCR result");
