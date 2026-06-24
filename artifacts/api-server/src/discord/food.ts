@@ -130,6 +130,48 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
   }
 }
 
+// Tries the query AND fallback variations (brand-only, normalised spelling, etc.)
+// so that AI/OCR results like "Haribo Goldbears" still find the product.
+async function smartSearch(query: string): Promise<OffProduct | null> {
+  const clean = query.trim();
+  if (!clean) return null;
+
+  // Build a list of progressively simpler variants to try in order
+  const variants: string[] = [clean];
+
+  const words = clean.split(/\s+/).filter((w) => w.length > 1);
+
+  if (words.length >= 2) {
+    // "Haribo Gold-Bears" → "Haribo Gold Bears"
+    variants.push(clean.replace(/[-_]/g, " "));
+
+    // First two words: "Haribo Goldbears"
+    variants.push(words.slice(0, 2).join(" "));
+
+    // Brand only (first word): "Haribo"
+    variants.push(words[0]!);
+
+    // Last word only (sometimes the product name is more distinctive): "Goldbears"
+    if (words.length > 2) variants.push(words[words.length - 1]!);
+  }
+
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  const queue = variants.filter((v) => {
+    const k = v.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  for (const variant of queue) {
+    logger.info({ variant }, "OFF smart search variant");
+    const result = await searchProduct(variant);
+    if (result) return result;
+  }
+  return null;
+}
+
 // ── OCR (tesseract, local, no external calls, no storage) ─────────────────────
 
 // Discord CDN supports ?width=N&height=N for server-side resize
@@ -294,7 +336,7 @@ export async function handleFoodVisionButton(
 
   const product = isBarcode(identified)
     ? await fetchByBarcode(identified)
-    : await searchProduct(identified);
+    : await smartSearch(identified);
 
   if (!product) {
     await interaction.editReply(`❌ AI detected "**${identified}**" but no match found. Try: \`!food ${identified}\``);
@@ -484,7 +526,7 @@ async function lookupAndReply(
 
   const product = isBarcode(query)
     ? await fetchByBarcode(query)
-    : await searchProduct(query);
+    : await smartSearch(query);
 
   if (!product) {
     await waitMsg.edit(`❌ No product found for **${query}**. Try a different name or use the barcode.`);
@@ -542,7 +584,7 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
 
       const product = isBarcode(ocrQuery)
         ? await fetchByBarcode(ocrQuery)
-        : await searchProduct(ocrQuery);
+        : await smartSearch(ocrQuery);
 
       if (product) {
         const embed = buildProductEmbed(product, false, `📷 OCR: "${ocrQuery}"`);
