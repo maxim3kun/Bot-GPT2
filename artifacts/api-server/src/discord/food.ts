@@ -205,19 +205,7 @@ async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | n
 async function preprocessForOcr(buffer: Buffer): Promise<Buffer> {
   try {
     const sharp = (await import("sharp")).default;
-    const img = sharp(buffer);
-    const meta = await img.metadata();
-    const w = meta.width ?? 600;
-    const h = meta.height ?? 600;
-
-    // Crop to the central 65% — main product is usually centred/foreground
-    const cropW = Math.round(w * 0.65);
-    const cropH = Math.round(h * 0.65);
-    const left  = Math.round((w - cropW) / 2);
-    const top   = Math.round((h - cropH) / 2);
-
     return await sharp(buffer)
-      .extract({ left, top, width: cropW, height: cropH })
       .grayscale()
       .normalize()
       .sharpen({ sigma: 1.2 })
