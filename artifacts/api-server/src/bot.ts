@@ -17,6 +17,7 @@ import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { getLang, setLang, GuildLang } from "./discord/lang-store";
 import { getUserLang, setUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { handleNewCommand } from "./discord/new-commands";
+import { handleFood, handleFoodRate } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
@@ -1138,6 +1139,24 @@ export function startBot(): void {
 
         case "connect4": {
           await playConnect4(message, args);
+          break;
+        }
+
+        case "food":
+        case "aliment":
+        case "produit": {
+          await handleFood(message, args);
+          break;
+        }
+
+        case "rate": {
+          // !rate food <produit> → food rate
+          if (args[0]?.toLowerCase() === "food") {
+            args.shift();
+            await handleFoodRate(message, args);
+          } else {
+            await message.reply(`❓ Essaie \`${guildPrefix}rate food <produit>\` pour noter un aliment !`);
+          }
           break;
         }
 
