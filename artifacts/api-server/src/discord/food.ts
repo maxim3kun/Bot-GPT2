@@ -1,6 +1,13 @@
-import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { execFile } from "child_process";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { promisify } from "util";
+
+import { Message, ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
+
+const execFileAsync = promisify(execFile);
 
 // ── Open Food Facts API ────────────────────────────────────────────────────────
 
@@ -123,48 +130,105 @@ async function searchProduct(query: string): Promise<OffProduct | null> {
   }
 }
 
-// ── Vision: identify product from photo ───────────────────────────────────────
+// ── OCR (tesseract, local, no external calls, no storage) ─────────────────────
 
-// Only vision model available on Groq (llama-3.2-11b-vision-preview does NOT exist on this account)
-const VISION_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct"];
-
-// Discord CDN supports ?width=N&height=N for server-side resizing
-function discordResizedUrl(url: string, maxPx = 800): string {
+// Discord CDN supports ?width=N&height=N for server-side resize
+function discordResizedUrl(url: string, maxPx = 600): string {
   try {
     const u = new URL(url);
-    // Only apply to Discord/proxy CDN hosts
     if (u.hostname.endsWith("discordapp.com") || u.hostname.endsWith("discordapp.net")) {
       u.searchParams.set("width", String(maxPx));
       u.searchParams.set("height", String(maxPx));
       return u.toString();
     }
-  } catch { /* non-URL fallback */ }
+  } catch { /* ignore */ }
   return url;
 }
 
-async function downloadImageAsBase64(url: string, maxPx = 800): Promise<{ data: string; mimeType: string } | null> {
-  // Use Discord server-side resize — smaller image, no disk storage
+async function downloadImageBuffer(url: string, maxPx = 600): Promise<Buffer | null> {
   const resized = discordResizedUrl(url, maxPx);
   try {
     const res = await fetch(resized, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; MaximeGPT/1.0)" },
     });
-    if (!res.ok) {
-      logger.warn({ status: res.status, url: resized }, "Image download failed");
-      return null;
-    }
-    const contentType = res.headers.get("content-type") ?? "image/jpeg";
-    const mimeType = contentType.split(";")[0]!.trim();
-    const buffer = await res.arrayBuffer();
-    const sizeKb = Math.round(buffer.byteLength / 1024);
-    logger.info({ sizeKb, url: resized }, "Image downloaded for Vision");
-    const data = Buffer.from(buffer).toString("base64");
-    return { data, mimeType };
+    if (!res.ok) { logger.warn({ status: res.status }, "Image download failed"); return null; }
+    return Buffer.from(await res.arrayBuffer());
   } catch (err) {
-    logger.error({ err }, "Failed to download image for Vision");
+    logger.error({ err }, "downloadImageBuffer error");
     return null;
   }
 }
+
+async function ocrImageBuffer(buffer: Buffer): Promise<string> {
+  // Write to /tmp, run tesseract, delete immediately — no permanent storage
+  const tmpPath = `${tmpdir()}/food_ocr_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+  try {
+    await writeFile(tmpPath, buffer);
+    const { stdout } = await execFileAsync(
+      "tesseract",
+      [tmpPath, "stdout", "-l", "eng+fra", "--psm", "1"],
+      { timeout: 15_000 },
+    );
+    return stdout.trim();
+  } catch (err) {
+    logger.warn({ err }, "Tesseract OCR error");
+    return "";
+  } finally {
+    await unlink(tmpPath).catch(() => null); // always clean up
+  }
+}
+
+function extractProductQuery(ocrText: string): string | null {
+  if (!ocrText) return null;
+
+  const lines = ocrText
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => {
+      if (l.length < 3) return false;
+      if (!/[a-zA-ZÀ-ÿ]{2,}/.test(l)) return false;   // must have at least 2 letters
+      if (/^\d[\d\s,.%kKgGmMlL°]*$/.test(l)) return false; // pure numbers/units
+      return true;
+    });
+
+  if (lines.length === 0) return null;
+
+  // Take first 2 meaningful lines (brand + product name are usually at the top)
+  const query = lines.slice(0, 2).join(" ").replace(/\s+/g, " ").trim().slice(0, 100);
+  return query.length >= 2 ? query : null;
+}
+
+// ── Pending vision requests (RAM only, TTL 10 min) ────────────────────────────
+
+interface PendingVision {
+  cdnUrl: string;
+  ts: number;
+}
+
+const pendingVisionMap = new Map<string, PendingVision>();
+
+// Periodic cleanup of expired entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of pendingVisionMap) {
+    if (now - val.ts > 10 * 60 * 1000) pendingVisionMap.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+function storePendingVision(userId: string, cdnUrl: string): void {
+  pendingVisionMap.set(userId, { cdnUrl, ts: Date.now() });
+}
+
+function popPendingVision(userId: string): string | null {
+  const v = pendingVisionMap.get(userId);
+  pendingVisionMap.delete(userId);
+  if (!v || Date.now() - v.ts > 10 * 60 * 1000) return null;
+  return v.cdnUrl;
+}
+
+// ── AI Vision fallback (Groq, base64 only — external URLs always return 403) ──
+
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const VISION_PROMPT =
   "This is a food product photo. Identify the product and reply with ONLY the brand + product name " +
@@ -172,48 +236,79 @@ const VISION_PROMPT =
   "If you clearly see a barcode number, reply with ONLY those digits. " +
   "No explanation. If you truly cannot identify any food product, reply exactly: UNKNOWN";
 
-async function callVision(imageInput: string, openai: OpenAI): Promise<string | null> {
-  for (const model of VISION_MODELS) {
-    try {
-      logger.info({ model, inputType: imageInput.startsWith("data:") ? "base64" : "url" }, "Trying vision model");
-      const response = await openai.chat.completions.create({
-        model,
-        max_completion_tokens: 80,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: imageInput } },
-              { type: "text", text: VISION_PROMPT },
-            ],
-          },
+async function identifyWithAI(cdnUrl: string, openai: OpenAI): Promise<string | null> {
+  const buffer = await downloadImageBuffer(cdnUrl, 400);
+  if (!buffer) { logger.warn("AI vision: image download failed"); return null; }
+
+  const mimeType = "image/jpeg";
+  const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+  logger.info({ sizeKb: Math.round(buffer.length / 1024) }, "Sending base64 to Groq Vision");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: VISION_MODEL,
+      max_completion_tokens: 80,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: dataUrl } },
+          { type: "text", text: VISION_PROMPT },
         ],
-      });
-      const content = response.choices[0]?.message?.content?.trim() ?? "";
-      logger.info({ model, content }, "Vision result");
-      if (content && content.toUpperCase() !== "UNKNOWN" && content.length > 0) return content;
-    } catch (err) {
-      logger.warn({ model, err }, "Vision model error");
-    }
+      }],
+    });
+    const content = response.choices[0]?.message?.content?.trim() ?? "";
+    logger.info({ content }, "Groq Vision result");
+    if (content && content.toUpperCase() !== "UNKNOWN") return content;
+  } catch (err) {
+    logger.warn({ err }, "Groq Vision error");
   }
   return null;
 }
 
-async function identifyProductFromImage(
-  cdnUrl: string,
-  _proxyUrl: string,  // kept for signature compat, Groq blocks all external URLs
-  openai: OpenAI,
-): Promise<string | null> {
-  // Groq Vision cannot fetch any external URL (403 for all origins).
-  // Only base64 works. Download a small 400px thumbnail to minimise RAM usage.
-  const encoded = await downloadImageAsBase64(cdnUrl, 400);
-  if (!encoded) {
-    logger.warn("Image download failed");
-    return null;
+// ── Button handler — called from bot.ts when user clicks "Try with AI" ────────
+
+export async function handleFoodVisionButton(
+  interaction: ButtonInteraction,
+  openai: OpenAI | null,
+): Promise<void> {
+  const cdnUrl = popPendingVision(interaction.user.id);
+
+  if (!cdnUrl) {
+    await interaction.reply({ content: "❌ This request has expired. Send the photo again with `!food`.", ephemeral: true });
+    return;
   }
-  const dataUrl = `data:${encoded.mimeType};base64,${encoded.data}`;
-  logger.info({ sizeKb: Math.round(encoded.data.length * 0.75 / 1024) }, "Sending base64 image to Groq Vision");
-  return callVision(dataUrl, openai);
+  if (!openai) {
+    await interaction.reply({ content: "❌ AI not configured (GROQ_API_KEY missing).", ephemeral: true });
+    return;
+  }
+
+  await interaction.deferReply();
+
+  const identified = await identifyWithAI(cdnUrl, openai);
+  if (!identified) {
+    await interaction.editReply("❌ AI couldn't identify any food product. Try a clearer photo or type the name: `!food <name>`");
+    return;
+  }
+
+  await interaction.editReply(`🤖 AI detected: **${identified}** — searching Open Food Facts…`);
+
+  const product = isBarcode(identified)
+    ? await fetchByBarcode(identified)
+    : await searchProduct(identified);
+
+  if (!product) {
+    await interaction.editReply(`❌ AI detected "**${identified}**" but no match found. Try: \`!food ${identified}\``);
+    return;
+  }
+
+  const embed = buildProductEmbed(product, false, `🤖 AI: "${identified}"`);
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel("🔗 View on Open Food Facts")
+      .setStyle(ButtonStyle.Link)
+      .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
+  );
+  await interaction.editReply({ content: "", embeds: [embed], components: [row] });
 }
 
 // ── Embed builder ─────────────────────────────────────────────────────────────
@@ -428,42 +523,75 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
       await message.reply("❌ Please attach an image file (JPG, PNG, WEBP…).");
       return;
     }
-    if (!openai) {
-      await message.reply("❌ AI features are not configured — image detection requires GROQ_API_KEY.");
+
+    const waitMsg = await message.reply("📸 Reading photo with OCR…");
+
+    // ── Step 1: OCR (local, no AI, no external calls) ─────────────────────────
+    const buffer = await downloadImageBuffer(attachment.url, 600);
+    if (!buffer) {
+      await waitMsg.edit("❌ Couldn't download the image. Try again.");
       return;
     }
 
-    const waitMsg = await message.reply("📸 Analysing your photo with AI…");
+    const ocrText = await ocrImageBuffer(buffer);
+    const ocrQuery = extractProductQuery(ocrText);
+    logger.info({ ocrQuery, ocrLines: ocrText.split("\n").length }, "OCR result");
 
-    const identified = await identifyProductFromImage(attachment.url, attachment.proxyURL, openai);
-    if (!identified) {
-      await waitMsg.edit("❌ Couldn't identify any food product in this photo. Try a clearer picture or type the name: `!food coca-cola`");
+    if (ocrQuery) {
+      await waitMsg.edit(`🔍 Read: **${ocrQuery}** — searching Open Food Facts…`);
+
+      const product = isBarcode(ocrQuery)
+        ? await fetchByBarcode(ocrQuery)
+        : await searchProduct(ocrQuery);
+
+      if (product) {
+        const embed = buildProductEmbed(product, false, `📷 OCR: "${ocrQuery}"`);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel("🔗 View on Open Food Facts")
+            .setStyle(ButtonStyle.Link)
+            .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
+        );
+        await waitMsg.delete().catch(() => null);
+        await message.reply({ embeds: [embed], components: [row] });
+        return;
+      }
+
+      // OCR found text but no product match — offer AI or manual search
+      const noMatchMsg = `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n` +
+        `• Try manually: \`!food ${ocrQuery}\``;
+
+      if (openai) {
+        storePendingVision(message.author.id, attachment.url);
+        const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`food_vision_${message.author.id}`)
+            .setLabel("🤖 Try with AI")
+            .setStyle(ButtonStyle.Primary),
+        );
+        await waitMsg.edit({ content: noMatchMsg, components: [aiRow] });
+      } else {
+        await waitMsg.edit(noMatchMsg);
+      }
       return;
     }
 
-    await waitMsg.edit(`🔍 Detected **${identified}** — searching Open Food Facts…`);
-    await new Promise((r) => setTimeout(r, 800));
+    // ── Step 2: OCR found nothing — offer AI or manual search ─────────────────
+    const noOcrMsg = "📷 OCR couldn't read any text from this photo.\n" +
+      "• Type the product name: `!food <name>`";
 
-    const searchQuery = identified;
-    const product = isBarcode(searchQuery)
-      ? await fetchByBarcode(searchQuery)
-      : await searchProduct(searchQuery);
-
-    if (!product) {
-      await waitMsg.edit(`❌ AI detected "**${identified}**" but found no match on Open Food Facts. Try typing the name manually: \`!food ${identified}\``);
-      return;
+    if (openai) {
+      storePendingVision(message.author.id, attachment.url);
+      const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`food_vision_${message.author.id}`)
+          .setLabel("🤖 Try with AI")
+          .setStyle(ButtonStyle.Primary),
+      );
+      await waitMsg.edit({ content: noOcrMsg, components: [aiRow] });
+    } else {
+      await waitMsg.edit(noOcrMsg);
     }
-
-    const embed = buildProductEmbed(product, false, identified);
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setLabel("🔗 View on Open Food Facts")
-        .setStyle(ButtonStyle.Link)
-        .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
-    );
-
-    await waitMsg.delete().catch(() => null);
-    await message.reply({ embeds: [embed], components: [row] });
     return;
   }
 

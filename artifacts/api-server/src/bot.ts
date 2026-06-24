@@ -17,7 +17,7 @@ import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { getLang, setLang, GuildLang } from "./discord/lang-store";
 import { getUserLang, setUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { handleNewCommand } from "./discord/new-commands";
-import { handleFood, handleFoodRate } from "./discord/food";
+import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
@@ -3278,6 +3278,13 @@ export function startBot(): void {
         botId: client.user.id,
       });
     }
+  });
+
+  // ── Food vision button (🤖 Try with AI) ─────────────────────────────────────
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isButton()) return;
+    if (!interaction.customId.startsWith("food_vision_")) return;
+    await handleFoodVisionButton(interaction, openai);
   });
 
   // ── Website scroll button interactions ──────────────────────────────────────
