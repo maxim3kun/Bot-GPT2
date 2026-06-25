@@ -1,1 +1,2 @@
 - [yt-dlp YouTube client for Replit](yt-dlp-client.md) — tv_embedded broken (0 bytes); use android,formats=missing_pot as of 2025-06
+- [Dashboard auth & per-guild features](dashboard-auth.md) — JWT + Discord OAuth + per-guild feature toggles; dashboard served at /dashboard (not GitHub Pages)
