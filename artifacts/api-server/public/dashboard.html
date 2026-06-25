@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MaximeGPT Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0812;--surface:#110f1e;--card:#1a1730;--border:#2a2545;
+  --purple:#7c3aed;--purple-light:#9b5cf6;--purple-glow:rgba(124,58,237,.15);
+  --text:#e2e0f0;--muted:#6b6890;--green:#22c55e;--red:#ef4444;--discord:#5865f2;
+  --r:12px;--sb:220px;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased;}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* AUTH */
+#login-view,#twofa-view,#guild-view{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:radial-gradient(ellipse 70% 50% at 50% -10%,rgba(124,58,237,.18) 0%,transparent 70%),var(--bg);}
+#twofa-view,#guild-view{display:none}
+.auth-card{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:36px 32px;box-shadow:0 0 0 1px rgba(124,58,237,.06),0 20px 60px rgba(0,0,0,.5);}
+.auth-logo{display:flex;align-items:center;gap:10px;margin-bottom:28px;}
+.auth-logo-icon{width:36px;height:36px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,var(--purple),var(--purple-light));display:flex;align-items:center;justify-content:center;font-size:18px;}
+.auth-logo h1{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:700;letter-spacing:1px;color:var(--purple-light);}
+.auth-logo h1 span{color:var(--text)}
+.auth-title{font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:4px}
+.auth-sub{font-size:.8rem;color:var(--muted);margin-bottom:24px}
+.tabs{display:flex;gap:2px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:20px;}
+.tab-btn{flex:1;padding:7px;border:none;border-radius:7px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.78rem;font-weight:500;color:var(--muted);background:transparent;transition:all .15s;}
+.tab-btn.active{background:var(--purple-glow);color:var(--purple-light);border:1px solid rgba(124,58,237,.25)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+.fg{margin-bottom:14px}
+.fg label{display:block;font-size:.7rem;font-weight:500;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.fg input{width:100%;padding:10px 13px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:'Inter',sans-serif;font-size:.88rem;outline:none;transition:border-color .15s;}
+.fg input:focus{border-color:rgba(124,58,237,.5)}
+.fg input::placeholder{color:var(--muted);opacity:.6}
+.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:11px 16px;border:none;border-radius:9px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.85rem;font-weight:600;transition:all .15s;outline:none;}
+.btn-primary{background:var(--purple);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,.3)}
+.btn-primary:hover:not(:disabled){filter:brightness(1.12)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.btn-discord{background:var(--discord);color:#fff;box-shadow:0 4px 14px rgba(88,101,242,.25)}
+.btn-discord:hover:not(:disabled){filter:brightness(1.1)}
+.discord-hint{font-size:.72rem;color:var(--muted);text-align:center;margin-top:10px;line-height:1.5}
+.alert{border-radius:9px;padding:9px 13px;font-size:.78rem;margin-bottom:14px;display:none;line-height:1.4}
+.alert-error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#fca5a5}
+.alert-info{background:var(--purple-glow);border:1px solid rgba(124,58,237,.2);color:#c4b5fd}
+
+/* 2FA */
+.twofa-icon{width:52px;height:52px;border-radius:14px;margin:0 auto 14px;background:var(--purple-glow);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:24px}
+.twofa-head{text-align:center;margin-bottom:22px}
+.twofa-head h2{font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;margin-bottom:5px}
+.twofa-head p{font-size:.75rem;color:var(--muted);line-height:1.5}
+.code-inputs{display:flex;gap:8px;justify-content:center;margin-bottom:18px}
+.code-input{width:44px;height:52px;text-align:center;font-size:1.3rem;font-weight:700;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);outline:none;transition:border-color .15s;}
+.code-input:focus{border-color:rgba(124,58,237,.5)}
+.back-link{background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer;display:block;text-align:center;margin-top:12px;font-family:'Inter',sans-serif;transition:color .15s;}
+.back-link:hover{color:var(--text)}
+
+/* GUILD SELECTOR */
+#guild-view .auth-card{max-width:480px}
+.guild-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;max-height:320px;overflow-y:auto;padding-right:4px;}
+.guild-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all .15s;}
+.guild-card:hover{border-color:rgba(124,58,237,.4);background:rgba(124,58,237,.06)}
+.guild-card.selected{border-color:var(--purple);background:var(--purple-glow)}
+.guild-icon{width:38px;height:38px;border-radius:10px;object-fit:cover;background:var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--muted);}
+.guild-icon img{width:38px;height:38px;border-radius:10px;object-fit:cover;}
+.guild-name{font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.guild-members{font-size:.7rem;color:var(--muted);margin-top:2px}
+.guild-loading{text-align:center;padding:24px;color:var(--muted);font-size:.85rem}
+.btn-guild-confirm{margin-top:14px}
+.guild-separator{margin:14px 0;text-align:center;font-size:.7rem;color:var(--muted);position:relative;}
+.guild-separator::before{content:'';position:absolute;top:50%;left:0;right:0;height:1px;background:var(--border);}
+.guild-separator span{background:var(--surface);padding:0 10px;position:relative}
+
+/* DASHBOARD */
+#dashboard-view{display:none;min-height:100vh}
+#dashboard-view.visible{display:flex}
+
+/* SIDEBAR */
+.sidebar{width:var(--sb);flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:20px 14px;gap:4px;height:100vh;position:sticky;top:0;overflow:hidden;}
+.sb-logo{font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:700;color:var(--purple-light);letter-spacing:1px;padding:0 8px 14px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+.sb-logo span{color:var(--text)}
+/* Guild pill in sidebar */
+.sb-guild{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:4px;background:var(--card);border:1px solid var(--border);border-radius:9px;cursor:pointer;transition:all .15s;}
+.sb-guild:hover{border-color:rgba(124,58,237,.3)}
+.sb-guild-icon{width:22px;height:22px;border-radius:6px;background:var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;overflow:hidden;}
+.sb-guild-icon img{width:22px;height:22px;object-fit:cover;}
+.sb-guild-name{font-size:.72rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.sb-guild-change{font-size:.6rem;color:var(--muted)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s;border:1px solid transparent;background:none;width:100%;text-align:left;font-family:'Inter',sans-serif;}
+.nav-item:hover{background:var(--purple-glow);color:var(--text)}
+.nav-item.active{background:var(--purple-glow);color:var(--purple-light);border-color:rgba(124,58,237,.25)}
+.ni-icon{font-size:15px;width:20px;text-align:center;flex-shrink:0}
+.ni-badge{margin-left:auto;font-size:.62rem;font-weight:600;background:rgba(124,58,237,.2);color:var(--purple-light);padding:2px 7px;border-radius:999px;}
+.sb-spacer{flex:1}
+.sb-bot-status{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:var(--card);border:1px solid var(--border);font-size:12px;font-weight:500;margin-bottom:4px;}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s,box-shadow .3s;}
+.status-dot.online{background:var(--green);box-shadow:0 0 7px var(--green)}
+.status-dot.offline{background:var(--red);box-shadow:0 0 7px var(--red)}
+.sb-logout{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;width:100%;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s;border:1px solid transparent;background:none;font-family:'Inter',sans-serif;}
+.sb-logout:hover{background:rgba(239,68,68,.08);color:#fca5a5;border-color:rgba(239,68,68,.15)}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:10;}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.topbar-title{font-family:'Space Grotesk',sans-serif;font-size:.95rem;font-weight:700}
+.topbar-sub{font-size:.75rem;color:var(--muted)}
+.hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:4px;border-radius:6px;}
+.hamburger:hover{background:var(--card)}
+.lang-pills{display:flex;gap:4px}
+.lang-pill{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:.68rem;font-weight:600;padding:4px 8px;cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s;}
+.lang-pill.active{background:var(--purple-glow);color:var(--purple-light);border-color:rgba(124,58,237,.3)}
+
+/* MAIN AREA */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow-y:auto}
+.stats-strip{padding:14px 24px;border-bottom:1px solid var(--border);background:var(--surface);}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;}
+.stat-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;font-weight:500}
+.stat-value{font-size:1.4rem;font-weight:700;font-family:'Space Grotesk',sans-serif;margin-bottom:2px}
+.stat-sub{font-size:.7rem;color:var(--muted)}
+.stat-sub.purple{color:var(--purple-light)}
+.pages-wrapper{flex:1;overflow-y:auto}
+.main-inner{padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+.uptime-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;}
+.uptime-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.uptime-title{font-size:.75rem;color:var(--muted)}
+.uptime-pct{font-size:.82rem;color:var(--green);font-weight:600}
+.uptime-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.uptime-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--purple),var(--purple-light));transition:width .6s ease;}
+.section-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;padding-left:2px;font-weight:500}
+.commands-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.cmd-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 15px;display:flex;align-items:center;gap:12px;transition:border-color .15s;}
+.cmd-card:hover{border-color:rgba(124,58,237,.35)}
+.cmd-card.cmd-disabled{opacity:.45}
+.cmd-emoji{font-size:18px;width:26px;text-align:center;flex-shrink:0}
+.cmd-info{flex:1;min-width:0}
+.cmd-name{font-size:.82rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmd-tag{font-size:.68rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toggle{width:40px;height:22px;border-radius:11px;background:var(--border);position:relative;cursor:pointer;flex-shrink:0;transition:background .2s;border:none;outline:none;padding:0;}
+.toggle.on{background:var(--purple)}
+.toggle::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform .2s;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+.toggle.on::after{transform:translateX(18px)}
+.toggle:disabled{opacity:.5;cursor:not-allowed}
+
+/* MOBILE */
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;backdrop-filter:blur(2px);}
+.sb-overlay.open{display:block}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:11px 16px;font-size:.78rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.5);transform:translateY(60px);opacity:0;transition:all .25s;z-index:999;max-width:260px;line-height:1.4;}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.success{border-color:rgba(34,197,94,.3)}
+.toast.error{border-color:rgba(239,68,68,.3)}
+
+@media(max-width:768px){
+  .sidebar{position:fixed;left:-100%;top:0;z-index:50;height:100vh;transition:left .25s;box-shadow:4px 0 24px rgba(0,0,0,.4);}
+  .sidebar.open{left:0}
+  .hamburger{display:flex}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .stats-strip{padding:10px 16px}
+  .main-inner{padding:14px 16px}
+  .topbar{padding:12px 16px}
+  #dashboard-view.visible{display:flex;flex-direction:column}
+  .guild-grid{grid-template-columns:1fr}
+}
+@media(max-width:420px){
+  .stats-grid{grid-template-columns:1fr 1fr}
+  .stat-card{padding:10px 12px}
+  .stat-value{font-size:1.25rem}
+  .commands-grid{grid-template-columns:1fr}
+  .auth-card{padding:28px 20px}
+  .code-input{width:40px;height:48px;font-size:1.1rem}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-view">
+  <div class="auth-card">
+    <div class="auth-logo"><div class="auth-logo-icon">⚡</div><h1>MAXIME<span>GPT</span></h1></div>
+    <h2 class="auth-title" data-i18n="loginHeading">Welcome back</h2>
+    <p class="auth-sub" data-i18n="loginSub">Sign in to your admin dashboard</p>
+    <div class="alert alert-error" id="login-error"></div>
+    <div class="alert alert-info"  id="login-info"></div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('discord')" id="tab-discord-btn" data-i18n="tabDiscord">Discord OAuth</button>
+      <button class="tab-btn" onclick="switchTab('password')" id="tab-password-btn" data-i18n="tabPassword">Username</button>
+    </div>
+    <div class="tab-panel active" id="tab-discord">
+      <button class="btn btn-discord" onclick="loginWithDiscord()">
+        <svg width="16" height="16" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0 0 45.5.6a.2.2 0 0 0-.2.1 40.7 40.7 0 0 0-1.8 3.7 54 54 0 0 0-16.2 0A37.5 37.5 0 0 0 25.5.7a.2.2 0 0 0-.2-.1A58.4 58.4 0 0 0 10.7 4.9a.2.2 0 0 0-.1.1C1.6 18-.9 30.8.3 43.4a.2.2 0 0 0 .1.2 58.8 58.8 0 0 0 17.7 8.9.2.2 0 0 0 .2-.1c1.4-1.9 2.6-3.8 3.6-5.9a.2.2 0 0 0-.1-.3 38.7 38.7 0 0 1-5.5-2.6.2.2 0 0 1 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 0 1 .2 0c11.6 5.3 24.1 5.3 35.6 0a.2.2 0 0 1 .2 0l1.1.9a.2.2 0 0 1 0 .4 36 36 0 0 1-5.5 2.6.2.2 0 0 0-.1.3c1.1 2 2.3 4 3.6 5.9a.2.2 0 0 0 .2.1A58.6 58.6 0 0 0 70.6 43.6a.2.2 0 0 0 .1-.2C72.2 29 68.5 16.3 60.2 5a.2.2 0 0 0-.1-.1ZM23.7 35.8c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 3.9-2.8 7.2-6.4 7.2Zm23.7 0c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 3.9-2.8 7.2-6.4 7.2Z"/></svg>
+        <span data-i18n="discordBtn">Continue with Discord</span>
+      </button>
+      <p class="discord-hint" data-i18n="discordHint">You'll receive a 6-digit verification code via DM.</p>
+    </div>
+    <div class="tab-panel" id="tab-password">
+      <form onsubmit="loginWithPassword(event)">
+        <div class="fg"><label data-i18n="usernameLabel">Username</label><input type="text" id="username-input" autocomplete="username" required/></div>
+        <div class="fg"><label data-i18n="passwordLabel">Password</label><input type="password" id="password-input" autocomplete="current-password" required/></div>
+        <button type="submit" class="btn btn-primary" id="login-btn"><span data-i18n="loginBtn">Sign in</span></button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 2FA -->
+<div id="twofa-view">
+  <div class="auth-card">
+    <div class="auth-logo"><div class="auth-logo-icon">⚡</div><h1>MAXIME<span>GPT</span></h1></div>
+    <div class="twofa-head">
+      <div class="twofa-icon">🔐</div>
+      <h2 data-i18n="tfaTitle">Two-factor auth</h2>
+      <p data-i18n="tfaSubtitle">Check your Discord DMs for your 6-digit code. Expires in 5 min.</p>
+    </div>
+    <div class="alert alert-error" id="twofa-error"></div>
+    <div class="code-inputs">
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+      <input class="code-input" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]"/>
+    </div>
+    <button class="btn btn-primary" id="verify-btn" onclick="verifyCode()" disabled data-i18n="verifyBtn">Verify</button>
+    <button class="back-link" onclick="backToLogin()" data-i18n="backToLogin">← Back to login</button>
+  </div>
+</div>
+
+<!-- GUILD SELECTOR -->
+<div id="guild-view">
+  <div class="auth-card">
+    <div class="auth-logo"><div class="auth-logo-icon">⚡</div><h1>MAXIME<span>GPT</span></h1></div>
+    <h2 class="auth-title" data-i18n="guildHeading">Choose a server</h2>
+    <p class="auth-sub" data-i18n="guildSub">Select the Discord server you want to configure</p>
+    <div class="guild-grid" id="guild-grid"><div class="guild-loading">Loading servers…</div></div>
+    <button class="btn btn-primary btn-guild-confirm" id="guild-confirm-btn" onclick="confirmGuild()" disabled data-i18n="guildConfirm">Configure this server</button>
+    <button class="back-link" onclick="logout()" data-i18n="logout">← Log out</button>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard-view">
+  <div class="sb-overlay" id="sb-overlay" onclick="closeSidebar()"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-logo">MAXIME<span>GPT</span></div>
+    <!-- Guild pill -->
+    <div class="sb-guild" id="sb-guild" onclick="changeGuild()" title="Change server" style="display:none">
+      <div class="sb-guild-icon" id="sb-guild-icon">?</div>
+      <span class="sb-guild-name" id="sb-guild-name">—</span>
+      <span class="sb-guild-change">↔</span>
+    </div>
+    <button class="nav-item active" onclick="switchPage('overview',this)"><span class="ni-icon">⚡</span><span data-i18n="navOverview">Overview</span><span class="ni-badge" id="sb-badge">—</span></button>
+    <button class="nav-item" onclick="switchPage('music',this)"><span class="ni-icon">🎵</span><span data-i18n="navMusic">Music & Audio</span></button>
+    <button class="nav-item" onclick="switchPage('games',this)"><span class="ni-icon">🎮</span><span data-i18n="navGames">Games</span></button>
+    <button class="nav-item" onclick="switchPage('ai',this)"><span class="ni-icon">🤖</span><span data-i18n="navAI">AI Features</span></button>
+    <button class="nav-item" onclick="switchPage('social',this)"><span class="ni-icon">✨</span><span data-i18n="navSocial">Social & Fun</span></button>
+    <div class="sb-spacer"></div>
+    <div class="sb-bot-status"><div class="status-dot checking" id="sb-dot"></div><span id="sb-status-txt" data-i18n="checking">Checking…</span></div>
+    <button class="sb-logout" onclick="logout()"><span class="ni-icon">🚪</span><span data-i18n="logout">Log out</span></button>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <span class="topbar-title" id="topbar-title" data-i18n="navOverview">Overview</span>
+        <span class="topbar-sub" id="topbar-sub"></span>
+      </div>
+      <div class="lang-pills">
+        <button class="lang-pill active" onclick="setLang('en')">EN</button>
+        <button class="lang-pill" onclick="setLang('fr')">FR</button>
+        <button class="lang-pill" onclick="setLang('es')">ES</button>
+      </div>
+    </div>
+    <div class="stats-strip">
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label" data-i18n="statBotStatus">Bot Status</div><div class="stat-value" id="stat-bot-val">—</div><div class="stat-sub muted" id="stat-bot-sub" data-i18n="checking">Checking…</div></div>
+        <div class="stat-card"><div class="stat-label" data-i18n="statFeatures">Active Features</div><div class="stat-value" id="stat-feat-val">—</div><div class="stat-sub purple" id="stat-feat-sub">of 19 total</div></div>
+        <div class="stat-card"><div class="stat-label" data-i18n="statServers">Servers</div><div class="stat-value" id="stat-servers-val">—</div><div class="stat-sub muted" id="stat-servers-sub">Discord guilds</div></div>
+        <div class="stat-card"><div class="stat-label" data-i18n="statAICalls">AI Calls (Groq)</div><div class="stat-value" id="stat-groq-val">—</div><div class="stat-sub muted" data-i18n="sinceRestart">since last restart</div></div>
+      </div>
+    </div>
+    <div class="pages-wrapper">
+      <div class="main-inner" id="page-overview">
+        <div class="uptime-card"><div class="uptime-header"><span class="uptime-title" data-i18n="uptimeLabel">Server uptime — current session</span><span class="uptime-pct" id="uptime-pct">—</span></div><div class="uptime-bar"><div class="uptime-fill" id="uptime-fill" style="width:0%"></div></div></div>
+        <div><div class="section-label" data-i18n="allFeaturesLabel">All Features</div><div class="commands-grid" id="overview-grid"></div></div>
+      </div>
+      <div class="main-inner" id="page-music" style="display:none"><div class="section-label" data-i18n="navMusic">Music & Audio</div><div class="commands-grid" id="music-grid"></div></div>
+      <div class="main-inner" id="page-games" style="display:none"><div class="section-label" data-i18n="navGames">Games</div><div class="commands-grid" id="games-grid"></div></div>
+      <div class="main-inner" id="page-ai" style="display:none"><div class="section-label" data-i18n="navAI">AI Features</div><div class="commands-grid" id="ai-grid"></div></div>
+      <div class="main-inner" id="page-social" style="display:none"><div class="section-label" data-i18n="navSocial">Social & Fun</div><div class="commands-grid" id="social-grid"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const CATEGORIES = {
+  music:  {icon:'🎵',features:['music','radio','youtube','karaoke','voice_tts','shazam','suno']},
+  games:  {icon:'🎮',features:['trivia','connect4','minesweeper','geoguessr','blindtest','guesslogo']},
+  ai:     {icon:'🤖',features:['ai_chat','ai_battle','image_generation','conspiracy']},
+  social: {icon:'✨',features:['food','quests']},
+};
+const FEATURE_META = {
+  music:            {icon:'🎵',en:'Music Player',      fr:'Lecteur musique',    es:'Reproductor música',  tag:'!play · !queue · !skip'},
+  radio:            {icon:'📻',en:'Radio Stations',    fr:'Stations radio',     es:'Estaciones de radio', tag:'!radio [station]'},
+  youtube:          {icon:'▶️', en:'YouTube Audio',    fr:'Audio YouTube',      es:'Audio YouTube',       tag:'!yt [url/search]'},
+  karaoke:          {icon:'🎤',en:'Karaoke Mode',      fr:'Mode karaoké',       es:'Modo karaoke',        tag:'!karaoke'},
+  voice_tts:        {icon:'🔊',en:'Voice TTS',         fr:'Voix TTS',           es:'Voz TTS',             tag:'!say · !speak'},
+  shazam:           {icon:'🎧',en:'Shazam',            fr:'Shazam',             es:'Shazam',              tag:'!shazam'},
+  suno:             {icon:'🎼',en:'AI Music Gen.',     fr:'Génération IA musique',es:'Gen. música IA',    tag:'!music [prompt]'},
+  trivia:           {icon:'🧠',en:'Trivia Quiz',       fr:'Quiz culture',       es:'Trivia',              tag:'!trivia'},
+  connect4:         {icon:'🟡',en:'Connect 4',         fr:'Puissance 4',        es:'Conecta 4',           tag:'!connect4 @user'},
+  minesweeper:      {icon:'💣',en:'Minesweeper',       fr:'Démineur',           es:'Buscaminas',          tag:'!minesweeper'},
+  geoguessr:        {icon:'🌍',en:'GeoGuessr',         fr:'GeoGuessr',          es:'GeoGuessr',           tag:'!geo'},
+  blindtest:        {icon:'🎶',en:'Blind Test',        fr:'Blind test',         es:'Blind test',          tag:'!blindtest'},
+  guesslogo:        {icon:'🏷️',en:'Guess the Logo',   fr:'Devine le logo',     es:'Adivina el logo',     tag:'!logo'},
+  ai_chat:          {icon:'💬',en:'AI Chat',           fr:'Chat IA',            es:'Chat IA',             tag:'@bot [message]'},
+  ai_battle:        {icon:'⚔️', en:'AI Battle',        fr:'Duel IA',            es:'Batalla IA',          tag:'!aibattle [topic]'},
+  image_generation: {icon:'🎨',en:'Image Generation', fr:"Génération d'images",es:'Generación de imágenes',tag:'!image [prompt]'},
+  conspiracy:       {icon:'👁️',en:'Conspiracy Gen.',  fr:'Générateur complot', es:'Gen. conspiración',   tag:'!conspiracy'},
+  food:             {icon:'🍔',en:'Food Identifier',   fr:'Identif. repas',     es:'Identif. comida',     tag:'!food · !rate'},
+  quests:           {icon:'🗺️',en:'Quests & Goals',   fr:'Quêtes & Objectifs', es:'Misiones & Objetivos',tag:'!quest setup'},
+};
+const I18N = {
+  en:{
+    loginHeading:'Welcome back',loginSub:'Sign in to your admin dashboard',
+    tabDiscord:'Discord OAuth',tabPassword:'Username',
+    discordBtn:'Continue with Discord',discordHint:"You'll receive a 6-digit verification code via DM.",
+    usernameLabel:'Username',passwordLabel:'Password',loginBtn:'Sign in',
+    tfaTitle:'Two-factor auth',tfaSubtitle:'Check your Discord DMs for your 6-digit code. Expires in 5 min.',
+    verifyBtn:'Verify',backToLogin:'← Back to login',
+    guildHeading:'Choose a server',guildSub:'Select the server you want to configure',guildConfirm:'Configure this server',
+    navOverview:'Overview',navMusic:'Music & Audio',navGames:'Games',navAI:'AI Features',navSocial:'Social & Fun',
+    logout:'Log out',checking:'Checking…',online:'Online',offline:'Offline',
+    statBotStatus:'Bot Status',statFeatures:'Active Features',statServers:'Servers',statAICalls:'AI Calls (Groq)',
+    statUptime:'Server Uptime',sinceRestart:'since last restart',uptimeLabel:'Server uptime — current session',
+    allFeaturesLabel:'All Features',
+    invalidCreds:'Invalid username or password.',rateLimited:'Too many attempts. Try again in 15 minutes.',
+    serverError:'Server error. Try again.',invalidCode:'Invalid code.',codeExpired:'Code expired. Please log in again.',
+    on:'enabled',off:'disabled',
+  },
+  fr:{
+    loginHeading:'Bon retour',loginSub:'Connectez-vous à votre tableau de bord',
+    tabDiscord:'Discord OAuth',tabPassword:'Identifiant',
+    discordBtn:'Continuer avec Discord',discordHint:'Vous recevrez un code à 6 chiffres par DM Discord.',
+    usernameLabel:'Identifiant',passwordLabel:'Mot de passe',loginBtn:'Connexion',
+    tfaTitle:'Double authentification',tfaSubtitle:'Consultez vos DMs Discord. Le code expire dans 5 min.',
+    verifyBtn:'Vérifier',backToLogin:'← Retour',
+    guildHeading:'Choisir un serveur',guildSub:'Sélectionnez le serveur que vous voulez configurer',guildConfirm:'Configurer ce serveur',
+    navOverview:"Vue d'ensemble",navMusic:'Musique & Audio',navGames:'Mini-jeux',navAI:'Fonctionnalités IA',navSocial:'Social & Fun',
+    logout:'Déconnexion',checking:'Vérification…',online:'En ligne',offline:'Hors ligne',
+    statBotStatus:'Statut du bot',statFeatures:'Fonctionnalités actives',statServers:'Serveurs',statAICalls:'Appels IA (Groq)',
+    statUptime:'Uptime serveur',sinceRestart:'depuis le dernier redémarrage',uptimeLabel:'Uptime serveur — session actuelle',
+    allFeaturesLabel:'Toutes les fonctionnalités',
+    invalidCreds:'Identifiant ou mot de passe incorrect.',rateLimited:'Trop de tentatives. Réessayez dans 15 minutes.',
+    serverError:'Erreur serveur. Réessayez.',invalidCode:'Code invalide.',codeExpired:'Code expiré. Reconnectez-vous.',
+    on:'activé',off:'désactivé',
+  },
+  es:{
+    loginHeading:'Bienvenido',loginSub:'Inicia sesión en tu panel de administración',
+    tabDiscord:'Discord OAuth',tabPassword:'Usuario',
+    discordBtn:'Continuar con Discord',discordHint:'Recibirás un código de 6 dígitos por DM de Discord.',
+    usernameLabel:'Usuario',passwordLabel:'Contraseña',loginBtn:'Iniciar sesión',
+    tfaTitle:'Autenticación en dos pasos',tfaSubtitle:'Revisa tus DMs de Discord. El código expira en 5 min.',
+    verifyBtn:'Verificar',backToLogin:'← Volver',
+    guildHeading:'Elegir servidor',guildSub:'Selecciona el servidor que quieres configurar',guildConfirm:'Configurar este servidor',
+    navOverview:'Resumen',navMusic:'Música & Audio',navGames:'Juegos',navAI:'Funciones IA',navSocial:'Social & Diversión',
+    logout:'Cerrar sesión',checking:'Verificando…',online:'En línea',offline:'Sin conexión',
+    statBotStatus:'Estado del bot',statFeatures:'Funciones activas',statServers:'Servidores',statAICalls:'Llamadas IA (Groq)',
+    statUptime:'Uptime servidor',sinceRestart:'desde el último reinicio',uptimeLabel:'Uptime servidor — sesión actual',
+    allFeaturesLabel:'Todas las funciones',
+    invalidCreds:'Usuario o contraseña incorrectos.',rateLimited:'Demasiados intentos. Inténtalo en 15 minutos.',
+    serverError:'Error del servidor. Inténtalo de nuevo.',invalidCode:'Código inválido.',codeExpired:'Código expirado. Inicia sesión de nuevo.',
+    on:'activado',off:'desactivado',
+  },
+};
+
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let lang='en', token=null, tempState=null, featuresMap={}, currentPage='overview', statsInterval=null;
+let currentGuildId=null, currentGuildName=null, selectedGuildId=null;
+let guilds=[];
+
+// ── UTILS ──────────────────────────────────────────────────────────────────────
+const t = k => I18N[lang][k] ?? I18N.en[k] ?? k;
+function applyI18n(){document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n));}
+function setLang(l){lang=l;document.querySelectorAll('.lang-pill').forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase()===l));applyI18n();if(Object.keys(featuresMap).length)rerenderAllGrids();updateStatsText();}
+function showToast(msg,type='success'){const el=document.getElementById('toast');el.textContent=msg;el.className=`toast ${type} show`;clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),3000);}
+function showAlert(id,msg){const el=document.getElementById(id);el.textContent=msg;el.style.display='block'}
+function hideAlerts(...ids){ids.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none'})}
+function toggleSidebar(){const sb=document.getElementById('sidebar'),ov=document.getElementById('sb-overlay');sb.classList.toggle('open');ov.classList.toggle('open');}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sb-overlay').classList.remove('open');}
+function switchTab(tab){hideAlerts('login-error','login-info');document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));document.getElementById(`tab-${tab}-btn`).classList.add('active');document.getElementById(`tab-${tab}`).classList.add('active');}
+const PAGE_MAP={overview:'navOverview',music:'navMusic',games:'navGames',ai:'navAI',social:'navSocial'};
+function switchPage(page,btn){currentPage=page;document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));if(btn)btn.classList.add('active');document.querySelectorAll('.main-inner').forEach(p=>p.style.display='none');document.getElementById(`page-${page}`).style.display='flex';document.getElementById('topbar-title').textContent=t(PAGE_MAP[page]);closeSidebar();}
+
+function showView(name){
+  document.getElementById('login-view').style.display   = name==='login'    ?'flex':'none';
+  document.getElementById('twofa-view').style.display   = name==='twofa'    ?'flex':'none';
+  document.getElementById('guild-view').style.display   = name==='guild'    ?'flex':'none';
+  const dv=document.getElementById('dashboard-view');
+  dv.style.display=name==='dashboard'?'flex':'none';
+  if(name==='dashboard')dv.classList.add('visible');
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function loginWithDiscord(){window.location.href='/api/auth/discord';}
+
+async function loginWithPassword(e){
+  e.preventDefault();hideAlerts('login-error','login-info');
+  const btn=document.getElementById('login-btn');btn.disabled=true;
+  try{
+    const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('username-input').value.trim(),password:document.getElementById('password-input').value})});
+    const data=await res.json();
+    if(res.status===401){showAlert('login-error',t('invalidCreds'));return}
+    if(res.status===429){showAlert('login-error',t('rateLimited'));return}
+    if(!res.ok){showAlert('login-error',t('serverError'));return}
+    token=data.token;sessionStorage.setItem('dash_token',token);
+    await afterLogin();
+  }catch{showAlert('login-error',t('serverError'));}
+  finally{btn.disabled=false;}
+}
+
+// ── 2FA ───────────────────────────────────────────────────────────────────────
+function initCodeInputs(){
+  const inputs=[...document.querySelectorAll('.code-input')];
+  inputs.forEach((inp,i)=>{
+    inp.value='';
+    inp.oninput=()=>{inp.value=inp.value.replace(/\D/g,'').slice(0,1);if(inp.value&&i<inputs.length-1)inputs[i+1].focus();const full=inputs.every(x=>x.value.length===1);document.getElementById('verify-btn').disabled=!full;if(full)verifyCode();};
+    inp.onkeydown=e=>{if(e.key==='Backspace'&&!inp.value&&i>0)inputs[i-1].focus()};
+    inp.onpaste=e=>{e.preventDefault();const text=(e.clipboardData||window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);[...text].forEach((ch,j)=>{if(inputs[j])inputs[j].value=ch});inputs[Math.min(text.length,5)]?.focus();const full=inputs.every(x=>x.value.length===1);document.getElementById('verify-btn').disabled=!full;if(full)verifyCode();};
+  });
+}
+
+async function verifyCode(){
+  const inputs=[...document.querySelectorAll('.code-input')];
+  const code=inputs.map(i=>i.value).join('');
+  if(code.length<6)return;
+  hideAlerts('twofa-error');
+  const btn=document.getElementById('verify-btn');btn.disabled=true;
+  try{
+    const res=await fetch('/api/auth/discord/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:tempState,code})});
+    const data=await res.json();
+    if(!res.ok){showAlert('twofa-error',data.error||t('invalidCode'));inputs.forEach(i=>i.value='');inputs[0].focus();btn.disabled=true;return;}
+    token=data.token;sessionStorage.setItem('dash_token',token);
+    await afterLogin();
+  }catch{showAlert('twofa-error',t('serverError'));}
+  finally{btn.disabled=false;}
+}
+
+function backToLogin(){tempState=null;history.replaceState({},'','/dashboard');hideAlerts('twofa-error');showView('login');}
+
+function logout(){
+  token=null;tempState=null;currentGuildId=null;currentGuildName=null;selectedGuildId=null;guilds=[];
+  clearInterval(statsInterval);
+  sessionStorage.removeItem('dash_token');sessionStorage.removeItem('dash_guild');
+  history.replaceState({},'','/dashboard');showView('login');
+}
+
+// ── AFTER LOGIN: load guilds or go straight to dashboard ─────────────────────
+async function afterLogin(){
+  try{
+    const res=await fetch('/api/guilds',{headers:{Authorization:`Bearer ${token}`}});
+    if(res.status===401){logout();return;}
+    if(!res.ok){openDashboard(null);return;} // bot offline — skip guild picker
+    const data=await res.json();
+    guilds=data;
+    if(guilds.length===0){openDashboard(null);return;}
+    if(guilds.length===1){openDashboard(guilds[0]);return;}
+    showGuildSelector();
+  }catch{openDashboard(null);}
+}
+
+// ── GUILD SELECTOR ─────────────────────────────────────────────────────────────
+function showGuildSelector(){
+  selectedGuildId=null;
+  document.getElementById('guild-confirm-btn').disabled=true;
+  const grid=document.getElementById('guild-grid');
+  if(guilds.length===0){grid.innerHTML='<div class="guild-loading">No servers found.</div>';showView('guild');return;}
+  grid.innerHTML=guilds.map(g=>{
+    const initials=(g.name||'?').split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const iconHtml=g.icon?`<img src="${g.icon}" alt=""/>`:`<span>${initials}</span>`;
+    return `<div class="guild-card" id="gc-${g.id}" onclick="selectGuild('${g.id}')"><div class="guild-icon">${iconHtml}</div><div><div class="guild-name">${escHtml(g.name)}</div><div class="guild-members">${g.memberCount?g.memberCount.toLocaleString()+' members':''}</div></div></div>`;
+  }).join('');
+  showView('guild');
+}
+
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function selectGuild(id){
+  selectedGuildId=id;
+  document.querySelectorAll('.guild-card').forEach(c=>c.classList.toggle('selected',c.id===`gc-${id}`));
+  document.getElementById('guild-confirm-btn').disabled=false;
+}
+
+function confirmGuild(){
+  if(!selectedGuildId)return;
+  const g=guilds.find(g=>g.id===selectedGuildId);
+  sessionStorage.setItem('dash_guild',selectedGuildId);
+  openDashboard(g||{id:selectedGuildId,name:'Server',icon:null});
+}
+
+function changeGuild(){clearInterval(statsInterval);showGuildSelector();}
+
+// ── DASHBOARD OPEN ─────────────────────────────────────────────────────────────
+async function openDashboard(guild){
+  currentGuildId=guild?.id??null;
+  currentGuildName=guild?.name??null;
+  // Update sidebar guild pill
+  const pill=document.getElementById('sb-guild');
+  if(currentGuildId&&currentGuildName){
+    pill.style.display='flex';
+    const iconEl=document.getElementById('sb-guild-icon');
+    if(guild?.icon){iconEl.innerHTML=`<img src="${guild.icon}" alt=""/>`;}
+    else{iconEl.textContent=(currentGuildName.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?');}
+    document.getElementById('sb-guild-name').textContent=currentGuildName;
+    document.getElementById('topbar-sub').textContent=`— ${currentGuildName}`;
+  }else{
+    pill.style.display='none';
+    document.getElementById('topbar-sub').textContent='';
+  }
+  showView('dashboard');
+  await Promise.all([loadFeatures(),loadStats()]);
+  statsInterval=setInterval(loadStats,60000);
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+let lastUptimeSeconds=0;
+async function loadStats(){
+  try{
+    const res=await fetch('/api/stats',{headers:{Authorization:`Bearer ${token}`}});
+    if(res.status===401){logout();return;}
+    const d=await res.json();
+    lastUptimeSeconds=d.uptimeSeconds;
+    updateStatsDisplay(d);
+  }catch{}
+}
+
+function updateStatsDisplay(d){
+  const online=d.botOnline;
+  const dot=document.getElementById('sb-dot');
+  dot.className=`status-dot ${online?'online':'offline'}`;
+  document.getElementById('sb-status-txt').textContent=online?t('online'):t('offline');
+  document.getElementById('stat-bot-val').textContent=online?'🟢':'🔴';
+  document.getElementById('stat-bot-sub').textContent=online?t('online'):t('offline');
+  document.getElementById('stat-feat-val').textContent=d.enabledCount??'—';
+  document.getElementById('stat-feat-sub').textContent=`of ${d.totalCount??19} total`;
+  document.getElementById('sb-badge').textContent=`${d.enabledCount??'—'}/${d.totalCount??19}`;
+  const srv=d.guildCount||0;
+  document.getElementById('stat-servers-val').textContent=srv>0?srv.toLocaleString():'—';
+  document.getElementById('stat-servers-sub').textContent=srv>0?'Discord guilds':'awaiting bot';
+  document.getElementById('stat-groq-val').textContent=(d.groqCalls||0)>0?d.groqCalls.toLocaleString():'—';
+  updateUptimeDisplay(d.uptimeSeconds);
+}
+
+function updateUptimeDisplay(s){
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
+  const pct=Math.min(100,Math.round((s/86400)*100));
+  document.getElementById('uptime-pct').textContent=h>0?`${h}h ${m}m`:`${m}m`;
+  document.getElementById('uptime-fill').style.width=s>=86400?'100%':`${pct}%`;
+}
+function updateStatsText(){const dot=document.getElementById('sb-dot');document.getElementById('sb-status-txt').textContent=dot.classList.contains('online')?t('online'):t('offline');document.getElementById('stat-bot-sub').textContent=dot.classList.contains('online')?t('online'):t('offline');if(lastUptimeSeconds)updateUptimeDisplay(lastUptimeSeconds);}
+
+// ── FEATURES ──────────────────────────────────────────────────────────────────
+async function loadFeatures(){
+  try{
+    const url=currentGuildId?`/api/guilds/${currentGuildId}/features`:'/api/features';
+    const res=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+    if(res.status===401){logout();return;}
+    if(!res.ok){showToast(t('serverError'),'error');return;}
+    const arr=await res.json();
+    arr.forEach(f=>featuresMap[f.name]=f.enabled);
+    rerenderAllGrids();
+  }catch{showToast(t('serverError'),'error');}
+}
+
+function rerenderAllGrids(){
+  buildGrid('overview-grid',Object.keys(FEATURE_META));
+  buildGrid('music-grid',CATEGORIES.music.features);
+  buildGrid('games-grid',CATEGORIES.games.features);
+  buildGrid('ai-grid',CATEGORIES.ai.features);
+  buildGrid('social-grid',CATEGORIES.social.features);
+}
+
+function buildGrid(gridId,featureList){
+  const grid=document.getElementById(gridId);
+  if(!grid)return;
+  grid.innerHTML='';
+  featureList.forEach(name=>{
+    const meta=FEATURE_META[name]||{icon:'⚙️',en:name};
+    const enabled=featuresMap[name]??true;
+    const card=document.createElement('div');
+    card.className=`cmd-card${enabled?'':' cmd-disabled'}`;
+    card.id=`card-${gridId}-${name}`;
+    card.innerHTML=`<span class="cmd-emoji">${meta.icon}</span><div class="cmd-info"><div class="cmd-name">${meta[lang]||meta.en}</div><div class="cmd-tag">${meta.tag||''}</div></div><button class="toggle${enabled?' on':''}" data-name="${name}" data-grid="${gridId}" onclick="toggleFeature('${name}','${gridId}',this)"></button>`;
+    grid.appendChild(card);
+  });
+}
+
+async function toggleFeature(name,gridId,btn){
+  const enabled=btn.classList.toggle('on');
+  btn.disabled=true;
+  const card=document.getElementById(`card-${gridId}-${name}`);
+  if(card)card.classList.toggle('cmd-disabled',!enabled);
+  try{
+    const url=currentGuildId?`/api/guilds/${currentGuildId}/features/${name}`:`/api/features/${name}`;
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({enabled})});
+    if(res.status===401){logout();return;}
+    if(!res.ok){btn.classList.toggle('on',!enabled);if(card)card.classList.toggle('cmd-disabled',enabled);showToast(t('serverError'),'error');return;}
+    featuresMap[name]=enabled;
+    // Sync same feature in other grids
+    document.querySelectorAll(`[data-name="${name}"]`).forEach(b=>{if(b!==btn){b.classList.toggle('on',enabled);const c=b.closest('.cmd-card');if(c)c.classList.toggle('cmd-disabled',!enabled);}});
+    const meta=FEATURE_META[name]||{en:name};
+    showToast(`${meta[lang]||meta.en} ${enabled?t('on'):t('off')}`,enabled?'success':'error');
+    loadStats();
+  }catch{btn.classList.toggle('on',!enabled);if(card)card.classList.toggle('cmd-disabled',enabled);showToast(t('serverError'),'error');}
+  finally{btn.disabled=false;}
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+const params=new URLSearchParams(window.location.search);
+const step=params.get('step'),state=params.get('state'),error=params.get('error');
+
+if(error){
+  const msgs={not_allowed:'Your Discord account is not authorized.',token_exchange:'Discord login failed. Please try again.',no_code:'Discord login cancelled.',misconfigured:'Server misconfigured.',server_error:'Server error. Please try again.'};
+  showAlert('login-error',msgs[error]||'Login failed.');
+  history.replaceState({},'','/dashboard');showView('login');
+}else if(step==='2fa'&&state){
+  tempState=state;history.replaceState({},'','/dashboard');showView('twofa');initCodeInputs();document.querySelector('.code-input')?.focus();
+}else{
+  const saved=sessionStorage.getItem('dash_token');
+  const savedGuild=sessionStorage.getItem('dash_guild');
+  if(saved){
+    token=saved;
+    if(savedGuild){
+      // Restore last guild session
+      currentGuildId=savedGuild;
+      const g=guilds.find(x=>x.id===savedGuild)||{id:savedGuild,name:'Server',icon:null};
+      openDashboard(g);
+    }else{
+      afterLogin();
+    }
+  }else{
+    showView('login');
+  }
+}
+</script>
+</body>
+</html>

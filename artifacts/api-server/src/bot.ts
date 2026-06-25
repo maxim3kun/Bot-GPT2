@@ -226,6 +226,9 @@ function buildWebsiteMessage(sectionIndex: number) {
   return { embeds: [embed], components: [row] };
 }
 
+let _botClient: Client | null = null;
+export function getBotClient(): Client | null { return _botClient; }
+
 export function startBot(): void {
   const token = process.env["DISCORD_TOKEN"];
   const token2 = process.env["DISCORD_TOKEN_2"];
@@ -253,6 +256,7 @@ export function startBot(): void {
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
+  _botClient = client;
 
   let client2: Client | null = null;
   if (token2) {
