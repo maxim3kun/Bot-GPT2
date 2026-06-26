@@ -27,20 +27,27 @@ app.use(
     },
   }),
 );
-// CORS: only allow the Replit preview domain (same-origin dashboard).
-// All dashboard API calls are same-origin; cross-origin access is not needed.
-const allowedOriginPattern = process.env["REPLIT_DEV_DOMAIN"]
-  ? new RegExp(`^https://${process.env["REPLIT_DEV_DOMAIN"].replace(/\./g, "\\.")}`)
-  : null;
+// CORS: allow Replit preview domain + the production GitHub Pages domain.
+const ALLOWED_ORIGINS = new Set([
+  "https://www.maximegpt.com",
+  "https://maxim3kun.github.io",
+  "https://www.maxim3kun.com",
+  ...(process.env["REPLIT_DEV_DOMAIN"]
+    ? [`https://${process.env["REPLIT_DEV_DOMAIN"]}`]
+    : []),
+]);
 app.use(
   cors({
     origin: (origin, cb) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
       if (!origin) return cb(null, true);
-      if (!allowedOriginPattern || allowedOriginPattern.test(origin)) return cb(null, true);
+      // Allow any subdomain of the Replit dev domain (handles proxy variations)
+      const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
+      if (devDomain && origin.endsWith(devDomain)) return cb(null, true);
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
       cb(new Error("CORS: origin not allowed"));
     },
-    credentials: false,
+    credentials: true,
   }),
 );
 app.use(express.json());

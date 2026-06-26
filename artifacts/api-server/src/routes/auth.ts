@@ -61,6 +61,22 @@ router.post("/login", async (req: Request, res: Response) => {
   res.json({ token });
 });
 
+// ── Allowed return URLs (whitelist to prevent open-redirect) ─────────────────
+const ALLOWED_RETURN_HOSTS = new Set([
+  "www.maximegpt.com",
+  "maxim3kun.github.io",
+  "www.maxim3kun.com",
+]);
+
+function isSafeReturnUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && ALLOWED_RETURN_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 // ── GET /api/auth/discord  (redirect to OAuth) ────────────────────────────────
 
 router.get("/auth/discord", (req: Request, res: Response) => {
@@ -68,17 +84,34 @@ router.get("/auth/discord", (req: Request, res: Response) => {
     res.status(503).send("Discord OAuth not configured (missing DISCORD_CLIENT_ID)");
     return;
   }
+  // Optional returnUrl — where to send the user after OAuth (must be whitelisted)
+  const returnUrl = typeof req.query["returnUrl"] === "string" && isSafeReturnUrl(req.query["returnUrl"])
+    ? req.query["returnUrl"]
+    : null;
+
+  // Encode returnUrl in the Discord OAuth state param (base64 JSON)
+  const statePayload = Buffer.from(JSON.stringify({ returnUrl })).toString("base64url");
+
   const redirectUri = getRedirectUri(req);
   const scope = "identify guilds";
-  const url = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}`;
+  const url = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${statePayload}`;
   res.redirect(url);
 });
 
 // ── GET /api/auth/discord/callback  (OAuth code exchange) ─────────────────────
 
 router.get("/auth/discord/callback", async (req: Request, res: Response) => {
-  const { code, error: oauthError } = req.query as { code?: string; error?: string };
-  const baseUrl = dashboardUrl(req);
+  const { code, error: oauthError, state: discordState } = req.query as { code?: string; error?: string; state?: string };
+
+  // Decode the returnUrl we encoded in the state param
+  let returnUrl: string | null = null;
+  if (typeof discordState === "string") {
+    try {
+      const decoded = JSON.parse(Buffer.from(discordState, "base64url").toString());
+      if (decoded.returnUrl && isSafeReturnUrl(decoded.returnUrl)) returnUrl = decoded.returnUrl;
+    } catch { /* ignore malformed state */ }
+  }
+  const baseUrl = returnUrl ?? dashboardUrl(req);
 
   if (oauthError || !code) {
     res.redirect(`${baseUrl}?error=no_code`);

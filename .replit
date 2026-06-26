@@ -2,7 +2,9 @@ modules = ["web", "bash", "nodejs-24"]
 
 [deployment]
 router = "application"
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
+run = ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
+build = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
