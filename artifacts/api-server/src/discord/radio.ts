@@ -370,6 +370,8 @@ interface RadioState {
   nowPlayingMsg: Message | null;
   paused: boolean;
   requestedBy: string | null;
+  /** Set by soundboard: what to resume after the effect finishes */
+  sbResume: { stationKey: string } | { youtubeUrl: string } | null;
 }
 
 export const radioStates = new Map<string, RadioState>();
@@ -804,6 +806,20 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
         return;
       }
 
+      // Soundboard resume — restart whatever was playing before the effect
+      if (s.sbResume) {
+        const resume = s.sbResume;
+        s.sbResume = null;
+        if ("stationKey" in resume) {
+          resumeRadioStation(guildId, resume.stationKey).catch(() => null);
+        } else {
+          s.queue = [resume.youtubeUrl];
+          s.queueMessages = [null];
+          playNextFromQueue(guildId).catch(() => null);
+        }
+        return;
+      }
+
       // Nothing left to play — disable NP buttons and start idle timer
       s.youtubeTitle = null;
       s.youtubeUrl = null;
@@ -834,12 +850,40 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       nowPlayingMsg: null,
       paused: false,
       requestedBy: null,
+      sbResume: null,
     });
   } else {
     connection.subscribe(radioStates.get(guildId)!.player);
   }
 
   return true;
+}
+
+// ── Resume radio station directly (no Message needed) ─────────────────────────
+async function resumeRadioStation(guildId: string, stationKey: string): Promise<void> {
+  const state = radioStates.get(guildId);
+  if (!state) return;
+  const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
+  if (!station) return;
+
+  clearIdleTimer(state);
+  state.stationKey = stationKey;
+  state.youtubeTitle = null;
+  state.youtubeUrl = null;
+  state.youtubeStartTime = null;
+  state.queue = [];
+  state.queueMessages = [];
+  state.paused = false;
+
+  try {
+    const stream = await fetchStream(station.url);
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+    state.player.play(resource);
+    state.notifyChannel?.send(`📻 Resuming **${station.name}** ${station.emoji}`).catch(() => null);
+  } catch (err) {
+    logger.error({ err, stationKey }, "Failed to resume radio after soundboard effect");
+    startIdleTimer(guildId);
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -1239,9 +1283,11 @@ async function execPlayYoutube(
 // ── Soundboard fast-play: skips search, goes direct to yt-dlp ────────────────
 // Uses ytsearch1: prefix so yt-dlp resolves the search itself (no fastYouTubeSearch overhead).
 // The dummy waitMsg swallows all Discord edits so nothing leaks into chat.
+// resume: what to restart when the effect finishes playing.
 export async function playSoundEffect(
   message: Message,
   urlOrQuery: string,
+  resume?: { stationKey: string } | { youtubeUrl: string },
 ): Promise<void> {
   const ready = await ensureVoiceConnection(message);
   if (!ready) return;
@@ -1249,6 +1295,9 @@ export async function playSoundEffect(
   const guildId = message.guildId!;
   const state = radioStates.get(guildId);
   if (!state) return;
+
+  // Store resume info BEFORE wiping state
+  state.sbResume = resume ?? null;
 
   // Wipe current playback context (caller already stopped the player)
   state.stationKey = null;

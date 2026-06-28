@@ -215,8 +215,16 @@ export async function handleSoundboardButton(interaction: ButtonInteraction): Pr
     return;
   }
 
-  // Stop current playback
+  // Save what was playing so we can resume after the effect
   const state = radioStates.get(guildId);
+  let resume: { stationKey: string } | { youtubeUrl: string } | undefined;
+  if (state?.stationKey) {
+    resume = { stationKey: state.stationKey };
+  } else if (state?.youtubeUrl) {
+    resume = { youtubeUrl: state.youtubeUrl };
+  }
+
+  // Stop current playback
   if (state) {
     state.stationKey = null;
     state.youtubeTitle = null;
@@ -231,8 +239,11 @@ export async function handleSoundboardButton(interaction: ButtonInteraction): Pr
   await interaction.deferUpdate();
 
   // ── Update the UI right away so the user sees feedback instantly ──────────
+  const resumeHint = resume
+    ? ("stationKey" in resume ? `  •  📻 Radio resumes after` : `  •  🎵 Music resumes after`)
+    : "";
   await interaction.editReply({
-    embeds: [buildSoundboardEmbed(guildId, `${pad.emoji} **${pad.label}** — loading…`)],
+    embeds: [buildSoundboardEmbed(guildId, `${pad.emoji} **${pad.label}** — loading…${resumeHint}`)],
     components: buildSoundboardRows(guildId),
   }).catch(() => null);
 
@@ -248,7 +259,7 @@ export async function handleSoundboardButton(interaction: ButtonInteraction): Pr
   } as unknown as Message;
 
   // ── Play in the background — don't block the UI ───────────────────────────
-  playSoundEffect(fakeMsg, pad.query).catch((err) => {
+  playSoundEffect(fakeMsg, pad.query, resume).catch((err) => {
     logger.error({ err, padId }, "Soundboard play error");
   });
 }
