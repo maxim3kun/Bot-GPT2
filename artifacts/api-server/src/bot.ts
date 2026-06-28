@@ -31,7 +31,7 @@ import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, JOKES, JOKES_FR, JOKES_ES,
 import { type HelpLanguage, buildHelpEmbed, detectTopicAndLang, buildTopicEmbed, sendPaginatedHelp, sendPaginatedHelpSlash, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
-import { startEcho, stopEcho, processEchoMessage } from "./discord/echo.js";
+import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
@@ -603,17 +603,8 @@ export function startBot(): void {
 
         case "echo": {
           if (!interaction.guildId) { await interaction.editReply("❌ Server only."); break; }
-          const targetUser = interaction.options.getUser("user");
-          if (!targetUser) {
-            const result = stopEcho(interaction.guildId, interaction.channelId, interaction.locale);
-            await interaction.editReply(result);
-          } else {
-            const result = startEcho(
-              targetUser, interaction.user.id, interaction.guildId,
-              interaction.channelId, client.user?.id ?? "", interaction.locale,
-            );
-            await interaction.editReply(result);
-          }
+          const result = toggleEcho(interaction.guildId, interaction.channelId, interaction.locale);
+          await interaction.editReply(result);
           break;
         }
 
@@ -1099,7 +1090,7 @@ export function startBot(): void {
     }
 
     // --- Echo processing (runs before prefix check) ---
-    await processEchoMessage(message).catch(() => null);
+    await processEchoMessage(message, client.user?.id ?? "").catch(() => null);
 
     // --- Prefix commands ---
     if (!content.startsWith(guildPrefix)) return;
@@ -3410,19 +3401,14 @@ export function startBot(): void {
         }
 
         // ── Echo ──────────────────────────────────────────────────────────────
-        case "echo": {
+        case "echo":
+        case "écho": {
           if (!message.guildId) break;
           const locale = message.guild?.preferredLocale ?? "en-US";
           if (args[0]?.toLowerCase() === "stop") {
             await message.reply(stopEcho(message.guildId, message.channelId, locale));
           } else {
-            const mentioned = message.mentions.users.first();
-            if (!mentioned) {
-              await message.reply("❓ Mention a user to echo. e.g. `!echo @someone`\nOr `!echo stop` to stop.");
-            } else {
-              const result = startEcho(mentioned, message.author.id, message.guildId, message.channelId, client.user?.id ?? "", locale);
-              await message.reply(result);
-            }
+            await message.reply(startEcho(message.guildId, message.channelId, locale));
           }
           break;
         }

@@ -13,8 +13,8 @@ import { getPrefix } from "./prefix-store.js";
 // ── Help system (5 pages, button navigation) ──────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es";
-export type HelpPage = 1 | 2 | 3 | 4 | 5;
-export const HELP_TOTAL_PAGES = 5;
+export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
+export const HELP_TOTAL_PAGES = 6;
 
 // Keep for back-compat (no longer used for reactions)
 export const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
@@ -101,66 +101,72 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
     );
 
-  // ── Page 3 — Tools (NEW) ───────────────────────────────────────────────────
+  // ── Page 3 — Outils 1/2 (Dictionnaire, QR, Écho, Pokédex) ───────────────────
   } else if (page === 3) {
     embed.setDescription(
-      fr ? "Outils pratiques : dictionnaire, QR, écho, Pokédex, bienvenue, messages planifiés."
-        : es ? "Herramientas: diccionario, QR, eco, Pokédex, bienvenida, mensajes programados."
-        : "Handy tools: dictionary, QR codes, echo, Pokédex, welcome, scheduled messages.",
+      fr ? "Outils pratiques — partie 1." : es ? "Herramientas — parte 1." : "Handy tools — part 1.",
     );
     embed.addFields(
       {
         name: fr ? "📖 Dictionnaire" : es ? "📖 Diccionario" : "📖 Dictionary",
         value: fr
-          ? "`/define <mot>` / `!define <mot>` / `!dict <mot>`\nDéfinition d'un mot anglais avec prononciation, exemples et synonymes."
+          ? "`/define <mot>` · `!define <mot>` · `!dict <mot>`\nDéfinition anglaise avec phonétique, exemples et synonymes."
           : es
-          ? "`/define <palabra>` / `!define <palabra>` / `!dict <palabra>`\nDefinición de una palabra inglesa con pronunciación, ejemplos y sinónimos."
-          : "`/define <word>` / `!define <word>` / `!dict <word>`\nEnglish word definition with phonetics, examples and synonyms.",
+          ? "`/define <palabra>` · `!define <palabra>` · `!dict <palabra>`\nDefinición inglesa con fonética, ejemplos y sinónimos."
+          : "`/define <word>` · `!define <word>` · `!dict <word>`\nEnglish definition with phonetics, examples and synonyms.",
       },
       {
         name: fr ? "📷 QR Code" : es ? "📷 Código QR" : "📷 QR Code",
         value: fr
-          ? "`/qr text:<texte>` / `!qr <texte>` — Génère un QR code 🖼️\n`/qr image:<image>` / `!qr` + image jointe — Lit un QR code 🔍\nFonctionne avec n'importe quel texte ou URL."
+          ? "`/qr text:<texte>` · `!qr <texte>` — Créer un QR code 🖼️\n`/qr image:<img>` · `!qr` + image jointe — Lire un QR code 🔍"
           : es
-          ? "`/qr text:<texto>` / `!qr <texto>` — Genera un código QR 🖼️\n`/qr image:<imagen>` / `!qr` + imagen adjunta — Lee un código QR 🔍\nFunciona con cualquier texto o URL."
-          : "`/qr text:<text>` / `!qr <text>` — Generate a QR code 🖼️\n`/qr image:<image>` / `!qr` + attached image — Read a QR code 🔍\nWorks with any text or URL.",
+          ? "`/qr text:<texto>` · `!qr <texto>` — Crear QR 🖼️\n`/qr image:<img>` · `!qr` + imagen — Leer QR 🔍"
+          : "`/qr text:<text>` · `!qr <text>` — Generate QR code 🖼️\n`/qr image:<img>` · `!qr` + attached image — Read QR code 🔍",
       },
       {
         name: fr ? "🦜 Écho" : es ? "🦜 Eco" : "🦜 Echo",
         value: fr
-          ? "`/echo user:@mention` / `!echo @mention` — Répète les messages d'un utilisateur *(max 8)*\n`/echo` *(sans argument)* / `!echo stop` — Arrête l'écho\n> S'arrête automatiquement après 8 messages"
+          ? "`/echo` · `!echo` — Active l'écho : répète **tous** les messages du salon *(max 8)*\n`/echo` *(à nouveau)* · `!echo stop` — Arrête l'écho\n> S'arrête automatiquement après 8 messages"
           : es
-          ? "`/echo user:@mención` / `!echo @mención` — Repite los mensajes de un usuario *(máx 8)*\n`/echo` *(sin argumento)* / `!echo stop` — Detiene el eco\n> Se detiene automáticamente después de 8 mensajes"
-          : "`/echo user:@mention` / `!echo @mention` — Repeats a user's messages *(max 8)*\n`/echo` *(no argument)* / `!echo stop` — Stop echoing\n> Auto-stops after 8 messages",
+          ? "`/echo` · `!echo` — Activa el eco: repite **todos** los mensajes del canal *(máx 8)*\n`/echo` *(de nuevo)* · `!echo stop` — Detiene el eco\n> Se para automáticamente tras 8 mensajes"
+          : "`/echo` · `!echo` — Activates echo: repeats **all** channel messages *(max 8)*\n`/echo` *(again)* · `!echo stop` — Stop echo\n> Auto-stops after 8 messages",
       },
       {
         name: fr ? "🔴 Pokédex" : es ? "🔴 Pokédex" : "🔴 Pokédex",
         value: fr
-          ? "`/pokemon <nom>` / `!pokemon <nom>` / `!dex <nom>`\nFiche complète : types, talents, stats, taille, poids. Couleur selon le type."
+          ? "`/pokemon <nom>` · `!pokemon <nom>` · `!dex <nom>`\nFiche complète : types, talents, stats, taille, poids."
           : es
-          ? "`/pokemon <nombre>` / `!pokemon <nombre>` / `!dex <nombre>`\nFicha completa: tipos, habilidades, stats, altura, peso. Color según el tipo."
-          : "`/pokemon <name>` / `!pokemon <name>` / `!dex <name>`\nFull card: types, abilities, stats, height, weight. Color matches the type.",
+          ? "`/pokemon <nombre>` · `!pokemon <nombre>` · `!dex <nombre>`\nFicha completa: tipos, habilidades, stats, altura, peso."
+          : "`/pokemon <name>` · `!pokemon <name>` · `!dex <name>`\nFull card: types, abilities, stats, height & weight.",
       },
+    );
+
+  // ── Page 4 — Outils 2/2 (Bienvenue, Messages planifiés) ──────────────────
+  } else if (page === 4) {
+    embed.setDescription(
+      fr ? "Outils pratiques — partie 2." : es ? "Herramientas — parte 2." : "Handy tools — part 2.",
+    );
+    embed.addFields(
       {
         name: fr ? "👋 Bienvenue dynamique" : es ? "👋 Bienvenida dinámica" : "👋 Dynamic Welcome",
         value: fr
-          ? "`!welcome set #salon` / `/welcome set` — Définir le salon de bienvenue *(admin)*\n`!welcome msg <texte>` / `/welcome message` — Message perso *(variables : `{user}` `{server}` `{count}`)*\n`!welcome clear` — Remettre le défaut · `!welcome status` — Voir la config"
+          ? "`!welcome set #salon` · `/welcome set` — Définir le salon *(admin)*\n`!welcome msg <texte>` · `/welcome message` — Message personnalisé\n> Variables : `{user}` `{server}` `{count}`\n`!welcome clear` — Défaut · `!welcome status` — Voir la config"
           : es
-          ? "`!welcome set #canal` / `/welcome set` — Establecer canal de bienvenida *(admin)*\n`!welcome msg <texto>` / `/welcome message` — Mensaje personalizado *(variables: `{user}` `{server}` `{count}`)*\n`!welcome clear` — Restablecer · `!welcome status` — Ver config"
-          : "`!welcome set #channel` / `/welcome set` — Set welcome channel *(admin)*\n`!welcome msg <text>` / `/welcome message` — Custom message *(vars: `{user}` `{server}` `{count}`)*\n`!welcome clear` — Reset · `!welcome status` — View config",
+          ? "`!welcome set #canal` · `/welcome set` — Establecer canal *(admin)*\n`!welcome msg <texto>` · `/welcome message` — Mensaje personalizado\n> Variables: `{user}` `{server}` `{count}`\n`!welcome clear` — Defecto · `!welcome status` — Ver config"
+          : "`!welcome set #channel` · `/welcome set` — Set channel *(admin)*\n`!welcome msg <text>` · `/welcome message` — Custom message\n> Variables: `{user}` `{server}` `{count}`\n`!welcome clear` — Reset · `!welcome status` — View config",
       },
       {
         name: fr ? "⏰ Messages planifiés" : es ? "⏰ Mensajes programados" : "⏰ Scheduled Messages",
         value: fr
-          ? "`!schedule set HH:MM #salon <msg>` / `/schedule once` — Planifier une fois *(UTC)*\n`!schedule daily HH:MM #salon <msg>` / `/schedule daily` — Chaque jour *(UTC)*\n`!schedule list` — Voir · `!schedule cancel <ID>` — Annuler *(admin)*"
+          ? "`!schedule set HH:MM #salon <msg>` · `/schedule once` — Une fois *(UTC)*\n`!schedule daily HH:MM #salon <msg>` · `/schedule daily` — Chaque jour\n`!schedule list` — Voir · `!schedule cancel <ID>` — Annuler *(admin)*"
           : es
-          ? "`!schedule set HH:MM #canal <msg>` / `/schedule once` — Programar una vez *(UTC)*\n`!schedule daily HH:MM #canal <msg>` / `/schedule daily` — Cada día *(UTC)*\n`!schedule list` — Ver · `!schedule cancel <ID>` — Cancelar *(admin)*"
-          : "`!schedule set HH:MM #channel <msg>` / `/schedule once` — Schedule once *(UTC)*\n`!schedule daily HH:MM #channel <msg>` / `/schedule daily` — Every day *(UTC)*\n`!schedule list` — View · `!schedule cancel <ID>` — Cancel *(admin)*",
+          ? "`!schedule set HH:MM #canal <msg>` · `/schedule once` — Una vez *(UTC)*\n`!schedule daily HH:MM #canal <msg>` · `/schedule daily` — Cada día\n`!schedule list` — Ver · `!schedule cancel <ID>` — Cancelar *(admin)*"
+          : "`!schedule set HH:MM #channel <msg>` · `/schedule once` — Once *(UTC)*\n`!schedule daily HH:MM #channel <msg>` · `/schedule daily` — Daily\n`!schedule list` — View · `!schedule cancel <ID>` — Cancel *(admin)*",
       },
     );
 
-  // ── Page 4 — Voice & Radio ─────────────────────────────────────────────────
-  } else if (page === 4) {
+  // ── Page 5 — Vocal & Radio ─────────────────────────────────────────────────
+  } else if (page === 5) {
     embed.setDescription(fr ? "Vocal et radio." : es ? "Voz y radio." : "Voice and radio.");
     embed.addFields(
       {
@@ -189,7 +195,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
     );
 
-  // ── Page 5 — Quests, AI & Moderators ──────────────────────────────────────
+  // ── Page 6 — Quêtes, IA & Modérateurs ────────────────────────────────────
   } else {
     embed.setDescription(fr ? "Quêtes, IA avancée et infos." : es ? "Misiones, IA avanzada e info." : "Quests, advanced AI and info.");
     embed.addFields(

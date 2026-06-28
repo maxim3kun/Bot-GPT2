@@ -257,20 +257,11 @@ export const SLASH_COMMANDS = [
   // ── Echo ──────────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("echo")
-    .setDescription("Repeat what a user says (max 8 messages). Omit user to stop.")
+    .setDescription("Toggle echo mode — repeats all messages in the channel (max 8). Use again to stop.")
     .setDescriptionLocalizations({
-      fr: "Répéter ce que dit un utilisateur (max 8 messages). Omettre l'utilisateur pour arrêter.",
-      "es-ES": "Repetir lo que dice un usuario (máx 8 mensajes). Omitir usuario para detener.",
+      fr: "Active/désactive l'écho — répète tous les messages du salon (max 8). Réutilise pour arrêter.",
+      "es-ES": "Activa/desactiva el eco — repite todos los mensajes del canal (máx 8). Úsalo de nuevo para parar.",
     })
-    .addUserOption(opt =>
-      opt.setName("user")
-        .setDescription("The user to echo")
-        .setDescriptionLocalizations({
-          fr: "L'utilisateur à répéter",
-          "es-ES": "El usuario a repetir",
-        })
-        .setRequired(false),
-    )
     .toJSON(),
 
   // ── Pokédex ───────────────────────────────────────────────────────────────
