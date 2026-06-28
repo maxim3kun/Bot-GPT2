@@ -36,6 +36,7 @@ import { handlePokemon } from "./discord/pokemon.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
+import { openSoundboard, handleSoundboardButton } from "./discord/soundboard.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -737,8 +738,9 @@ export function startBot(): void {
         }
 
         case "joke": {
-          const jokeLang = (interaction.options.getString("lang") ?? "en") as "en" | "fr" | "es";
-          const jokeList = jokeLang === "fr" ? JOKES_FR : jokeLang === "es" ? JOKES_ES : JOKES;
+          const jokeLangArg = interaction.options.getString("lang");
+          const jokeLang = jokeLangArg ? parseLanguage(jokeLangArg) : getLang(interaction.guildId);
+          const jokeList = jokeLang === "fr" ? JOKES_FR : jokeLang === "es" ? JOKES_ES : jokeLang === "de" ? JOKES_DE : jokeLang === "pt" ? JOKES_PT : jokeLang === "it" ? JOKES_IT : jokeLang === "ja" ? JOKES_JA : jokeLang === "nl" ? JOKES_NL : jokeLang === "ru" ? JOKES_RU : jokeLang === "pl" ? JOKES_PL : jokeLang === "tr" ? JOKES_TR : JOKES;
           await interaction.editReply(getRandom(jokeList));
           break;
         }
@@ -782,6 +784,17 @@ export function startBot(): void {
         await handleDjButton(interaction);
       } catch (err) {
         logger.error({ err }, "dj button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
+    // ── Soundboard buttons ───────────────────────────────────────────────────
+    if (interaction.customId.startsWith("sb:")) {
+      try {
+        await handleSoundboardButton(interaction);
+      } catch (err) {
+        logger.error({ err }, "soundboard button error");
         await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
       }
       return;
@@ -1170,7 +1183,7 @@ export function startBot(): void {
         }
 
         case "joke": {
-          const lang = parseLanguage(args[0]);
+          const lang = args[0] ? parseLanguage(args[0]) : getLang(guildId);
           const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
           await message.reply(getRandom(list));
           break;
@@ -2036,6 +2049,13 @@ export function startBot(): void {
         // ── DJ Console ──────────────────────────────────────────────────────────
         case "dj": {
           await openDjConsole(message);
+          break;
+        }
+
+        // ── Soundboard ──────────────────────────────────────────────────────────
+        case "soundboard":
+        case "sb": {
+          await openSoundboard(message);
           break;
         }
 
@@ -3136,7 +3156,7 @@ export function startBot(): void {
                 break;
               }
               case "joke": {
-                const lang = parseLanguage(args[0]);
+                const lang = args[0] ? parseLanguage(args[0]) : getLang(guildId);
                 const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
                 await message.reply(getRandom(list));
                 break;
