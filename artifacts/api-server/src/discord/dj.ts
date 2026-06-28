@@ -1,0 +1,532 @@
+import {
+  type Message,
+  type TextChannel,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from "discord.js";
+import { logger } from "../lib/logger.js";
+import {
+  radioStates,
+  pauseToggle,
+  skipCurrentTrack,
+  stopForGuild,
+  playYoutube,
+  searchAndQueue,
+  RADIO_STATIONS,
+  playRadio,
+  getQueueEmbed,
+  ensureVoiceConnection,
+  buildNpButtonRows,
+  buildRadioNpButtonRows,
+} from "./radio.js";
+import { addLike, isLiked } from "./likes-store.js";
+
+// ── Loop state ─────────────────────────────────────────────────────────────────
+
+const loopState = new Map<string, boolean>();
+
+export function isDjLoopEnabled(guildId: string): boolean {
+  return loopState.get(guildId) ?? false;
+}
+
+export function toggleDjLoop(guildId: string): boolean {
+  const current = loopState.get(guildId) ?? false;
+  loopState.set(guildId, !current);
+  return !current;
+}
+
+// ── Pending track search (dj:add flow) ────────────────────────────────────────
+
+const pendingAddTrack = new Map<string, { userId: string; channelId: string; expires: number }>();
+
+export function registerDjPendingAdd(guildId: string, userId: string, channelId: string): void {
+  pendingAddTrack.set(guildId, { userId, channelId, expires: Date.now() + 60_000 });
+}
+
+export function consumeDjPendingAdd(guildId: string, userId: string): boolean {
+  const entry = pendingAddTrack.get(guildId);
+  if (!entry) return false;
+  if (entry.userId !== userId) return false;
+  if (entry.expires < Date.now()) { pendingAddTrack.delete(guildId); return false; }
+  pendingAddTrack.delete(guildId);
+  return true;
+}
+
+export function hasDjPendingAdd(guildId: string, userId: string): boolean {
+  const entry = pendingAddTrack.get(guildId);
+  if (!entry) return false;
+  if (entry.userId !== userId) return false;
+  if (entry.expires < Date.now()) { pendingAddTrack.delete(guildId); return false; }
+  return true;
+}
+
+// ── DJ console embed ──────────────────────────────────────────────────────────
+
+export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuilder {
+  const state = radioStates.get(guildId);
+  const loopOn = isDjLoopEnabled(guildId);
+
+  let deckA = "—";
+  let deckStatus = "⏹️ Stopped";
+  let deckQueue = "Empty";
+
+  if (state) {
+    if (state.stationKey) {
+      const station = RADIO_STATIONS[state.stationKey];
+      deckA = station ? `${station.emoji} **${station.name}** • ${station.genre}` : `📻 ${state.stationKey}`;
+      deckStatus = state.paused ? "⏸️ Paused" : "▶️ Live Radio";
+    } else if (state.youtubeTitle) {
+      deckA = `🎵 **${state.youtubeTitle}**`;
+      deckStatus = state.paused ? "⏸️ Paused" : "▶️ Playing";
+    }
+    if (state.queue.length > 0) {
+      deckQueue = `${state.queue.length} track${state.queue.length !== 1 ? "s" : ""} in queue`;
+    }
+  }
+
+  const statusLine = [
+    deckStatus,
+    loopOn ? "🔁 Loop ON" : null,
+    state?.youtubeTitle && state.requestedBy ? `👤 <@${state.requestedBy}>` : null,
+  ].filter(Boolean).join("  •  ");
+
+  const embed = new EmbedBuilder()
+    .setColor(state?.youtubeTitle ? 0x5865f2 : state?.stationKey ? 0x57f287 : 0x2f3136)
+    .setTitle("🎛️  DJ Console — Mixing Table")
+    .setDescription(
+      highlightMsg
+        ? `> ${highlightMsg}\n\u200b`
+        : "\u200b"
+    )
+    .addFields(
+      { name: "🎚️  DECK A — Now Playing", value: deckA, inline: false },
+      { name: "📊  Status", value: statusLine || "⏹️ Stopped", inline: true },
+      { name: "📋  Queue", value: deckQueue, inline: true },
+    )
+    .setFooter({ text: "Use the buttons below to control playback  •  !dj to reopen" })
+    .setTimestamp();
+
+  return embed;
+}
+
+// ── Button rows ───────────────────────────────────────────────────────────────
+
+export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuilder>[] {
+  const state = radioStates.get(guildId);
+  const paused = state?.paused ?? false;
+  const loopOn = isDjLoopEnabled(guildId);
+  const isRadio = !!(state?.stationKey);
+
+  // Row 1 — Playback controls
+  const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:playpause")
+      .setLabel(paused ? "▶️  Play" : "⏸️  Pause")
+      .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:skip")
+      .setLabel(isRadio ? "📻  Next Station" : "⏭️  Skip")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("dj:loop")
+      .setLabel(loopOn ? "🔁  Loop ON" : "🔁  Loop OFF")
+      .setStyle(loopOn ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:like")
+      .setLabel("❤️  Like")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("dj:stop")
+      .setLabel("⏹️  Stop")
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  // Row 2 — Queue management
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:add")
+      .setLabel("🎵  Add Track")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("dj:queue")
+      .setLabel("📋  Queue")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:shuffle")
+      .setLabel("🔀  Shuffle")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:voteskip")
+      .setLabel("🗳️  Vote Skip")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:clear")
+      .setLabel("🗑️  Clear Queue")
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  // Row 3 — Radio stations (French hits)
+  const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:radio:nrj")
+      .setLabel("🔥  NRJ")
+      .setStyle(state?.stationKey === "nrj" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:fun")
+      .setLabel("🎉  Fun Radio")
+      .setStyle(state?.stationKey === "fun" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:skyrock")
+      .setLabel("🎤  Skyrock")
+      .setStyle(state?.stationKey === "skyrock" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:ouifm")
+      .setLabel("🎸  OUI FM")
+      .setStyle(state?.stationKey === "ouifm" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:groove")
+      .setLabel("🌿  Groove Salad")
+      .setStyle(state?.stationKey === "groove" ? ButtonStyle.Success : ButtonStyle.Secondary),
+  );
+
+  // Row 4 — More stations
+  const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:radio:hiphop")
+      .setLabel("🎤  Hip-Hop")
+      .setStyle(state?.stationKey === "hiphop" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:hits90s")
+      .setLabel("💿  90s Hits")
+      .setStyle(state?.stationKey === "hits90s" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:hits2000s")
+      .setLabel("📀  2000s Hits")
+      .setStyle(state?.stationKey === "hits2000s" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:jazz")
+      .setLabel("🎷  Jazz")
+      .setStyle(state?.stationKey === "jazz" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:lush")
+      .setLabel("🌸  Lush")
+      .setStyle(state?.stationKey === "lush" ? ButtonStyle.Success : ButtonStyle.Secondary),
+  );
+
+  // Row 5 — Vibe controls
+  const row5 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:nowplaying")
+      .setLabel("🎵  Now Playing")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("dj:refresh")
+      .setLabel("🔄  Refresh")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:classicfm")
+      .setLabel("🎼  Classic FM")
+      .setStyle(state?.stationKey === "classicfm" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:fip")
+      .setLabel("🎨  FIP")
+      .setStyle(state?.stationKey === "fip" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:radio:kexp")
+      .setLabel("🌍  KEXP")
+      .setStyle(state?.stationKey === "kexp" ? ButtonStyle.Success : ButtonStyle.Secondary),
+  );
+
+  return [row1, row2, row3, row4, row5];
+}
+
+// ── Open DJ console ───────────────────────────────────────────────────────────
+
+export async function openDjConsole(message: Message): Promise<void> {
+  const guildId = message.guildId;
+  if (!guildId) {
+    await message.reply("❌ This command can only be used in a server.");
+    return;
+  }
+
+  const voiceChannel = (message.member as { voice?: { channel?: unknown } } | null)?.voice?.channel;
+  if (!voiceChannel) {
+    await ensureVoiceConnection(message);
+    return;
+  }
+
+  const embed = buildDjEmbed(guildId, "🎛️ Welcome to the DJ Console! Use the buttons below to mix.");
+  const rows = buildDjButtonRows(guildId);
+  await message.reply({ embeds: [embed], components: rows });
+}
+
+// ── Handle DJ button interactions ─────────────────────────────────────────────
+
+import type { ButtonInteraction } from "discord.js";
+import { startVoteSkip } from "./radio.js";
+
+export async function handleDjButton(interaction: ButtonInteraction): Promise<void> {
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({ content: "❌ Guild not found.", ephemeral: true });
+    return;
+  }
+
+  const action = interaction.customId.replace("dj:", "");
+
+  // ── Playback controls ──────────────────────────────────────────────────────
+  if (action === "playpause") {
+    const result = pauseToggle(guildId);
+    if (result === "not_playing") {
+      await interaction.reply({ content: "❌ Nothing is playing right now.", ephemeral: true });
+      return;
+    }
+    const state = radioStates.get(guildId);
+    const isRadio = !!(state?.stationKey);
+    const msg = result === "paused" ? "⏸️ Paused." : "▶️ Resumed.";
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, msg)],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  if (action === "skip") {
+    const state = radioStates.get(guildId);
+    if (state?.stationKey) {
+      const stationKeys = Object.keys(RADIO_STATIONS);
+      const currentIdx = stationKeys.indexOf(state.stationKey);
+      const nextKey = stationKeys[(currentIdx + 1) % stationKeys.length];
+      if (!nextKey) {
+        await interaction.reply({ content: "❌ No next station found.", ephemeral: true });
+        return;
+      }
+      await interaction.deferUpdate();
+      const fakeMsg = interaction.message as unknown as Message;
+      const { execSwitchRadioStation } = await import("./radio.js");
+      await execSwitchRadioStation(guildId, nextKey, fakeMsg);
+      await interaction.editReply({
+        embeds: [buildDjEmbed(guildId, `📻 Switched to **${RADIO_STATIONS[nextKey]?.name ?? nextKey}**.`)],
+        components: buildDjButtonRows(guildId),
+      });
+      return;
+    }
+    const skipped = skipCurrentTrack(guildId);
+    if (!skipped) {
+      await interaction.reply({ content: "❌ Nothing to skip.", ephemeral: true });
+      return;
+    }
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, `⏭️ Skipped **${skipped}**.`)],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  if (action === "loop") {
+    const state = radioStates.get(guildId);
+    if (state?.youtubeUrl && state.youtubeTitle) {
+      const nowOn = toggleDjLoop(guildId);
+      if (nowOn) {
+        state.queue.unshift(state.youtubeUrl);
+      } else {
+        const idx = state.queue.indexOf(state.youtubeUrl);
+        if (idx !== -1) state.queue.splice(idx, 1);
+      }
+      await interaction.update({
+        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled** — track will repeat." : "🔁 Loop **disabled**.")],
+        components: buildDjButtonRows(guildId),
+      });
+    } else {
+      const nowOn = toggleDjLoop(guildId);
+      await interaction.update({
+        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled** — next track will repeat." : "🔁 Loop **disabled**.")],
+        components: buildDjButtonRows(guildId),
+      });
+    }
+    return;
+  }
+
+  if (action === "like") {
+    const state = radioStates.get(guildId);
+    const isRadio = !!(state?.stationKey);
+    const title = isRadio
+      ? (RADIO_STATIONS[state!.stationKey!]?.name ?? state!.stationKey!)
+      : state?.youtubeTitle;
+    const url = isRadio ? `radio:${state!.stationKey}` : state?.youtubeUrl;
+    if (!title || !url) {
+      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
+      return;
+    }
+    if (isLiked(interaction.user.id, url)) {
+      await import("./likes-store.js").then(m => m.removeLike(interaction.user.id, url));
+      await interaction.reply({ content: `💔 Removed **${title}** from your likes.`, ephemeral: true });
+    } else {
+      await addLike(interaction.user.id, { title, url });
+      await interaction.reply({ content: `❤️ Liked **${title}**! Use \`!likes\` to see your list.`, ephemeral: true });
+    }
+    return;
+  }
+
+  if (action === "stop") {
+    const stopped = stopForGuild(guildId);
+    loopState.delete(guildId);
+    if (!stopped) {
+      await interaction.reply({ content: "❌ Nothing is playing.", ephemeral: true });
+      return;
+    }
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, "⏹️ Stopped and disconnected.")],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  // ── Queue controls ─────────────────────────────────────────────────────────
+  if (action === "add") {
+    registerDjPendingAdd(guildId, interaction.user.id, interaction.channelId);
+    await interaction.reply({
+      content: "🎵 **Add a track** — type the song name or YouTube URL in this channel within **60 seconds**:",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (action === "queue") {
+    const state = radioStates.get(guildId);
+    if (!state || state.queue.length === 0) {
+      await interaction.reply({ content: "📭 The queue is empty.", ephemeral: true });
+      return;
+    }
+    const queueEmbed = getQueueEmbed(guildId);
+    if (queueEmbed) {
+      await interaction.reply({ embeds: [queueEmbed], ephemeral: true });
+    } else {
+      await interaction.reply({ content: "📭 The queue is empty.", ephemeral: true });
+    }
+    return;
+  }
+
+  if (action === "shuffle") {
+    const state = radioStates.get(guildId);
+    if (!state || state.queue.length < 2) {
+      await interaction.reply({ content: "🔀 Not enough tracks to shuffle.", ephemeral: true });
+      return;
+    }
+    for (let i = state.queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [state.queue[i], state.queue[j]] = [state.queue[j]!, state.queue[i]!];
+    }
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, `🔀 Queue shuffled — **${state.queue.length} tracks** reordered.`)],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  if (action === "voteskip") {
+    const fakeMsg = {
+      ...interaction.message,
+      reply: async (content: unknown) => {
+        if (typeof content === "string") {
+          await interaction.reply({ content, ephemeral: true });
+        } else {
+          await interaction.reply({ ...(content as object), ephemeral: true } as Parameters<typeof interaction.reply>[0]);
+        }
+      },
+      guildId,
+      author: interaction.user,
+      member: interaction.member,
+    } as unknown as Message;
+    await startVoteSkip(fakeMsg);
+    return;
+  }
+
+  if (action === "clear") {
+    const state = radioStates.get(guildId);
+    if (!state || state.queue.length === 0) {
+      await interaction.reply({ content: "📭 The queue is already empty.", ephemeral: true });
+      return;
+    }
+    const count = state.queue.length;
+    state.queue = [];
+    state.queueMessages = [];
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, `🗑️ Cleared **${count} track${count !== 1 ? "s" : ""}** from the queue.`)],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  // ── Info controls ──────────────────────────────────────────────────────────
+  if (action === "nowplaying") {
+    const { nowPlaying } = await import("./radio.js");
+    const npEmbed = nowPlaying(guildId);
+    if (!npEmbed) {
+      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
+      return;
+    }
+    const state = radioStates.get(guildId);
+    const isRadio = !!(state?.stationKey);
+    await interaction.reply({
+      embeds: [npEmbed],
+      components: isRadio ? buildRadioNpButtonRows(state?.paused ?? false) : buildNpButtonRows(state?.paused ?? false),
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (action === "refresh") {
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, "🔄 Console refreshed.")],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  // ── Radio station buttons ──────────────────────────────────────────────────
+  if (action.startsWith("radio:")) {
+    const stationKey = action.replace("radio:", "");
+    const station = RADIO_STATIONS[stationKey];
+    if (!station) {
+      await interaction.reply({ content: `❌ Unknown station: \`${stationKey}\``, ephemeral: true });
+      return;
+    }
+
+    const member = interaction.member;
+    const voiceChannel = (member as { voice?: { channel?: unknown } } | null)?.voice?.channel;
+    if (!voiceChannel) {
+      await interaction.reply({ content: "❌ Join a voice channel first!", ephemeral: true });
+      return;
+    }
+
+    await interaction.deferUpdate();
+
+    const fakeMsg = {
+      ...interaction.message,
+      reply: async (_: unknown) => interaction.message,
+      edit: async (_: unknown) => interaction.message,
+      guildId,
+      guild: interaction.guild,
+      member: interaction.member,
+      author: interaction.user,
+      channel: interaction.channel,
+    } as unknown as Message;
+
+    try {
+      await playRadio(fakeMsg, stationKey);
+      await interaction.editReply({
+        embeds: [buildDjEmbed(guildId, `${station.emoji} Now playing **${station.name}**!`)],
+        components: buildDjButtonRows(guildId),
+      });
+    } catch (err) {
+      logger.error({ err, stationKey }, "DJ radio switch error");
+      await interaction.followUp({ content: `❌ Failed to start **${station.name}**. Try again.`, ephemeral: true }).catch(() => null);
+    }
+    return;
+  }
+
+  await interaction.reply({ content: "❓ Unknown action.", ephemeral: true });
+}

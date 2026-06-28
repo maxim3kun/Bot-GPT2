@@ -35,6 +35,7 @@ import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/e
 import { handlePokemon } from "./discord/pokemon.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
+import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -775,6 +776,17 @@ export function startBot(): void {
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
 
+    // ── DJ Console buttons ───────────────────────────────────────────────────
+    if (interaction.customId.startsWith("dj:")) {
+      try {
+        await handleDjButton(interaction);
+      } catch (err) {
+        logger.error({ err }, "dj button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
     // ── Now Playing buttons ─────────────────────────────────────────────────
     if (interaction.customId.startsWith("np:")) {
       const action = interaction.customId.split(":")[1];
@@ -1092,6 +1104,17 @@ export function startBot(): void {
 
     // --- Echo processing (runs before prefix check) ---
     await processEchoMessage(message, client.user?.id ?? "").catch(() => null);
+
+    // --- DJ pending "Add Track" listener ---
+    if (message.guildId && hasDjPendingAdd(message.guildId, message.author.id)) {
+      consumeDjPendingAdd(message.guildId, message.author.id);
+      const query = content.trim();
+      if (query) {
+        await searchAndQueue(message, query);
+        // Refresh the DJ console embed if we can find a recent one
+      }
+      return;
+    }
 
     // --- Prefix commands ---
     if (!content.startsWith(guildPrefix)) return;
@@ -2007,6 +2030,12 @@ export function startBot(): void {
 
         case "subtitles": {
           await toggleSubtitles(message);
+          break;
+        }
+
+        // ── DJ Console ──────────────────────────────────────────────────────────
+        case "dj": {
+          await openDjConsole(message);
           break;
         }
 
