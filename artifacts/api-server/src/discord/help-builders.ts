@@ -1,34 +1,65 @@
-import { EmbedBuilder, type Message, type MessageReaction, type User, type ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  type Message,
+  type ChatInputCommandInteraction,
+  PermissionFlagsBits,
+} from "discord.js";
 import { getPrefix } from "./prefix-store.js";
 
-// ── Help system (4 pages) ─────────────────────────────────────────────────────
+// ── Help system (5 pages, button navigation) ──────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es";
-export type HelpPage = 1 | 2 | 3 | 4;
+export type HelpPage = 1 | 2 | 3 | 4 | 5;
+export const HELP_TOTAL_PAGES = 5;
+
+// Keep for back-compat (no longer used for reactions)
 export const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
+
+function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder> {
+  const fr = lang === "fr"; const es = lang === "es";
+  const prevLabel = fr ? "⬅️ Préc." : es ? "⬅️ Ant." : "⬅️ Prev";
+  const nextLabel = fr ? "Suiv. ➡️" : es ? "Sig. ➡️" : "Next ➡️";
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("help_prev")
+      .setLabel(prevLabel)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled),
+    new ButtonBuilder()
+      .setCustomId("help_next")
+      .setLabel(nextLabel)
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(disabled),
+  );
+}
 
 export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
   const fr = lang === "fr"; const es = lang === "es";
   const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
-  const footer = fr ? `Page ${page}/4 — ⬅️ ➡️ pour naviguer`
-    : es ? `Página ${page}/4 — ⬅️ ➡️ para navegar`
-    : `Page ${page}/4 — ⬅️ ➡️ to navigate`;
+  const footer = fr ? `Page ${page}/${HELP_TOTAL_PAGES} — Utilise les boutons pour naviguer`
+    : es ? `Página ${page}/${HELP_TOTAL_PAGES} — Usa los botones para navegar`
+    : `Page ${page}/${HELP_TOTAL_PAGES} — Use the buttons to navigate`;
 
   const embed = new EmbedBuilder()
     .setTitle(fr ? "📖 Aide du bot" : es ? "📖 Ayuda del bot" : "📖 Bot Help")
     .setColor(color)
     .setFooter({ text: footer });
 
+  // ── Page 1 — General & Fun ─────────────────────────────────────────────────
   if (page === 1) {
     embed.setDescription(fr ? "Commandes générales et divertissement." : es ? "Comandos generales y diversión." : "General commands and fun.");
     embed.addFields(
       {
         name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
         value: fr
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Fiche Mii style 🎮\n`!language [en|fr|es]` — Changer ta langue (défaut: anglais)"
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Fiche Mii style 🎮\n`!language [en|fr|es]` — Changer ta langue"
           : es
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Ficha estilo Mii 🎮\n`!language [en|fr|es]` — Cambiar tu idioma (defecto: inglés)"
-          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Mii-style profile card 🎮\n`!language [en|fr|es]` — Change your language (default: English)",
+          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Ficha estilo Mii 🎮\n`!language [en|fr|es]` — Cambiar tu idioma"
+          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Mii-style profile card 🎮\n`!language [en|fr|es]` — Change your language",
       },
       {
         name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
@@ -39,7 +70,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           : "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`",
       },
       {
-        name: fr ? "Anniversaires" : es ? "Cumpleaños" : "Birthdays",
+        name: fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays",
         value: fr
           ? "`!birthday add <JJ/MM>` — Enregistrer\n`!birthday list` — Voir tous\n`!birthday remove [@user]` — Supprimer\n> `!help anniversaire` pour plus de détails"
           : es
@@ -47,6 +78,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           : "`!birthday add <DD/MM>` — Save your birthday\n`!birthday list` — View all\n`!birthday remove [@user]` — Remove\n> `!help birthday` for details",
       },
     );
+
+  // ── Page 2 — Mini-games & Music ────────────────────────────────────────────
   } else if (page === 2) {
     embed.setDescription(fr ? "Mini-jeux et génération musicale." : es ? "Mini-juegos y música." : "Mini-games and music generation.");
     embed.addFields(
@@ -67,7 +100,67 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           : "`!music generator <prompt>` — Style, mood, lyrics 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
       },
     );
+
+  // ── Page 3 — Tools (NEW) ───────────────────────────────────────────────────
   } else if (page === 3) {
+    embed.setDescription(
+      fr ? "Outils pratiques : dictionnaire, QR, écho, Pokédex, bienvenue, messages planifiés."
+        : es ? "Herramientas: diccionario, QR, eco, Pokédex, bienvenida, mensajes programados."
+        : "Handy tools: dictionary, QR codes, echo, Pokédex, welcome, scheduled messages.",
+    );
+    embed.addFields(
+      {
+        name: fr ? "📖 Dictionnaire" : es ? "📖 Diccionario" : "📖 Dictionary",
+        value: fr
+          ? "`/define <mot>` / `!define <mot>` / `!dict <mot>`\nDéfinition d'un mot anglais avec prononciation, exemples et synonymes."
+          : es
+          ? "`/define <palabra>` / `!define <palabra>` / `!dict <palabra>`\nDefinición de una palabra inglesa con pronunciación, ejemplos y sinónimos."
+          : "`/define <word>` / `!define <word>` / `!dict <word>`\nEnglish word definition with phonetics, examples and synonyms.",
+      },
+      {
+        name: fr ? "📷 QR Code" : es ? "📷 Código QR" : "📷 QR Code",
+        value: fr
+          ? "`/qr text:<texte>` / `!qr <texte>` — Génère un QR code 🖼️\n`/qr image:<image>` / `!qr` + image jointe — Lit un QR code 🔍\nFonctionne avec n'importe quel texte ou URL."
+          : es
+          ? "`/qr text:<texto>` / `!qr <texto>` — Genera un código QR 🖼️\n`/qr image:<imagen>` / `!qr` + imagen adjunta — Lee un código QR 🔍\nFunciona con cualquier texto o URL."
+          : "`/qr text:<text>` / `!qr <text>` — Generate a QR code 🖼️\n`/qr image:<image>` / `!qr` + attached image — Read a QR code 🔍\nWorks with any text or URL.",
+      },
+      {
+        name: fr ? "🦜 Écho" : es ? "🦜 Eco" : "🦜 Echo",
+        value: fr
+          ? "`/echo user:@mention` / `!echo @mention` — Répète les messages d'un utilisateur *(max 8)*\n`/echo` *(sans argument)* / `!echo stop` — Arrête l'écho\n> S'arrête automatiquement après 8 messages"
+          : es
+          ? "`/echo user:@mención` / `!echo @mención` — Repite los mensajes de un usuario *(máx 8)*\n`/echo` *(sin argumento)* / `!echo stop` — Detiene el eco\n> Se detiene automáticamente después de 8 mensajes"
+          : "`/echo user:@mention` / `!echo @mention` — Repeats a user's messages *(max 8)*\n`/echo` *(no argument)* / `!echo stop` — Stop echoing\n> Auto-stops after 8 messages",
+      },
+      {
+        name: fr ? "🔴 Pokédex" : es ? "🔴 Pokédex" : "🔴 Pokédex",
+        value: fr
+          ? "`/pokemon <nom>` / `!pokemon <nom>` / `!dex <nom>`\nFiche complète : types, talents, stats, taille, poids. Couleur selon le type."
+          : es
+          ? "`/pokemon <nombre>` / `!pokemon <nombre>` / `!dex <nombre>`\nFicha completa: tipos, habilidades, stats, altura, peso. Color según el tipo."
+          : "`/pokemon <name>` / `!pokemon <name>` / `!dex <name>`\nFull card: types, abilities, stats, height, weight. Color matches the type.",
+      },
+      {
+        name: fr ? "👋 Bienvenue dynamique" : es ? "👋 Bienvenida dinámica" : "👋 Dynamic Welcome",
+        value: fr
+          ? "`!welcome set #salon` / `/welcome set` — Définir le salon de bienvenue *(admin)*\n`!welcome msg <texte>` / `/welcome message` — Message perso *(variables : `{user}` `{server}` `{count}`)*\n`!welcome clear` — Remettre le défaut · `!welcome status` — Voir la config"
+          : es
+          ? "`!welcome set #canal` / `/welcome set` — Establecer canal de bienvenida *(admin)*\n`!welcome msg <texto>` / `/welcome message` — Mensaje personalizado *(variables: `{user}` `{server}` `{count}`)*\n`!welcome clear` — Restablecer · `!welcome status` — Ver config"
+          : "`!welcome set #channel` / `/welcome set` — Set welcome channel *(admin)*\n`!welcome msg <text>` / `/welcome message` — Custom message *(vars: `{user}` `{server}` `{count}`)*\n`!welcome clear` — Reset · `!welcome status` — View config",
+      },
+      {
+        name: fr ? "⏰ Messages planifiés" : es ? "⏰ Mensajes programados" : "⏰ Scheduled Messages",
+        value: fr
+          ? "`!schedule set HH:MM #salon <msg>` / `/schedule once` — Planifier une fois *(UTC)*\n`!schedule daily HH:MM #salon <msg>` / `/schedule daily` — Chaque jour *(UTC)*\n`!schedule list` — Voir · `!schedule cancel <ID>` — Annuler *(admin)*"
+          : es
+          ? "`!schedule set HH:MM #canal <msg>` / `/schedule once` — Programar una vez *(UTC)*\n`!schedule daily HH:MM #canal <msg>` / `/schedule daily` — Cada día *(UTC)*\n`!schedule list` — Ver · `!schedule cancel <ID>` — Cancelar *(admin)*"
+          : "`!schedule set HH:MM #channel <msg>` / `/schedule once` — Schedule once *(UTC)*\n`!schedule daily HH:MM #channel <msg>` / `/schedule daily` — Every day *(UTC)*\n`!schedule list` — View · `!schedule cancel <ID>` — Cancel *(admin)*",
+      },
+    );
+
+  // ── Page 4 — Voice & Radio ─────────────────────────────────────────────────
+  } else if (page === 4) {
     embed.setDescription(fr ? "Vocal et radio." : es ? "Voz y radio." : "Voice and radio.");
     embed.addFields(
       {
@@ -95,6 +188,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           : "`!karaoke <artist song>` 🎵 — Synced live lyrics\n`!karaoke stop` — Stop karaoke",
       },
     );
+
+  // ── Page 5 — Quests, AI & Moderators ──────────────────────────────────────
   } else {
     embed.setDescription(fr ? "Quêtes, IA avancée et infos." : es ? "Misiones, IA avanzada e info." : "Quests, advanced AI and info.");
     embed.addFields(
@@ -141,9 +236,96 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
   return embed;
 }
 
+// ── Button-based paginated help (prefix command) ──────────────────────────────
+
+export async function sendPaginatedHelp(message: Message, lang: HelpLanguage): Promise<void> {
+  const pfx = getPrefix(message.guildId);
+  let page: HelpPage = 1;
+
+  const helpMessage = await message.reply({
+    embeds: [buildHelpEmbed(lang, page, pfx)],
+    components: [buildNavRow(page, lang)],
+  });
+
+  const collector = helpMessage.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    filter: (i) => (i.customId === "help_prev" || i.customId === "help_next") && i.user.id === message.author.id,
+    idle: 10 * 60 * 1000,
+  });
+
+  collector.on("collect", async (interaction) => {
+    if (interaction.customId === "help_next") {
+      page = (page >= HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
+    } else {
+      page = (page <= 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
+    }
+    await interaction.update({
+      embeds: [buildHelpEmbed(lang, page, pfx)],
+      components: [buildNavRow(page, lang)],
+    });
+  });
+
+  collector.on("end", async () => {
+    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help expired";
+    const expiredFooter = lang === "fr"
+      ? `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Relance \`${pfx}help\``
+      : lang === "es"
+      ? `Página ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Usa \`${pfx}help\` de nuevo`
+      : `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Run \`${pfx}help\` again`;
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
+    await helpMessage.edit({ embeds: [expiredEmbed], components: [buildNavRow(page, lang, true)] }).catch(() => null);
+  });
+}
+
+// ── Button-based paginated help (slash command) ───────────────────────────────
+
+export async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, lang: HelpLanguage): Promise<void> {
+  const pfx = getPrefix(interaction.guildId);
+  let page: HelpPage = 1;
+
+  await interaction.editReply({
+    embeds: [buildHelpEmbed(lang, page, pfx)],
+    components: [buildNavRow(page, lang)],
+  });
+
+  const helpMessage = await interaction.fetchReply();
+
+  const collector = helpMessage.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    filter: (i) => (i.customId === "help_prev" || i.customId === "help_next") && i.user.id === interaction.user.id,
+    idle: 10 * 60 * 1000,
+  });
+
+  collector.on("collect", async (btnInteraction) => {
+    if (btnInteraction.customId === "help_next") {
+      page = (page >= HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
+    } else {
+      page = (page <= 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
+    }
+    await btnInteraction.update({
+      embeds: [buildHelpEmbed(lang, page, pfx)],
+      components: [buildNavRow(page, lang)],
+    });
+  });
+
+  collector.on("end", async () => {
+    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help expired";
+    const expiredFooter = lang === "fr"
+      ? `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Relance \`/help\``
+      : lang === "es"
+      ? `Página ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Usa \`/help\` de nuevo`
+      : `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Run \`/help\` again`;
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
+    await interaction.editReply({ embeds: [expiredEmbed], components: [buildNavRow(page, lang, true)] }).catch(() => null);
+  });
+}
+
 // ── Topic-specific help ───────────────────────────────────────────────────────
 
-export type HelpTopic = "general" | "games" | "music" | "radio" | "youtube" | "quest" | "levels" | "voice" | "ai" | "birthday" | "guesslogo";
+export type HelpTopic =
+  | "general" | "games" | "music" | "radio" | "youtube"
+  | "quest" | "levels" | "voice" | "ai" | "birthday" | "guesslogo"
+  | "tools" | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule";
 
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -168,6 +350,14 @@ export function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTo
     birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" }, cumpleanos: { topic: "birthday", lang: "es" },
     guesslogo: { topic: "guesslogo", lang: "en" }, devinelelogo: { topic: "guesslogo", lang: "en" }, guessthelogo: { topic: "guesslogo", lang: "en" },
     logo: { topic: "guesslogo", lang: "en" },
+    tools: { topic: "tools", lang: "en" }, outils: { topic: "tools", lang: "fr" }, herramientas: { topic: "tools", lang: "es" },
+    dictionary: { topic: "dictionary", lang: "en" }, define: { topic: "dictionary", lang: "en" },
+    dictionnaire: { topic: "dictionary", lang: "fr" }, dict: { topic: "dictionary", lang: "en" },
+    qr: { topic: "qr", lang: "en" }, qrcode: { topic: "qr", lang: "en" },
+    echo: { topic: "echo", lang: "en" }, eco: { topic: "echo", lang: "es" },
+    pokemon: { topic: "pokemon", lang: "en" }, pokedex: { topic: "pokemon", lang: "en" }, dex: { topic: "pokemon", lang: "en" },
+    welcome: { topic: "welcome", lang: "en" }, bienvenue: { topic: "welcome", lang: "fr" }, bienvenida: { topic: "welcome", lang: "es" },
+    schedule: { topic: "schedule", lang: "en" }, planifier: { topic: "schedule", lang: "fr" }, programar: { topic: "schedule", lang: "es" },
   };
   const match = map[key];
   if (!match) return null;
@@ -242,10 +432,10 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.addFields(
         { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
           value: fr
-            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête (coach IA) ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest reset` — Réinitialiser"
+            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest reset` — Réinitialiser"
             : es
-            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión (coach IA) ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest reset` — Reiniciar"
-            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest (AI coach) ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest reset` — Reset all" },
+            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest reset` — Reiniciar"
+            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest reset` — Reset all" },
         { name: fr ? "⏰ Rappels" : es ? "⏰ Recordatorios" : "⏰ Reminders",
           value: fr
             ? "Par défaut : **10:00 · 15:00 · 18:00 UTC**\nPersonnalise avec `!quest schedule 8 14 21`\nReset : `!quest schedule reset`"
@@ -290,7 +480,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       }); break;
 
     case "birthday":
-      embed.setTitle(fr ? "Anniversaires" : es ? "Cumpleaños" : "Birthdays");
+      embed.setTitle(fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays");
       embed.addFields(
         { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
           value: fr
@@ -306,8 +496,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle("🏷️ Guess the Logo — Moderator Guide");
       embed.setColor(0x5865f2);
       embed.addFields(
-        {
-          name: "🎮 Player Commands",
+        { name: "🎮 Player Commands",
           value: [
             "`!guessthelogo` — Start a game (easy by default)",
             "`!guessthelogo easy` — 🟢 World-famous brands • 3 hints • 90s",
@@ -318,16 +507,14 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
             "Aliases: `!guesslogo` · `!devinelelogo`",
           ].join("\n"),
         },
-        {
-          name: "📊 Difficulty & Popularity",
+        { name: "📊 Difficulty & Popularity",
           value: [
             "**🟢 Easy** → Tier 1 only — iconic global logos (Nike, Apple, McDonald's…)",
             "**🟡 Medium** → Tier 1 + 2 — brands known to the general public",
             "**🔴 Hard** → All tiers — includes lesser-known brands, no hints",
           ].join("\n"),
         },
-        {
-          name: "🛠️ Admin Commands (Manage Server required)",
+        { name: "🛠️ Admin Commands (Manage Server required)",
           value: [
             "`!logo stats` — Logo pool statistics",
             "`!logo add <domain> <name> [tier 1-3] [category] [country] [hints…]` — Add a brand",
@@ -340,8 +527,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
             "`!logo test status` — Status of the current test run",
           ].join("\n"),
         },
-        {
-          name: "ℹ️ How the pool works",
+        { name: "ℹ️ How the pool works",
           value: "Brands are picked **randomly** from the pool based on the difficulty tier. Recently played logos are excluded to avoid repetition. Add brands via `!logo add` or auto-fetch via `!logo fetch` to grow the game.",
         },
       );
@@ -370,77 +556,107 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
             ? "`!conspiracy [tema]` 🕵️ — Teoría de conspiración IA\n`!trivia` 🧠 — Quiz cultura general IA"
             : "`!conspiracy [topic]` 🕵️ — AI conspiracy theory\n`!trivia` 🧠 — AI general knowledge quiz" },
       ); break;
+
+    case "tools":
+      embed.setTitle(fr ? "🛠️ Outils" : es ? "🛠️ Herramientas" : "🛠️ Tools");
+      embed.setDescription(fr ? "Voir page 3 de `!help` pour tous les outils." : es ? "Ver página 3 de `!help` para todas las herramientas." : "See page 3 of `!help` for all tools.");
+      break;
+
+    case "dictionary":
+      embed.setTitle(fr ? "📖 Dictionnaire" : es ? "📖 Diccionario" : "📖 Dictionary");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`/define <mot>` — Via commande slash\n`!define <mot>` — Via préfixe\n`!dict <mot>` — Alias\n\nRetourne : définition, prononciation phonétique, exemples d'usage et synonymes. Mots en **anglais uniquement**."
+          : es
+          ? "`/define <palabra>` — Comando slash\n`!define <palabra>` — Con prefijo\n`!dict <palabra>` — Alias\n\nDevuelve: definición, fonética, ejemplos y sinónimos. Solo palabras en **inglés**."
+          : "`/define <word>` — Slash command\n`!define <word>` — Prefix command\n`!dict <word>` — Alias\n\nReturns: definition, phonetics, usage examples and synonyms. **English words only**.",
+      }); break;
+
+    case "qr":
+      embed.setTitle(fr ? "📷 QR Code" : es ? "📷 Código QR" : "📷 QR Code");
+      embed.addFields(
+        { name: fr ? "Créer un QR code" : es ? "Crear un código QR" : "Create a QR code",
+          value: fr
+            ? "`/qr text:<texte>` — Via commande slash\n`!qr <texte>` — Via préfixe\nFonctionne avec n'importe quel texte ou URL (max 500 caractères)."
+            : es
+            ? "`/qr text:<texto>` — Comando slash\n`!qr <texto>` — Con prefijo\nFunciona con cualquier texto o URL (máx 500 caracteres)."
+            : "`/qr text:<text>` — Slash command\n`!qr <text>` — Prefix command\nWorks with any text or URL (max 500 characters)." },
+        { name: fr ? "Lire un QR code" : es ? "Leer un código QR" : "Read a QR code",
+          value: fr
+            ? "`/qr image:<image>` — Joins une image contenant un QR code\n`!qr` + image jointe — Envoie `!qr` avec une image en pièce jointe"
+            : es
+            ? "`/qr image:<imagen>` — Adjunta una imagen con un código QR\n`!qr` + imagen adjunta — Envía `!qr` con una imagen adjunta"
+            : "`/qr image:<image>` — Attach an image containing a QR code\n`!qr` + attached image — Send `!qr` with an image attached" },
+      ); break;
+
+    case "echo":
+      embed.setTitle(fr ? "🦜 Écho" : es ? "🦜 Eco" : "🦜 Echo");
+      embed.addFields(
+        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+          value: fr
+            ? "`/echo user:@mention` — Commence à répéter un utilisateur\n`/echo` *(sans argument)* — Arrête l'écho\n`!echo @mention` — Via préfixe\n`!echo stop` — Arrête l'écho"
+            : es
+            ? "`/echo user:@mención` — Comienza a repetir a un usuario\n`/echo` *(sin argumento)* — Detiene el eco\n`!echo @mención` — Con prefijo\n`!echo stop` — Detiene el eco"
+            : "`/echo user:@mention` — Start echoing a user\n`/echo` *(no argument)* — Stop echoing\n`!echo @mention` — Prefix command\n`!echo stop` — Stop echoing" },
+        { name: fr ? "Comportement" : es ? "Comportamiento" : "Behaviour",
+          value: fr
+            ? "Le bot répète les messages de l'utilisateur ciblé.\nLimite : **8 messages maximum** par session.\nS'arrête automatiquement après 8 messages ou sur commande stop."
+            : es
+            ? "El bot repite los mensajes del usuario objetivo.\nLímite: **máximo 8 mensajes** por sesión.\nSe detiene automáticamente tras 8 mensajes o con el comando stop."
+            : "The bot repeats the targeted user's messages.\nLimit: **max 8 messages** per session.\nAuto-stops after 8 messages or on stop command." },
+      ); break;
+
+    case "pokemon":
+      embed.setTitle(fr ? "🔴 Pokédex" : es ? "🔴 Pokédex" : "🔴 Pokédex");
+      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
+        value: fr
+          ? "`/pokemon <nom>` — Via commande slash\n`!pokemon <nom>` / `!dex <nom>` — Via préfixe\n\nAccepte le nom ou le numéro (ex: `pikachu` ou `25`).\nAffiche : type, talents, stats, taille et poids. La couleur de l'embed correspond au type principal."
+          : es
+          ? "`/pokemon <nombre>` — Comando slash\n`!pokemon <nombre>` / `!dex <nombre>` — Con prefijo\n\nAcepta nombre o número (ej: `pikachu` o `25`).\nMuestra: tipo, habilidades, stats, altura y peso. El color del embed coincide con el tipo principal."
+          : "`/pokemon <name>` — Slash command\n`!pokemon <name>` / `!dex <name>` — Prefix command\n\nAccepts name or number (e.g. `pikachu` or `25`).\nShows: type, abilities, stats, height & weight. Embed color matches the primary type.",
+      }); break;
+
+    case "welcome":
+      embed.setTitle(fr ? "👋 Bienvenue dynamique" : es ? "👋 Bienvenida dinámica" : "👋 Dynamic Welcome");
+      embed.addFields(
+        { name: fr ? "Configuration *(admin)*" : es ? "Configuración *(admin)*" : "Setup *(admin)*",
+          value: fr
+            ? "`!welcome set #salon` / `/welcome set channel:#salon` — Définir le salon\n`!welcome msg <texte>` / `/welcome message text:<texte>` — Message personnalisé\n`!welcome clear` / `/welcome clear` — Remettre le message par défaut\n`!welcome status` / `/welcome status` — Voir la configuration"
+            : es
+            ? "`!welcome set #canal` / `/welcome set channel:#canal` — Establecer canal\n`!welcome msg <texto>` / `/welcome message text:<texto>` — Mensaje personalizado\n`!welcome clear` / `/welcome clear` — Restablecer predeterminado\n`!welcome status` / `/welcome status` — Ver configuración"
+            : "`!welcome set #channel` / `/welcome set channel:#channel` — Set channel\n`!welcome msg <text>` / `/welcome message text:<text>` — Custom message\n`!welcome clear` / `/welcome clear` — Reset to default\n`!welcome status` / `/welcome status` — View config" },
+        { name: fr ? "Variables de message" : es ? "Variables de mensaje" : "Message variables",
+          value: fr
+            ? "`{user}` — Mention de l'utilisateur\n`{server}` — Nom du serveur\n`{count}` — Nombre de membres\n\nEx: `Bienvenue {user} sur {server} ! Tu es notre {count}ème membre.`"
+            : es
+            ? "`{user}` — Mención del usuario\n`{server}` — Nombre del servidor\n`{count}` — Número de miembros\n\nEj: `¡Bienvenido {user} a {server}! Eres nuestro miembro número {count}.`"
+            : "`{user}` — User mention\n`{server}` — Server name\n`{count}` — Member count\n\nExample: `Welcome {user} to {server}! You're our #{count} member.`" },
+      ); break;
+
+    case "schedule":
+      embed.setTitle(fr ? "⏰ Messages planifiés" : es ? "⏰ Mensajes programados" : "⏰ Scheduled Messages");
+      embed.addFields(
+        { name: fr ? "Commandes *(admin)*" : es ? "Comandos *(admin)*" : "Commands *(admin)*",
+          value: fr
+            ? "`!schedule set HH:MM #salon <message>` — Planifier une fois\n`!schedule daily HH:MM #salon <message>` — Planifier chaque jour\n`!schedule list` — Voir les messages planifiés\n`!schedule cancel <ID>` — Annuler\n\nSlash : `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`"
+            : es
+            ? "`!schedule set HH:MM #canal <mensaje>` — Programar una vez\n`!schedule daily HH:MM #canal <mensaje>` — Programar cada día\n`!schedule list` — Ver mensajes programados\n`!schedule cancel <ID>` — Cancelar\n\nSlash: `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`"
+            : "`!schedule set HH:MM #channel <message>` — Schedule once\n`!schedule daily HH:MM #channel <message>` — Schedule daily\n`!schedule list` — View scheduled messages\n`!schedule cancel <ID>` — Cancel\n\nSlash: `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`" },
+        { name: fr ? "ℹ️ Note" : es ? "ℹ️ Nota" : "ℹ️ Note",
+          value: fr
+            ? "Les heures sont en **UTC**. Ex: pour 18h Paris (UTC+2 en été), utilise `16:00`."
+            : es
+            ? "Las horas son en **UTC**. Ej: para las 18h en Madrid (UTC+2 en verano), usa `16:00`."
+            : "Times are in **UTC**. e.g. for 6 PM London (UTC+1 in summer), use `17:00`." },
+      ); break;
   }
+
   if (prefix !== "!") {
     for (const f of embed.data.fields ?? []) {
       f.value = f.value.replaceAll("`!", `\`${prefix}`);
     }
   }
   return embed;
-}
-
-// ── Paginated help ────────────────────────────────────────────────────────────
-
-export async function sendPaginatedHelp(message: Message, lang: HelpLanguage): Promise<void> {
-  const pfx = getPrefix(message.guildId);
-  let page: HelpPage = 1;
-  const helpMessage = await message.reply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
-
-  for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
-
-  const filter = (reaction: MessageReaction, user: User) =>
-    HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === message.author.id;
-
-  const collector = helpMessage.createReactionCollector({ filter, idle: 10 * 60 * 1000 });
-
-  collector.on("collect", async (reaction, user) => {
-    const emoji = reaction.emoji.name;
-    if (emoji === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
-    if (emoji === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
-    await helpMessage.edit({ embeds: [buildHelpEmbed(lang, page, pfx)] });
-    await reaction.users.remove(user.id).catch(() => null);
-  });
-
-  collector.on("end", async () => {
-    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help Expired";
-    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`${pfx}help\` pour naviguer`
-      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`${pfx}help\` de nuevo para navegar`
-      : `Page ${page}/4 — ${expiredLabel} · Run \`${pfx}help\` again to navigate`;
-    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
-    await helpMessage.edit({ embeds: [expiredEmbed] }).catch(() => null);
-    await helpMessage.reactions.removeAll().catch(() => null);
-  });
-}
-
-export async function sendPaginatedHelpSlash(interaction: ChatInputCommandInteraction, lang: HelpLanguage): Promise<void> {
-  const pfx = getPrefix(interaction.guildId);
-  let page: HelpPage = 1;
-  await interaction.editReply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
-  const helpMessage = await interaction.fetchReply();
-
-  for (const emoji of HELP_PAGE_REACTIONS) await helpMessage.react(emoji).catch(() => null);
-
-  const filter = (reaction: MessageReaction, user: User) =>
-    HELP_PAGE_REACTIONS.includes(reaction.emoji.name ?? "") && !user.bot && user.id === interaction.user.id;
-
-  const collector = helpMessage.createReactionCollector({ filter, idle: 10 * 60 * 1000 });
-
-  collector.on("collect", async (reaction, user) => {
-    if (reaction.emoji.name === "➡️") page = (page === 4 ? 1 : (page + 1)) as HelpPage;
-    if (reaction.emoji.name === "⬅️") page = (page === 1 ? 4 : (page - 1)) as HelpPage;
-    await interaction.editReply({ embeds: [buildHelpEmbed(lang, page, pfx)] });
-    await reaction.users.remove(user.id).catch(() => null);
-  });
-
-  collector.on("end", async () => {
-    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help Expired";
-    const expiredFooter = lang === "fr" ? `Page ${page}/4 — ${expiredLabel} · Relance \`/help\` pour naviguer`
-      : lang === "es" ? `Página ${page}/4 — ${expiredLabel} · Usa \`/help\` de nuevo para navegar`
-      : `Page ${page}/4 — ${expiredLabel} · Run \`/help\` again to navigate`;
-    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
-    await interaction.editReply({ embeds: [expiredEmbed] }).catch(() => null);
-    await helpMessage.reactions.removeAll().catch(() => null);
-  });
 }
 
 // ── Setup guide (API keys) ────────────────────────────────────────────────────
@@ -493,39 +709,37 @@ export async function sendAdminGuide(message: Message, guildPrefix: string): Pro
     .addFields(
       {
         name: "🔤 Prefix",
-        value:
-          `\`${guildPrefix}prefix <new>\` — Change the bot prefix for this server *(max 3 chars)*\n` +
-          `\`${guildPrefix}prefix reset\` — Restore the default \`!\` prefix`,
+        value: `\`${guildPrefix}prefix <new>\` — Change the bot prefix for this server *(max 3 chars)*\n\`${guildPrefix}prefix reset\` — Restore the default \`!\` prefix`,
+        inline: false,
+      },
+      {
+        name: "👋 Welcome",
+        value: `\`${guildPrefix}welcome set #channel\` — Set welcome channel\n\`${guildPrefix}welcome msg <text>\` — Custom message (\`{user}\` \`{server}\` \`{count}\`)\n\`${guildPrefix}welcome clear\` — Reset · \`${guildPrefix}welcome status\` — View config`,
+        inline: false,
+      },
+      {
+        name: "⏰ Scheduled Messages",
+        value: `\`${guildPrefix}schedule set HH:MM #channel <msg>\` — Once\n\`${guildPrefix}schedule daily HH:MM #channel <msg>\` — Daily\n\`${guildPrefix}schedule list\` — View · \`${guildPrefix}schedule cancel <ID>\` — Cancel`,
         inline: false,
       },
       {
         name: "🔊 Voice channel picker",
-        value:
-          `\`${guildPrefix}voicechannels #ch1 #ch2\` — Set the 2 voice channels shown when a user isn't in voice\n` +
-          `\`${guildPrefix}voicechannels reset\` — Restore default (first 2 voice channels of the server)`,
+        value: `\`${guildPrefix}voicechannels #ch1 #ch2\` — Set the 2 voice channels shown when a user isn't in voice\n\`${guildPrefix}voicechannels reset\` — Restore default`,
         inline: false,
       },
       {
         name: "🎂 Birthdays",
-        value:
-          `\`${guildPrefix}birthday channel #channel\` — Set the channel for birthday announcements\n` +
-          `\`${guildPrefix}birthday channel reset\` — Remove the birthday announcement channel`,
+        value: `\`${guildPrefix}birthday channel #channel\` — Set the channel for birthday announcements\n\`${guildPrefix}birthday channel reset\` — Remove the birthday announcement channel`,
         inline: false,
       },
       {
         name: "🚨 Alert channel",
-        value:
-          `\`${guildPrefix}admin channel #channel\` — Set the channel for anti-troll alerts\n` +
-          `\`${guildPrefix}admin channel reset\` — Remove the alert channel`,
+        value: `\`${guildPrefix}admin channel #channel\` — Set the channel for anti-troll alerts\n\`${guildPrefix}admin channel reset\` — Remove the alert channel`,
         inline: false,
       },
       {
         name: "🛡️ Anti-troll",
-        value:
-          `\`${guildPrefix}unblock @user\` — Lift any bot restriction on a user\n` +
-          `\`${guildPrefix}banlist\` — View all users flagged by the anti-troll system\n\n` +
-          "**Escalation:** warning → 3min block → 12h block → 2h full lockout → permanent ban\n" +
-          "Use `!unblock @user` to release anyone at any stage.",
+        value: `\`${guildPrefix}unblock @user\` — Lift any bot restriction on a user\n\`${guildPrefix}banlist\` — View all users flagged by the anti-troll system\n\n**Escalation:** warning → 3min block → 12h block → 2h full lockout → permanent ban`,
         inline: false,
       },
       {
