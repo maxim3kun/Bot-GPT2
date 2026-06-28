@@ -1170,14 +1170,14 @@ async function execPlayYoutube(
       requestedBy: requestedBy ?? undefined,
       queueCount,
     });
-    await waitMsg.edit({ content: "", embeds: [embed], components: buildNpButtonRows(false) });
+    await waitMsg.edit({ content: "", embeds: [embed], components: buildNpButtonRows(false) }).catch(() => null);
   };
 
   const onError = async (err: Error) => {
     clearInterval(loadInterval);
     logger.error({ err, url }, "YouTube playback error");
     state.nowPlayingMsg = null;
-    await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] });
+    await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] }).catch(() => null);
   };
 
   const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
@@ -1196,8 +1196,12 @@ async function execPlayYoutube(
     if (started) return;
     started = true;
     cleanup();
-    const { title, duration, thumbnail } = await infoPromise;
-    await postNowPlaying(title, duration, thumbnail);
+    try {
+      const { title, duration, thumbnail } = await infoPromise;
+      await postNowPlaying(title, duration, thumbnail);
+    } catch (err) {
+      logger.error({ err }, "postNowPlaying error (message may have been deleted)");
+    }
   };
 
   // Player went Idle before ever playing → stream produced no audio (yt-dlp failed silently)

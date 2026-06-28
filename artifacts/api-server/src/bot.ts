@@ -36,7 +36,7 @@ import { handlePokemon } from "./discord/pokemon.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
-import { openSoundboard, handleSoundboardButton } from "./discord/soundboard.js";
+import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -2055,6 +2055,69 @@ export function startBot(): void {
         // ── Soundboard ──────────────────────────────────────────────────────────
         case "soundboard":
         case "sb": {
+          const sbSub = args[0]?.toLowerCase();
+
+          // !sb add <emoji> <name> <search query...>
+          if (sbSub === "add") {
+            if (!guildId) { await message.reply("❌ Server only."); break; }
+            const emoji = args[1];
+            const name  = args[2];
+            const query = args.slice(3).join(" ");
+            if (!emoji || !name || !query) {
+              await message.reply(
+                "❌ Usage: `!sb add <emoji> <name> <YouTube search>`\n" +
+                "Example: `!sb add 🐱 Meow cat meow sound effect`"
+              );
+              break;
+            }
+            const padId = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+            const pad: SoundPad = { id: padId, emoji, label: name, query, style: 1 /* Primary/blue */ };
+            const added = await addCustomSound(guildId, pad);
+            if (!added) {
+              const existing = getCustomSounds(guildId);
+              await message.reply(
+                existing.length >= 5
+                  ? `❌ Max 5 custom sounds per server. Remove one with \`!sb remove <name>\` first.`
+                  : `❌ A sound with that name already exists.`
+              );
+              break;
+            }
+            await message.reply({
+              embeds: [buildSoundboardEmbed(guildId, `✅ **${name}** ${emoji} added to your soundboard!`)],
+              components: buildSoundboardRows(guildId),
+            });
+            break;
+          }
+
+          // !sb remove <name>
+          if (sbSub === "remove" || sbSub === "delete") {
+            if (!guildId) { await message.reply("❌ Server only."); break; }
+            const name = args.slice(1).join(" ");
+            if (!name) { await message.reply("❌ Usage: `!sb remove <name>`"); break; }
+            const padId = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+            const removed = await removeCustomSound(guildId, padId);
+            if (!removed) {
+              await message.reply(`❌ No custom sound named **${name}** found. Use \`!sb list\` to see your sounds.`);
+              break;
+            }
+            await message.reply(`✅ **${name}** removed from your soundboard.`);
+            break;
+          }
+
+          // !sb list
+          if (sbSub === "list") {
+            if (!guildId) { await message.reply("❌ Server only."); break; }
+            const custom = getCustomSounds(guildId);
+            if (custom.length === 0) {
+              await message.reply("📭 No custom sounds yet. Add one with `!sb add <emoji> <name> <YouTube search>`.");
+            } else {
+              const list = custom.map((p, i) => `${i + 1}. ${p.emoji} **${p.label}** — \`${p.query}\``).join("\n");
+              await message.reply(`🎵 **Custom sounds (${custom.length}/5):**\n${list}\n\nRemove with \`!sb remove <name>\`.`);
+            }
+            break;
+          }
+
+          // !sb (no sub-command → open soundboard)
           await openSoundboard(message);
           break;
         }
@@ -3515,6 +3578,7 @@ export function startBot(): void {
   });
 
   client.once("clientReady", () => {
+    loadCustomSounds().catch(() => null);
     startBirthdayScheduler(client);
     startQuestReminders(client, openai);
     startScheduler(client);
