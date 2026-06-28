@@ -6,237 +6,204 @@ import {
   ComponentType,
   type Message,
   type ChatInputCommandInteraction,
-  PermissionFlagsBits,
 } from "discord.js";
 import { getPrefix } from "./prefix-store.js";
 
-// ── Help system (5 pages, button navigation) ──────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-export type HelpLanguage = "en" | "fr" | "es";
-export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
-export const HELP_TOTAL_PAGES = 6;
+export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it";
+export type HelpPage = 1 | 2 | 3 | 4 | 5;
+export const HELP_TOTAL_PAGES = 5;
 
-// Keep for back-compat (no longer used for reactions)
-export const HELP_PAGE_REACTIONS = ["⬅️", "➡️"];
+// ── Language helpers ──────────────────────────────────────────────────────────
+
+const L = {
+  title:    { en: "📖 Bot Help",        fr: "📖 Aide du bot",     es: "📖 Ayuda del bot",    de: "📖 Bot-Hilfe",       pt: "📖 Ajuda do bot",    it: "📖 Guida del bot"    },
+  footer:   { en: "Page",               fr: "Page",               es: "Página",              de: "Seite",              pt: "Página",             it: "Pagina"              },
+  nav:      { en: "Use buttons to navigate  •  !help <command> for details",
+               fr: "Navigue avec les boutons  •  !help <commande> pour les détails",
+               es: "Navega con los botones  •  !help <comando> para detalles",
+               de: "Navigiere mit den Tasten  •  !help <Befehl> für Details",
+               pt: "Navegue com os botões  •  !help <comando> para detalhes",
+               it: "Naviga con i pulsanti  •  !help <comando> per i dettagli" },
+  prev:     { en: "⬅️ Prev", fr: "⬅️ Préc.", es: "⬅️ Ant.", de: "⬅️ Zurück", pt: "⬅️ Ant.", it: "⬅️ Prec." },
+  next:     { en: "Next ➡️", fr: "Suiv. ➡️", es: "Sig. ➡️",  de: "Weiter ➡️", pt: "Próx. ➡️", it: "Succ. ➡️" },
+  expired:  { en: "Expired · Run !help again", fr: "Expirée · Relance !help", es: "Expirada · Usa !help de nuevo",
+               de: "Abgelaufen · !help erneut eingeben", pt: "Expirada · Use !help novamente", it: "Scaduta · Usa !help di nuovo" },
+} as const;
+
+function t<K extends keyof typeof L>(key: K, lang: HelpLanguage): string {
+  return (L[key] as Record<string, string>)[lang] ?? (L[key] as Record<string, string>)["en"] ?? "";
+}
+
+const COLORS: Record<HelpLanguage, number> = {
+  en: 0x1abc9c, fr: 0x5865f2, es: 0xe74c3c, de: 0xf1c40f, pt: 0x2ecc71, it: 0xe67e22,
+};
+
+// ── Nav row ───────────────────────────────────────────────────────────────────
 
 function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder> {
-  const fr = lang === "fr"; const es = lang === "es";
-  const prevLabel = fr ? "⬅️ Préc." : es ? "⬅️ Ant." : "⬅️ Prev";
-  const nextLabel = fr ? "Suiv. ➡️" : es ? "Sig. ➡️" : "Next ➡️";
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId("help_prev")
-      .setLabel(prevLabel)
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(disabled),
-    new ButtonBuilder()
-      .setCustomId("help_next")
-      .setLabel(nextLabel)
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(disabled),
+    new ButtonBuilder().setCustomId("help_prev").setLabel(t("prev", lang)).setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+    new ButtonBuilder().setCustomId("help_next").setLabel(t("next", lang)).setStyle(ButtonStyle.Primary).setDisabled(disabled),
   );
 }
 
-export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
-  const fr = lang === "fr"; const es = lang === "es";
-  const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
-  const footer = fr ? `Page ${page}/${HELP_TOTAL_PAGES} — Utilise les boutons pour naviguer`
-    : es ? `Página ${page}/${HELP_TOTAL_PAGES} — Usa los botones para navegar`
-    : `Page ${page}/${HELP_TOTAL_PAGES} — Use the buttons to navigate`;
+// ── Page builder ──────────────────────────────────────────────────────────────
 
+export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
+  const p = prefix;
   const embed = new EmbedBuilder()
-    .setTitle(fr ? "📖 Aide du bot" : es ? "📖 Ayuda del bot" : "📖 Bot Help")
-    .setColor(color)
-    .setFooter({ text: footer });
+    .setTitle(t("title", lang))
+    .setColor(COLORS[lang])
+    .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES}  •  ${t("nav", lang)}` });
 
   // ── Page 1 — General & Fun ─────────────────────────────────────────────────
   if (page === 1) {
-    embed.setDescription(fr ? "Commandes générales et divertissement." : es ? "Comandos generales y diversión." : "General commands and fun.");
+    const desc = { en: "General, fun & birthdays.", fr: "Général, fun & anniversaires.", es: "General, diversión & cumpleaños.", de: "Allgemein, Spaß & Geburtstage.", pt: "Geral, diversão & aniversários.", it: "Generale, divertimento & compleanni." };
+    embed.setDescription(desc[lang]);
     embed.addFields(
       {
-        name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
-        value: fr
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Fiche Mii style 🎮\n`!language [en|fr|es]` — Changer ta langue"
-          : es
-          ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Ficha estilo Mii 🎮\n`!language [en|fr|es]` — Cambiar tu idioma"
-          : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | 1 | 2 | … | 9` 📊\n`!profile [@user]` — Mii-style profile card 🎮\n`!language [en|fr|es]` — Change your language",
+        name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[lang] ?? "🌐 General",
+        value: [
+          `\`${p}say\` · \`${p}hello\` · \`${p}poll\` · \`${p}profile\``,
+          `\`@bot <msg>\` 🤖  \`${p}image <desc>\` 🎨`,
+          `\`${p}language [en|fr|es|de|pt|it]\` — ` + { en: "Change your language", fr: "Changer ta langue", es: "Cambiar idioma", de: "Sprache ändern", pt: "Mudar idioma", it: "Cambiare lingua" }[lang],
+        ].join("\n"),
       },
       {
-        name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
-        value: fr
-          ? "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` — ex. `!joke fr`"
-          : es
-          ? "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <pregunta>` 🎱  `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` — ej. `!joke es`"
-          : "`!compliment` 💖 / `!joke` 😄\n`!encouragement` 💪 / `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`",
+        name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[lang] ?? "🎉 Fun",
+        value: [
+          `\`${p}joke\` 😄  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
+          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲  \`${p}conspiracy [topic]\` 🕵️`,
+          `> ` + { en: "Append language code: `!joke fr`, `!joke de`, `!joke it`…", fr: "Ajoute le code langue : `!joke fr`, `!joke de`, `!joke it`…", es: "Añade código de idioma: `!joke fr`, `!joke de`, `!joke it`…", de: "Sprachkürzel anhängen: `!joke fr`, `!joke de`, `!joke it`…", pt: "Adicione o código do idioma: `!joke fr`, `!joke de`, `!joke it`…", it: "Aggiungi il codice lingua: `!joke fr`, `!joke de`, `!joke it`…" }[lang],
+        ].join("\n"),
       },
       {
-        name: fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays",
-        value: fr
-          ? "`!birthday add <JJ/MM>` — Enregistrer\n`!birthday list` — Voir tous\n`!birthday remove [@user]` — Supprimer\n> `!help anniversaire` pour plus de détails"
-          : es
-          ? "`!birthday add <DD/MM>` — Registrar\n`!birthday list` — Ver todos\n`!birthday remove [@user]` — Eliminar\n> `!help cumpleanos` para más detalles"
-          : "`!birthday add <DD/MM>` — Save your birthday\n`!birthday list` — View all\n`!birthday remove [@user]` — Remove\n> `!help birthday` for details",
+        name: { en: "🎂 Birthdays", fr: "🎂 Anniversaires", es: "🎂 Cumpleaños", de: "🎂 Geburtstage", pt: "🎂 Aniversários", it: "🎂 Compleanni" }[lang] ?? "🎂 Birthdays",
+        value: `\`${p}birthday add DD/MM\` · \`${p}birthday list\` · \`${p}birthday remove\``,
       },
     );
 
-  // ── Page 2 — Mini-games & Music ────────────────────────────────────────────
+  // ── Page 2 — Games & Tools ─────────────────────────────────────────────────
   } else if (page === 2) {
-    embed.setDescription(fr ? "Mini-jeux et génération musicale." : es ? "Mini-juegos y música." : "Mini-games and music generation.");
+    const desc = { en: "Mini-games & handy tools.", fr: "Mini-jeux & outils pratiques.", es: "Mini-juegos & herramientas.", de: "Mini-Spiele & Werkzeuge.", pt: "Mini-jogos & ferramentas.", it: "Mini-giochi & strumenti." };
+    embed.setDescription(desc[lang]);
     embed.addFields(
       {
-        name: fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games",
-        value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`"
-          : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍 / `!geo stop`\n`!trivia` 🧠 / `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️ / `!guessthelogo stop`",
+        name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[lang] ?? "🎮 Games",
+        value: [
+          `\`${p}minesweeper\` 💣  \`${p}geo\` 🌍  \`${p}trivia\` 🧠  \`${p}guessnumber\` 🎯`,
+          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️`,
+          `> ` + { en: "All support `easy|medium|hard`  •  `!help games` for details", fr: "Tous supportent `easy|medium|hard`  •  `!help jeux` pour les détails", es: "Todos soportan `easy|medium|hard`  •  `!help juegos` para detalles", de: "Alle unterstützen `easy|medium|hard`  •  `!help spiele` für Details", pt: "Todos suportam `easy|medium|hard`  •  `!help jogos` para detalhes", it: "Tutti supportano `easy|medium|hard`  •  `!help giochi` per dettagli" }[lang],
+        ].join("\n"),
       },
       {
-        name: fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI",
-        value: fr
-          ? "`!music generator <prompt>` — Style, ambiance, paroles 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
-          : es
-          ? "`!music generator <prompt>` — Estilo, ambiente, letra 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
-          : "`!music generator <prompt>` — Style, mood, lyrics 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
+        name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[lang] ?? "🔍 Tools",
+        value: [
+          `\`${p}define <word>\` 📖  \`${p}pokemon <name>\` 🔴  \`${p}qr <text>\` 📷`,
+          `\`${p}echo\` 🦜  \`${p}food\` 🥗  \`${p}shazam\` 🎵`,
+          `> ` + { en: "`!help <tool>` for details", fr: "`!help <outil>` pour les détails", es: "`!help <herramienta>` para detalles", de: "`!help <Werkzeug>` für Details", pt: "`!help <ferramenta>` para detalhes", it: "`!help <strumento>` per i dettagli" }[lang],
+        ].join("\n"),
       },
     );
 
-  // ── Page 3 — Outils 1/2 (Dictionnaire, QR, Écho, Pokédex) ───────────────────
+  // ── Page 3 — Music & Voice ─────────────────────────────────────────────────
   } else if (page === 3) {
-    embed.setDescription(
-      fr ? "Outils pratiques — partie 1." : es ? "Herramientas — parte 1." : "Handy tools — part 1.",
-    );
+    const desc = { en: "Music, radio, DJ & voice.", fr: "Musique, radio, DJ & vocal.", es: "Música, radio, DJ & voz.", de: "Musik, Radio, DJ & Sprache.", pt: "Música, rádio, DJ & voz.", it: "Musica, radio, DJ & voce." };
+    embed.setDescription(desc[lang]);
     embed.addFields(
       {
-        name: fr ? "📖 Dictionnaire" : es ? "📖 Diccionario" : "📖 Dictionary",
-        value: fr
-          ? "`/define <mot>` · `!define <mot>` · `!dict <mot>`\nDéfinition anglaise avec phonétique, exemples et synonymes."
-          : es
-          ? "`/define <palabra>` · `!define <palabra>` · `!dict <palabra>`\nDefinición inglesa con fonética, ejemplos y sinónimos."
-          : "`/define <word>` · `!define <word>` · `!dict <word>`\nEnglish definition with phonetics, examples and synonyms.",
+        name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[lang] ?? "🎵 YouTube & Queue",
+        value: [
+          `\`${p}y <query>\` · \`${p}play <url>\` · \`${p}np\` · \`${p}skip\` · \`${p}queue\``,
+          `\`${p}like\` ❤️  \`${p}likes\` 📋  \`${p}playlist add|play|list\``,
+        ].join("\n"),
       },
       {
-        name: fr ? "📷 QR Code" : es ? "📷 Código QR" : "📷 QR Code",
-        value: fr
-          ? "`/qr text:<texte>` · `!qr <texte>` — Créer un QR code 🖼️\n`/qr image:<img>` · `!qr` + image jointe — Lire un QR code 🔍"
-          : es
-          ? "`/qr text:<texto>` · `!qr <texto>` — Crear QR 🖼️\n`/qr image:<img>` · `!qr` + imagen — Leer QR 🔍"
-          : "`/qr text:<text>` · `!qr <text>` — Generate QR code 🖼️\n`/qr image:<img>` · `!qr` + attached image — Read QR code 🔍",
+        name: "🎛️ DJ Console",
+        value: `\`${p}dj\` — ` + { en: "Interactive mixing table with buttons", fr: "Table de mixage interactive avec boutons", es: "Mesa de mezclas interactiva con botones", de: "Interaktiver Mixer mit Buttons", pt: "Mesa de mixagem interativa com botões", it: "Tavolo di mixaggio interattivo con pulsanti" }[lang],
       },
       {
-        name: fr ? "🦜 Écho" : es ? "🦜 Eco" : "🦜 Echo",
-        value: fr
-          ? "`/echo` · `!echo` — Active l'écho : répète **tous** les messages du salon *(max 8)*\n`/echo` *(à nouveau)* · `!echo stop` — Arrête l'écho\n> S'arrête automatiquement après 8 messages"
-          : es
-          ? "`/echo` · `!echo` — Activa el eco: repite **todos** los mensajes del canal *(máx 8)*\n`/echo` *(de nuevo)* · `!echo stop` — Detiene el eco\n> Se para automáticamente tras 8 mensajes"
-          : "`/echo` · `!echo` — Activates echo: repeats **all** channel messages *(max 8)*\n`/echo` *(again)* · `!echo stop` — Stop echo\n> Auto-stops after 8 messages",
-      },
-      {
-        name: fr ? "🔴 Pokédex" : es ? "🔴 Pokédex" : "🔴 Pokédex",
-        value: fr
-          ? "`/pokemon <nom>` · `!pokemon <nom>` · `!dex <nom>`\nFiche complète : types, talents, stats, taille, poids."
-          : es
-          ? "`/pokemon <nombre>` · `!pokemon <nombre>` · `!dex <nombre>`\nFicha completa: tipos, habilidades, stats, altura, peso."
-          : "`/pokemon <name>` · `!pokemon <name>` · `!dex <name>`\nFull card: types, abilities, stats, height & weight.",
-      },
-    );
-
-  // ── Page 4 — Outils 2/2 (Bienvenue, Messages planifiés) ──────────────────
-  } else if (page === 4) {
-    embed.setDescription(
-      fr ? "Outils pratiques — partie 2." : es ? "Herramientas — parte 2." : "Handy tools — part 2.",
-    );
-    embed.addFields(
-      {
-        name: fr ? "👋 Bienvenue dynamique" : es ? "👋 Bienvenida dinámica" : "👋 Dynamic Welcome",
-        value: fr
-          ? "`!welcome set #salon` · `/welcome set` — Définir le salon *(admin)*\n`!welcome msg <texte>` · `/welcome message` — Message personnalisé\n> Variables : `{user}` `{server}` `{count}`\n`!welcome clear` — Défaut · `!welcome status` — Voir la config"
-          : es
-          ? "`!welcome set #canal` · `/welcome set` — Establecer canal *(admin)*\n`!welcome msg <texto>` · `/welcome message` — Mensaje personalizado\n> Variables: `{user}` `{server}` `{count}`\n`!welcome clear` — Defecto · `!welcome status` — Ver config"
-          : "`!welcome set #channel` · `/welcome set` — Set channel *(admin)*\n`!welcome msg <text>` · `/welcome message` — Custom message\n> Variables: `{user}` `{server}` `{count}`\n`!welcome clear` — Reset · `!welcome status` — View config",
-      },
-      {
-        name: fr ? "⏰ Messages planifiés" : es ? "⏰ Mensajes programados" : "⏰ Scheduled Messages",
-        value: fr
-          ? "`!schedule set HH:MM #salon <msg>` · `/schedule once` — Une fois *(UTC)*\n`!schedule daily HH:MM #salon <msg>` · `/schedule daily` — Chaque jour\n`!schedule list` — Voir · `!schedule cancel <ID>` — Annuler *(admin)*"
-          : es
-          ? "`!schedule set HH:MM #canal <msg>` · `/schedule once` — Una vez *(UTC)*\n`!schedule daily HH:MM #canal <msg>` · `/schedule daily` — Cada día\n`!schedule list` — Ver · `!schedule cancel <ID>` — Cancelar *(admin)*"
-          : "`!schedule set HH:MM #channel <msg>` · `/schedule once` — Once *(UTC)*\n`!schedule daily HH:MM #channel <msg>` · `/schedule daily` — Daily\n`!schedule list` — View · `!schedule cancel <ID>` — Cancel *(admin)*",
-      },
-    );
-
-  // ── Page 5 — Vocal & Radio ─────────────────────────────────────────────────
-  } else if (page === 5) {
-    embed.setDescription(fr ? "Vocal et radio." : es ? "Voz y radio." : "Voice and radio.");
-    embed.addFields(
-      {
-        name: fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS",
-        value: fr
-          ? "`!join` 🔊 / `!leave` 👋\n`!voice say <texte>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Sous-titres live"
-          : es
-          ? "`!join` 🔊 / `!leave` 👋\n`!voice say <texto>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Subtítulos en vivo"
-          : "`!join` 🔊 / `!leave` 👋\n`!voice say <text>` 🗣️\n`!voice stop` / `!voice resume`\n`!subtitles` — 📝 Live captions",
-      },
-      {
-        name: fr ? "📻 Radio & YouTube" : es ? "📻 Radio & YouTube" : "📻 Radio & YouTube",
-        value: fr
-          ? "`!radio list` 📋  `!radio <nom>` (ex: `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — En cours\n`!radio leave` — Déconnecter\n`!playlist add <nom> <url>`  `!playlist play <nom>` 🎵"
-          : es
-          ? "`!radio list` 📋  `!radio <nombre>` (ej: `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Ahora\n`!radio leave` — Desconectar\n`!playlist add <nombre> <url>`  `!playlist play <nombre>` 🎵"
-          : "`!radio list` 📋  `!radio <name>` (e.g. `!radio nrj`)\n`!youtube <url>` 🎬  `!np` — Now playing\n`!radio leave` — Disconnect\n`!playlist add <name> <url>`  `!playlist play <name>` 🎵",
+        name: { en: "📻 Radio", fr: "📻 Radio", es: "📻 Radio", de: "📻 Radio", pt: "📻 Rádio", it: "📻 Radio" }[lang] ?? "📻 Radio",
+        value: [
+          `\`${p}radio list\` · \`${p}radio <name>\` · \`${p}radio leave\``,
+          `> ` + { en: "e.g. `!radio nrj`, `!radio jazz`, `!radio groove`", fr: "ex. `!radio nrj`, `!radio fun`, `!radio fip`", es: "ej. `!radio los40`, `!radio hiphop`", de: "z.B. `!radio kexp`, `!radio jazz`, `!radio groove`", pt: "ex. `!radio groove`, `!radio jazz`", it: "es. `!radio jazz`, `!radio classicfm`" }[lang],
+        ].join("\n"),
       },
       {
         name: "🎤 Karaoke",
-        value: fr
-          ? "`!karaoke <artiste chanson>` 🎵 — Paroles synchronisées en live\n`!karaoke stop` — Arrêter le karaoké"
-          : es
-          ? "`!karaoke <artista canción>` 🎵 — Letra sincronizada en vivo\n`!karaoke stop` — Parar karaoke"
-          : "`!karaoke <artist song>` 🎵 — Synced live lyrics\n`!karaoke stop` — Stop karaoke",
+        value: `\`${p}karaoke <artist song>\` · \`${p}karaoke stop\``,
+      },
+      {
+        name: "🎵 Suno AI",
+        value: `\`${p}music generator <prompt>\` · \`${p}music prompt\` · \`${p}balance\``,
       },
     );
 
-  // ── Page 6 — Quêtes, IA & Modérateurs ────────────────────────────────────
-  } else {
-    embed.setDescription(fr ? "Quêtes, IA avancée et infos." : es ? "Misiones, IA avanzada e info." : "Quests, advanced AI and info.");
+  // ── Page 4 — Voice & Server ────────────────────────────────────────────────
+  } else if (page === 4) {
+    const desc = { en: "Voice, welcome & scheduling.", fr: "Vocal, bienvenue & planification.", es: "Voz, bienvenida & programación.", de: "Sprache, Willkommen & Planung.", pt: "Voz, boas-vindas & agendamento.", it: "Voce, benvenuto & pianificazione." };
+    embed.setDescription(desc[lang]);
     embed.addFields(
       {
-        name: fr ? "🎯 Quêtes & Niveaux" : es ? "🎯 Misiones & Niveles" : "🎯 Quests & Levels",
-        value: fr
-          ? "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — voir `!help quetes`"
-          : es
-          ? "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — ver `!help misiones`"
-          : "`!quest start/add/list/done <n>/done all` 🤖\n`!quest profile` · `!quest stats` 📊\n`!quest remind` 📍 · `!quest schedule <h>` ⏰\n`!quest reset` — see `!help quest`",
+        name: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[lang] ?? "🎙️ Voice",
+        value: [
+          `\`${p}join\` 🔊 · \`${p}leave\` 👋 · \`${p}subtitles\` 📝`,
+          `\`${p}voice say <text>\` 🗣️ · \`${p}voice stop\` · \`${p}voice resume\``,
+        ].join("\n"),
       },
       {
-        name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
-        value: fr
-          ? "`!ai battle <sujet>` 🥊 / `!ai stop`"
-          : es
-          ? "`!ai battle <tema>` 🥊 / `!ai stop`"
-          : "`!ai battle <topic>` 🥊 / `!ai stop`",
+        name: { en: "👋 Welcome", fr: "👋 Bienvenue", es: "👋 Bienvenida", de: "👋 Willkommen", pt: "👋 Boas-vindas", it: "👋 Benvenuto" }[lang] ?? "👋 Welcome",
+        value: [
+          `\`${p}welcome set #channel\` · \`${p}welcome msg <text>\` · \`${p}welcome status\``,
+          `> ` + { en: "Variables: `{user}` `{server}` `{count}`", fr: "Variables : `{user}` `{server}` `{count}`", es: "Variables: `{user}` `{server}` `{count}`", de: "Variablen: `{user}` `{server}` `{count}`", pt: "Variáveis: `{user}` `{server}` `{count}`", it: "Variabili: `{user}` `{server}` `{count}`" }[lang],
+        ].join("\n"),
       },
       {
-        name: fr ? "ℹ️ Info" : es ? "ℹ️ Info" : "ℹ️ Info",
-        value: fr
-          ? "`!credits` ✨  `!help fr` / `!help es`"
-          : es
-          ? "`!credits` ✨  `!help fr` / `!help es`"
-          : "`!credits` ✨  `!help fr` / `!help es`",
+        name: { en: "⏰ Schedule", fr: "⏰ Planification", es: "⏰ Programación", de: "⏰ Planung", pt: "⏰ Agendamento", it: "⏰ Pianificazione" }[lang] ?? "⏰ Schedule",
+        value: `\`${p}schedule set HH:MM #ch <msg>\` · \`${p}schedule daily HH:MM #ch <msg>\`\n\`${p}schedule list\` · \`${p}schedule cancel <ID>\``,
+      },
+    );
+
+  // ── Page 5 — AI, Quests & Admin ────────────────────────────────────────────
+  } else {
+    const desc = { en: "AI, quests & administration.", fr: "IA, quêtes & administration.", es: "IA, misiones & administración.", de: "KI, Quests & Administration.", pt: "IA, missões & administração.", it: "IA, missioni & amministrazione." };
+    embed.setDescription(desc[lang]);
+    embed.addFields(
+      {
+        name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[lang] ?? "🤖 AI",
+        value: [
+          `\`@bot <msg>\` — ` + { en: "Chat with AI (also in DMs)", fr: "Chat IA (aussi en DM)", es: "Chat IA (también en DM)", de: "KI-Chat (auch in DMs)", pt: "Chat com IA (também em DMs)", it: "Chat con IA (anche in DM)" }[lang],
+          `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy [topic]\` 🕵️`,
+        ].join("\n"),
       },
       {
-        name: fr ? "🔧 Modérateurs" : es ? "🔧 Moderadores" : "🔧 Moderators",
-        value: fr
-          ? "`!help admin` — Commandes d'administration\n`!help setup` / `!setup` — Clés API & secrets\n`!server language [en|fr|es]` — Langue du serveur *(admin)*"
-          : es
-          ? "`!help admin` — Comandos de administración\n`!help setup` / `!setup` — Claves API y secretos\n`!server language [en|fr|es]` — Idioma del servidor *(admin)*"
-          : "`!help admin` — Admin commands\n`!help setup` / `!setup` — API keys & secrets\n`!server language [en|fr|es]` — Server language *(admin)*",
+        name: { en: "🎯 Quests & Levels", fr: "🎯 Quêtes & Niveaux", es: "🎯 Misiones & Niveles", de: "🎯 Quests & Level", pt: "🎯 Missões & Níveis", it: "🎯 Missioni & Livelli" }[lang] ?? "🎯 Quests",
+        value: [
+          `\`${p}quest start\` · \`${p}quest list\` · \`${p}quest done <N>\` · \`${p}quest done all\``,
+          `\`${p}quest profile\` · \`${p}quest stats\` · \`${p}quest remind\` · \`${p}quest reset\``,
+          `> \`${p}help quest\` ` + { en: "for full details", fr: "pour les détails", es: "para detalles", de: "für Details", pt: "para detalhes", it: "per i dettagli" }[lang],
+        ].join("\n"),
+      },
+      {
+        name: { en: "🔧 Admin", fr: "🔧 Admin", es: "🔧 Admin", de: "🔧 Admin", pt: "🔧 Admin", it: "🔧 Admin" }[lang] ?? "🔧 Admin",
+        value: [
+          `\`${p}help admin\` · \`${p}setup\``,
+          `\`${p}server language [en|fr|es|de|pt|it]\``,
+          `\`${p}prefix <char>\` · \`${p}welcome set\` · \`${p}schedule\``,
+        ].join("\n"),
       },
     );
   }
 
+  // Replace prefix
   if (prefix !== "!") {
     for (const f of embed.data.fields ?? []) {
       f.value = f.value.replaceAll("`!", `\`${prefix}`);
+    }
+    if (embed.data.description) {
+      embed.setDescription(embed.data.description.replaceAll("`!", `\`${prefix}`));
     }
   }
   return embed;
@@ -272,13 +239,7 @@ export async function sendPaginatedHelp(message: Message, lang: HelpLanguage): P
   });
 
   collector.on("end", async () => {
-    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help expired";
-    const expiredFooter = lang === "fr"
-      ? `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Relance \`${pfx}help\``
-      : lang === "es"
-      ? `Página ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Usa \`${pfx}help\` de nuevo`
-      : `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Run \`${pfx}help\` again`;
-    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: t("expired", lang) });
     await helpMessage.edit({ embeds: [expiredEmbed], components: [buildNavRow(page, lang, true)] }).catch(() => null);
   });
 }
@@ -315,23 +276,18 @@ export async function sendPaginatedHelpSlash(interaction: ChatInputCommandIntera
   });
 
   collector.on("end", async () => {
-    const expiredLabel = lang === "fr" ? "Aide expirée" : lang === "es" ? "Ayuda expirada" : "Help expired";
-    const expiredFooter = lang === "fr"
-      ? `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Relance \`/help\``
-      : lang === "es"
-      ? `Página ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Usa \`/help\` de nuevo`
-      : `Page ${page}/${HELP_TOTAL_PAGES} — ${expiredLabel} · Run \`/help\` again`;
-    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: expiredFooter });
+    const expiredEmbed = buildHelpEmbed(lang, page, pfx).setFooter({ text: t("expired", lang) });
     await interaction.editReply({ embeds: [expiredEmbed], components: [buildNavRow(page, lang, true)] }).catch(() => null);
   });
 }
 
-// ── Topic-specific help ───────────────────────────────────────────────────────
+// ── Topic-specific help (!help <command>) ─────────────────────────────────────
 
 export type HelpTopic =
-  | "general" | "games" | "music" | "radio" | "youtube"
+  | "general" | "games" | "music" | "radio" | "youtube" | "dj"
   | "quest" | "levels" | "voice" | "ai" | "birthday" | "guesslogo"
-  | "tools" | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule";
+  | "tools" | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule"
+  | "food" | "karaoke" | "playlist" | "language";
 
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -339,422 +295,360 @@ function stripAccents(s: string): string {
 
 export function detectTopicAndLang(arg0: string, arg1?: string): { topic: HelpTopic; lang: HelpLanguage } | null {
   const key = stripAccents(arg0.toLowerCase());
-  const langOverride: HelpLanguage | null = arg1 === "fr" ? "fr" : arg1 === "es" ? "es" : arg1 === "en" ? "en" : null;
+  const langOverride: HelpLanguage | null =
+    arg1 === "fr" ? "fr" : arg1 === "es" ? "es" : arg1 === "de" ? "de" :
+    arg1 === "pt" ? "pt" : arg1 === "it" ? "it" : arg1 === "en" ? "en" : null;
+
   const map: Record<string, { topic: HelpTopic; lang: HelpLanguage }> = {
+    // General / Fun
     general: { topic: "general", lang: "en" }, fun: { topic: "general", lang: "en" },
-    games: { topic: "games", lang: "en" }, jeux: { topic: "games", lang: "fr" }, juegos: { topic: "games", lang: "es" },
-    music: { topic: "music", lang: "en" }, musique: { topic: "music", lang: "fr" }, musica: { topic: "music", lang: "es" },
-    radio: { topic: "radio", lang: "en" },
+    divertissement: { topic: "general", lang: "fr" }, diversión: { topic: "general", lang: "es" },
+    spass: { topic: "general", lang: "de" }, spaß: { topic: "general", lang: "de" },
+    diversao: { topic: "general", lang: "pt" }, divertimento: { topic: "general", lang: "it" },
+    // Language
+    language: { topic: "language", lang: "en" }, langue: { topic: "language", lang: "fr" },
+    idioma: { topic: "language", lang: "es" }, sprache: { topic: "language", lang: "de" },
+    // Games
+    games: { topic: "games", lang: "en" }, jeux: { topic: "games", lang: "fr" },
+    juegos: { topic: "games", lang: "es" }, spiele: { topic: "games", lang: "de" },
+    jogos: { topic: "games", lang: "pt" }, giochi: { topic: "games", lang: "it" },
+    // Music / YouTube
+    music: { topic: "music", lang: "en" }, musique: { topic: "music", lang: "fr" },
+    musica: { topic: "music", lang: "es" }, musik: { topic: "music", lang: "de" },
+    radio: { topic: "radio", lang: "en" }, radios: { topic: "radio", lang: "en" },
     youtube: { topic: "youtube", lang: "en" }, yt: { topic: "youtube", lang: "en" },
+    dj: { topic: "dj", lang: "en" },
+    karaoke: { topic: "karaoke", lang: "en" },
+    playlist: { topic: "playlist", lang: "en" },
+    // Quest
     quest: { topic: "quest", lang: "en" }, quete: { topic: "quest", lang: "fr" }, quetes: { topic: "quest", lang: "fr" },
     misiones: { topic: "quest", lang: "es" }, mision: { topic: "quest", lang: "es" },
+    quests: { topic: "quest", lang: "de" },
+    missoes: { topic: "quest", lang: "pt" }, missioni: { topic: "quest", lang: "it" },
     levels: { topic: "levels", lang: "en" }, level: { topic: "levels", lang: "en" },
     niveaux: { topic: "levels", lang: "fr" }, niveau: { topic: "levels", lang: "fr" },
     niveles: { topic: "levels", lang: "es" }, nivel: { topic: "levels", lang: "es" },
+    // Voice
     voice: { topic: "voice", lang: "en" }, vocal: { topic: "voice", lang: "fr" },
+    voz: { topic: "voice", lang: "es" }, stimme: { topic: "voice", lang: "de" },
+    voce: { topic: "voice", lang: "it" },
+    // AI
     ai: { topic: "ai", lang: "en" }, ia: { topic: "ai", lang: "en" },
-    birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" }, cumpleanos: { topic: "birthday", lang: "es" },
-    guesslogo: { topic: "guesslogo", lang: "en" }, devinelelogo: { topic: "guesslogo", lang: "en" }, guessthelogo: { topic: "guesslogo", lang: "en" },
-    logo: { topic: "guesslogo", lang: "en" },
-    tools: { topic: "tools", lang: "en" }, outils: { topic: "tools", lang: "fr" }, herramientas: { topic: "tools", lang: "es" },
+    ki: { topic: "ai", lang: "de" },
+    // Birthday
+    birthday: { topic: "birthday", lang: "en" }, anniversaire: { topic: "birthday", lang: "fr" },
+    cumpleanos: { topic: "birthday", lang: "es" }, geburtstag: { topic: "birthday", lang: "de" },
+    aniversario: { topic: "birthday", lang: "pt" }, compleanno: { topic: "birthday", lang: "it" },
+    // Logo
+    guesslogo: { topic: "guesslogo", lang: "en" }, devinelelogo: { topic: "guesslogo", lang: "fr" },
+    guessthelogo: { topic: "guesslogo", lang: "en" }, logo: { topic: "guesslogo", lang: "en" },
+    // Tools
+    tools: { topic: "tools", lang: "en" }, outils: { topic: "tools", lang: "fr" },
+    herramientas: { topic: "tools", lang: "es" }, werkzeuge: { topic: "tools", lang: "de" },
+    ferramentas: { topic: "tools", lang: "pt" }, strumenti: { topic: "tools", lang: "it" },
+    // Dictionary
     dictionary: { topic: "dictionary", lang: "en" }, define: { topic: "dictionary", lang: "en" },
     dictionnaire: { topic: "dictionary", lang: "fr" }, dict: { topic: "dictionary", lang: "en" },
+    woerterbuch: { topic: "dictionary", lang: "de" }, dicionario: { topic: "dictionary", lang: "pt" },
+    dizionario: { topic: "dictionary", lang: "it" },
+    // QR
     qr: { topic: "qr", lang: "en" }, qrcode: { topic: "qr", lang: "en" },
+    // Echo
     echo: { topic: "echo", lang: "en" }, eco: { topic: "echo", lang: "es" },
+    // Pokémon
     pokemon: { topic: "pokemon", lang: "en" }, pokedex: { topic: "pokemon", lang: "en" }, dex: { topic: "pokemon", lang: "en" },
-    welcome: { topic: "welcome", lang: "en" }, bienvenue: { topic: "welcome", lang: "fr" }, bienvenida: { topic: "welcome", lang: "es" },
-    schedule: { topic: "schedule", lang: "en" }, planifier: { topic: "schedule", lang: "fr" }, programar: { topic: "schedule", lang: "es" },
+    // Welcome
+    welcome: { topic: "welcome", lang: "en" }, bienvenue: { topic: "welcome", lang: "fr" },
+    bienvenida: { topic: "welcome", lang: "es" }, willkommen: { topic: "welcome", lang: "de" },
+    boas_vindas: { topic: "welcome", lang: "pt" }, benvenuto: { topic: "welcome", lang: "it" },
+    // Schedule
+    schedule: { topic: "schedule", lang: "en" }, planifier: { topic: "schedule", lang: "fr" },
+    programar: { topic: "schedule", lang: "es" }, planer: { topic: "schedule", lang: "de" },
+    agendar: { topic: "schedule", lang: "pt" }, pianificazione: { topic: "schedule", lang: "it" },
+    // Food
+    food: { topic: "food", lang: "en" }, nourriture: { topic: "food", lang: "fr" },
+    comida: { topic: "food", lang: "es" }, essen: { topic: "food", lang: "de" },
+    comida_pt: { topic: "food", lang: "pt" }, cibo: { topic: "food", lang: "it" },
   };
+
   const match = map[key];
   if (!match) return null;
   return { topic: match.topic, lang: langOverride ?? match.lang };
 }
 
 export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
-  const fr = lang === "fr"; const es = lang === "es";
-  const color = fr ? 0x5865f2 : es ? 0xe74c3c : 0x1abc9c;
-  const embed = new EmbedBuilder().setColor(color);
+  const p = prefix;
+  const embed = new EmbedBuilder().setColor(COLORS[lang]);
 
   switch (topic) {
+    case "language":
+      embed.setTitle({ en: "🌐 Language", fr: "🌐 Langue", es: "🌐 Idioma", de: "🌐 Sprache", pt: "🌐 Idioma", it: "🌐 Lingua" }[lang] ?? "🌐 Language");
+      embed.setDescription({
+        en: `Change the language the bot uses for your responses.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+        fr: `Change la langue que le bot utilise pour toi.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+        es: `Cambia el idioma que el bot usa para ti.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+        de: `Ändere die Sprache des Bots für dich.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+        pt: `Mude o idioma que o bot usa para você.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+        it: `Cambia la lingua che il bot usa per te.\n\`${p}language en\` 🇬🇧  \`${p}language fr\` 🇫🇷  \`${p}language es\` 🇪🇸\n\`${p}language de\` 🇩🇪  \`${p}language pt\` 🇧🇷  \`${p}language it\` 🇮🇹`,
+      }[lang] ?? "");
+      break;
+
     case "general":
-      embed.setTitle(fr ? "🌐 Commandes générales" : es ? "🌐 Comandos generales" : "🌐 General Commands");
+      embed.setTitle({ en: "🌐 General & Fun", fr: "🌐 Général & Fun", es: "🌐 General & Diversión", de: "🌐 Allgemein & Spaß", pt: "🌐 Geral & Diversão", it: "🌐 Generale & Divertimento" }[lang] ?? "🌐 General");
       embed.addFields(
-        { name: fr ? "🌐 Général" : es ? "🌐 General" : "🌐 General",
-          value: fr
-            ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` / `!bonjour` / `!salut` 👋\n`!poll <question> | opt1 | opt2 | …` 📊"
-            : es
-            ? "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <pregunta> | opt1 | opt2 | …` 📊"
-            : "`@bot <msg>` 🤖  `!image <desc>` 🎨\n`!say <msg>`  `!hello` 👋\n`!poll <question> | opt1 | opt2 | …` 📊" },
-        { name: fr ? "🎉 Divertissement" : es ? "🎉 Diversión" : "🎉 Fun",
-          value: fr
-            ? "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [sujet]` 🕵️\n> Ajoute `fr` ou `es` — ex. `!joke fr`"
-            : es
-            ? "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <pregunta>` 🎱  `!dice [caras]` 🎲\n`!conspiracy [tema]` 🕵️\n> Añade `fr` o `es` — ej. `!joke es`"
-            : "`!compliment` 💖  `!joke` 😄  `!encouragement` 💪  `!hug` 🤗\n`!8ball <question>` 🎱  `!dice [faces]` 🎲\n`!conspiracy [topic]` 🕵️\n> Append `fr` or `es` — e.g. `!joke fr`" },
-      ); break;
+        { name: `\`${p}say <msg>\``, value: { en: "Make the bot say something (deletes your message).", fr: "Fait dire quelque chose au bot (supprime ton message).", es: "Hace que el bot diga algo (borra tu mensaje).", de: "Lässt den Bot etwas sagen (löscht deine Nachricht).", pt: "Faz o bot dizer algo (apaga sua mensagem).", it: "Fa dire qualcosa al bot (cancella il tuo messaggio)." }[lang] ?? "" },
+        { name: `\`${p}poll <question> | opt1 | opt2\``, value: { en: "Create a poll with up to 9 options.", fr: "Créer un sondage avec jusqu'à 9 options.", es: "Crear una encuesta con hasta 9 opciones.", de: "Erstelle eine Umfrage mit bis zu 9 Optionen.", pt: "Criar uma enquete com até 9 opções.", it: "Crea un sondaggio con fino a 9 opzioni." }[lang] ?? "" },
+        { name: `\`${p}joke [lang]\`  \`${p}compliment\`  \`${p}hug\`  \`${p}encouragement\``, value: { en: "Fun responses. Append `fr`, `es`, `de`, `pt` or `it` for other languages.", fr: "Réponses fun. Ajoute `fr`, `es`, `de`, `pt` ou `it`.", es: "Respuestas divertidas. Añade `fr`, `de`, `pt` o `it`.", de: "Spaßige Antworten. Füge `fr`, `es`, `pt` oder `it` hinzu.", pt: "Respostas divertidas. Adicione `fr`, `es`, `de` ou `it`.", it: "Risposte divertenti. Aggiungi `fr`, `es`, `de` o `pt`." }[lang] ?? "" },
+        { name: `\`${p}8ball <question>\``, value: { en: "Ask the magic 8-ball.", fr: "Demande à la boule magique.", es: "Pregunta a la bola mágica.", de: "Frag die magische 8-Ball.", pt: "Pergunte à bola mágica.", it: "Chiedi alla palla magica." }[lang] ?? "" },
+        { name: `\`${p}dice [N]\``, value: { en: "Roll an N-sided die (default 6).", fr: "Lance un dé à N faces (défaut 6).", es: "Lanza un dado de N caras (defecto 6).", de: "Würfle einen N-seitigen Würfel (Standard 6).", pt: "Role um dado de N faces (padrão 6).", it: "Tira un dado a N facce (default 6)." }[lang] ?? "" },
+      );
+      break;
 
     case "games":
-      embed.setTitle(fr ? "🎮 Mini-jeux" : es ? "🎮 Juegos" : "🎮 Mini-games");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(réagis 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`"
-          : es
-          ? "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(reacciona 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`"
-          : "`!minesweeper [easy|medium|hard]` 💣\n`!geo [easy|medium|hard]` 🌍  `!geo stop`\n`!trivia` 🧠  `!guessnumber` 🎯\n`!connect4 solo` / `!connect4 @user` 🔴🟡 *(react 1️⃣–7️⃣)*\n`!guessthelogo [easy|medium|hard]` 🏷️  `!guessthelogo stop`",
-      }); break;
+      embed.setTitle({ en: "🎮 Mini-games", fr: "🎮 Mini-jeux", es: "🎮 Mini-juegos", de: "🎮 Mini-Spiele", pt: "🎮 Mini-jogos", it: "🎮 Mini-giochi" }[lang] ?? "🎮 Games");
+      embed.addFields(
+        { name: `\`${p}minesweeper [easy|medium|hard]\` 💣`, value: { en: "Minesweeper game in Discord.", fr: "Démineur dans Discord.", es: "Buscaminas en Discord.", de: "Minesweeper in Discord.", pt: "Campo Minado no Discord.", it: "Prato minato in Discord." }[lang] ?? "" },
+        { name: `\`${p}geo [easy|medium|hard]\` 🌍`, value: { en: "GeoGuessr-style geography quiz. `!geo stop` to cancel.", fr: "Quiz géographie style GeoGuessr. `!geo stop` pour annuler.", es: "Quiz de geografía estilo GeoGuessr. `!geo stop` para cancelar.", de: "GeoGuessr-Geografie-Quiz. `!geo stop` zum Abbrechen.", pt: "Quiz de geografia estilo GeoGuessr. `!geo stop` para cancelar.", it: "Quiz geografico stile GeoGuessr. `!geo stop` per annullare." }[lang] ?? "" },
+        { name: `\`${p}trivia\` 🧠`, value: { en: "AI-generated general knowledge quiz.", fr: "Quiz culture générale généré par IA.", es: "Quiz de cultura general generado por IA.", de: "KI-generiertes Allgemeinwissen-Quiz.", pt: "Quiz de conhecimentos gerais gerado por IA.", it: "Quiz di cultura generale generato dall'IA." }[lang] ?? "" },
+        { name: `\`${p}guessnumber\` 🎯`, value: { en: "Guess the secret number.", fr: "Devine le nombre secret.", es: "Adivina el número secreto.", de: "Errate die geheime Zahl.", pt: "Adivinhe o número secreto.", it: "Indovina il numero segreto." }[lang] ?? "" },
+        { name: `\`${p}connect4 solo|@user\` 🔴🟡`, value: { en: "Connect 4 vs bot or another player. React with 1️⃣–7️⃣ to play.", fr: "Puissance 4 contre le bot ou un joueur. Réagis 1️⃣–7️⃣.", es: "Conecta 4 contra el bot o un jugador. Reacciona 1️⃣–7️⃣.", de: "Vier gewinnt gegen Bot oder Spieler. Reagiere mit 1️⃣–7️⃣.", pt: "Conecte 4 contra bot ou jogador. Reaja com 1️⃣–7️⃣.", it: "Forza 4 contro bot o giocatore. Reagisci con 1️⃣–7️⃣." }[lang] ?? "" },
+        { name: `\`${p}guessthelogo [easy|medium|hard]\` 🏷️`, value: { en: "Guess the brand logo. `!guessthelogo stop` to cancel.", fr: "Devine le logo de la marque. `!guessthelogo stop` pour annuler.", es: "Adivina el logo de la marca. `!guessthelogo stop` para cancelar.", de: "Errate das Markenlogo. `!guessthelogo stop` zum Abbrechen.", pt: "Adivinhe o logo da marca. `!guessthelogo stop` para cancelar.", it: "Indovina il logo del marchio. `!guessthelogo stop` per annullare." }[lang] ?? "" },
+      );
+      break;
+
+    case "dj":
+      embed.setTitle("🎛️ DJ Console");
+      embed.setDescription({ en: "Open a full mixing table with interactive buttons to control music.", fr: "Ouvre une table de mixage complète avec des boutons interactifs pour contrôler la musique.", es: "Abre una mesa de mezclas completa con botones interactivos para controlar la música.", de: "Öffnet einen vollständigen Mixer mit interaktiven Buttons zur Musiksteuerung.", pt: "Abre uma mesa de mixagem completa com botões interativos para controlar a música.", it: "Apre un tavolo di mixaggio completo con pulsanti interattivi per controllare la musica." }[lang] ?? "");
+      embed.addFields(
+        { name: `\`${p}dj\``, value: { en: "Opens the DJ console. Must be in a voice channel.", fr: "Ouvre la console DJ. Tu dois être dans un salon vocal.", es: "Abre la consola DJ. Debes estar en un canal de voz.", de: "Öffnet die DJ-Konsole. Du musst in einem Sprachkanal sein.", pt: "Abre o console DJ. Você deve estar em um canal de voz.", it: "Apre la console DJ. Devi essere in un canale vocale." }[lang] ?? "" },
+        { name: { en: "🎚️ Row 1 — Playback", fr: "🎚️ Ligne 1 — Lecture", es: "🎚️ Fila 1 — Reproducción", de: "🎚️ Reihe 1 — Wiedergabe", pt: "🎚️ Linha 1 — Reprodução", it: "🎚️ Riga 1 — Riproduzione" }[lang] ?? "🎚️ Playback", value: { en: "▶️ Play/Pause  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop", fr: "▶️ Lecture/Pause  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop", es: "▶️ Play/Pausa  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop", de: "▶️ Play/Pause  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop", pt: "▶️ Play/Pausa  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop", it: "▶️ Play/Pausa  ⏭️ Skip  🔁 Loop  ❤️ Like  ⏹️ Stop" }[lang] ?? "" },
+        { name: { en: "📋 Row 2 — Queue", fr: "📋 Ligne 2 — File", es: "📋 Fila 2 — Cola", de: "📋 Reihe 2 — Warteschlange", pt: "📋 Linha 2 — Fila", it: "📋 Riga 2 — Coda" }[lang] ?? "📋 Queue", value: { en: "🎵 Add Track  📋 Queue  🔀 Shuffle  🗳️ Vote Skip  🗑️ Clear", fr: "🎵 Ajouter  📋 File  🔀 Mélanger  🗳️ Vote Skip  🗑️ Vider", es: "🎵 Añadir  📋 Cola  🔀 Mezclar  🗳️ Votar Skip  🗑️ Limpiar", de: "🎵 Hinzufügen  📋 Warteschlange  🔀 Mischen  🗳️ Vote Skip  🗑️ Leeren", pt: "🎵 Adicionar  📋 Fila  🔀 Embaralhar  🗳️ Votar Skip  🗑️ Limpar", it: "🎵 Aggiungi  📋 Coda  🔀 Mescola  🗳️ Vota Skip  🗑️ Svuota" }[lang] ?? "" },
+        { name: "📻 Rows 3–5 — Radio Stations", value: { en: "Quick access to 10 radio stations (NRJ, Skyrock, Jazz, Groove Salad, etc.)", fr: "Accès rapide à 10 radios (NRJ, Skyrock, Jazz, Groove Salad, etc.)", es: "Acceso rápido a 10 emisoras (NRJ, Skyrock, Jazz, Groove Salad, etc.)", de: "Schnellzugriff auf 10 Radiosender (NRJ, Skyrock, Jazz, Groove Salad, etc.)", pt: "Acesso rápido a 10 rádios (NRJ, Skyrock, Jazz, Groove Salad, etc.)", it: "Accesso rapido a 10 radio (NRJ, Skyrock, Jazz, Groove Salad, etc.)" }[lang] ?? "" },
+      );
+      break;
 
     case "music":
-      embed.setTitle(fr ? "🎵 Musique — Suno AI" : es ? "🎵 Música — Suno AI" : "🎵 Music — Suno AI");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`!music generator <prompt>` — Style, ambiance, paroles 🎶\n`!music prompt` — Exemples de styles 💡\n`!balance` — Crédits Suno restants 💳"
-          : es
-          ? "`!music generator <prompt>` — Estilo, ambiente, letra 🎶\n`!music prompt` — Ejemplos de estilos 💡\n`!balance` — Créditos Suno restantes 💳"
-          : "`!music generator <prompt>` — Style, mood, lyrics 🎶\n`!music prompt` — Style examples 💡\n`!balance` — Remaining Suno credits 💳",
-      }); break;
+      embed.setTitle({ en: "🎵 Suno AI Music", fr: "🎵 Musique Suno AI", es: "🎵 Música Suno AI", de: "🎵 Suno KI-Musik", pt: "🎵 Música Suno IA", it: "🎵 Musica Suno IA" }[lang] ?? "🎵 Music");
+      embed.addFields(
+        { name: `\`${p}music generator <prompt>\``, value: { en: "Generate a custom AI song. Describe style, mood, and lyrics theme.", fr: "Génère une chanson IA personnalisée. Décris le style, l'ambiance et le thème des paroles.", es: "Genera una canción IA personalizada. Describe el estilo, ambiente y tema de la letra.", de: "Generiere ein benutzerdefiniertes KI-Lied. Beschreibe Stil, Stimmung und Liedtext-Thema.", pt: "Gere uma música IA personalizada. Descreva estilo, humor e tema da letra.", it: "Genera una canzone IA personalizzata. Descrivi stile, umore e tema del testo." }[lang] ?? "" },
+        { name: `\`${p}music prompt\``, value: { en: "See style prompt examples.", fr: "Voir des exemples de prompts de styles.", es: "Ver ejemplos de prompts de estilos.", de: "Stil-Prompt-Beispiele anzeigen.", pt: "Ver exemplos de prompts de estilos.", it: "Vedere esempi di prompt di stile." }[lang] ?? "" },
+        { name: `\`${p}balance\``, value: { en: "Check remaining Suno credits.", fr: "Voir les crédits Suno restants.", es: "Ver créditos Suno restantes.", de: "Verbleibende Suno-Guthaben prüfen.", pt: "Verificar créditos Suno restantes.", it: "Controlla i crediti Suno rimanenti." }[lang] ?? "" },
+      );
+      break;
 
     case "radio":
-      embed.setTitle(fr ? "📻 Radio" : es ? "📻 Radio" : "📻 Radio");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`!radio list` — Liste 🇬🇧🇫🇷🇪🇸 · `!radio list fr` → page FR\n`!radio <clé>` — Jouer une station\n`!radio leave` — Déconnecter · `!np` — En cours"
-          : es
-          ? "`!radio list` — Lista 🇬🇧🇫🇷🇪🇸 · `!radio list es` → página ES\n`!radio <clave>` — Reproducir una estación\n`!radio leave` — Desconectar · `!np` — Ahora"
-          : "`!radio list` — Browse 🇬🇧🇫🇷🇪🇸 · `!radio list fr` → FR page\n`!radio <key>` — Play a station\n`!radio leave` — Disconnect · `!np` — Now playing",
-      }); break;
+      embed.setTitle("📻 Radio");
+      embed.addFields(
+        { name: `\`${p}radio list\``, value: { en: "Show all available radio stations (🇫🇷 🇪🇸 🇬🇧 + more).", fr: "Affiche toutes les radios disponibles.", es: "Muestra todas las emisoras disponibles.", de: "Zeigt alle verfügbaren Radiosender.", pt: "Mostra todas as rádios disponíveis.", it: "Mostra tutte le stazioni radio disponibili." }[lang] ?? "" },
+        { name: `\`${p}radio <name>\``, value: { en: "Play a radio station. E.g. `!radio nrj`, `!radio jazz`, `!radio groove`.", fr: "Lance une radio. Ex. `!radio nrj`, `!radio fun`, `!radio fip`.", es: "Reproduce una emisora. Ej. `!radio los40`, `!radio hiphop`.", de: "Spiele einen Sender ab. Z.B. `!radio kexp`, `!radio jazz`.", pt: "Reproduz uma rádio. Ex. `!radio groove`, `!radio jazz`.", it: "Riproduce una radio. Es. `!radio jazz`, `!radio classicfm`." }[lang] ?? "" },
+        { name: `\`${p}radio leave\``, value: { en: "Disconnect from voice channel.", fr: "Déconnecter du salon vocal.", es: "Desconectar del canal de voz.", de: "Vom Sprachkanal trennen.", pt: "Desconectar do canal de voz.", it: "Disconnetti dal canale vocale." }[lang] ?? "" },
+      );
+      break;
 
     case "youtube":
-      embed.setTitle(fr ? "🎬 YouTube & Playlists" : es ? "🎬 YouTube & Listas" : "🎬 YouTube & Playlists");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`!youtube <url>` 🎬 — Jouer une vidéo\n`!np` — En cours\n`!playlist add <nom> <url>` — Créer\n`!playlist play <nom>` — Jouer\n`!playlist list` — Lister\n`!playlist show <nom>` — Détail\n`!playlist remove <nom>` — Supprimer"
-          : es
-          ? "`!youtube <url>` 🎬 — Reproducir video\n`!np` — Ahora\n`!playlist add <nombre> <url>` — Crear\n`!playlist play <nombre>` — Reproducir\n`!playlist list` — Listar\n`!playlist show <nombre>` — Detalle\n`!playlist remove <nombre>` — Eliminar"
-          : "`!youtube <url>` 🎬 — Play a video\n`!np` — Now playing\n`!playlist add <name> <url>` — Create\n`!playlist play <name>` — Play\n`!playlist list` — List all\n`!playlist show <name>` — Details\n`!playlist remove <name>` — Delete",
-      }); break;
-
-    case "quest":
-      embed.setTitle(fr ? "🎯 Système de Quêtes" : es ? "🎯 Sistema de Misiones" : "🎯 Quest System");
+      embed.setTitle("🎬 YouTube & Queue");
       embed.addFields(
-        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-          value: fr
-            ? "`!quest start` — Crée tes quêtes via IA 🤖\n`!quest add <objectif>` — Ajoute une quête ➕\n`!quest list` — Voir tes quêtes\n`!quest done <n>` — Cocher ✅  `!quest done all` — Tout cocher ⚡\n`!quest profile` — Niveau & XP 🏆\n`!quest stats` — Graphique 7 jours 📊\n`!quest remind` — Définir ce salon 📍\n`!quest reset` — Réinitialiser"
-            : es
-            ? "`!quest start` — Crea misiones con IA 🤖\n`!quest add <objetivo>` — Añade misión ➕\n`!quest list` — Ver misiones\n`!quest done <n>` — Marcar ✅  `!quest done all` — Marcar todas ⚡\n`!quest profile` — Nivel & XP 🏆\n`!quest stats` — Gráfico 7 días 📊\n`!quest remind` — Establecer canal 📍\n`!quest reset` — Reiniciar"
-            : "`!quest start` — Create quests via AI 🤖\n`!quest add <goal>` — Add a quest ➕\n`!quest list` — View quests\n`!quest done <n>` — Check off ✅  `!quest done all` — Mark all ⚡\n`!quest profile` — Level & XP 🏆\n`!quest stats` — 7-day chart 📊\n`!quest remind` — Set this channel 📍\n`!quest reset` — Reset all" },
-        { name: fr ? "⏰ Rappels" : es ? "⏰ Recordatorios" : "⏰ Reminders",
-          value: fr
-            ? "Par défaut : **10:00 · 15:00 · 18:00 UTC**\nPersonnalise avec `!quest schedule 8 14 21`\nReset : `!quest schedule reset`"
-            : es
-            ? "Por defecto: **10:00 · 15:00 · 18:00 UTC**\nPersonaliza con `!quest schedule 8 14 21`\nReset: `!quest schedule reset`"
-            : "Default: **10:00 · 15:00 · 18:00 UTC**\nCustomize: `!quest schedule 8 14 21`\nReset: `!quest schedule reset`" },
-      ); break;
+        { name: `\`${p}y <query>\`  or  \`${p}play <url>\``, value: { en: "Search YouTube or play a direct URL.", fr: "Chercher sur YouTube ou jouer une URL directe.", es: "Buscar en YouTube o reproducir una URL directa.", de: "YouTube durchsuchen oder eine direkte URL abspielen.", pt: "Pesquisar no YouTube ou reproduzir uma URL direta.", it: "Cerca su YouTube o riproduci un URL diretto." }[lang] ?? "" },
+        { name: `\`${p}np\``, value: { en: "Show what's currently playing.", fr: "Affiche ce qui joue actuellement.", es: "Muestra lo que está sonando.", de: "Zeigt was gerade spielt.", pt: "Mostra o que está tocando.", it: "Mostra cosa sta suonando." }[lang] ?? "" },
+        { name: `\`${p}skip\`  \`${p}queue\`  \`${p}voteskip\``, value: { en: "Skip current track, view queue, or start a vote to skip.", fr: "Passer la piste, voir la file, ou voter pour passer.", es: "Saltar pista, ver cola, o votar para saltar.", de: "Track überspringen, Warteschlange anzeigen oder Abstimmung starten.", pt: "Pular faixa, ver fila ou votar para pular.", it: "Salta traccia, vedi coda o avvia votazione." }[lang] ?? "" },
+        { name: `\`${p}like\`  \`${p}likes\`  \`${p}likes play\``, value: { en: "Like the current track, list your liked tracks, or play them all.", fr: "Liker la piste actuelle, voir tes likes, ou les jouer tous.", es: "Dar like a la pista actual, ver tus likes o reproducirlos.", de: "Track liken, Likes anzeigen oder alle abspielen.", pt: "Curtir a faixa atual, ver curtidas ou reproduzir todas.", it: "Metti like alla traccia, vedi i like o riproducili tutti." }[lang] ?? "" },
+      );
+      break;
 
-    case "levels": {
-      embed.setTitle(fr ? "🏆 Système de Niveaux" : es ? "🏆 Sistema de Niveles" : "🏆 Level System");
-      const levelsTable = [
-        { level: 1, threshold: 0,     title: "🌱 Novice" },
-        { level: 2, threshold: 100,   title: "⚡ Apprentice" },
-        { level: 3, threshold: 250,   title: "🔥 Adventurer" },
-        { level: 4, threshold: 500,   title: "⚔️ Warrior" },
-        { level: 5, threshold: 1000,  title: "🏆 Champion" },
-        { level: 6, threshold: 2000,  title: "💎 Master" },
-        { level: 7, threshold: 3500,  title: "🌟 Expert" },
-        { level: 8, threshold: 6000,  title: "👑 Legend" },
-        { level: 9, threshold: 10000, title: "🌌 Transcendent" },
-      ];
+    case "karaoke":
+      embed.setTitle("🎤 Karaoke");
       embed.addFields(
-        { name: fr ? "Niveaux disponibles" : es ? "Niveles disponibles" : "Available levels",
-          value: levelsTable.map(l => `**Lv.${l.level}** ${l.title} — ${l.threshold === 0 ? "0" : l.threshold} XP`).join("\n") },
-        { name: fr ? "Gagner de l'XP" : es ? "Ganar XP" : "Earning XP",
-          value: fr
-            ? "• Quête facile : 15–25 XP\n• Quête moyenne : 30–50 XP\n• Quête difficile : 60–100 XP\n> `!quest profile` — voir ta progression"
-            : es
-            ? "• Misión fácil: 15–25 XP\n• Misión media: 30–50 XP\n• Misión difícil: 60–100 XP\n> `!quest profile` — ver progreso"
-            : "• Easy quest: 15–25 XP\n• Medium quest: 30–50 XP\n• Hard quest: 60–100 XP\n> `!quest profile` — see your progress" },
-      ); break;
-    }
+        { name: `\`${p}karaoke <artist song>\``, value: { en: "Join a voice channel then run this to display synced live lyrics while the track plays.", fr: "Rejoins un salon vocal puis lance ça pour afficher les paroles synchronisées en live.", es: "Únete a un canal de voz y usa esto para mostrar la letra sincronizada en directo.", de: "Tritt einem Sprachkanal bei und starte dies für synchronisierte Live-Texte.", pt: "Entre em um canal de voz e use isso para exibir a letra sincronizada ao vivo.", it: "Entra in un canale vocale e usa questo per mostrare il testo sincronizzato in tempo reale." }[lang] ?? "" },
+        { name: `\`${p}karaoke stop\``, value: { en: "Stop the karaoke session.", fr: "Arrêter le karaoké.", es: "Parar el karaoke.", de: "Karaoke-Session beenden.", pt: "Parar o karaokê.", it: "Ferma la sessione karaoke." }[lang] ?? "" },
+      );
+      break;
+
+    case "playlist":
+      embed.setTitle({ en: "💿 Playlists", fr: "💿 Playlists", es: "💿 Listas de reproducción", de: "💿 Wiedergabelisten", pt: "💿 Playlists", it: "💿 Playlist" }[lang] ?? "💿 Playlists");
+      embed.addFields(
+        { name: `\`${p}playlist add <name> <url>\``, value: { en: "Add a YouTube URL to a named playlist.", fr: "Ajouter une URL YouTube à une playlist.", es: "Añadir una URL de YouTube a una lista.", de: "YouTube-URL zu einer Wiedergabeliste hinzufügen.", pt: "Adicionar uma URL do YouTube a uma playlist.", it: "Aggiungere un URL YouTube a una playlist." }[lang] ?? "" },
+        { name: `\`${p}playlist play <name>\``, value: { en: "Play all tracks in the playlist.", fr: "Jouer toutes les pistes de la playlist.", es: "Reproducir todas las pistas de la lista.", de: "Alle Tracks der Wiedergabeliste abspielen.", pt: "Reproduzir todas as faixas da playlist.", it: "Riproduci tutte le tracce della playlist." }[lang] ?? "" },
+        { name: `\`${p}playlist list\`  \`${p}playlist show <name>\`  \`${p}playlist delete <name>\``, value: { en: "List playlists, view tracks, or delete a playlist.", fr: "Lister les playlists, voir les pistes, ou supprimer.", es: "Listar playlists, ver pistas o eliminar.", de: "Wiedergabelisten auflisten, Tracks anzeigen oder löschen.", pt: "Listar playlists, ver faixas ou excluir.", it: "Elencare playlist, vedere tracce o eliminare." }[lang] ?? "" },
+      );
+      break;
 
     case "voice":
-      embed.setTitle(fr ? "🎙️ Vocal — Google TTS" : es ? "🎙️ Voz — Google TTS" : "🎙️ Voice — Google TTS");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`!join` 🔊 — Rejoindre le salon vocal\n`!leave` 👋 — Quitter\n`!voice say <texte>` 🗣️ — Synthèse vocale\n`!voice stop` — Mode sous-titres uniquement\n`!voice resume` — Mode vocal complet\n`!subtitles` 📝 — Activer/désactiver sous-titres"
-          : es
-          ? "`!join` 🔊 — Unirse al canal de voz\n`!leave` 👋 — Salir\n`!voice say <texto>` 🗣️ — Síntesis de voz\n`!voice stop` — Solo subtítulos\n`!voice resume` — Modo vocal completo\n`!subtitles` 📝 — Activar/desactivar subtítulos"
-          : "`!join` 🔊 — Join voice channel\n`!leave` 👋 — Leave\n`!voice say <text>` 🗣️ — Text-to-speech\n`!voice stop` — Captions-only mode\n`!voice resume` — Full voice mode\n`!subtitles` 📝 — Toggle live captions",
-      }); break;
-
-    case "birthday":
-      embed.setTitle(fr ? "🎂 Anniversaires" : es ? "🎂 Cumpleaños" : "🎂 Birthdays");
+      embed.setTitle({ en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[lang] ?? "🎙️ Voice");
       embed.addFields(
-        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-          value: fr
-            ? "`!birthday add <JJ/MM>` — Enregistre ton anniversaire\n`!birthday list` — Voir tous les anniversaires\n`!birthday remove [@user]` — Supprimer un anniversaire"
-            : es
-            ? "`!birthday add <DD/MM>` — Registra tu cumpleaños\n`!birthday list` — Ver todos los cumpleaños\n`!birthday remove [@user]` — Eliminar un cumpleaños"
-            : "`!birthday add <DD/MM>` — Save your birthday\n`!birthday list` — View all birthdays\n`!birthday remove [@user]` — Remove a birthday" },
-        { name: fr ? "Alias" : es ? "Alias" : "Aliases",
-          value: "`!anniversaire` · `!b`" },
-      ); break;
-
-    case "guesslogo":
-      embed.setTitle("🏷️ Guess the Logo — Moderator Guide");
-      embed.setColor(0x5865f2);
-      embed.addFields(
-        { name: "🎮 Player Commands",
-          value: [
-            "`!guessthelogo` — Start a game (easy by default)",
-            "`!guessthelogo easy` — 🟢 World-famous brands • 3 hints • 90s",
-            "`!guessthelogo medium` — 🟡 Well-known brands • 2 hints • 60s",
-            "`!guessthelogo hard` — 🔴 All brands • 0 hints • 45s",
-            "`!guessthelogo stop` — Abandon the current game",
-            "",
-            "Aliases: `!guesslogo` · `!devinelelogo`",
-          ].join("\n"),
-        },
-        { name: "📊 Difficulty & Popularity",
-          value: [
-            "**🟢 Easy** → Tier 1 only — iconic global logos (Nike, Apple, McDonald's…)",
-            "**🟡 Medium** → Tier 1 + 2 — brands known to the general public",
-            "**🔴 Hard** → All tiers — includes lesser-known brands, no hints",
-          ].join("\n"),
-        },
-        { name: "🛠️ Admin Commands (Manage Server required)",
-          value: [
-            "`!logo stats` — Logo pool statistics",
-            "`!logo add <domain> <name> [tier 1-3] [category] [country] [hints…]` — Add a brand",
-            "`!logo remove <domain>` — Remove a brand",
-            "`!logo approve <domain>` — Manually approve a logo",
-            "`!logo exclude <domain>` — Exclude a logo (text-only)",
-            "`!logo fetch <count>` — Auto-fetch logos from logo.dev API (with OCR validation)",
-            "`!logo test start` — Test untested logos via OCR",
-            "`!logo test all` — Re-test all logos",
-            "`!logo test status` — Status of the current test run",
-          ].join("\n"),
-        },
-        { name: "ℹ️ How the pool works",
-          value: "Brands are picked **randomly** from the pool based on the difficulty tier. Recently played logos are excluded to avoid repetition. Add brands via `!logo add` or auto-fetch via `!logo fetch` to grow the game.",
-        },
+        { name: `\`${p}join\`  \`${p}leave\``, value: { en: "Join or leave your voice channel.", fr: "Rejoindre ou quitter ton salon vocal.", es: "Unirse o salir de tu canal de voz.", de: "Sprachkanal betreten oder verlassen.", pt: "Entrar ou sair do canal de voz.", it: "Entra o esci dal canale vocale." }[lang] ?? "" },
+        { name: `\`${p}voice say <text>\``, value: { en: "Make the bot speak in the voice channel (Google TTS).", fr: "Faire parler le bot dans le vocal (Google TTS).", es: "Hacer que el bot hable en el canal de voz (Google TTS).", de: "Bot im Sprachkanal sprechen lassen (Google TTS).", pt: "Fazer o bot falar no canal de voz (Google TTS).", it: "Far parlare il bot nel canale vocale (Google TTS)." }[lang] ?? "" },
+        { name: `\`${p}subtitles\``, value: { en: "Toggle live speech-to-text captions (Groq Whisper).", fr: "Activer/désactiver les sous-titres live (Groq Whisper).", es: "Activar/desactivar subtítulos en vivo (Groq Whisper).", de: "Live-Untertitel ein-/ausschalten (Groq Whisper).", pt: "Ativar/desativar legendas ao vivo (Groq Whisper).", it: "Attiva/disattiva i sottotitoli live (Groq Whisper)." }[lang] ?? "" },
+        { name: `\`${p}voice stop\`  \`${p}voice resume\``, value: { en: "Pause or resume voice replies (subtitle-only mode).", fr: "Mettre en pause ou reprendre les réponses vocales.", es: "Pausar o reanudar las respuestas de voz.", de: "Sprachantworten pausieren oder fortsetzen.", pt: "Pausar ou retomar respostas de voz.", it: "Metti in pausa o riprendi le risposte vocali." }[lang] ?? "" },
       );
-      embed.setFooter({ text: "🔒 Visible to moderators only (Manage Server)" });
       break;
 
     case "ai":
-      embed.setTitle(fr ? "🤖 IA & Avancé" : es ? "🤖 IA & Avanzado" : "🤖 AI & Advanced");
+      embed.setTitle({ en: "🤖 AI Commands", fr: "🤖 Commandes IA", es: "🤖 Comandos IA", de: "🤖 KI-Befehle", pt: "🤖 Comandos de IA", it: "🤖 Comandi IA" }[lang] ?? "🤖 AI");
       embed.addFields(
-        { name: fr ? "Chat IA" : es ? "Chat IA" : "AI Chat",
-          value: fr
-            ? "`@bot <message>` — Chat IA (fonctionne aussi en DM)\n`/image <description>` — Génère une image (HuggingFace)"
-            : es
-            ? "`@bot <mensaje>` — Chat IA (también en DM)\n`/image <descripción>` — Genera imagen (HuggingFace)"
-            : "`@bot <message>` — AI chat (works in DMs too)\n`/image <description>` — Generate image (HuggingFace)" },
-        { name: fr ? "⚔️ Bataille IA" : es ? "⚔️ Batalla IA" : "⚔️ AI Battle",
-          value: fr
-            ? "`!ai battle <sujet>` 🥊 — Débat entre deux bots IA\n`!ai stop` — Arrêter le débat"
-            : es
-            ? "`!ai battle <tema>` 🥊 — Debate entre dos bots IA\n`!ai stop` — Detener el debate"
-            : "`!ai battle <topic>` 🥊 — Debate between two AI bots\n`!ai stop` — Stop the debate" },
-        { name: fr ? "🎭 Fun IA" : es ? "🎭 Fun IA" : "🎭 AI Fun",
-          value: fr
-            ? "`!conspiracy [sujet]` 🕵️ — Théorie du complot IA\n`!trivia` 🧠 — Quiz culture générale IA"
-            : es
-            ? "`!conspiracy [tema]` 🕵️ — Teoría de conspiración IA\n`!trivia` 🧠 — Quiz cultura general IA"
-            : "`!conspiracy [topic]` 🕵️ — AI conspiracy theory\n`!trivia` 🧠 — AI general knowledge quiz" },
-      ); break;
+        { name: `\`@bot <msg>\``, value: { en: "Chat with AI. Works in any channel or DM.", fr: "Chat avec l'IA. Fonctionne partout et en DM.", es: "Chat con IA. Funciona en cualquier canal o DM.", de: "Chat mit KI. Funktioniert in jedem Kanal oder DM.", pt: "Chat com IA. Funciona em qualquer canal ou DM.", it: "Chat con IA. Funziona in qualsiasi canale o DM." }[lang] ?? "" },
+        { name: `\`${p}ai battle <topic>\`  \`${p}ai stop\``, value: { en: "Start an AI debate between two bots on a topic, then stop it.", fr: "Lancer un débat IA entre deux bots sur un sujet, puis l'arrêter.", es: "Iniciar un debate IA entre dos bots sobre un tema, luego detenerlo.", de: "KI-Debatte zwischen zwei Bots zu einem Thema starten, dann stoppen.", pt: "Iniciar um debate de IA entre dois bots sobre um tema, depois parar.", it: "Avvia un dibattito IA tra due bot su un argomento, poi fermalo." }[lang] ?? "" },
+        { name: `\`${p}conspiracy [topic]\``, value: { en: "Generate a funny, absurd AI conspiracy theory.", fr: "Générer une théorie du complot absurde et drôle par IA.", es: "Generar una teoría de conspiración absurda y divertida por IA.", de: "Eine lustige, absurde KI-Verschwörungstheorie generieren.", pt: "Gerar uma teoria conspiratória absurda e engraçada por IA.", it: "Genera una teoria del complotto assurda e divertente con l'IA." }[lang] ?? "" },
+        { name: `\`${p}image <description>\`  \`/image\``, value: { en: "Generate an image with FLUX.1 (HuggingFace).", fr: "Générer une image avec FLUX.1 (HuggingFace).", es: "Generar una imagen con FLUX.1 (HuggingFace).", de: "Ein Bild mit FLUX.1 (HuggingFace) generieren.", pt: "Gerar uma imagem com FLUX.1 (HuggingFace).", it: "Genera un'immagine con FLUX.1 (HuggingFace)." }[lang] ?? "" },
+      );
+      break;
+
+    case "quest":
+    case "levels":
+      embed.setTitle({ en: "🎯 Quests & Levels", fr: "🎯 Quêtes & Niveaux", es: "🎯 Misiones & Niveles", de: "🎯 Quests & Level", pt: "🎯 Missões & Níveis", it: "🎯 Missioni & Livelli" }[lang] ?? "🎯 Quests");
+      embed.addFields(
+        { name: `\`${p}quest start\``, value: { en: "Set up personal quests with AI coaching.", fr: "Configurer des quêtes personnelles avec coaching IA.", es: "Configurar misiones personales con coaching IA.", de: "Persönliche Quests mit KI-Coaching einrichten.", pt: "Configurar missões pessoais com coaching de IA.", it: "Configura missioni personali con coaching IA." }[lang] ?? "" },
+        { name: `\`${p}quest list\`  \`${p}quest done <N>\`  \`${p}quest done all\``, value: { en: "View quests, mark one or all as done.", fr: "Voir les quêtes, marquer une ou toutes comme faites.", es: "Ver misiones, marcar una o todas como hechas.", de: "Quests anzeigen, eine oder alle als erledigt markieren.", pt: "Ver missões, marcar uma ou todas como concluídas.", it: "Vedi missioni, segna una o tutte come completate." }[lang] ?? "" },
+        { name: `\`${p}quest profile\`  \`${p}quest stats\``, value: { en: "View your XP level card or your quest statistics.", fr: "Voir ta fiche niveau XP ou tes statistiques de quêtes.", es: "Ver tu ficha de nivel XP o estadísticas de misiones.", de: "Deine XP-Level-Karte oder Quest-Statistiken anzeigen.", pt: "Ver seu cartão de nível XP ou estatísticas de missões.", it: "Vedi il tuo livello XP o le statistiche delle missioni." }[lang] ?? "" },
+        { name: `\`${p}quest remind\`  \`${p}quest schedule <h>\``, value: { en: "Enable reminders or set reminder hours (e.g. `!quest schedule 9 20`).", fr: "Activer les rappels ou définir les heures (ex. `!quest schedule 9 20`).", es: "Activar recordatorios o establecer horas (ej. `!quest schedule 9 20`).", de: "Erinnerungen aktivieren oder Stunden setzen (z.B. `!quest schedule 9 20`).", pt: "Ativar lembretes ou definir horas (ex. `!quest schedule 9 20`).", it: "Attiva promemoria o imposta le ore (es. `!quest schedule 9 20`)." }[lang] ?? "" },
+        { name: `\`${p}quest reset\``, value: { en: "Reset all quests (asks for confirmation).", fr: "Réinitialiser toutes les quêtes (demande confirmation).", es: "Reiniciar todas las misiones (pide confirmación).", de: "Alle Quests zurücksetzen (fragt nach Bestätigung).", pt: "Redefinir todas as missões (pede confirmação).", it: "Reimposta tutte le missioni (chiede conferma)." }[lang] ?? "" },
+      );
+      break;
+
+    case "birthday":
+      embed.setTitle({ en: "🎂 Birthdays", fr: "🎂 Anniversaires", es: "🎂 Cumpleaños", de: "🎂 Geburtstage", pt: "🎂 Aniversários", it: "🎂 Compleanni" }[lang] ?? "🎂 Birthdays");
+      embed.addFields(
+        { name: `\`${p}birthday add DD/MM\``, value: { en: "Save your birthday.", fr: "Enregistrer ton anniversaire.", es: "Registrar tu cumpleaños.", de: "Deinen Geburtstag speichern.", pt: "Salvar seu aniversário.", it: "Salva il tuo compleanno." }[lang] ?? "" },
+        { name: `\`${p}birthday list\``, value: { en: "View all saved birthdays.", fr: "Voir tous les anniversaires enregistrés.", es: "Ver todos los cumpleaños guardados.", de: "Alle gespeicherten Geburtstage anzeigen.", pt: "Ver todos os aniversários salvos.", it: "Vedi tutti i compleanni salvati." }[lang] ?? "" },
+        { name: `\`${p}birthday remove [@user]\``, value: { en: "Remove a birthday (yours or another user's).", fr: "Supprimer un anniversaire (le tien ou celui d'un autre).", es: "Eliminar un cumpleaños (tuyo o de otro usuario).", de: "Einen Geburtstag entfernen.", pt: "Remover um aniversário.", it: "Rimuovi un compleanno." }[lang] ?? "" },
+        { name: `\`${p}birthday channel #channel\``, value: { en: "Set the channel where birthday wishes are sent (admin).", fr: "Définir le salon où les vœux sont envoyés (admin).", es: "Establecer el canal donde se envían los deseos (admin).", de: "Kanal festlegen, in dem Geburtstagsgrüße gesendet werden (Admin).", pt: "Definir o canal onde os votos são enviados (admin).", it: "Imposta il canale dove vengono inviati gli auguri (admin)." }[lang] ?? "" },
+      );
+      break;
+
+    case "guesslogo":
+      embed.setTitle({ en: "🏷️ Guess The Logo", fr: "🏷️ Devine le Logo", es: "🏷️ Adivina el Logo", de: "🏷️ Errate das Logo", pt: "🏷️ Adivinhe o Logo", it: "🏷️ Indovina il Logo" }[lang] ?? "🏷️ Guess The Logo");
+      embed.addFields(
+        { name: `\`${p}guessthelogo [easy|medium|hard]\``, value: { en: "A brand logo is shown — type the brand name to win!", fr: "Un logo de marque est affiché — tape le nom de la marque pour gagner !", es: "Se muestra un logo de marca — escribe el nombre para ganar.", de: "Ein Markenlogo wird angezeigt — tippe den Markennamen um zu gewinnen!", pt: "Um logo de marca é mostrado — digite o nome da marca para ganhar!", it: "Viene mostrato un logo di marca — digita il nome del marchio per vincere!" }[lang] ?? "" },
+        { name: `\`${p}guessthelogo stop\``, value: { en: "Cancel the current game.", fr: "Annuler la partie en cours.", es: "Cancelar el juego actual.", de: "Aktuelles Spiel abbrechen.", pt: "Cancelar o jogo atual.", it: "Annulla il gioco in corso." }[lang] ?? "" },
+      );
+      break;
 
     case "tools":
-      embed.setTitle(fr ? "🛠️ Outils" : es ? "🛠️ Herramientas" : "🛠️ Tools");
-      embed.setDescription(fr ? "Voir page 3 de `!help` pour tous les outils." : es ? "Ver página 3 de `!help` para todas las herramientas." : "See page 3 of `!help` for all tools.");
+      embed.setTitle({ en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[lang] ?? "🔍 Tools");
+      embed.setDescription({ en: "Run `!help <tool>` for more details on any tool.", fr: "Lance `!help <outil>` pour plus de détails.", es: "Usa `!help <herramienta>` para más detalles.", de: "`!help <Werkzeug>` für mehr Details ausführen.", pt: "Use `!help <ferramenta>` para mais detalhes.", it: "Usa `!help <strumento>` per più dettagli." }[lang] ?? "");
+      embed.addFields(
+        { name: `\`${p}define <word>\`  or  \`/define\``, value: { en: "English dictionary with phonetics, examples, synonyms.", fr: "Dictionnaire anglais avec phonétique, exemples, synonymes.", es: "Diccionario inglés con fonética, ejemplos, sinónimos.", de: "Englisches Wörterbuch mit Phonetik, Beispielen, Synonymen.", pt: "Dicionário inglês com fonética, exemplos, sinônimos.", it: "Dizionario inglese con fonetica, esempi, sinonimi." }[lang] ?? "" },
+        { name: `\`${p}qr <text>\`  or  \`/qr\``, value: { en: "Generate a QR code or read one from an attached image.", fr: "Générer un QR code ou en lire un depuis une image jointe.", es: "Generar un QR o leer uno desde una imagen adjunta.", de: "QR-Code erstellen oder aus einem angehängten Bild lesen.", pt: "Gerar um QR code ou ler um de uma imagem anexada.", it: "Generare un codice QR o leggerne uno da un'immagine allegata." }[lang] ?? "" },
+        { name: `\`${p}echo\`  or  \`/echo\``, value: { en: "Repeat all messages in the channel (max 8). Run again to stop.", fr: "Répéter tous les messages du salon (max 8). Relancer pour arrêter.", es: "Repetir todos los mensajes del canal (máx 8). Ejecutar de nuevo para parar.", de: "Alle Nachrichten im Kanal wiederholen (max 8). Erneut ausführen zum Stoppen.", pt: "Repetir todas as mensagens no canal (max 8). Execute novamente para parar.", it: "Ripeti tutti i messaggi nel canale (max 8). Esegui di nuovo per fermare." }[lang] ?? "" },
+        { name: `\`${p}pokemon <name>\`  or  \`/pokemon\``, value: { en: "Full Pokémon card: types, abilities, stats, height, weight.", fr: "Fiche Pokémon complète : types, talents, stats, taille, poids.", es: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", de: "Vollständige Pokémon-Karte: Typen, Fähigkeiten, Werte, Größe, Gewicht.", pt: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", it: "Scheda Pokémon completa: tipi, abilità, statistiche, altezza, peso." }[lang] ?? "" },
+        { name: `\`${p}shazam\``, value: { en: "Identify a song from an attached audio file.", fr: "Identifier une chanson depuis un fichier audio joint.", es: "Identificar una canción desde un archivo de audio adjunto.", de: "Einen Song aus einer angehängten Audiodatei identifizieren.", pt: "Identificar uma música a partir de um arquivo de áudio anexado.", it: "Identificare una canzone da un file audio allegato." }[lang] ?? "" },
+      );
       break;
 
     case "dictionary":
-      embed.setTitle(fr ? "📖 Dictionnaire" : es ? "📖 Diccionario" : "📖 Dictionary");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`/define <mot>` — Via commande slash\n`!define <mot>` — Via préfixe\n`!dict <mot>` — Alias\n\nRetourne : définition, prononciation phonétique, exemples d'usage et synonymes. Mots en **anglais uniquement**."
-          : es
-          ? "`/define <palabra>` — Comando slash\n`!define <palabra>` — Con prefijo\n`!dict <palabra>` — Alias\n\nDevuelve: definición, fonética, ejemplos y sinónimos. Solo palabras en **inglés**."
-          : "`/define <word>` — Slash command\n`!define <word>` — Prefix command\n`!dict <word>` — Alias\n\nReturns: definition, phonetics, usage examples and synonyms. **English words only**.",
-      }); break;
+      embed.setTitle({ en: "📖 Dictionary", fr: "📖 Dictionnaire", es: "📖 Diccionario", de: "📖 Wörterbuch", pt: "📖 Dicionário", it: "📖 Dizionario" }[lang] ?? "📖 Dictionary");
+      embed.addFields(
+        { name: `\`${p}define <word>\`  ·  \`${p}dict <word>\`  ·  \`/define\``, value: { en: "Look up any English word. Returns phonetics, part of speech, definitions, examples, and synonyms. Automatically adapts the response label to your language.", fr: "Chercher n'importe quel mot anglais. Retourne phonétique, catégorie grammaticale, définitions, exemples et synonymes. La réponse s'adapte à ta langue.", es: "Buscar cualquier palabra en inglés. Devuelve fonética, categoría gramatical, definiciones, ejemplos y sinónimos.", de: "Beliebiges englisches Wort nachschlagen. Gibt Phonetik, Wortart, Definitionen, Beispiele und Synonyme zurück.", pt: "Pesquisar qualquer palavra em inglês. Retorna fonética, classe gramatical, definições, exemplos e sinônimos.", it: "Cerca qualsiasi parola inglese. Restituisce fonetica, parte del discorso, definizioni, esempi e sinonimi." }[lang] ?? "" },
+      );
+      break;
 
     case "qr":
-      embed.setTitle(fr ? "📷 QR Code" : es ? "📷 Código QR" : "📷 QR Code");
+      embed.setTitle("📷 QR Code");
       embed.addFields(
-        { name: fr ? "Créer un QR code" : es ? "Crear un código QR" : "Create a QR code",
-          value: fr
-            ? "`/qr text:<texte>` — Via commande slash\n`!qr <texte>` — Via préfixe\nFonctionne avec n'importe quel texte ou URL (max 500 caractères)."
-            : es
-            ? "`/qr text:<texto>` — Comando slash\n`!qr <texto>` — Con prefijo\nFunciona con cualquier texto o URL (máx 500 caracteres)."
-            : "`/qr text:<text>` — Slash command\n`!qr <text>` — Prefix command\nWorks with any text or URL (max 500 characters)." },
-        { name: fr ? "Lire un QR code" : es ? "Leer un código QR" : "Read a QR code",
-          value: fr
-            ? "`/qr image:<image>` — Joins une image contenant un QR code\n`!qr` + image jointe — Envoie `!qr` avec une image en pièce jointe"
-            : es
-            ? "`/qr image:<imagen>` — Adjunta una imagen con un código QR\n`!qr` + imagen adjunta — Envía `!qr` con una imagen adjunta"
-            : "`/qr image:<image>` — Attach an image containing a QR code\n`!qr` + attached image — Send `!qr` with an image attached" },
-      ); break;
+        { name: `\`${p}qr <text>\`  ·  \`/qr text:<text>\``, value: { en: "Generate a QR code image from any text or URL.", fr: "Générer un QR code depuis n'importe quel texte ou URL.", es: "Generar un código QR desde cualquier texto o URL.", de: "QR-Code aus beliebigem Text oder URL erstellen.", pt: "Gerar um código QR a partir de qualquer texto ou URL.", it: "Genera un codice QR da qualsiasi testo o URL." }[lang] ?? "" },
+        { name: `\`${p}qr\` + { en: "attached image", fr: "image jointe", es: "imagen adjunta", de: "angehängtes Bild", pt: "imagem anexada", it: "immagine allegata" }[lang]`, value: { en: "Scan and decode an existing QR code from a picture.", fr: "Scanner et décoder un QR code existant depuis une image.", es: "Escanear y decodificar un QR existente desde una imagen.", de: "Einen vorhandenen QR-Code aus einem Bild scannen und dekodieren.", pt: "Digitalizar e decodificar um QR code existente de uma imagem.", it: "Scansionare e decodificare un codice QR esistente da un'immagine." }[lang] ?? "" },
+      );
+      break;
 
     case "echo":
-      embed.setTitle(fr ? "🦜 Écho" : es ? "🦜 Eco" : "🦜 Echo");
+      embed.setTitle("🦜 Echo");
       embed.addFields(
-        { name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-          value: fr
-            ? "`/echo user:@mention` — Commence à répéter un utilisateur\n`/echo` *(sans argument)* — Arrête l'écho\n`!echo @mention` — Via préfixe\n`!echo stop` — Arrête l'écho"
-            : es
-            ? "`/echo user:@mención` — Comienza a repetir a un usuario\n`/echo` *(sin argumento)* — Detiene el eco\n`!echo @mención` — Con prefijo\n`!echo stop` — Detiene el eco"
-            : "`/echo user:@mention` — Start echoing a user\n`/echo` *(no argument)* — Stop echoing\n`!echo @mention` — Prefix command\n`!echo stop` — Stop echoing" },
-        { name: fr ? "Comportement" : es ? "Comportamiento" : "Behaviour",
-          value: fr
-            ? "Le bot répète les messages de l'utilisateur ciblé.\nLimite : **8 messages maximum** par session.\nS'arrête automatiquement après 8 messages ou sur commande stop."
-            : es
-            ? "El bot repite los mensajes del usuario objetivo.\nLímite: **máximo 8 mensajes** por sesión.\nSe detiene automáticamente tras 8 mensajes o con el comando stop."
-            : "The bot repeats the targeted user's messages.\nLimit: **max 8 messages** per session.\nAuto-stops after 8 messages or on stop command." },
-      ); break;
+        { name: `\`${p}echo\`  or  \`/echo\``, value: { en: "Start repeating all messages in the channel. Stops automatically after 8 messages.", fr: "Commencer à répéter tous les messages du salon. S'arrête après 8 messages.", es: "Empezar a repetir todos los mensajes del canal. Se para tras 8 mensajes.", de: "Alle Nachrichten im Kanal wiederholen. Stoppt automatisch nach 8 Nachrichten.", pt: "Repetir todas as mensagens no canal. Para automaticamente após 8 mensagens.", it: "Inizia a ripetere tutti i messaggi nel canale. Si ferma automaticamente dopo 8 messaggi." }[lang] ?? "" },
+        { name: `\`${p}echo stop\`  or  \`/echo\` (again)`, value: { en: "Stop the echo manually.", fr: "Arrêter l'écho manuellement.", es: "Parar el eco manualmente.", de: "Echo manuell stoppen.", pt: "Parar o eco manualmente.", it: "Ferma l'eco manualmente." }[lang] ?? "" },
+      );
+      break;
 
     case "pokemon":
-      embed.setTitle(fr ? "🔴 Pokédex" : es ? "🔴 Pokédex" : "🔴 Pokédex");
-      embed.addFields({ name: fr ? "Commandes" : es ? "Comandos" : "Commands",
-        value: fr
-          ? "`/pokemon <nom>` — Via commande slash\n`!pokemon <nom>` / `!dex <nom>` — Via préfixe\n\nAccepte le nom ou le numéro (ex: `pikachu` ou `25`).\nAffiche : type, talents, stats, taille et poids. La couleur de l'embed correspond au type principal."
-          : es
-          ? "`/pokemon <nombre>` — Comando slash\n`!pokemon <nombre>` / `!dex <nombre>` — Con prefijo\n\nAcepta nombre o número (ej: `pikachu` o `25`).\nMuestra: tipo, habilidades, stats, altura y peso. El color del embed coincide con el tipo principal."
-          : "`/pokemon <name>` — Slash command\n`!pokemon <name>` / `!dex <name>` — Prefix command\n\nAccepts name or number (e.g. `pikachu` or `25`).\nShows: type, abilities, stats, height & weight. Embed color matches the primary type.",
-      }); break;
+      embed.setTitle("🔴 Pokédex");
+      embed.addFields(
+        { name: `\`${p}pokemon <name>\`  ·  \`${p}dex <name>\`  ·  \`/pokemon\``, value: { en: "Displays a full Pokémon card: types (colour-coded), abilities, base stats, height, and weight. Works with English names.", fr: "Affiche une fiche Pokémon complète : types (couleurs), talents, stats de base, taille et poids. Fonctionne avec les noms anglais.", es: "Muestra una ficha Pokémon completa: tipos (colores), habilidades, estadísticas base, altura y peso. Funciona con nombres en inglés.", de: "Zeigt eine vollständige Pokémon-Karte: Typen (farbcodiert), Fähigkeiten, Basiswerte, Größe und Gewicht. Funktioniert mit englischen Namen.", pt: "Exibe uma ficha Pokémon completa: tipos (coloridos), habilidades, estatísticas base, altura e peso. Funciona com nomes em inglês.", it: "Mostra una scheda Pokémon completa: tipi (codice colore), abilità, statistiche base, altezza e peso. Funziona con nomi inglesi." }[lang] ?? "" },
+      );
+      break;
 
     case "welcome":
-      embed.setTitle(fr ? "👋 Bienvenue dynamique" : es ? "👋 Bienvenida dinámica" : "👋 Dynamic Welcome");
+      embed.setTitle({ en: "👋 Dynamic Welcome", fr: "👋 Bienvenue dynamique", es: "👋 Bienvenida dinámica", de: "👋 Dynamische Begrüßung", pt: "👋 Boas-vindas dinâmicas", it: "👋 Benvenuto dinamico" }[lang] ?? "👋 Welcome");
       embed.addFields(
-        { name: fr ? "Configuration *(admin)*" : es ? "Configuración *(admin)*" : "Setup *(admin)*",
-          value: fr
-            ? "`!welcome set #salon` / `/welcome set channel:#salon` — Définir le salon\n`!welcome msg <texte>` / `/welcome message text:<texte>` — Message personnalisé\n`!welcome clear` / `/welcome clear` — Remettre le message par défaut\n`!welcome status` / `/welcome status` — Voir la configuration"
-            : es
-            ? "`!welcome set #canal` / `/welcome set channel:#canal` — Establecer canal\n`!welcome msg <texto>` / `/welcome message text:<texto>` — Mensaje personalizado\n`!welcome clear` / `/welcome clear` — Restablecer predeterminado\n`!welcome status` / `/welcome status` — Ver configuración"
-            : "`!welcome set #channel` / `/welcome set channel:#channel` — Set channel\n`!welcome msg <text>` / `/welcome message text:<text>` — Custom message\n`!welcome clear` / `/welcome clear` — Reset to default\n`!welcome status` / `/welcome status` — View config" },
-        { name: fr ? "Variables de message" : es ? "Variables de mensaje" : "Message variables",
-          value: fr
-            ? "`{user}` — Mention de l'utilisateur\n`{server}` — Nom du serveur\n`{count}` — Nombre de membres\n\nEx: `Bienvenue {user} sur {server} ! Tu es notre {count}ème membre.`"
-            : es
-            ? "`{user}` — Mención del usuario\n`{server}` — Nombre del servidor\n`{count}` — Número de miembros\n\nEj: `¡Bienvenido {user} a {server}! Eres nuestro miembro número {count}.`"
-            : "`{user}` — User mention\n`{server}` — Server name\n`{count}` — Member count\n\nExample: `Welcome {user} to {server}! You're our #{count} member.`" },
-      ); break;
+        { name: `\`${p}welcome set #channel\`  ·  \`/welcome set\` (admin)`, value: { en: "Set the channel where welcome messages are sent.", fr: "Définir le salon où les messages de bienvenue sont envoyés.", es: "Establecer el canal donde se envían los mensajes de bienvenida.", de: "Den Kanal festlegen, in dem Willkommensnachrichten gesendet werden.", pt: "Definir o canal onde as mensagens de boas-vindas são enviadas.", it: "Impostare il canale in cui vengono inviati i messaggi di benvenuto." }[lang] ?? "" },
+        { name: `\`${p}welcome msg <text>\`  ·  \`/welcome message\``, value: { en: "Customize the welcome message. Variables: `{user}` `{server}` `{count}`.", fr: "Personnaliser le message de bienvenue. Variables : `{user}` `{server}` `{count}`.", es: "Personalizar el mensaje de bienvenida. Variables: `{user}` `{server}` `{count}`.", de: "Die Willkommensnachricht anpassen. Variablen: `{user}` `{server}` `{count}`.", pt: "Personalizar a mensagem de boas-vindas. Variáveis: `{user}` `{server}` `{count}`.", it: "Personalizzare il messaggio di benvenuto. Variabili: `{user}` `{server}` `{count}`." }[lang] ?? "" },
+        { name: `\`${p}welcome clear\`  ·  \`${p}welcome status\``, value: { en: "Reset to default message or view current config.", fr: "Remettre le message par défaut ou voir la config actuelle.", es: "Restablecer el mensaje predeterminado o ver la configuración.", de: "Standardnachricht zurücksetzen oder aktuelle Konfiguration anzeigen.", pt: "Redefinir para a mensagem padrão ou ver a configuração atual.", it: "Ripristina il messaggio predefinito o vedi la configurazione attuale." }[lang] ?? "" },
+      );
+      break;
 
     case "schedule":
-      embed.setTitle(fr ? "⏰ Messages planifiés" : es ? "⏰ Mensajes programados" : "⏰ Scheduled Messages");
+      embed.setTitle({ en: "⏰ Scheduled Messages", fr: "⏰ Messages planifiés", es: "⏰ Mensajes programados", de: "⏰ Geplante Nachrichten", pt: "⏰ Mensagens agendadas", it: "⏰ Messaggi pianificati" }[lang] ?? "⏰ Schedule");
       embed.addFields(
-        { name: fr ? "Commandes *(admin)*" : es ? "Comandos *(admin)*" : "Commands *(admin)*",
-          value: fr
-            ? "`!schedule set HH:MM #salon <message>` — Planifier une fois\n`!schedule daily HH:MM #salon <message>` — Planifier chaque jour\n`!schedule list` — Voir les messages planifiés\n`!schedule cancel <ID>` — Annuler\n\nSlash : `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`"
-            : es
-            ? "`!schedule set HH:MM #canal <mensaje>` — Programar una vez\n`!schedule daily HH:MM #canal <mensaje>` — Programar cada día\n`!schedule list` — Ver mensajes programados\n`!schedule cancel <ID>` — Cancelar\n\nSlash: `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`"
-            : "`!schedule set HH:MM #channel <message>` — Schedule once\n`!schedule daily HH:MM #channel <message>` — Schedule daily\n`!schedule list` — View scheduled messages\n`!schedule cancel <ID>` — Cancel\n\nSlash: `/schedule once` · `/schedule daily` · `/schedule list` · `/schedule cancel`" },
-        { name: fr ? "ℹ️ Note" : es ? "ℹ️ Nota" : "ℹ️ Note",
-          value: fr
-            ? "Les heures sont en **UTC**. Ex: pour 18h Paris (UTC+2 en été), utilise `16:00`."
-            : es
-            ? "Las horas son en **UTC**. Ej: para las 18h en Madrid (UTC+2 en verano), usa `16:00`."
-            : "Times are in **UTC**. e.g. for 6 PM London (UTC+1 in summer), use `17:00`." },
-      ); break;
+        { name: `\`${p}schedule set HH:MM #channel <msg>\`  ·  \`/schedule once\``, value: { en: "Schedule a one-time message at a specific time (UTC).", fr: "Planifier un message unique à une heure précise (UTC).", es: "Programar un mensaje único a una hora específica (UTC).", de: "Eine einmalige Nachricht zu einer bestimmten Uhrzeit planen (UTC).", pt: "Agendar uma mensagem única em um horário específico (UTC).", it: "Pianificare un messaggio una tantum a un'ora specifica (UTC)." }[lang] ?? "" },
+        { name: `\`${p}schedule daily HH:MM #channel <msg>\`  ·  \`/schedule daily\``, value: { en: "Schedule a message sent every day at that time (UTC).", fr: "Planifier un message envoyé chaque jour à cette heure (UTC).", es: "Programar un mensaje enviado cada día a esa hora (UTC).", de: "Eine täglich gesendete Nachricht zu einer bestimmten Uhrzeit planen (UTC).", pt: "Agendar uma mensagem enviada todos os dias naquele horário (UTC).", it: "Pianificare un messaggio inviato ogni giorno a quell'ora (UTC)." }[lang] ?? "" },
+        { name: `\`${p}schedule list\`  ·  \`${p}schedule cancel <ID>\``, value: { en: "View all scheduled messages or cancel one by ID.", fr: "Voir tous les messages planifiés ou en annuler un par ID.", es: "Ver todos los mensajes programados o cancelar uno por ID.", de: "Alle geplanten Nachrichten anzeigen oder eine nach ID abbrechen.", pt: "Ver todas as mensagens agendadas ou cancelar uma por ID.", it: "Vedi tutti i messaggi pianificati o annullane uno per ID." }[lang] ?? "" },
+      );
+      break;
+
+    case "food":
+      embed.setTitle({ en: "🥗 Food Scanner", fr: "🥗 Scanner Alimentaire", es: "🥗 Escáner de Comida", de: "🥗 Lebensmittel-Scanner", pt: "🥗 Scanner de Alimentos", it: "🥗 Scanner Alimentare" }[lang] ?? "🥗 Food");
+      embed.addFields(
+        { name: `\`${p}food\`  or  \`${p}food scan\``, value: { en: "Scan a food product from a photo or barcode. Returns Nutri-Score and nutritional info.", fr: "Scanner un produit alimentaire depuis une photo ou un code-barre. Retourne le Nutri-Score et les infos nutritionnelles.", es: "Escanear un producto alimenticio desde una foto o código de barras.", de: "Ein Lebensmittelprodukt anhand eines Fotos oder Barcodes scannen.", pt: "Escanear um produto alimentar a partir de uma foto ou código de barras.", it: "Scansionare un prodotto alimentare da una foto o codice a barre." }[lang] ?? "" },
+        { name: `\`${p}food history\`  ·  \`${p}food clear\``, value: { en: "View your last 10 scanned products or clear your history.", fr: "Voir tes 10 derniers produits scannés ou effacer l'historique.", es: "Ver tus últimos 10 productos escaneados o borrar el historial.", de: "Deine letzten 10 gescannten Produkte anzeigen oder verlauf löschen.", pt: "Ver seus últimos 10 produtos escaneados ou limpar o histórico.", it: "Vedi i tuoi ultimi 10 prodotti scansionati o cancella la cronologia." }[lang] ?? "" },
+      );
+      break;
+
+    default:
+      embed.setTitle("❓ Help");
+      embed.setDescription({ en: "Topic not found. Try `!help` for the main menu.", fr: "Sujet introuvable. Essaie `!help` pour le menu principal.", es: "Tema no encontrado. Usa `!help` para el menú principal.", de: "Thema nicht gefunden. Versuche `!help` für das Hauptmenü.", pt: "Tópico não encontrado. Use `!help` para o menu principal.", it: "Argomento non trovato. Usa `!help` per il menu principale." }[lang] ?? "");
   }
+
+  if (prefix !== "!") {
+    for (const f of embed.data.fields ?? []) {
+      f.name  = f.name.replaceAll("`!", `\`${prefix}`);
+      f.value = f.value.replaceAll("`!", `\`${prefix}`);
+    }
+    if (embed.data.description) embed.setDescription(embed.data.description.replaceAll("`!", `\`${prefix}`));
+  }
+  return embed;
+}
+
+// ── Setup & admin guides (keep existing) ─────────────────────────────────────
+
+export async function sendSetupGuide(message: Message): Promise<void> {
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🛠️ Bot Setup Guide")
+    .setDescription("Required and optional API keys to unlock all features.")
+    .addFields(
+      { name: "✅ Required", value: "`DISCORD_TOKEN` — main bot token", inline: false },
+      { name: "🤖 AI features (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", value: "`GROQ_API_KEY` — free at console.groq.com", inline: false },
+      { name: "🎵 Music generation (`!music generator`)", value: "`SUNO_API_KEY` — from sunoapi.org", inline: false },
+      { name: "🖼️ Image generation (`!image`)", value: "`HUGGINGFACE_TOKEN` — free at huggingface.co", inline: false },
+      { name: "🗄️ Persistent data (quests, likes, playlists, logos)", value: "`MONGODB_URI` — free tier at mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-char hex (run: `node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"`)", inline: false },
+      { name: "🏷️ Guess The Logo (`!guessthelogo`)", value: "`LOGO_DEV_PUBLIC_KEY` — from logo.dev", inline: false },
+      { name: "🎵 Song recognition (`!shazam`)", value: "`AUDD_API_KEY` — from audd.io", inline: false },
+      { name: "⚔️ AI Battle (`!ai battle`)", value: "`DISCORD_TOKEN_2` — second bot token", inline: false },
+    )
+    .setFooter({ text: "Add secrets in the Replit Secrets tab or your deployment environment." });
+  await message.reply({ embeds: [embed] });
+}
+
+export async function sendAdminGuide(message: Message, prefix = "!"): Promise<void> {
+  const p = prefix;
+  const embed = new EmbedBuilder()
+    .setColor(0xe67e22)
+    .setTitle("🔧 Admin Commands")
+    .setDescription("Commands requiring Manage Server or Administrator permission.")
+    .addFields(
+      { name: "🌐 Server language", value: `\`${p}server language [en|fr|es|de|pt|it]\` — sets the default help language for the server`, inline: false },
+      { name: "📝 Prefix", value: `\`${p}prefix <char>\` — change the command prefix (e.g. \`!prefix ?\`)`, inline: false },
+      { name: "👋 Welcome", value: `\`${p}welcome set #channel\` · \`${p}welcome msg <text>\` · \`${p}welcome clear\``, inline: false },
+      { name: "⏰ Schedule", value: `\`${p}schedule daily HH:MM #ch <msg>\` · \`${p}schedule list\` · \`${p}schedule cancel <ID>\``, inline: false },
+      { name: "🎤 Voice Picker", value: `\`${p}voicepicker set #ch1 #ch2\` — set suggested voice channels`, inline: false },
+      { name: "🏷️ Logo admin", value: `\`${p}logo add/remove/approve/exclude/test/stats\` — manage the logo game database`, inline: false },
+      { name: "📢 Admin channel", value: `\`${p}suggest admin #channel\` — channel for unknown-command suggestions`, inline: false },
+      { name: "📻 Custom radio", value: `\`${p}radio add <key> <name> <url> <emoji> <genre> [fr|es|en]\` — add a custom radio station`, inline: false },
+      { name: "🚫 Moderation", value: `\`${p}block @user\` · \`${p}unblock @user\` · \`${p}banlist\``, inline: false },
+    )
+    .setFooter({ text: "These commands are not listed in !help public." });
 
   if (prefix !== "!") {
     for (const f of embed.data.fields ?? []) {
       f.value = f.value.replaceAll("`!", `\`${prefix}`);
     }
   }
-  return embed;
-}
-
-// ── Setup guide (API keys) ────────────────────────────────────────────────────
-
-export async function sendSetupGuide(message: Message): Promise<void> {
-  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
-    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
-  if (!isMod) {
-    await message.reply("🔒 This command is for moderators only.");
-    return;
-  }
-  const setupEmbed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle("🔧 Bot Setup — API Keys & Secrets")
-    .setDescription(
-      "Add the following **secrets** in your Replit project to unlock each feature.\n" +
-      "Go to **Replit → Secrets** (the 🔒 lock icon in the left sidebar), then click **+ New Secret**.\n\u200b"
-    )
-    .addFields(
-      { name: "🤖 `DISCORD_TOKEN`", value: "**Required** — Main bot token.\nGet it at **discord.com/developers/applications** → Your App → Bot → Reset Token.", inline: false },
-      { name: "🧠 `GROQ_API_KEY`", value: "Enables AI features: `@mention` chat, DMs, `!conspiracy`, `!trivia`, `!ai battle`, voice AI.\nGet it **free** at **console.groq.com** → API Keys.", inline: false },
-      { name: "🎵 `SUNO_API_KEY`", value: "Enables `!music generator` and `!credits`.\nGet it at **sunoapi.org** → API Key.", inline: false },
-      { name: "🖼️ `HUGGINGFACE_TOKEN`", value: "Enables `!image` and `/image` (AI image generation).\nGet it **free** at **huggingface.co/settings/tokens** → New Token (Read).", inline: false },
-      { name: "🎤 `AUDD_API_KEY`", value: "Enables `!shazam` song identification.\nGet it **free** at **audd.io** → sign up → copy your API token.", inline: false },
-      { name: "🤖2️ `DISCORD_TOKEN_2`", value: "Enables `!ai battle` (requires a second Discord bot).\nCreate a second app at **discord.com/developers/applications**, add a bot, and copy its token.", inline: false },
-    )
-    .setFooter({ text: "⚠️ Never share these tokens publicly — always store them in Replit Secrets, never in code." });
-
-  try {
-    await message.author.send({ embeds: [setupEmbed] });
-    await message.reply("📬 Setup guide sent to your DMs!");
-  } catch {
-    await message.reply({ content: "📖 Here's the setup guide (could not DM — check your DM settings):", embeds: [setupEmbed] });
-  }
-}
-
-// ── Admin commands guide ──────────────────────────────────────────────────────
-
-export async function sendAdminGuide(message: Message, guildPrefix: string): Promise<void> {
-  const isMod = message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
-    || message.member?.permissions.has(PermissionFlagsBits.Administrator);
-  if (!isMod) {
-    await message.reply("🔒 This command is for moderators only.");
-    return;
-  }
-  const adminEmbed = new EmbedBuilder()
-    .setColor(0x2ecc71)
-    .setTitle("⚙️ Admin Commands")
-    .setDescription("Commands only available to members with **Manage Server** or **Administrator** permission.\n\u200b")
-    .addFields(
-      {
-        name: "🔤 Prefix",
-        value: `\`${guildPrefix}prefix <new>\` — Change the bot prefix for this server *(max 3 chars)*\n\`${guildPrefix}prefix reset\` — Restore the default \`!\` prefix`,
-        inline: false,
-      },
-      {
-        name: "👋 Welcome",
-        value: `\`${guildPrefix}welcome set #channel\` — Set welcome channel\n\`${guildPrefix}welcome msg <text>\` — Custom message (\`{user}\` \`{server}\` \`{count}\`)\n\`${guildPrefix}welcome clear\` — Reset · \`${guildPrefix}welcome status\` — View config`,
-        inline: false,
-      },
-      {
-        name: "⏰ Scheduled Messages",
-        value: `\`${guildPrefix}schedule set HH:MM #channel <msg>\` — Once\n\`${guildPrefix}schedule daily HH:MM #channel <msg>\` — Daily\n\`${guildPrefix}schedule list\` — View · \`${guildPrefix}schedule cancel <ID>\` — Cancel`,
-        inline: false,
-      },
-      {
-        name: "🔊 Voice channel picker",
-        value: `\`${guildPrefix}voicechannels #ch1 #ch2\` — Set the 2 voice channels shown when a user isn't in voice\n\`${guildPrefix}voicechannels reset\` — Restore default`,
-        inline: false,
-      },
-      {
-        name: "🎂 Birthdays",
-        value: `\`${guildPrefix}birthday channel #channel\` — Set the channel for birthday announcements\n\`${guildPrefix}birthday channel reset\` — Remove the birthday announcement channel`,
-        inline: false,
-      },
-      {
-        name: "🚨 Alert channel",
-        value: `\`${guildPrefix}admin channel #channel\` — Set the channel for anti-troll alerts\n\`${guildPrefix}admin channel reset\` — Remove the alert channel`,
-        inline: false,
-      },
-      {
-        name: "🛡️ Anti-troll",
-        value: `\`${guildPrefix}unblock @user\` — Lift any bot restriction on a user\n\`${guildPrefix}banlist\` — View all users flagged by the anti-troll system\n\n**Escalation:** warning → 3min block → 12h block → 2h full lockout → permanent ban`,
-        inline: false,
-      },
-      {
-        name: "ℹ️ More info",
-        value: `\`${guildPrefix}help setup\` — API keys & secrets setup guide`,
-        inline: false,
-      },
-    )
-    .setFooter({ text: "Use !help setup to configure API keys and unlock features." });
-
-  await message.reply({ embeds: [adminEmbed] });
+  await message.reply({ embeds: [embed] });
 }

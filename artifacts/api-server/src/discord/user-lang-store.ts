@@ -2,22 +2,28 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
 
-export type UserLang = "en" | "fr" | "es";
+export type UserLang = "en" | "fr" | "es" | "de" | "pt" | "it";
 export const DEFAULT_USER_LANG: UserLang = "en";
 
 export const USER_LANG_NAMES: Record<UserLang, string> = {
   en: "English",
   fr: "French",
   es: "Spanish",
+  de: "German",
+  pt: "Portuguese",
+  it: "Italian",
 };
 
 export const USER_LANG_LABELS: Record<UserLang, string> = {
   en: "🇬🇧 English",
   fr: "🇫🇷 Français",
   es: "🇪🇸 Español",
+  de: "🇩🇪 Deutsch",
+  pt: "🇧🇷 Português",
+  it: "🇮🇹 Italiano",
 };
 
-const VALID_USER_LANGS: UserLang[] = ["en", "fr", "es"];
+const VALID_USER_LANGS: UserLang[] = ["en", "fr", "es", "de", "pt", "it"];
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "user-langs.json");
