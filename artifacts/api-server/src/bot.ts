@@ -603,8 +603,9 @@ export function startBot(): void {
 
         case "echo": {
           if (!interaction.guildId) { await interaction.editReply("❌ Server only."); break; }
-          const result = toggleEcho(interaction.guildId, interaction.channelId, interaction.locale);
-          await interaction.editReply(result);
+          const result = toggleEcho(interaction.guildId, interaction.channelId);
+          await interaction.deleteReply().catch(() => null);
+          await interaction.followUp({ content: result, ephemeral: true });
           break;
         }
 
@@ -3404,11 +3405,10 @@ export function startBot(): void {
         case "echo":
         case "écho": {
           if (!message.guildId) break;
-          const locale = message.guild?.preferredLocale ?? "en-US";
           if (args[0]?.toLowerCase() === "stop") {
-            await message.reply(stopEcho(message.guildId, message.channelId, locale));
+            await message.reply(stopEcho(message.guildId, message.channelId));
           } else {
-            await message.reply(startEcho(message.guildId, message.channelId, locale));
+            await message.reply(startEcho(message.guildId, message.channelId));
           }
           break;
         }
