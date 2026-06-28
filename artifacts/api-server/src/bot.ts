@@ -27,8 +27,8 @@ import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore 
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
-import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
-import { type HelpLanguage, buildHelpEmbed, detectTopicAndLang, buildTopicEmbed, sendPaginatedHelp, sendPaginatedHelpSlash, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
+import { type HelpLanguage, buildHelpEmbed, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
@@ -446,7 +446,7 @@ export function startBot(): void {
 
         case "help": {
           const lang = (interaction.options.getString("lang") ?? "en") as HelpLanguage;
-          await sendPaginatedHelpSlash(interaction, lang);
+          await sendHelpPaginator(interaction, lang);
           break;
         }
 
@@ -1164,14 +1164,14 @@ export function startBot(): void {
         // ── Fun ──────────────────────────────────────────────────────────────────
         case "compliment": {
           const lang = parseLanguage(args[0]);
-          const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : COMPLIMENTS;
+          const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : lang === "ja" ? COMPLIMENTS_JA : lang === "nl" ? COMPLIMENTS_NL : lang === "ru" ? COMPLIMENTS_RU : lang === "pl" ? COMPLIMENTS_PL : lang === "tr" ? COMPLIMENTS_TR : COMPLIMENTS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "joke": {
           const lang = parseLanguage(args[0]);
-          const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : JOKES;
+          const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
           await message.reply(getRandom(list));
           break;
         }
@@ -1179,14 +1179,14 @@ export function startBot(): void {
         case "encouragement":
         case "cheer": {
           const lang = parseLanguage(args[0]);
-          const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : ENCOURAGEMENTS;
+          const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : lang === "ja" ? ENCOURAGEMENTS_JA : lang === "nl" ? ENCOURAGEMENTS_NL : lang === "ru" ? ENCOURAGEMENTS_RU : lang === "pl" ? ENCOURAGEMENTS_PL : lang === "tr" ? ENCOURAGEMENTS_TR : ENCOURAGEMENTS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "hug": {
           const lang = parseLanguage(args[0]);
-          const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : HUGS;
+          const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : lang === "ja" ? HUGS_JA : lang === "nl" ? HUGS_NL : lang === "ru" ? HUGS_RU : lang === "pl" ? HUGS_PL : lang === "tr" ? HUGS_TR : HUGS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
@@ -1198,7 +1198,7 @@ export function startBot(): void {
           if (!question) {
             await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`");
           } else {
-            const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : lang === "de" ? EIGHT_BALL_RESPONSES_DE : lang === "pt" ? EIGHT_BALL_RESPONSES_PT : lang === "it" ? EIGHT_BALL_RESPONSES_IT : EIGHT_BALL_RESPONSES;
+            const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : lang === "de" ? EIGHT_BALL_RESPONSES_DE : lang === "pt" ? EIGHT_BALL_RESPONSES_PT : lang === "it" ? EIGHT_BALL_RESPONSES_IT : lang === "ja" ? EIGHT_BALL_RESPONSES_JA : lang === "nl" ? EIGHT_BALL_RESPONSES_NL : lang === "ru" ? EIGHT_BALL_RESPONSES_RU : lang === "pl" ? EIGHT_BALL_RESPONSES_PL : lang === "tr" ? EIGHT_BALL_RESPONSES_TR : EIGHT_BALL_RESPONSES;
             await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(answers)}`);
           }
           break;
@@ -2907,7 +2907,7 @@ export function startBot(): void {
             },
           );
 
-          embed.setFooter({ text: isSelf ? "Use !language [en|fr|es] to change your language" : `Viewing ${displayName}'s profile` });
+          embed.setFooter({ text: isSelf ? "Use !language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr] to change your language" : `Viewing ${displayName}'s profile` });
 
           await message.reply({ embeds: [embed] });
           break;
@@ -2929,12 +2929,17 @@ export function startBot(): void {
               `\`${guildPrefix}language es\` — 🇪🇸 Español\n` +
               `\`${guildPrefix}language de\` — 🇩🇪 Deutsch\n` +
               `\`${guildPrefix}language pt\` — 🇧🇷 Português\n` +
-              `\`${guildPrefix}language it\` — 🇮🇹 Italiano`,
+              `\`${guildPrefix}language it\` — 🇮🇹 Italiano\n` +
+              `\`${guildPrefix}language ja\` — 🇯🇵 日本語\n` +
+              `\`${guildPrefix}language nl\` — 🇳🇱 Nederlands\n` +
+              `\`${guildPrefix}language ru\` — 🇷🇺 Русский\n` +
+              `\`${guildPrefix}language pl\` — 🇵🇱 Polski\n` +
+              `\`${guildPrefix}language tr\` — 🇹🇷 Türkçe`,
             );
             break;
           }
           if (!isValidUserLang(input)) {
-            await message.reply(`❌ Invalid language. Use \`${guildPrefix}language en\`, \`fr\`, \`es\`, \`de\`, \`pt\` or \`it\`.`);
+            await message.reply(`❌ Invalid language. Use \`${guildPrefix}language en\`, \`fr\`, \`es\`, \`de\`, \`pt\`, \`it\`, \`ja\`, \`nl\`, \`ru\`, \`pl\` or \`tr\`.`);
             break;
           }
           if (input === currentLang) {
@@ -2954,7 +2959,7 @@ export function startBot(): void {
             if (!guildId) { await message.reply("❌ This command can only be used in a server."); break; }
             const langArg = args[1]?.toLowerCase();
             const currentGuildLang = getLang(guildId);
-            const GUILD_LANG_LABELS: Record<string, string> = { en: "🇬🇧 English", fr: "🇫🇷 Français", es: "🇪🇸 Español", de: "🇩🇪 Deutsch", pt: "🇧🇷 Português", it: "🇮🇹 Italiano" };
+            const GUILD_LANG_LABELS: Record<string, string> = { en: "🇬🇧 English", fr: "🇫🇷 Français", es: "🇪🇸 Español", de: "🇩🇪 Deutsch", pt: "🇧🇷 Português", it: "🇮🇹 Italiano", ja: "🇯🇵 日本語", nl: "🇳🇱 Nederlands", ru: "🇷🇺 Русский", pl: "🇵🇱 Polski", tr: "🇹🇷 Türkçe" };
             if (!langArg) {
               await message.reply(
                 `🌐 Server language: **${GUILD_LANG_LABELS[currentGuildLang] ?? currentGuildLang}**\n` +
@@ -2964,7 +2969,12 @@ export function startBot(): void {
                 `\`${guildPrefix}server language es\` — 🇪🇸 Español\n` +
                 `\`${guildPrefix}server language de\` — 🇩🇪 Deutsch\n` +
                 `\`${guildPrefix}server language pt\` — 🇧🇷 Português\n` +
-                `\`${guildPrefix}server language it\` — 🇮🇹 Italiano`,
+                `\`${guildPrefix}server language it\` — 🇮🇹 Italiano\n` +
+                `\`${guildPrefix}server language ja\` — 🇯🇵 日本語\n` +
+                `\`${guildPrefix}server language nl\` — 🇳🇱 Nederlands\n` +
+                `\`${guildPrefix}server language ru\` — 🇷🇺 Русский\n` +
+                `\`${guildPrefix}server language pl\` — 🇵🇱 Polski\n` +
+                `\`${guildPrefix}server language tr\` — 🇹🇷 Türkçe`,
               );
               break;
             }
@@ -2972,8 +2982,8 @@ export function startBot(): void {
               message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
               message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
             if (!isAdmin) { await message.reply("🔒 Only admins can change the server language. (**Manage Server** required)"); break; }
-            if (!["en", "fr", "es", "de", "pt", "it"].includes(langArg)) {
-              await message.reply(`❌ Invalid language. Use \`${guildPrefix}server language en\`, \`fr\`, \`es\`, \`de\`, \`pt\` or \`it\`.`);
+            if (!["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"].includes(langArg)) {
+              await message.reply(`❌ Invalid language. Use \`${guildPrefix}server language en\`, \`fr\`, \`es\`, \`de\`, \`pt\`, \`it\`, \`ja\`, \`nl\`, \`ru\`, \`pl\` or \`tr\`.`);
               break;
             }
             if (langArg === currentGuildLang) {
@@ -2983,7 +2993,7 @@ export function startBot(): void {
             setLang(guildId, langArg as GuildLang);
             await message.reply(`✅ Server language set to **${GUILD_LANG_LABELS[langArg] ?? langArg}**. The \`!help\` menu will now default to this language.`);
           } else {
-            await message.reply(`❓ Unknown server command. Try \`${guildPrefix}server language [en|fr|es|de|pt|it]\`.`);
+            await message.reply(`❓ Unknown server command. Try \`${guildPrefix}server language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr]\`.`);
           }
           break;
         }
@@ -3039,7 +3049,7 @@ export function startBot(): void {
                   name: "⚙️ Serveur",
                   value:
                     `\`${guildPrefix}prefix <nouveau>\` — Change le préfixe\n` +
-                    `\`${guildPrefix}server language [en|fr|es]\` — Langue par défaut\n` +
+                    `\`${guildPrefix}server language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr]\` — Langue par défaut\n` +
                     `\`${guildPrefix}voicechannels <id1> <id2>\` — Salons vocaux du picker`,
                   inline: false,
                 },
@@ -3062,14 +3072,14 @@ export function startBot(): void {
           }
 
           // Plain `!help`, `!help fr`, `!help es`, `!help de`, `!help pt`, `!help it` → paginated help
-          if (!arg0 || arg0 === "fr" || arg0 === "es" || arg0 === "en" || arg0 === "de" || arg0 === "pt" || arg0 === "it") {
-            const helpLang: HelpLanguage = arg0 === "fr" ? "fr" : arg0 === "es" ? "es" : arg0 === "de" ? "de" : arg0 === "pt" ? "pt" : arg0 === "it" ? "it" : "en";
-            await sendPaginatedHelp(message, helpLang);
+          if (!arg0 || arg0 === "fr" || arg0 === "es" || arg0 === "en" || arg0 === "de" || arg0 === "pt" || arg0 === "it" || arg0 === "ja" || arg0 === "nl" || arg0 === "ru" || arg0 === "pl" || arg0 === "tr") {
+            const helpLang: HelpLanguage = (["fr","es","de","pt","it","ja","nl","ru","pl","tr"] as HelpLanguage[]).includes(arg0 as HelpLanguage) ? (arg0 as HelpLanguage) : "en";
+            await sendHelpPaginator(message, helpLang);
             break;
           }
 
           // Topic-specific help
-          const detected = detectTopicAndLang(arg0, arg1 || undefined);
+          const detected = resolveTopicKey(arg0, arg1 as HelpLanguage || undefined);
           if (detected) {
             if (detected.topic === "guesslogo" && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
               await message.reply({ content: "🔒 The `!help guesslogo` page is restricted to moderators (requires **Manage Server** permission).", ephemeral: true } as Parameters<typeof message.reply>[0]);
@@ -3077,7 +3087,7 @@ export function startBot(): void {
             }
             await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
           } else {
-            await sendPaginatedHelp(message, "en");
+            await sendHelpPaginator(message, "en");
           }
           break;
         }
@@ -3121,25 +3131,25 @@ export function startBot(): void {
               }
               case "compliment": {
                 const lang = parseLanguage(args[0]);
-                const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : COMPLIMENTS;
+                const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : lang === "ja" ? COMPLIMENTS_JA : lang === "nl" ? COMPLIMENTS_NL : lang === "ru" ? COMPLIMENTS_RU : lang === "pl" ? COMPLIMENTS_PL : lang === "tr" ? COMPLIMENTS_TR : COMPLIMENTS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
               }
               case "joke": {
                 const lang = parseLanguage(args[0]);
-                const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : JOKES;
+                const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
                 await message.reply(getRandom(list));
                 break;
               }
               case "encouragement": {
                 const lang = parseLanguage(args[0]);
-                const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : ENCOURAGEMENTS;
+                const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : lang === "ja" ? ENCOURAGEMENTS_JA : lang === "nl" ? ENCOURAGEMENTS_NL : lang === "ru" ? ENCOURAGEMENTS_RU : lang === "pl" ? ENCOURAGEMENTS_PL : lang === "tr" ? ENCOURAGEMENTS_TR : ENCOURAGEMENTS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
               }
               case "hug": {
                 const lang = parseLanguage(args[0]);
-                const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : HUGS;
+                const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : lang === "ja" ? HUGS_JA : lang === "nl" ? HUGS_NL : lang === "ru" ? HUGS_RU : lang === "pl" ? HUGS_PL : lang === "tr" ? HUGS_TR : HUGS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
               }
@@ -3371,7 +3381,7 @@ export function startBot(): void {
                 await message.reply("🖼️ Use the slash command `/image <description>` to generate an image.");
                 break;
               case "help":
-                await sendPaginatedHelp(message, "en");
+                await sendHelpPaginator(message, "en");
                 break;
               case "guide":
                 await sendModeratorGuide(message);

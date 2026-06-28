@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
 
-export type UserLang = "en" | "fr" | "es" | "de" | "pt" | "it";
+export type UserLang = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
 export const DEFAULT_USER_LANG: UserLang = "en";
 
 export const USER_LANG_NAMES: Record<UserLang, string> = {
@@ -12,6 +12,11 @@ export const USER_LANG_NAMES: Record<UserLang, string> = {
   de: "German",
   pt: "Portuguese",
   it: "Italian",
+  ja: "Japanese",
+  nl: "Dutch",
+  ru: "Russian",
+  pl: "Polish",
+  tr: "Turkish",
 };
 
 export const USER_LANG_LABELS: Record<UserLang, string> = {
@@ -21,9 +26,14 @@ export const USER_LANG_LABELS: Record<UserLang, string> = {
   de: "🇩🇪 Deutsch",
   pt: "🇧🇷 Português",
   it: "🇮🇹 Italiano",
+  ja: "🇯🇵 日本語",
+  nl: "🇳🇱 Nederlands",
+  ru: "🇷🇺 Русский",
+  pl: "🇵🇱 Polski",
+  tr: "🇹🇷 Türkçe",
 };
 
-const VALID_USER_LANGS: UserLang[] = ["en", "fr", "es", "de", "pt", "it"];
+const VALID_USER_LANGS: UserLang[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "user-langs.json");

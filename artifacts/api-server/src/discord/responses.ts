@@ -72,6 +72,66 @@ export const COMPLIMENTS_IT = [
   "Meriti tutta la felicità del mondo! 🌸",
   "I tuoi sforzi fanno davvero la differenza! 💪",
 ];
+export const COMPLIMENTS_JA = [
+  "あなたは本当に素晴らしい！ ✨",
+  "あなたの笑顔が部屋を明るくしている！ ☀️",
+  "あなたは本当に特別な人です！ 🌟",
+  "あなたはユニークで貴重な才能を持っている！ 💎",
+  "あなたのおかげで世界はより良くなっている！ 🌈",
+  "あなたは勇敢で刺激的な存在！ 🦁",
+  "あなたの創造性に限界はない！ 🎨",
+  "あなたは本当に優しい人！ 💖",
+  "あなたは世界中の幸せを受け取るに値する！ 🌸",
+  "あなたの努力は本当に違いをもたらしている！ 💪",
+];
+export const COMPLIMENTS_NL = [
+  "Je bent absoluut geweldig! ✨",
+  "Je glimlach verlicht de kamer! ☀️",
+  "Je bent een echt bijzonder persoon! 🌟",
+  "Je hebt een uniek en waardevol talent! 💎",
+  "De wereld is beter dankzij jou! 🌈",
+  "Je bent moedig en inspirerend! 🦁",
+  "Je creativiteit kent geen grenzen! 🎨",
+  "Je bent een diep vriendelijk persoon! 💖",
+  "Je verdient alle geluk ter wereld! 🌸",
+  "Jouw inspanningen maken echt een verschil! 💪",
+];
+export const COMPLIMENTS_RU = [
+  "Ты абсолютно удивительный(ая)! ✨",
+  "Твоя улыбка освещает комнату! ☀️",
+  "Ты по-настоящему необыкновенный человек! 🌟",
+  "У тебя уникальный и ценный талант! 💎",
+  "Мир стал лучше благодаря тебе! 🌈",
+  "Ты смелый(ая) и вдохновляющий(ая)! 🦁",
+  "Твоя креативность не знает границ! 🎨",
+  "Ты глубоко добрый человек! 💖",
+  "Ты заслуживаешь всего счастья мира! 🌸",
+  "Твои усилия действительно меняют мир! 💪",
+];
+export const COMPLIMENTS_PL = [
+  "Jesteś absolutnie niesamowity/a! ✨",
+  "Twój uśmiech rozjaśnia pokój! ☀️",
+  "Jesteś naprawdę wyjątkową osobą! 🌟",
+  "Masz unikalny i cenny talent! 💎",
+  "Świat jest lepszy dzięki Tobie! 🌈",
+  "Jesteś odważny/a i inspirujący/a! 🦁",
+  "Twoja kreatywność nie zna granic! 🎨",
+  "Jesteś głęboko życzliwą osobą! 💖",
+  "Zasługujesz na całe szczęście tego świata! 🌸",
+  "Twoje wysiłki naprawdę robią różnicę! 💪",
+];
+export const COMPLIMENTS_TR = [
+  "Sen kesinlikle harikasın! ✨",
+  "Gülüşün odayı aydınlatıyor! ☀️",
+  "Gerçekten olağanüstü birisin! 🌟",
+  "Benzersiz ve değerli bir yeteneğin var! 💎",
+  "Dünya senin sayende daha iyi! 🌈",
+  "Cesur ve ilham vericisin! 🦁",
+  "Yaratıcılığının sınırı yok! 🎨",
+  "Derin anlamda nazik birisin! 💖",
+  "Dünyanın tüm mutluluğunu hak ediyorsun! 🌸",
+  "Çabaların gerçekten fark yaratıyor! 💪",
+];
 
 export const JOKES = [
   "Why don't scientists trust atoms? Because they make up everything! 😂",
@@ -116,7 +176,7 @@ export const JOKES_DE = [
   "Warum weinen Skelette nicht? Weil sie keine Tränendrüsen haben! 💀",
   "Was sagt eine Null zur Acht? Schöner Gürtel! 🔢",
   "Warum ist das Buch so klug? Weil es viele Seiten hat! 📚",
-  "Was bekommt man, wenn man einen Schnee­mann anruft? Einen Kälte­einbruch! ☃️",
+  "Was bekommt man, wenn man einen Schneemann anruft? Einen Kälteeinbruch! ☃️",
   "Wie nennt man einen Bumerang der nicht zurückkommt? Stock! 🪃",
   "Was macht ein Fisch ohne Fahrrad? Meistens schwimmt er. 🐟",
   "Warum sind Mathematiker immer so ruhig? Weil man mit ihnen nicht rechnen kann! 📐",
@@ -144,6 +204,66 @@ export const JOKES_IT = [
   "Come si chiama un alligatore con il GPS? Un navigatore! 🐊",
   "Perché i fantasmi sono pessimi bugiardi? Perché si vedono attraverso! 👻",
   "Cosa dice il mare alla spiaggia? Niente, fa solo l'onda! 🌊",
+];
+export const JOKES_JA = [
+  "なぜ科学者は原子を信用しない？なんでも作り出すから！😂",
+  "かかしはなぜ賞をもらった？畑で突出していたから！🌾",
+  "魚に目がなかったら何と呼ぶ？「フシュ」！🐟",
+  "なぜスケルトンは喧嘩しない？根性がないから！💀",
+  "数学の教科書はなぜ悲しそう？問題だらけだから！📚",
+  "偽物の麺は何と呼ぶ？インパスタ！🍝",
+  "自転車はなぜ倒れた？疲れすぎたから！🚲",
+  "チーズが自分のものじゃない時は？ナチョチーズ！🧀",
+  "なぜエルサに風船をあげられない？手放してしまうから！🎈",
+  "なぜ幽霊は嘘が下手？透き通っているから！👻",
+];
+export const JOKES_NL = [
+  "Waarom vertrouwen wetenschappers atomen niet? Ze verzinnen alles! 😂",
+  "Wat noem je een neppe noedel? Een imposta! 🍝",
+  "Waarom viel de fiets om? Hij was te moe! 🚲",
+  "Wat zegt een nul tegen een acht? Mooie riem! 🔢",
+  "Waarom vochten skeletten niet? Ze hadden geen lef! 💀",
+  "Wat doe je met een slecht wiskundeboek? Je geeft het problemen. 📚",
+  "Waarom won de vogelverschrikker een prijs? Hij was uitstekend in zijn vakgebied! 🌾",
+  "Hoe noem je kaas die niet van jou is? Nacho cheese! 🧀",
+  "Waarom kan je Elsa geen ballon geven? Ze laat hem los! 🎈",
+  "Wat heeft een vis zonder ogen? Een fsj! 🐟",
+];
+export const JOKES_RU = [
+  "Почему учёные не доверяют атомам? Они всё выдумывают! 😂",
+  "Почему пугало получило награду? Оно было выдающимся в своей области! 🌾",
+  "Почему скелеты не дерутся? У них нет смелости! 💀",
+  "Как называется рыба без глаз? Рыба! 🐟",
+  "Почему учебник по математике был грустным? В нём слишком много задач! 📚",
+  "Как называется фальшивая лапша? Обманшта! 🍝",
+  "Почему упал велосипед? Он устал на два колеса! 🚲",
+  "Почему Эльзе нельзя давать шарик? Она его отпустит! 🎈",
+  "Как называется сыр, который не твой? Начос! 🧀",
+  "Почему приведения плохо врут? Сквозь них всё видно! 👻",
+];
+export const JOKES_PL = [
+  "Dlaczego naukowcy nie ufają atomom? Bo wymyślają wszystko! 😂",
+  "Czemu strachy na wróble dostają nagrody? Są wybitne w swojej dziedzinie! 🌾",
+  "Jak nazywa się ryba bez oczu? Ryb! 🐟",
+  "Czemu szkielety nie walczą? Nie mają odwagi! 💀",
+  "Czemu książka do matematyki była smutna? Miała zbyt wiele problemów! 📚",
+  "Jak się nazywa fałszywy makaron? Impasta! 🍝",
+  "Czemu rower się przewrócił? Bo był za bardzo zmęczony! 🚲",
+  "Dlaczego Elzie nie można dać balonu? Bo go puści! 🎈",
+  "Jak się nazywa ser, który nie jest twój? Nacho cheese! 🧀",
+  "Dlaczego duchy kłamią słabo? Bo przez nie widać! 👻",
+];
+export const JOKES_TR = [
+  "Neden bilim insanları atomlara güvenmez? Çünkü her şeyi uyduruyorlar! 😂",
+  "Korkuluk neden ödül aldı? Alanında mükemmeldi! 🌾",
+  "Gözü olmayan balığa ne denir? Bal! 🐟",
+  "Neden iskeletler dövüşmez? Cesaretleri yok! 💀",
+  "Matematik kitabı neden üzgündü? Çok fazla sorunu vardı! 📚",
+  "Sahte erişteye ne denir? İmakarna! 🍝",
+  "Bisiklet neden devrildi? Çok yorgundu! 🚲",
+  "Elsa'ya neden balon verilmez? Bırakır gider! 🎈",
+  "Senin olmayan peynire ne denir? Nacho peyniri! 🧀",
+  "Hayaletler neden iyi yalancı değildir? Çünkü içlerinden geçiyor! 👻",
 ];
 
 export const ENCOURAGEMENTS = [
@@ -218,6 +338,66 @@ export const ENCOURAGEMENTS_IT = [
   "Hai già superato tanti ostacoli. Supererai anche questo! 🌈",
   "Prenditi cura di te e vai al tuo ritmo! 🌺",
 ];
+export const ENCOURAGEMENTS_JA = [
+  "できるよ、あなたを信じてる！ 💪",
+  "すべての偉大な旅は一歩から始まる。続けて！ 🚀",
+  "あなたは思っているより強い！ 🦸",
+  "今日の困難は明日の成功！ 🌟",
+  "絶対に諦めないで！粘り強さは必ず勝利につながる！ 🏆",
+  "前進しています — 小さな一歩も大切！ 👣",
+  "自分を信じ続けて、よくやってるよ！ 🎯",
+  "星も輝くためには暗闇が必要。頑張って！ ⭐",
+  "もうたくさんの障害を乗り越えた。これも大丈夫！ 🌈",
+  "自分を大切に、自分のペースで進んで！ 🌺",
+];
+export const ENCOURAGEMENTS_NL = [
+  "Je kan het, ik geloof in je! 💪",
+  "Elke grote reis begint met een eerste stap. Ga door! 🚀",
+  "Je bent sterker dan je denkt! 🦸",
+  "De moeilijkheden van vandaag zijn de successen van morgen! 🌟",
+  "Geef nooit op! Volharding leidt altijd tot overwinning! 🏆",
+  "Je gaat vooruit — zelfs kleine stappen tellen! 👣",
+  "Blijf in jezelf geloven, je doet het geweldig! 🎯",
+  "Zelfs sterren hebben duisternis nodig om te schijnen. Houd vol! ⭐",
+  "Je hebt al zoveel obstakels overwonnen. Je komt hier ook doorheen! 🌈",
+  "Zorg goed voor jezelf en ga op je eigen tempo! 🌺",
+];
+export const ENCOURAGEMENTS_RU = [
+  "Ты справишься, я верю в тебя! 💪",
+  "Каждое великое путешествие начинается с одного шага. Продолжай! 🚀",
+  "Ты сильнее, чем думаешь! 🦸",
+  "Сегодняшние трудности — завтрашние победы! 🌟",
+  "Никогда не сдавайся! Упорство всегда ведёт к победе! 🏆",
+  "Ты движешься вперёд — даже маленькие шаги важны! 👣",
+  "Продолжай верить в себя, ты молодец! 🎯",
+  "Даже звёздам нужна темнота, чтобы сиять. Держись! ⭐",
+  "Ты уже преодолел(а) столько препятствий. С этим тоже справишься! 🌈",
+  "Береги себя и двигайся в своём темпе! 🌺",
+];
+export const ENCOURAGEMENTS_PL = [
+  "Dasz radę, wierzę w Ciebie! 💪",
+  "Każda wielka podróż zaczyna się od jednego kroku. Kontynuuj! 🚀",
+  "Jesteś silniejszy/a niż myślisz! 🦸",
+  "Dzisiejsze trudności to jutrzejsze sukcesy! 🌟",
+  "Nigdy się nie poddawaj! Wytrwałość zawsze prowadzi do zwycięstwa! 🏆",
+  "Idziesz naprzód — nawet małe kroki się liczą! 👣",
+  "Dalej wierz w siebie, świetnie ci idzie! 🎯",
+  "Nawet gwiazdy potrzebują ciemności, żeby błyszczeć. Trzymaj się! ⭐",
+  "Pokonałeś/aś już tyle przeszkód. Z tym też sobie poradzisz! 🌈",
+  "Dbaj o siebie i idź swoim tempem! 🌺",
+];
+export const ENCOURAGEMENTS_TR = [
+  "Yapabilirsin, sana inanıyorum! 💪",
+  "Her büyük yolculuk tek bir adımla başlar. Devam et! 🚀",
+  "Sandığından daha güçlüsün! 🦸",
+  "Bugünün zorlukları yarının başarıları! 🌟",
+  "Asla pes etme! Azim her zaman zafere götürür! 🏆",
+  "İlerliyorsun — küçük adımlar bile önemli! 👣",
+  "Kendine inanmaya devam et, harika gidiyorsun! 🎯",
+  "Yıldızlar bile parlamak için karanlığa ihtiyaç duyar. Sıkı dur! ⭐",
+  "Zaten pek çok engeli aştın. Bunu da aşacaksın! 🌈",
+  "Kendine iyi bak ve kendi hızında ilerle! 🌺",
+];
 
 export const EIGHT_BALL_RESPONSES = [
   "Yes, absolutely! ✅", "It is certain! 🎯", "Without a doubt! 💯",
@@ -260,6 +440,41 @@ export const EIGHT_BALL_RESPONSES_IT = [
   "Le prospettive sembrano buone! 🌟", "Forse... riprova! 🎲", "Non sono sicuro/a... 😕",
   "Le prospettive non sono ottime... 😬", "Probabilmente no! 👎", "No, certamente no! ❌",
   "Le mie fonti dicono di no! 🚫", "Molto dubbioso! 🌫️", "Chiedi di nuovo più tardi! ⏳",
+];
+export const EIGHT_BALL_RESPONSES_JA = [
+  "はい、絶対に！ ✅", "確かです！ 🎯", "間違いなく！ 💯",
+  "そう思います！ 👍", "サインはイエスを指しています！ 🔮", "たぶん！ 🤔",
+  "見通しは良好！ 🌟", "もしかして...もう一度聞いて！ 🎲", "よくわかりません... 😕",
+  "見通しはあまり良くない... 😬", "たぶんノー！ 👎", "いいえ、絶対に！ ❌",
+  "情報源はノーと言っています！ 🚫", "非常に疑わしい！ 🌫️", "後でもう一度聞いて！ ⏳",
+];
+export const EIGHT_BALL_RESPONSES_NL = [
+  "Ja, absoluut! ✅", "Het is zeker! 🎯", "Zonder twijfel! 💯",
+  "Ja, ik denk het! 👍", "Tekenen wijzen op ja! 🔮", "Waarschijnlijk! 🤔",
+  "Vooruitzichten zien er goed uit! 🌟", "Misschien... probeer opnieuw! 🎲", "Ik weet het niet zeker... 😕",
+  "Vooruitzichten niet zo goed... 😬", "Waarschijnlijk niet! 👎", "Nee, zeker niet! ❌",
+  "Mijn bronnen zeggen nee! 🚫", "Zeer twijfelachtig! 🌫️", "Vraag later opnieuw! ⏳",
+];
+export const EIGHT_BALL_RESPONSES_RU = [
+  "Да, абсолютно! ✅", "Это точно! 🎯", "Без сомнения! 💯",
+  "Да, думаю, да! 👍", "Знаки указывают на да! 🔮", "Вероятно! 🤔",
+  "Перспективы хорошие! 🌟", "Может быть... попробуй снова! 🎲", "Не уверен(а)... 😕",
+  "Перспективы не очень... 😬", "Вероятно, нет! 👎", "Нет, определённо нет! ❌",
+  "Мои источники говорят нет! 🚫", "Очень сомнительно! 🌫️", "Спроси позже! ⏳",
+];
+export const EIGHT_BALL_RESPONSES_PL = [
+  "Tak, absolutnie! ✅", "To pewne! 🎯", "Bez wątpienia! 💯",
+  "Tak, myślę że tak! 👍", "Znaki wskazują na tak! 🔮", "Prawdopodobnie! 🤔",
+  "Perspektywy są dobre! 🌟", "Może... spróbuj ponownie! 🎲", "Nie jestem pewny/a... 😕",
+  "Perspektywy niezbyt dobre... 😬", "Prawdopodobnie nie! 👎", "Nie, na pewno nie! ❌",
+  "Moje źródła mówią nie! 🚫", "Bardzo wątpliwe! 🌫️", "Zapytaj później! ⏳",
+];
+export const EIGHT_BALL_RESPONSES_TR = [
+  "Evet, kesinlikle! ✅", "Bu kesin! 🎯", "Şüphesiz! 💯",
+  "Evet, sanırım öyle! 👍", "İşaretler evet diyor! 🔮", "Muhtemelen! 🤔",
+  "Görünüm iyi! 🌟", "Belki... tekrar dene! 🎲", "Emin değilim... 😕",
+  "Görünüm pek iyi değil... 😬", "Muhtemelen hayır! 👎", "Hayır, kesinlikle hayır! ❌",
+  "Kaynaklarım hayır diyor! 🚫", "Çok şüpheli! 🌫️", "Sonra tekrar sor! ⏳",
 ];
 
 export const HUGS = [
@@ -304,6 +519,41 @@ export const HUGS_IT = [
   "Prendi questo abbraccio ben meritato! 🤗🌸",
   "Un abbraccio morbido e accogliente, solo per te! 🧸💝",
 ];
+export const HUGS_JA = [
+  "大きなバーチャルハグをあなたへ！ 🤗💕",
+  "温かさと愛を送ります！ 🫂✨",
+  "あなただけへの大きなハグ！ 🐻💖",
+  "この頑張り賞のハグを受け取って！ 🤗🌸",
+  "柔らかくて温かいハグ、あなただけに！ 🧸💝",
+];
+export const HUGS_NL = [
+  "Hier is een grote virtuele knuffel voor jou! 🤗💕",
+  "Ik stuur je warmte en liefde! 🫂✨",
+  "Een grote knuffel speciaal voor jou! 🐻💖",
+  "Neem deze welverdiende knuffel! 🤗🌸",
+  "Een zachte en gezellige knuffel, alleen voor jou! 🧸💝",
+];
+export const HUGS_RU = [
+  "Вот огромное виртуальное объятие для тебя! 🤗💕",
+  "Посылаю тепло и любовь! 🫂✨",
+  "Большое объятие специально для тебя! 🐻💖",
+  "Прими это заслуженное объятие! 🤗🌸",
+  "Мягкое и уютное объятие, только для тебя! 🧸💝",
+];
+export const HUGS_PL = [
+  "Oto ogromny wirtualny uścisk dla Ciebie! 🤗💕",
+  "Wysyłam Ci ciepło i miłość! 🫂✨",
+  "Duży uścisk tylko dla Ciebie! 🐻💖",
+  "Weź ten zasłużony uścisk! 🤗🌸",
+  "Miękki i przytulny uścisk, tylko dla Ciebie! 🧸💝",
+];
+export const HUGS_TR = [
+  "Sana büyük bir sanal sarılma! 🤗💕",
+  "Sana sıcaklık ve sevgi gönderiyorum! 🫂✨",
+  "Sadece senin için büyük bir sarılma! 🐻💖",
+  "Bu hak ettiğin sarılmayı al! 🤗🌸",
+  "Yumuşak ve sıcak bir sarılma, sadece senin için! 🧸💝",
+];
 
 export const MUSIC_PROMPT_EXAMPLES = [
   { category: "🌊 Lo-Fi / Chill", prompt: "lo-fi hip hop beats, rainy day, chill, vinyl crackle, mellow piano" },
@@ -322,7 +572,7 @@ export function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export type Language = "en" | "fr" | "es" | "de" | "pt" | "it";
+export type Language = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
 
 export function parseLanguage(arg?: string): Language {
   const lang = (arg ?? "").toLowerCase();
@@ -331,5 +581,10 @@ export function parseLanguage(arg?: string): Language {
   if (lang === "de" || lang === "deutsch" || lang === "german") return "de";
   if (lang === "pt" || lang === "português" || lang === "portugues" || lang === "br") return "pt";
   if (lang === "it" || lang === "italiano" || lang === "italian") return "it";
+  if (lang === "ja" || lang === "japanese" || lang === "日本語") return "ja";
+  if (lang === "nl" || lang === "dutch" || lang === "nederlands") return "nl";
+  if (lang === "ru" || lang === "russian" || lang === "русский") return "ru";
+  if (lang === "pl" || lang === "polish" || lang === "polski") return "pl";
+  if (lang === "tr" || lang === "turkish" || lang === "türkçe") return "tr";
   return "en";
 }
