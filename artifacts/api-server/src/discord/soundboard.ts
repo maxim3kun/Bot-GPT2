@@ -10,7 +10,7 @@ import { readFile, writeFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { logger } from "../lib/logger.js";
-import { radioStates, searchAndQueue, ensureVoiceConnection } from "./radio.js";
+import { radioStates, playSoundEffect } from "./radio.js";
 
 // ── Built-in sound pads ───────────────────────────────────────────────────────
 
@@ -26,19 +26,19 @@ export const BUILT_IN_PADS: SoundPad[] = [
   // Row 1 — Impact (red)
   { id: "airhorn",   emoji: "📯", style: ButtonStyle.Danger,    query: "air horn sound effect",                      label: "Air Horn"    },
   { id: "explosion", emoji: "💥", style: ButtonStyle.Danger,    query: "explosion sound effect short",               label: "Explosion"   },
-  { id: "siren",     emoji: "🚨", style: ButtonStyle.Danger,    query: "police siren sound effect short",            label: "Siren"       },
-  { id: "wilhelm",   emoji: "😱", style: ButtonStyle.Danger,    query: "wilhelm scream sound effect",                label: "Wilhelm"     },
   { id: "vineboom",  emoji: "💢", style: ButtonStyle.Danger,    query: "vine boom sound effect",                     label: "Vine Boom"   },
+  { id: "dun",       emoji: "🎵", style: ButtonStyle.Danger,    query: "dun dun dun dramatic sting sound effect",    label: "Dun Dun Dun" },
+  { id: "nope",      emoji: "🚫", style: ButtonStyle.Danger,    query: "buzzer wrong answer sound effect",           label: "Nope"        },
   // Row 2 — Positive (green)
   { id: "applause",  emoji: "👏", style: ButtonStyle.Success,   query: "applause crowd clapping sound effect",       label: "Applause"    },
   { id: "victory",   emoji: "🏆", style: ButtonStyle.Success,   query: "victory fanfare final fantasy sound effect", label: "Victory"     },
   { id: "levelup",   emoji: "⬆️", style: ButtonStyle.Success,   query: "level up sound effect video game",           label: "Level Up"    },
-  { id: "fanfare",   emoji: "🎺", style: ButtonStyle.Success,   query: "fanfare trumpet sound effect",               label: "Fanfare"     },
+  { id: "tada",      emoji: "🎉", style: ButtonStyle.Success,   query: "tada fanfare win jingle sound effect",       label: "Tada"        },
   { id: "ding",      emoji: "🔔", style: ButtonStyle.Success,   query: "ding bell notification sound effect",        label: "Ding"        },
   // Row 3 — Meme (blue)
   { id: "oof",       emoji: "😵", style: ButtonStyle.Primary,   query: "roblox oof death sound effect",              label: "Oof"         },
   { id: "bruh",      emoji: "😤", style: ButtonStyle.Primary,   query: "bruh sound effect",                          label: "Bruh"        },
-  { id: "trombone",  emoji: "🎵", style: ButtonStyle.Primary,   query: "sad trombone sound effect wah wah",          label: "Sad Trombone"},
+  { id: "trombone",  emoji: "🎺", style: ButtonStyle.Primary,   query: "sad trombone sound effect wah wah",          label: "Sad Trombone"},
   { id: "circus",    emoji: "🎪", style: ButtonStyle.Primary,   query: "circus music short funny",                   label: "Circus"      },
   { id: "quack",     emoji: "🦆", style: ButtonStyle.Primary,   query: "duck quack sound effect",                    label: "Quack"       },
   // Row 4 — Misc (grey)
@@ -46,7 +46,7 @@ export const BUILT_IN_PADS: SoundPad[] = [
   { id: "guitar",    emoji: "🎸", style: ButtonStyle.Secondary, query: "electric guitar riff sound effect short",    label: "Guitar Riff" },
   { id: "pew",       emoji: "🔫", style: ButtonStyle.Secondary, query: "laser pew pew sound effect",                 label: "Pew Pew"     },
   { id: "laugh",     emoji: "😂", style: ButtonStyle.Secondary, query: "laugh track sound effect sitcom",            label: "Laugh Track" },
-  { id: "nope",      emoji: "🚫", style: ButtonStyle.Secondary, query: "buzzer wrong answer sound effect",           label: "Nope"        },
+  { id: "fanfare",   emoji: "📣", style: ButtonStyle.Secondary, query: "fanfare trumpet short sound effect",         label: "Fanfare"     },
 ];
 
 // ── Custom sounds store (per-guild, JSON-backed) ──────────────────────────────
@@ -84,7 +84,7 @@ export function getCustomSounds(guildId: string): SoundPad[] {
 
 export async function addCustomSound(guildId: string, pad: SoundPad): Promise<boolean> {
   const existing = customStore.get(guildId) ?? [];
-  if (existing.length >= 5) return false; // max 5 custom pads (1 extra row)
+  if (existing.length >= 5) return false;
   if (existing.some(p => p.id === pad.id)) return false;
   customStore.set(guildId, [...existing, pad]);
   await persistCustom();
@@ -98,16 +98,6 @@ export async function removeCustomSound(guildId: string, id: string): Promise<bo
   customStore.set(guildId, next);
   await persistCustom();
   return true;
-}
-
-// ── Dummy message (absorbs all edits silently — used for soundboard fakeMsg) ─
-
-function makeDummyMessage(): Message {
-  const dummy: Record<string, unknown> = {};
-  dummy["edit"] = async () => dummy;
-  dummy["reply"] = async () => dummy;
-  dummy["delete"] = async () => {};
-  return dummy as unknown as Message;
 }
 
 // ── Embed ─────────────────────────────────────────────────────────────────────
@@ -152,7 +142,7 @@ export function buildSoundboardRows(guildId?: string): ActionRowBuilder<ButtonBu
     )
   );
 
-  // Row 5: custom sounds (if any)
+  // Row 5: custom sounds (max 5)
   if (guildId) {
     const custom = getCustomSounds(guildId);
     if (custom.length > 0) {
@@ -225,7 +215,7 @@ export async function handleSoundboardButton(interaction: ButtonInteraction): Pr
     return;
   }
 
-  // Stop current playback so the pad plays immediately
+  // Stop current playback
   const state = radioStates.get(guildId);
   if (state) {
     state.stationKey = null;
@@ -237,31 +227,28 @@ export async function handleSoundboardButton(interaction: ButtonInteraction): Pr
     state.player.stop();
   }
 
+  // Acknowledge the interaction immediately
   await interaction.deferUpdate();
 
-  try {
-    // Use a dummy message so the radio system's "Now Playing" edits don't crash
-    const dummy = makeDummyMessage();
-    const fakeMsg = {
-      ...dummy,
-      guildId,
-      guild:  interaction.guild,
-      member: interaction.member,
-      author: interaction.user,
-      channel: interaction.channel,
-    } as unknown as Message;
+  // ── Update the UI right away so the user sees feedback instantly ──────────
+  await interaction.editReply({
+    embeds: [buildSoundboardEmbed(guildId, `${pad.emoji} **${pad.label}** — loading…`)],
+    components: buildSoundboardRows(guildId),
+  }).catch(() => null);
 
-    await searchAndQueue(fakeMsg, pad.query);
+  // Build a fake message so playSoundEffect can join/use the voice connection
+  const fakeMsg = {
+    guildId,
+    guild:   interaction.guild,
+    member:  interaction.member,
+    author:  interaction.user,
+    channel: interaction.channel,
+    reply:   async () => ({}),
+    edit:    async () => ({}),
+  } as unknown as Message;
 
-    await interaction.editReply({
-      embeds: [buildSoundboardEmbed(guildId, `${pad.emoji} **${pad.label}** playing…`)],
-      components: buildSoundboardRows(guildId),
-    });
-  } catch (err) {
+  // ── Play in the background — don't block the UI ───────────────────────────
+  playSoundEffect(fakeMsg, pad.query).catch((err) => {
     logger.error({ err, padId }, "Soundboard play error");
-    await interaction.followUp({
-      content: `❌ Could not play **${pad.label}**. Try again.`,
-      ephemeral: true,
-    }).catch(() => null);
-  }
+  });
 }

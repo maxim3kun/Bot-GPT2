@@ -1236,6 +1236,44 @@ async function execPlayYoutube(
   state.player.once("error", onError);
 }
 
+// ── Soundboard fast-play: skips search, goes direct to yt-dlp ────────────────
+// Uses ytsearch1: prefix so yt-dlp resolves the search itself (no fastYouTubeSearch overhead).
+// The dummy waitMsg swallows all Discord edits so nothing leaks into chat.
+export async function playSoundEffect(
+  message: Message,
+  urlOrQuery: string,
+): Promise<void> {
+  const ready = await ensureVoiceConnection(message);
+  if (!ready) return;
+
+  const guildId = message.guildId!;
+  const state = radioStates.get(guildId);
+  if (!state) return;
+
+  // Wipe current playback context (caller already stopped the player)
+  state.stationKey = null;
+  state.youtubeTitle = null;
+  state.youtubeUrl = null;
+  state.queue = [];
+  state.queueMessages = [];
+  state.paused = false;
+  state.nowPlayingMsg = null;
+  state.notifyChannel = message.channel as TextChannel;
+  clearIdleTimer(state);
+
+  // Build URL: real URL passes through; query gets ytsearch1: prefix for yt-dlp
+  const url = urlOrQuery.startsWith("http") ? urlOrQuery : `ytsearch1:${urlOrQuery}`;
+
+  // Silent dummy — all Discord edits from postNowPlaying are no-ops
+  const dummy: Record<string, unknown> = {};
+  dummy["edit"]   = async () => dummy;
+  dummy["reply"]  = async () => dummy;
+  dummy["delete"] = async () => {};
+  const dummyMsg = dummy as unknown as Message;
+
+  await execPlayYoutube(guildId, url, dummyMsg, undefined, undefined);
+}
+
 export async function playYoutube(
   message: Message,
   url: string,
