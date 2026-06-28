@@ -201,6 +201,260 @@ export const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("shazam")
     .setDescription("Identify the song currently playing in the voice channel")
+    .setDescriptionLocalizations({
+      fr: "Identifier la chanson en cours de lecture dans le salon vocal",
+      "es-ES": "Identificar la canción que suena en el canal de voz",
+    })
+    .toJSON(),
+
+  // ── Define (Dictionary) ───────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("define")
+    .setDescription("Look up the definition of an English word")
+    .setDescriptionLocalizations({
+      fr: "Chercher la définition d'un mot anglais",
+      "es-ES": "Buscar la definición de una palabra en inglés",
+    })
+    .addStringOption(opt =>
+      opt.setName("word")
+        .setDescription("The word to define")
+        .setDescriptionLocalizations({
+          fr: "Le mot à définir",
+          "es-ES": "La palabra a definir",
+        })
+        .setRequired(true),
+    )
+    .toJSON(),
+
+  // ── QR Code ───────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("qr")
+    .setDescription("Create a QR code from text, or read a QR code from an attached image")
+    .setDescriptionLocalizations({
+      fr: "Créer un QR code ou lire un QR code depuis une image jointe",
+      "es-ES": "Crear un código QR o leer uno desde una imagen adjunta",
+    })
+    .addStringOption(opt =>
+      opt.setName("text")
+        .setDescription("Text or URL to encode into a QR code")
+        .setDescriptionLocalizations({
+          fr: "Texte ou URL à encoder en QR code",
+          "es-ES": "Texto o URL a codificar en código QR",
+        })
+        .setRequired(false),
+    )
+    .addAttachmentOption(opt =>
+      opt.setName("image")
+        .setDescription("Image containing a QR code to read")
+        .setDescriptionLocalizations({
+          fr: "Image contenant un QR code à lire",
+          "es-ES": "Imagen con un código QR para leer",
+        })
+        .setRequired(false),
+    )
+    .toJSON(),
+
+  // ── Echo ──────────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("echo")
+    .setDescription("Repeat what a user says (max 8 messages). Omit user to stop.")
+    .setDescriptionLocalizations({
+      fr: "Répéter ce que dit un utilisateur (max 8 messages). Omettre l'utilisateur pour arrêter.",
+      "es-ES": "Repetir lo que dice un usuario (máx 8 mensajes). Omitir usuario para detener.",
+    })
+    .addUserOption(opt =>
+      opt.setName("user")
+        .setDescription("The user to echo")
+        .setDescriptionLocalizations({
+          fr: "L'utilisateur à répéter",
+          "es-ES": "El usuario a repetir",
+        })
+        .setRequired(false),
+    )
+    .toJSON(),
+
+  // ── Pokédex ───────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("pokemon")
+    .setDescription("Look up a Pokémon in the Pokédex")
+    .setDescriptionLocalizations({
+      fr: "Consulter un Pokémon dans le Pokédex",
+      "es-ES": "Buscar un Pokémon en la Pokédex",
+    })
+    .addStringOption(opt =>
+      opt.setName("name")
+        .setDescription("Pokémon name or number (e.g. pikachu or 25)")
+        .setDescriptionLocalizations({
+          fr: "Nom ou numéro du Pokémon (ex: pikachu ou 25)",
+          "es-ES": "Nombre o número del Pokémon (ej: pikachu o 25)",
+        })
+        .setRequired(true),
+    )
+    .toJSON(),
+
+  // ── Welcome (admin setup) ─────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("welcome")
+    .setDescription("Configure the welcome channel for new members (admin only)")
+    .setDescriptionLocalizations({
+      fr: "Configurer le salon de bienvenue pour les nouveaux membres (admin seulement)",
+      "es-ES": "Configurar el canal de bienvenida para nuevos miembros (solo admin)",
+    })
+    .addSubcommand(sub =>
+      sub.setName("set")
+        .setDescription("Set the welcome channel")
+        .setDescriptionLocalizations({
+          fr: "Définir le salon de bienvenue",
+          "es-ES": "Establecer el canal de bienvenida",
+        })
+        .addChannelOption(opt =>
+          opt.setName("channel")
+            .setDescription("Channel where welcome messages will be sent")
+            .setDescriptionLocalizations({
+              fr: "Salon où les messages de bienvenue seront envoyés",
+              "es-ES": "Canal donde se enviarán los mensajes de bienvenida",
+            })
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand(sub =>
+      sub.setName("message")
+        .setDescription("Set a custom welcome message ({user}, {server}, {count})")
+        .setDescriptionLocalizations({
+          fr: "Définir un message de bienvenue personnalisé ({user}, {server}, {count})",
+          "es-ES": "Establecer un mensaje de bienvenida personalizado ({user}, {server}, {count})",
+        })
+        .addStringOption(opt =>
+          opt.setName("text")
+            .setDescription("Custom message text")
+            .setDescriptionLocalizations({
+              fr: "Texte du message personnalisé",
+              "es-ES": "Texto del mensaje personalizado",
+            })
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand(sub =>
+      sub.setName("clear")
+        .setDescription("Reset the welcome message to default")
+        .setDescriptionLocalizations({
+          fr: "Remettre le message de bienvenue par défaut",
+          "es-ES": "Restablecer el mensaje de bienvenida al predeterminado",
+        }),
+    )
+    .addSubcommand(sub =>
+      sub.setName("status")
+        .setDescription("Show current welcome configuration")
+        .setDescriptionLocalizations({
+          fr: "Afficher la configuration actuelle de bienvenue",
+          "es-ES": "Mostrar la configuración actual de bienvenida",
+        }),
+    )
+    .toJSON(),
+
+  // ── Schedule ──────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("schedule")
+    .setDescription("Schedule messages to be sent at a specific time (UTC)")
+    .setDescriptionLocalizations({
+      fr: "Planifier des messages à envoyer à une heure précise (UTC)",
+      "es-ES": "Programar mensajes para enviar a una hora específica (UTC)",
+    })
+    .addSubcommand(sub =>
+      sub.setName("once")
+        .setDescription("Schedule a message to send once at HH:MM UTC")
+        .setDescriptionLocalizations({
+          fr: "Planifier un message une seule fois à HH:MM UTC",
+          "es-ES": "Programar un mensaje una sola vez a HH:MM UTC",
+        })
+        .addStringOption(opt =>
+          opt.setName("time")
+            .setDescription("Time in HH:MM (UTC) — e.g. 18:00")
+            .setDescriptionLocalizations({
+              fr: "Heure au format HH:MM (UTC) — ex: 18:00",
+              "es-ES": "Hora en HH:MM (UTC) — ej: 18:00",
+            })
+            .setRequired(true),
+        )
+        .addChannelOption(opt =>
+          opt.setName("channel")
+            .setDescription("Channel to send the message in")
+            .setDescriptionLocalizations({
+              fr: "Salon où envoyer le message",
+              "es-ES": "Canal donde enviar el mensaje",
+            })
+            .setRequired(true),
+        )
+        .addStringOption(opt =>
+          opt.setName("message")
+            .setDescription("The message to send")
+            .setDescriptionLocalizations({
+              fr: "Le message à envoyer",
+              "es-ES": "El mensaje a enviar",
+            })
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand(sub =>
+      sub.setName("daily")
+        .setDescription("Schedule a message to repeat daily at HH:MM UTC")
+        .setDescriptionLocalizations({
+          fr: "Planifier un message récurrent chaque jour à HH:MM UTC",
+          "es-ES": "Programar un mensaje para repetirse cada día a HH:MM UTC",
+        })
+        .addStringOption(opt =>
+          opt.setName("time")
+            .setDescription("Time in HH:MM (UTC) — e.g. 09:00")
+            .setDescriptionLocalizations({
+              fr: "Heure au format HH:MM (UTC) — ex: 09:00",
+              "es-ES": "Hora en HH:MM (UTC) — ej: 09:00",
+            })
+            .setRequired(true),
+        )
+        .addChannelOption(opt =>
+          opt.setName("channel")
+            .setDescription("Channel to send the message in")
+            .setDescriptionLocalizations({
+              fr: "Salon où envoyer le message",
+              "es-ES": "Canal donde enviar el mensaje",
+            })
+            .setRequired(true),
+        )
+        .addStringOption(opt =>
+          opt.setName("message")
+            .setDescription("The message to send")
+            .setDescriptionLocalizations({
+              fr: "Le message à envoyer",
+              "es-ES": "El mensaje à envoyer",
+            })
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand(sub =>
+      sub.setName("list")
+        .setDescription("List all scheduled messages for this server")
+        .setDescriptionLocalizations({
+          fr: "Lister tous les messages planifiés de ce serveur",
+          "es-ES": "Listar todos los mensajes programados de este servidor",
+        }),
+    )
+    .addSubcommand(sub =>
+      sub.setName("cancel")
+        .setDescription("Cancel a scheduled message by ID")
+        .setDescriptionLocalizations({
+          fr: "Annuler un message planifié par son ID",
+          "es-ES": "Cancelar un mensaje programado por su ID",
+        })
+        .addStringOption(opt =>
+          opt.setName("id")
+            .setDescription("Message ID (from /schedule list)")
+            .setDescriptionLocalizations({
+              fr: "ID du message (depuis /schedule list)",
+              "es-ES": "ID del mensaje (desde /schedule list)",
+            })
+            .setRequired(true),
+        ),
+    )
     .toJSON(),
 ] as const;
 

@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel } from "discord.js";
 import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
@@ -29,6 +29,12 @@ import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, JOKES, JOKES_FR, JOKES_ES, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, HUGS, HUGS_FR, HUGS_ES, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
 import { type HelpLanguage, buildHelpEmbed, detectTopicAndLang, buildTopicEmbed, sendPaginatedHelp, sendPaginatedHelpSlash, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { handleDefine } from "./discord/define.js";
+import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
+import { startEcho, stopEcho, processEchoMessage } from "./discord/echo.js";
+import { handlePokemon } from "./discord/pokemon.js";
+import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
+import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -253,6 +259,7 @@ export function startBot(): void {
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildVoiceStates,
+      GatewayIntentBits.GuildMembers,
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
@@ -542,6 +549,119 @@ export function startBot(): void {
 
         case "shazam": {
           await shazam(fakeMsg);
+          break;
+        }
+
+        case "define": {
+          const word = interaction.options.getString("word", true);
+          await handleDefine(word, interaction.locale, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
+          break;
+        }
+
+        case "qr": {
+          const text = interaction.options.getString("text");
+          const image = interaction.options.getAttachment("image");
+          if (image) {
+            if (!image.contentType?.startsWith("image/")) {
+              await interaction.editReply("❌ Please attach a valid image file.");
+              break;
+            }
+            try {
+              const jsQRMod = await import("jsqr");
+              const jsQR = (jsQRMod as unknown as { default: typeof import("jsqr").default }).default ?? jsQRMod;
+              const sharpMod = (await import("sharp")).default;
+              const res = await fetch(image.url);
+              const buf = Buffer.from(await res.arrayBuffer());
+              const { data, info } = await sharpMod(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+              const code = (jsQR as (d: Uint8ClampedArray, w: number, h: number) => { data: string } | null)(
+                new Uint8ClampedArray(data), info.width, info.height,
+              );
+              if (!code) {
+                const loc = interaction.locale;
+                await interaction.editReply(loc.startsWith("fr") ? "❌ Aucun QR code trouvé dans l'image." : loc.startsWith("es") ? "❌ No se encontró ningún código QR." : "❌ No QR code found in the image.");
+              } else {
+                const embed = new EmbedBuilder().setColor(0x57f287).setTitle("✅ QR Code detected")
+                  .addFields({ name: "Content", value: `\`\`\`${code.data.slice(0, 1000)}\`\`\`` });
+                await interaction.editReply({ embeds: [embed] });
+              }
+            } catch (err) {
+              logger.error({ err }, "QR read slash error");
+              await interaction.editReply("❌ Could not read the image.");
+            }
+          } else if (text) {
+            await handleQrCreate(text, interaction.locale, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
+          } else {
+            const loc = interaction.locale;
+            await interaction.editReply(loc.startsWith("fr")
+              ? "📷 Fournis un **texte** à encoder OU joins une **image** à lire."
+              : loc.startsWith("es")
+                ? "📷 Proporciona un **texto** OU adjunta una **imagen** para leer."
+                : "📷 Provide **text** to encode OR attach an **image** to read.");
+          }
+          break;
+        }
+
+        case "echo": {
+          if (!interaction.guildId) { await interaction.editReply("❌ Server only."); break; }
+          const targetUser = interaction.options.getUser("user");
+          if (!targetUser) {
+            const result = stopEcho(interaction.guildId, interaction.channelId, interaction.locale);
+            await interaction.editReply(result);
+          } else {
+            const result = startEcho(
+              targetUser, interaction.user.id, interaction.guildId,
+              interaction.channelId, client.user?.id ?? "", interaction.locale,
+            );
+            await interaction.editReply(result);
+          }
+          break;
+        }
+
+        case "pokemon": {
+          const pokeName = interaction.options.getString("name", true);
+          await handlePokemon(pokeName, interaction.locale, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
+          break;
+        }
+
+        case "welcome": {
+          if (!interaction.guildId) { await interaction.editReply("❌ Server only."); break; }
+          const memberObj = interaction.member instanceof GuildMember ? interaction.member : null;
+          const isAdminUser = memberObj?.permissions.has(PermissionFlagsBits.Administrator) || memberObj?.permissions.has(PermissionFlagsBits.ManageGuild);
+          if (!isAdminUser) {
+            const loc = interaction.locale;
+            await interaction.editReply(loc.startsWith("fr") ? "❌ Réservé aux admins." : loc.startsWith("es") ? "❌ Solo administradores." : "❌ Admin only.");
+            break;
+          }
+          const wSub = interaction.options.getSubcommand();
+          const wGuildId = interaction.guildId;
+          const wLocale = interaction.locale;
+          if (wSub === "set") {
+            const ch = interaction.options.getChannel("channel", true);
+            const { handleWelcomeSlashSet } = await import("./discord/welcome.js");
+            await handleWelcomeSlashSet(wGuildId, ch.id, wLocale, (o) => interaction.editReply(o as Parameters<typeof interaction.editReply>[0]));
+          } else if (wSub === "message") {
+            const txt = interaction.options.getString("text", true);
+            const { handleWelcomeSlashMsg } = await import("./discord/welcome.js");
+            await handleWelcomeSlashMsg(wGuildId, txt, wLocale, (o) => interaction.editReply(o as Parameters<typeof interaction.editReply>[0]));
+          } else if (wSub === "clear") {
+            const { handleWelcomeSlashClear } = await import("./discord/welcome.js");
+            await handleWelcomeSlashClear(wGuildId, wLocale, (o) => interaction.editReply(o as Parameters<typeof interaction.editReply>[0]));
+          } else if (wSub === "status") {
+            const { handleWelcomeSlashStatus } = await import("./discord/welcome.js");
+            await handleWelcomeSlashStatus(wGuildId, wLocale, (o) => interaction.editReply(o as Parameters<typeof interaction.editReply>[0]));
+          }
+          break;
+        }
+
+        case "schedule": {
+          if (!interaction.guildId) { await interaction.editReply("❌ Server only."); break; }
+          const schSub = interaction.options.getSubcommand();
+          const schGuildId = interaction.guildId;
+          const schLocale = interaction.locale;
+          const memberObj2 = interaction.member instanceof GuildMember ? interaction.member : null;
+          const isSchAdmin = memberObj2?.permissions.has(PermissionFlagsBits.Administrator) || memberObj2?.permissions.has(PermissionFlagsBits.ManageGuild);
+          const { handleScheduleSlash } = await import("./discord/schedule.js");
+          await handleScheduleSlash(schSub, schGuildId, interaction, isSchAdmin ?? false, schLocale, (o) => interaction.editReply(o as Parameters<typeof interaction.editReply>[0]));
           break;
         }
 
@@ -977,6 +1097,9 @@ export function startBot(): void {
       }
       return;
     }
+
+    // --- Echo processing (runs before prefix check) ---
+    await processEchoMessage(message).catch(() => null);
 
     // --- Prefix commands ---
     if (!content.startsWith(guildPrefix)) return;
@@ -3263,15 +3386,87 @@ export function startBot(): void {
           break;
         }
 
+        // ── Dictionary ────────────────────────────────────────────────────────
+        case "define":
+        case "dict":
+        case "dictionary": {
+          const word = args.join(" ");
+          const locale = message.guild?.preferredLocale ?? "en-US";
+          await handleDefine(word, locale, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+          break;
+        }
+
+        // ── QR Code ───────────────────────────────────────────────────────────
+        case "qr": {
+          const locale = message.guild?.preferredLocale ?? "en-US";
+          const attachment = message.attachments.first();
+          if (attachment) {
+            await handleQrRead(message, locale);
+          } else {
+            const text = args.join(" ");
+            await handleQrCreate(text, locale, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+          }
+          break;
+        }
+
+        // ── Echo ──────────────────────────────────────────────────────────────
+        case "echo": {
+          if (!message.guildId) break;
+          const locale = message.guild?.preferredLocale ?? "en-US";
+          if (args[0]?.toLowerCase() === "stop") {
+            await message.reply(stopEcho(message.guildId, message.channelId, locale));
+          } else {
+            const mentioned = message.mentions.users.first();
+            if (!mentioned) {
+              await message.reply("❓ Mention a user to echo. e.g. `!echo @someone`\nOr `!echo stop` to stop.");
+            } else {
+              const result = startEcho(mentioned, message.author.id, message.guildId, message.channelId, client.user?.id ?? "", locale);
+              await message.reply(result);
+            }
+          }
+          break;
+        }
+
+        // ── Pokédex ───────────────────────────────────────────────────────────
+        case "pokemon":
+        case "pokedex":
+        case "dex": {
+          const pokeName = args.join(" ");
+          const locale = message.guild?.preferredLocale ?? "en-US";
+          await handlePokemon(pokeName, locale, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+          break;
+        }
+
+        // ── Welcome ───────────────────────────────────────────────────────────
+        case "welcome": {
+          await handleWelcomeCommand(message, args);
+          break;
+        }
+
+        // ── Schedule ──────────────────────────────────────────────────────────
+        case "schedule":
+        case "sched": {
+          await handleScheduleCommand(message, args);
+          break;
+        }
+
       }
     } catch (err) {
       logger.error({ err, command }, "Command error");
     }
   });
 
+  // ── Welcome: greet new members ───────────────────────────────────────────
+  client.on("guildMemberAdd", async (member: GuildMember) => {
+    await handleMemberJoin(member, client).catch((err) =>
+      logger.error({ err }, "guildMemberAdd error"),
+    );
+  });
+
   client.once("clientReady", () => {
     startBirthdayScheduler(client);
     startQuestReminders(client, openai);
+    startScheduler(client);
     if (client.user) {
       registerSlashCommands(client.user.id, token)
         .catch((err) => logger.error({ err }, "Slash command registration failed"));

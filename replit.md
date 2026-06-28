@@ -80,6 +80,36 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `!ai battle <sujet>` — débat entre deux bots IA
 - `!ai stop` — arrête le débat
 
+### Dictionnaire
+- `/define <word>` / `!define <word>` / `!dict <word>` — définition d'un mot anglais (Free Dictionary API)
+- Réponse localisée selon la langue Discord (fr/es/en)
+
+### QR Code
+- `/qr text:<texte>` / `!qr <texte>` — génère un QR code en image
+- `/qr image:<image>` / `!qr` + image jointe — lit un QR code depuis une image
+
+### Echo
+- `/echo user:@mention` / `!echo @mention` — répète les messages d'un utilisateur (max 8)
+- `/echo` (sans argument) / `!echo stop` — arrête l'echo
+- S'arrête automatiquement après 8 messages
+
+### Pokédex
+- `/pokemon <nom>` / `!pokemon <nom>` / `!dex <nom>` — fiche Pokémon complète (PokéAPI)
+- Stats, types, talents, taille, poids avec couleur selon le type
+
+### Bienvenue dynamique
+- `!welcome set #salon` / `/welcome set channel:#salon` — définir le salon de bienvenue
+- `!welcome msg <texte>` / `/welcome message text:<texte>` — message personnalisé (variables : `{user}` `{server}` `{count}`)
+- `!welcome clear` / `/welcome clear` — remettre le message par défaut
+- `!welcome status` / `/welcome status` — voir la configuration
+- Message automatique (embed) quand un membre rejoint, dans la langue du serveur
+
+### Messages planifiés
+- `!schedule set HH:MM #salon <message>` / `/schedule once time:HH:MM channel:#salon message:<msg>` — planifier une fois (UTC)
+- `!schedule daily HH:MM #salon <message>` / `/schedule daily ...` — planifier chaque jour
+- `!schedule list` / `/schedule list` — voir les messages planifiés
+- `!schedule cancel <ID>` / `/schedule cancel id:<ID>` — annuler
+
 ### Aide
 - `!help` / `!help fr` / `!help es` — aide paginée
 
