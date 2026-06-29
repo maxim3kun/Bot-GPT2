@@ -5,7 +5,10 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  AttachmentBuilder,
 } from "discord.js";
+import { readFileSync } from "fs";
+import path from "path";
 import { logger } from "../lib/logger.js";
 import {
   radioStates,
