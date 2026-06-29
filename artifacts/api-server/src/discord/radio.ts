@@ -14,7 +14,7 @@ import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
-import { ytdlpInfo, ytdlpStream, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
+import { ytdlpInfo, ytdlpStream, ytdlpStreamWithFx, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 import { customStationsCol } from "../lib/db.js";
 
 // ── Custom stations (admin-added, persisted in MongoDB) ───────────────────────
@@ -145,6 +145,19 @@ async function fastYouTubeSearch(query: string, limit = 5): Promise<{ url: strin
 }
 
 import { getVoicePickerChannels } from "./voice-picker-channels.js";
+
+// ── Per-guild audio FX filter ─────────────────────────────────────────────────
+
+const guildFxFilter = new Map<string, string>();
+
+export function setGuildFx(guildId: string, filter: string | null): void {
+  if (filter) guildFxFilter.set(guildId, filter);
+  else guildFxFilter.delete(guildId);
+}
+
+export function getGuildFx(guildId: string): string | null {
+  return guildFxFilter.get(guildId) ?? null;
+}
 
 // ── Pending voice commands (auto-retry after joining voice) ───────────────────
 

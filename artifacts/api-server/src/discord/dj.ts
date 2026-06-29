@@ -26,16 +26,45 @@ import {
   setVolume,
   getVolume,
   rewindCurrentTrack,
+  setGuildFx,
 } from "./radio.js";
 import { addLike, isLiked } from "./likes-store.js";
 import { BUILT_IN_PADS } from "./soundboard.js";
 
 // ── Console mode ───────────────────────────────────────────────────────────────
 
-export type DjMode = "deck" | "synth";
+export type DjMode = "deck" | "synth" | "fx";
 const djMode = new Map<string, DjMode>();
 function getDjMode(guildId: string): DjMode { return djMode.get(guildId) ?? "deck"; }
 function setDjMode(guildId: string, mode: DjMode): void { djMode.set(guildId, mode); }
+
+// ── FX presets ─────────────────────────────────────────────────────────────────
+
+export interface FxPreset {
+  id: string;
+  label: string;
+  emoji: string;
+  filter: string | null;
+  style: ButtonStyle;
+}
+
+export const FX_PRESETS: FxPreset[] = [
+  { id: "none",      label: "Normal",    emoji: "✨", filter: null,                                                       style: ButtonStyle.Secondary },
+  { id: "nightcore", label: "Nightcore", emoji: "🌙", filter: "asetrate=48000*1.25,atempo=0.8",                           style: ButtonStyle.Primary   },
+  { id: "vaporwave", label: "Vaporwave", emoji: "🌊", filter: "asetrate=48000*0.8,atempo=1.176",                          style: ButtonStyle.Primary   },
+  { id: "reverb",    label: "Reverb",    emoji: "🔮", filter: "aecho=0.8:0.9:1000:0.3",                                  style: ButtonStyle.Primary   },
+  { id: "echo",      label: "Echo",      emoji: "📢", filter: "aecho=0.8:0.88:60:0.4",                                   style: ButtonStyle.Secondary },
+  { id: "bass",      label: "Bass",      emoji: "🔊", filter: "bass=g=6",                                                 style: ButtonStyle.Secondary },
+  { id: "8bit",      label: "8-Bit",     emoji: "👾", filter: "acrusher=level_in=4:level_out=3:bits=8:mode=log:aa=1",    style: ButtonStyle.Secondary },
+  { id: "slow",      label: "Slow",      emoji: "🐢", filter: "atempo=0.8",                                               style: ButtonStyle.Secondary },
+  { id: "fast",      label: "Fast",      emoji: "🐇", filter: "atempo=1.3",                                               style: ButtonStyle.Secondary },
+  { id: "karaoke",   label: "Karaoke",   emoji: "🎤", filter: "pan=stereo|c0=c0-c1|c1=c1-c0",                            style: ButtonStyle.Danger    },
+  { id: "lofi",      label: "Lo-Fi",     emoji: "📻", filter: "aresample=8000,aresample=48000",                          style: ButtonStyle.Secondary },
+  { id: "haunted",   label: "Haunted",   emoji: "👻", filter: "aecho=0.8:0.88:700:0.6,atempo=0.9",                      style: ButtonStyle.Secondary },
+  { id: "telephone", label: "Phone",     emoji: "📞", filter: "highpass=f=300,lowpass=f=3400",                           style: ButtonStyle.Secondary },
+];
+
+const guildActiveFxId = new Map<string, string>();
 
 // ── Loop state ─────────────────────────────────────────────────────────────────
 

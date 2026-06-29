@@ -216,6 +216,71 @@ export function cleanYouTubeTitle(title: string): string {
     .trim();
 }
 
+// ── FX streaming (yt-dlp → FFmpeg audio filter → PassThrough) ─────────────────
+
+/**
+ * Like ytdlpStream but passes the audio through an FFmpeg audio filter before
+ * handing it to Discord voice.  Output is raw s16le PCM @ 48 kHz stereo, so
+ * the caller must use StreamType.Raw when creating the audio resource.
+ */
+export function ytdlpStreamWithFx(url: string, audioFilter: string): Readable {
+  const pass = new PassThrough();
+
+  const ytdlp = spawn(YT_DLP_BIN, [
+    "-f", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+    "--no-playlist",
+    "--quiet",
+    "--no-warnings",
+    "--no-part",
+    "--no-cache-dir",
+    "--no-check-formats",
+    "--retries", "1",
+    "--fragment-retries", "1",
+    "--socket-timeout", "8",
+    "--concurrent-fragments", "3",
+    "--hls-use-mpegts",
+    ANDROID_ARGS,
+    ...cookieArgs(),
+    "-o", "-",
+    url,
+  ]);
+
+  const ffmpeg = spawn("ffmpeg", [
+    "-i", "pipe:0",
+    "-af", audioFilter,
+    "-f", "s16le",
+    "-ar", "48000",
+    "-ac", "2",
+    "-loglevel", "quiet",
+    "pipe:1",
+  ]);
+
+  ytdlp.stdout.pipe(ffmpeg.stdin);
+  ffmpeg.stdout.pipe(pass, { end: false });
+  ffmpeg.stdout.on("end", () => pass.end());
+  ffmpeg.on("error", (err) => { ytdlp.kill(); pass.destroy(err); });
+  ytdlp.on("error", (err) => { ffmpeg.kill(); pass.destroy(err); });
+
+  let stderrBuf = "";
+  let cookiesWarnedThisStream = false;
+  ytdlp.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    stderrBuf += text;
+    if (!cookiesWarnedThisStream && COOKIES_INVALID_RE.test(stderrBuf)) {
+      cookiesWarnedThisStream = true;
+      logger.warn("yt-dlp[fx]: YouTube cookies are expired — public videos still work");
+    }
+    if (SIGNIN_RE.test(stderrBuf)) {
+      stderrBuf = "";
+      ytdlp.kill();
+      ffmpeg.kill();
+      pass.destroy(new Error("youtube-signin-required"));
+    }
+  });
+
+  return pass;
+}
+
 const _searchCache = new Map<string, { results: YtSearchResult[]; expiresAt: number }>();
 const SEARCH_CACHE_TTL_MS = 3 * 60 * 1000;
 
