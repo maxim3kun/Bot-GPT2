@@ -112,43 +112,76 @@ export function buildDjEmbed(guildId: string, highlightMsg?: string, imageFilena
   const loopOn = isDjLoopEnabled(guildId);
   const vol    = getVolume(guildId);
 
-  // ── Current track ────────────────────────────────────────────────────────
-  let nowLine = "*Nothing playing*";
-  if (state?.stationKey) {
-    const st = RADIO_STATIONS[state.stationKey];
-    nowLine = st ? `${st.emoji} **${st.name}**` : `📻 ${state.stationKey}`;
-  } else if (state?.youtubeTitle) {
-    nowLine = `🎵 ${state.youtubeTitle}`;
-  }
+  const isIdle    = !state || (!state.stationKey && !state.youtubeTitle);
+  const isPlaying = !isIdle && !state?.paused;
 
-  // ── Status badges ────────────────────────────────────────────────────────
-  const badges: string[] = [];
-  if (!state || (!state.stationKey && !state.youtubeTitle)) {
-    badges.push("⏹️");
-  } else if (state.paused) {
-    badges.push("⏸️");
+  // ── DECK line ─────────────────────────────────────────────────────────────
+  let deckStatus: string;
+  if (isIdle) {
+    deckStatus = "⏹️  *Idle — ready to mix*";
+  } else if (state?.paused) {
+    if (state.stationKey) {
+      const st = RADIO_STATIONS[state.stationKey];
+      deckStatus = `⏸️  ${st ? `${st.emoji} **${st.name}**` : `📻 ${state.stationKey}`}`;
+    } else {
+      deckStatus = `⏸️  🎵 **${state.youtubeTitle}**`;
+    }
   } else {
-    badges.push("▶️");
+    if (state?.stationKey) {
+      const st = RADIO_STATIONS[state.stationKey];
+      deckStatus = `▶️  ${st ? `${st.emoji} **${st.name}**` : `📻 ${state.stationKey}`}`;
+    } else {
+      deckStatus = `▶️  🎵 **${state?.youtubeTitle ?? "Unknown"}**`;
+    }
   }
-  if (loopOn) badges.push("🔁");
-  if (state?.queue && state.queue.length > 0) badges.push(`📋 ×${state.queue.length}`);
-  if (state?.requestedBy) badges.push(`👤 <@${state.requestedBy}>`);
 
-  const desc = [
+  // ── MIX line (loop + volume) ───────────────────────────────────────────────
+  const loopTag  = loopOn ? "🔁  " : "";
+  const mixLine  = `${loopTag}🔊 ${volBar(vol)}`;
+
+  // ── Queue preview ─────────────────────────────────────────────────────────
+  const queueLen = state?.queue.length ?? 0;
+  let queueSection = "";
+  if (queueLen > 0) {
+    queueSection = `\n**▐ QUEUE**   📋 **${queueLen}** track${queueLen > 1 ? "s" : ""} up next`;
+  }
+
+  // ── Requested by ─────────────────────────────────────────────────────────
+  const reqLine = state?.requestedBy && !state.stationKey
+    ? `\n**▐ DJ**        👤 <@${state.requestedBy}>`
+    : "";
+
+  // ── Idle guide ────────────────────────────────────────────────────────────
+  const idleGuide = isIdle ? [
+    "",
+    "```",
+    "  HOW TO START",
+    "  ➕  Add a YouTube track (click the button)",
+    "  📻  Pick a radio station below",
+    "  !y <song>  Type in chat to search",
+    "```",
+  ].join("\n") : "";
+
+  const lines: (string | null)[] = [
     highlightMsg ? `> ${highlightMsg}` : null,
     "",
-    `**▐** ${nowLine}`,
-    `**▐** ${badges.join("  ")}    ${volBar(vol)}`,
-  ].filter(s => s !== null).join("\n");
+    `**▐ DECK**   ${deckStatus}`,
+    `**▐ MIX**    ${mixLine}`,
+    queueSection  || null,
+    reqLine       || null,
+    idleGuide     || null,
+  ];
+
+  const desc = lines.filter(s => s !== null && s !== "").join("\n");
 
   const filename = imageFilename ?? getDjImageFilename(guildId);
 
   return new EmbedBuilder()
-    .setColor(state?.youtubeTitle ? 0x5865f2 : state?.stationKey ? 0x57f287 : 0x232428)
-    .setTitle("🎛️  Mixing Table")
+    .setColor(isIdle ? 0x2b2d31 : isPlaying ? 0x57f287 : 0x5865f2)
+    .setTitle("🎚️  DJ Console")
     .setDescription(desc)
     .setImage(`attachment://${filename}`)
-    .setFooter({ text: "⏮ restart · ▶ play · ⏭ skip · 🔁 loop · ⏹ stop" });
+    .setFooter({ text: "⏮ restart · ▶/⏸ play-pause · ⏭ skip · 🔁 loop · ⏹ stop · ➕ add track" });
 }
 
 // ── Full DJ console payload (embed + attachment + buttons) ─────────────────────
