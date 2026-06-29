@@ -28,6 +28,14 @@ import {
   rewindCurrentTrack,
 } from "./radio.js";
 import { addLike, isLiked } from "./likes-store.js";
+import { BUILT_IN_PADS } from "./soundboard.js";
+
+// ── Console mode ───────────────────────────────────────────────────────────────
+
+export type DjMode = "deck" | "synth";
+const djMode = new Map<string, DjMode>();
+function getDjMode(guildId: string): DjMode { return djMode.get(guildId) ?? "deck"; }
+function setDjMode(guildId: string, mode: DjMode): void { djMode.set(guildId, mode); }
 
 // ── Loop state ─────────────────────────────────────────────────────────────────
 
@@ -79,7 +87,9 @@ export function hasDjPendingAdd(guildId: string, userId: string): boolean {
 function getDjImageFilename(guildId: string): string {
   const state = radioStates.get(guildId);
   if (!state) return "stopped.png";
-  const isPlaying = !!(state.stationKey || state.youtubeTitle);
+  // "Loading…" is a transient placeholder, not a real playing state
+  const hasRealTitle = !!(state.youtubeTitle && state.youtubeTitle !== "Loading…");
+  const isPlaying = !!(state.stationKey || hasRealTitle);
   if (!isPlaying) return "stopped.png";
   const twoDecks = !!(state.sbResume);
   return twoDecks ? "playing2.gif" : "playing1.gif";
@@ -152,15 +162,9 @@ export function buildDjEmbed(guildId: string, highlightMsg?: string, imageFilena
     : "";
 
   // ── Idle guide ────────────────────────────────────────────────────────────
-  const idleGuide = isIdle ? [
-    "",
-    "```",
-    "  HOW TO START",
-    "  ➕  Add a YouTube track (click the button)",
-    "  📻  Pick a radio station below",
-    "  !y <song>  Type in chat to search",
-    "```",
-  ].join("\n") : "";
+  const idleGuide = isIdle
+    ? "\n*💡 Click **➕** to queue a YouTube track — or pick a station / pad below ↓*"
+    : "";
 
   const lines: (string | null)[] = [
     highlightMsg ? `> ${highlightMsg}` : null,
@@ -205,11 +209,11 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
   const isRadio   = !!(state?.stationKey);
   const vol       = getVolume(guildId);
   const canRewind = !!(state?.youtubeTitle && !isRadio);
+  const mode      = getDjMode(guildId);
 
-  const active = (key: string) => state?.stationKey === key;
+  const radioActive = (key: string) => state?.stationKey === key;
 
-  // ── Row 1 — DECK controls (transport) ─────────────────────────────────────
-  // Layout: ⏮  ▶/⏸  ⏭  🔁  ⏹
+  // ── Row 1 — Transport (always visible) ────────────────────────────────────
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("dj:rewind")
@@ -234,8 +238,47 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setStyle(ButtonStyle.Danger),
   );
 
-  // ── Row 2 — MIXER section (volume + queue tools) ───────────────────────────
-  // Layout: 🔉  🔊  🔀  ➕  🗑
+  // ── Row 5 — Mode tabs (always visible) ────────────────────────────────────
+  const tabRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:tab:deck")
+      .setLabel("🎚️ Deck")
+      .setStyle(mode === "deck" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:tab:synth")
+      .setLabel("🎹 Synth")
+      .setStyle(mode === "synth" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:like")
+      .setEmoji("❤️")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:nowplaying")
+      .setEmoji("🎵")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("dj:refresh")
+      .setEmoji("🔄")
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  // ── SYNTH MODE — rows 2-4 are soundboard effect pads ─────────────────────
+  if (mode === "synth") {
+    const pads = BUILT_IN_PADS.slice(0, 15); // 3 rows × 5 pads
+    const makePadRow = (slice: typeof pads) =>
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...slice.map(p =>
+          new ButtonBuilder()
+            .setCustomId(`sb:pad:${p.id}`)
+            .setEmoji(p.emoji)
+            .setLabel(p.label)
+            .setStyle(p.style),
+        ),
+      );
+    return [row1, makePadRow(pads.slice(0, 5)), makePadRow(pads.slice(5, 10)), makePadRow(pads.slice(10, 15)), tabRow];
+  }
+
+  // ── DECK MODE — rows 2-4 are mixer + radio presets ────────────────────────
   const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("dj:voldown")
@@ -261,62 +304,33 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setStyle(ButtonStyle.Danger),
   );
 
-  // ── Row 3 — RADIO presets A (French pop) ──────────────────────────────────
-  // 🔥 NRJ · 🎉 Fun · 🎤 Skyrock · 🎸 OUI FM · 🌿 Groove Salad
   const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId("dj:radio:nrj")
-      .setEmoji("🔥").setStyle(active("nrj") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🔥").setStyle(radioActive("nrj") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:fun")
-      .setEmoji("🎉").setStyle(active("fun") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🎉").setStyle(radioActive("fun") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:skyrock")
-      .setEmoji("🎤").setStyle(active("skyrock") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🎤").setStyle(radioActive("skyrock") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:ouifm")
-      .setEmoji("🎸").setStyle(active("ouifm") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🎸").setStyle(radioActive("ouifm") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:groove")
-      .setEmoji("🌿").setStyle(active("groove") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🌿").setStyle(radioActive("groove") ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
-  // ── Row 4 — RADIO presets B (themes) ──────────────────────────────────────
-  // 🎙️ Hip-Hop · 💿 90s · 📀 2000s · 🎷 Jazz · 🌸 Lush
   const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId("dj:radio:hiphop")
-      .setEmoji("🎙️").setStyle(active("hiphop") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🎙️").setStyle(radioActive("hiphop") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:hits90s")
-      .setEmoji("💿").setStyle(active("hits90s") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("💿").setStyle(radioActive("hits90s") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:hits2000s")
-      .setEmoji("📀").setStyle(active("hits2000s") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("📀").setStyle(radioActive("hits2000s") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:jazz")
-      .setEmoji("🎷").setStyle(active("jazz") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🎷").setStyle(radioActive("jazz") ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("dj:radio:lush")
-      .setEmoji("🌸").setStyle(active("lush") ? ButtonStyle.Success : ButtonStyle.Secondary),
+      .setEmoji("🌸").setStyle(radioActive("lush") ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
-  // ── Row 5 — INFO / utils ───────────────────────────────────────────────────
-  // 📋 Queue · ❤️ Like · 🎵 Now Playing · 🗳️ Vote Skip · 🔄 Refresh
-  const row5 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId("dj:queue")
-      .setEmoji("📋")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:like")
-      .setEmoji("❤️")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:nowplaying")
-      .setEmoji("🎵")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("dj:voteskip")
-      .setEmoji("🗳️")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:refresh")
-      .setEmoji("🔄")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
-  return [row1, row2, row3, row4, row5];
+  return [row1, row2, row3, row4, tabRow];
 }
 
 // ── Open DJ console ───────────────────────────────────────────────────────────
@@ -554,6 +568,19 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
 
   if (action === "refresh") {
     await interaction.update(buildDjConsolePayload(guildId, "🔄 Console refreshed."));
+    return;
+  }
+
+  // ── Mode tabs ──────────────────────────────────────────────────────────────
+  if (action === "tab:deck") {
+    setDjMode(guildId, "deck");
+    await interaction.update(buildDjConsolePayload(guildId, "🎚️ **Deck mode** — mixer & radio presets."));
+    return;
+  }
+
+  if (action === "tab:synth") {
+    setDjMode(guildId, "synth");
+    await interaction.update(buildDjConsolePayload(guildId, "🎹 **Synth mode** — tap a pad to play a sound effect!"));
     return;
   }
 
