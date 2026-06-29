@@ -91,7 +91,8 @@ function getDjImageFilename(guildId: string): string {
  */
 function getDjImageFile(guildId: string): AttachmentBuilder {
   const filename = getDjImageFilename(guildId);
-  const filePath = new URL(`../../public/dj/${filename}`, import.meta.url).pathname;
+  // dist/index.mjs is one level below api-server root, so ../public/dj/ is correct
+  const filePath = new URL(`../public/dj/${filename}`, import.meta.url).pathname;
   return new AttachmentBuilder(filePath, { name: filename });
 }
 
