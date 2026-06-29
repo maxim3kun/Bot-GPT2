@@ -10,7 +10,7 @@ import { readFile, writeFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { logger } from "../lib/logger.js";
-import { radioStates, playSoundEffect } from "./radio.js";
+import { radioStates, playSoundEffect, preloadStream } from "./radio.js";
 
 // ── Built-in sound pads ───────────────────────────────────────────────────────
 
@@ -24,7 +24,8 @@ export interface SoundPad {
 
 export const BUILT_IN_PADS: SoundPad[] = [
   // Row 1 — Impact (red)
-  { id: "airhorn",   emoji: "📯", style: ButtonStyle.Danger,    query: "air horn sound effect",                      label: "Air Horn"    },
+  // Direct YouTube URL for air horn — skips search entirely for instant play
+  { id: "airhorn",   emoji: "📯", style: ButtonStyle.Danger,    query: "https://www.youtube.com/watch?v=o8LRks7K-8o", label: "Air Horn"    },
   { id: "explosion", emoji: "💥", style: ButtonStyle.Danger,    query: "explosion sound effect short",               label: "Explosion"   },
   { id: "vineboom",  emoji: "💢", style: ButtonStyle.Danger,    query: "vine boom sound effect",                     label: "Vine Boom"   },
   { id: "dun",       emoji: "🎵", style: ButtonStyle.Danger,    query: "dun dun dun dramatic sting sound effect",    label: "Dun Dun Dun" },
@@ -181,6 +182,14 @@ export async function openSoundboard(message: Message): Promise<void> {
     embeds: [buildSoundboardEmbed(guildId)],
     components: buildSoundboardRows(guildId),
   });
+
+  // Preload all built-in pad streams in the background so they play instantly
+  // when clicked. Fire-and-forget — errors are silently ignored.
+  const toPreload = [...BUILT_IN_PADS, ...getCustomSounds(guildId)];
+  for (const pad of toPreload) {
+    const url = pad.query.startsWith("http") ? pad.query : `ytsearch1:${pad.query}`;
+    preloadStream(url);
+  }
 }
 
 // ── Button handler ────────────────────────────────────────────────────────────

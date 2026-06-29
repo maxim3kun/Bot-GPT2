@@ -372,6 +372,10 @@ interface RadioState {
   requestedBy: string | null;
   /** Set by soundboard: what to resume after the effect finishes */
   sbResume: { stationKey: string } | { youtubeUrl: string } | null;
+  /** Current volume level (1.0 = 100%) */
+  volume: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  activeResource: any | null;
 }
 
 export const radioStates = new Map<string, RadioState>();
@@ -558,7 +562,7 @@ async function prefetchTrackInfo(url: string): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const preloadedStreamCache = new Map<string, any>();
 
-function preloadStream(url: string): void {
+export function preloadStream(url: string): void {
   if (preloadedStreamCache.has(url)) return;
   try {
     const stream = ytdlpStream(url);
@@ -593,7 +597,9 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     // Use pre-loaded stream if available (already buffering), else spawn fresh
     const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
     preloadedStreamCache.delete(url);
-    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+    resource.volume?.setVolume(state.volume ?? 1.0);
+    state.activeResource = resource;
 
     // Use cached info if available (instant), otherwise fetch
     const cached = queueInfoCache.get(url);
@@ -851,6 +857,8 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       paused: false,
       requestedBy: null,
       sbResume: null,
+      volume: 1.0,
+      activeResource: null,
     });
   } else {
     connection.subscribe(radioStates.get(guildId)!.player);
@@ -877,7 +885,9 @@ async function resumeRadioStation(guildId: string, stationKey: string): Promise<
 
   try {
     const stream = await fetchStream(station.url);
-    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+    resource.volume?.setVolume(state.volume ?? 1.0);
+    state.activeResource = resource;
     state.player.play(resource);
     state.notifyChannel?.send(`📻 Resuming **${station.name}** ${station.emoji}`).catch(() => null);
   } catch (err) {
@@ -1072,7 +1082,9 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   try {
     const stream = await fetchStream(station.url);
-    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+    resource.volume?.setVolume(state.volume ?? 1.0);
+    state.activeResource = resource;
     state.player.play(resource);
 
     state.player.once(AudioPlayerStatus.Playing, async () => {
@@ -1224,7 +1236,9 @@ async function execPlayYoutube(
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] }).catch(() => null);
   };
 
-  const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
+  const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+  resource.volume?.setVolume(state.volume ?? 1.0);
+  state.activeResource = resource;
   state.player.play(resource);
 
   let started = false;
@@ -1822,6 +1836,40 @@ export function stopForGuild(guildId: string): boolean {
   state.player.stop();
   radioStates.delete(guildId);
   getVoiceConnection(guildId)?.destroy();
+  return true;
+}
+
+/** Set playback volume for a guild. Level: 0.0–2.0 (1.0 = 100%). */
+export function setVolume(guildId: string, level: number): boolean {
+  const state = radioStates.get(guildId);
+  if (!state) return false;
+  const clamped = Math.max(0.1, Math.min(2.0, level));
+  state.volume = clamped;
+  state.activeResource?.volume?.setVolume(clamped);
+  return true;
+}
+
+/** Get current volume for a guild (0.0–2.0). */
+export function getVolume(guildId: string): number {
+  return radioStates.get(guildId)?.volume ?? 1.0;
+}
+
+/** Restart the currently playing YouTube track from the beginning. */
+export async function rewindCurrentTrack(guildId: string, notifyMsg?: Message): Promise<boolean> {
+  const state = radioStates.get(guildId);
+  if (!state?.youtubeUrl || !state.youtubeTitle) return false;
+  const url = state.youtubeUrl;
+  const title = state.youtubeTitle;
+
+  // Reset state for fresh play
+  state.youtubeTitle = null;
+  state.youtubeUrl = null;
+  state.youtubeStartTime = null;
+  state.queue.unshift(url); // put it at front of queue
+  state.queueMessages.unshift(null);
+  state.player.stop(); // triggers Idle → playNextFromQueue picks up the URL
+
+  logger.info({ guildId, url, title }, "DJ rewind");
   return true;
 }
 

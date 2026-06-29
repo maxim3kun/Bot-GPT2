@@ -20,6 +20,9 @@ import {
   ensureVoiceConnection,
   buildNpButtonRows,
   buildRadioNpButtonRows,
+  setVolume,
+  getVolume,
+  rewindCurrentTrack,
 } from "./radio.js";
 import { addLike, isLiked } from "./likes-store.js";
 
@@ -62,11 +65,21 @@ export function hasDjPendingAdd(guildId: string, userId: string): boolean {
   return true;
 }
 
+// ── Volume helpers ─────────────────────────────────────────────────────────────
+
+function volBar(vol: number): string {
+  const pct = Math.round((vol / 2.0) * 10);
+  const filled = "█".repeat(Math.min(pct, 10));
+  const empty  = "░".repeat(Math.max(0, 10 - pct));
+  return `${filled}${empty} **${Math.round(vol * 100)}%**`;
+}
+
 // ── DJ console embed ──────────────────────────────────────────────────────────
 
 export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuilder {
   const state = radioStates.get(guildId);
   const loopOn = isDjLoopEnabled(guildId);
+  const vol    = getVolume(guildId);
 
   let deckA = "—";
   let deckStatus = "⏹️ Stopped";
@@ -92,32 +105,29 @@ export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuild
     state?.youtubeTitle && state.requestedBy ? `👤 <@${state.requestedBy}>` : null,
   ].filter(Boolean).join("  •  ");
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(state?.youtubeTitle ? 0x5865f2 : state?.stationKey ? 0x57f287 : 0x2f3136)
     .setTitle("🎛️  DJ Console — Mixing Table")
-    .setDescription(
-      highlightMsg
-        ? `> ${highlightMsg}\n\u200b`
-        : "\u200b"
-    )
+    .setDescription(highlightMsg ? `> ${highlightMsg}\n\u200b` : "\u200b")
     .addFields(
       { name: "🎚️  DECK A — Now Playing", value: deckA, inline: false },
       { name: "📊  Status", value: statusLine || "⏹️ Stopped", inline: true },
       { name: "📋  Queue", value: deckQueue, inline: true },
+      { name: "🔊  Volume", value: volBar(vol), inline: true },
     )
-    .setFooter({ text: "Use the buttons below to control playback  •  !dj to reopen" })
+    .setFooter({ text: "Use the buttons below  •  !dj to reopen" })
     .setTimestamp();
-
-  return embed;
 }
 
 // ── Button rows ───────────────────────────────────────────────────────────────
 
 export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuilder>[] {
-  const state = radioStates.get(guildId);
+  const state  = radioStates.get(guildId);
   const paused = state?.paused ?? false;
   const loopOn = isDjLoopEnabled(guildId);
   const isRadio = !!(state?.stationKey);
+  const vol    = getVolume(guildId);
+  const canRewind = !!(state?.youtubeTitle && !isRadio);
 
   // Row 1 — Playback controls
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -126,17 +136,18 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setLabel(paused ? "▶️  Play" : "⏸️  Pause")
       .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
+      .setCustomId("dj:rewind")
+      .setLabel("⏮️  Restart")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!canRewind),
+    new ButtonBuilder()
       .setCustomId("dj:skip")
       .setLabel(isRadio ? "📻  Next Station" : "⏭️  Skip")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId("dj:loop")
-      .setLabel(loopOn ? "🔁  Loop ON" : "🔁  Loop OFF")
+      .setLabel(loopOn ? "🔁  Loop ON" : "🔁  Loop")
       .setStyle(loopOn ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:like")
-      .setLabel("❤️  Like")
-      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId("dj:stop")
       .setLabel("⏹️  Stop")
@@ -167,7 +178,7 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setStyle(ButtonStyle.Danger),
   );
 
-  // Row 3 — Radio stations (French hits)
+  // Row 3 — Radio stations (French)
   const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("dj:radio:nrj")
@@ -215,8 +226,22 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setStyle(state?.stationKey === "lush" ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
-  // Row 5 — Vibe controls
+  // Row 5 — Volume + utils
   const row5 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dj:voldown")
+      .setLabel("🔉  Vol −10%")
+      .setStyle(vol <= 0.1 ? ButtonStyle.Secondary : ButtonStyle.Primary)
+      .setDisabled(vol <= 0.1),
+    new ButtonBuilder()
+      .setCustomId("dj:volup")
+      .setLabel("🔊  Vol +10%")
+      .setStyle(vol >= 2.0 ? ButtonStyle.Secondary : ButtonStyle.Primary)
+      .setDisabled(vol >= 2.0),
+    new ButtonBuilder()
+      .setCustomId("dj:like")
+      .setLabel("❤️  Like")
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId("dj:nowplaying")
       .setLabel("🎵  Now Playing")
@@ -225,18 +250,6 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setCustomId("dj:refresh")
       .setLabel("🔄  Refresh")
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:radio:classicfm")
-      .setLabel("🎼  Classic FM")
-      .setStyle(state?.stationKey === "classicfm" ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:radio:fip")
-      .setLabel("🎨  FIP")
-      .setStyle(state?.stationKey === "fip" ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("dj:radio:kexp")
-      .setLabel("🌍  KEXP")
-      .setStyle(state?.stationKey === "kexp" ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
   return [row1, row2, row3, row4, row5];
@@ -257,9 +270,10 @@ export async function openDjConsole(message: Message): Promise<void> {
     return;
   }
 
-  const embed = buildDjEmbed(guildId, "🎛️ Welcome to the DJ Console! Use the buttons below to mix.");
-  const rows = buildDjButtonRows(guildId);
-  await message.reply({ embeds: [embed], components: rows });
+  await message.reply({
+    embeds: [buildDjEmbed(guildId, "🎛️ Welcome to the DJ Console! Control music, volume, and more.")],
+    components: buildDjButtonRows(guildId),
+  });
 }
 
 // ── Handle DJ button interactions ─────────────────────────────────────────────
@@ -283,11 +297,21 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       await interaction.reply({ content: "❌ Nothing is playing right now.", ephemeral: true });
       return;
     }
-    const state = radioStates.get(guildId);
-    const isRadio = !!(state?.stationKey);
-    const msg = result === "paused" ? "⏸️ Paused." : "▶️ Resumed.";
     await interaction.update({
-      embeds: [buildDjEmbed(guildId, msg)],
+      embeds: [buildDjEmbed(guildId, result === "paused" ? "⏸️ Paused." : "▶️ Resumed.")],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  if (action === "rewind") {
+    const rewound = await rewindCurrentTrack(guildId);
+    if (!rewound) {
+      await interaction.reply({ content: "❌ Rewind only works for YouTube tracks, not radio.", ephemeral: true });
+      return;
+    }
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, "⏮️ Restarting track from the beginning…")],
       components: buildDjButtonRows(guildId),
     });
     return;
@@ -342,30 +366,9 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     } else {
       const nowOn = toggleDjLoop(guildId);
       await interaction.update({
-        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled** — next track will repeat." : "🔁 Loop **disabled**.")],
+        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled**." : "🔁 Loop **disabled**.")],
         components: buildDjButtonRows(guildId),
       });
-    }
-    return;
-  }
-
-  if (action === "like") {
-    const state = radioStates.get(guildId);
-    const isRadio = !!(state?.stationKey);
-    const title = isRadio
-      ? (RADIO_STATIONS[state!.stationKey!]?.name ?? state!.stationKey!)
-      : state?.youtubeTitle;
-    const url = isRadio ? `radio:${state!.stationKey}` : state?.youtubeUrl;
-    if (!title || !url) {
-      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
-      return;
-    }
-    if (isLiked(interaction.user.id, url)) {
-      await import("./likes-store.js").then(m => m.removeLike(interaction.user.id, url));
-      await interaction.reply({ content: `💔 Removed **${title}** from your likes.`, ephemeral: true });
-    } else {
-      await addLike(interaction.user.id, { title, url });
-      await interaction.reply({ content: `❤️ Liked **${title}**! Use \`!likes\` to see your list.`, ephemeral: true });
     }
     return;
   }
@@ -379,6 +382,24 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     }
     await interaction.update({
       embeds: [buildDjEmbed(guildId, "⏹️ Stopped and disconnected.")],
+      components: buildDjButtonRows(guildId),
+    });
+    return;
+  }
+
+  // ── Volume controls ────────────────────────────────────────────────────────
+  if (action === "volup" || action === "voldown") {
+    const current = getVolume(guildId);
+    const step = 0.1;
+    const next = action === "volup" ? current + step : current - step;
+    const ok = setVolume(guildId, next);
+    if (!ok) {
+      await interaction.reply({ content: "❌ Nothing is playing.", ephemeral: true });
+      return;
+    }
+    const newVol = getVolume(guildId);
+    await interaction.update({
+      embeds: [buildDjEmbed(guildId, `${action === "volup" ? "🔊" : "🔉"} Volume: **${Math.round(newVol * 100)}%**`)],
       components: buildDjButtonRows(guildId),
     });
     return;
@@ -460,6 +481,28 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     return;
   }
 
+  // ── Like ───────────────────────────────────────────────────────────────────
+  if (action === "like") {
+    const state = radioStates.get(guildId);
+    const isRadio = !!(state?.stationKey);
+    const title = isRadio
+      ? (RADIO_STATIONS[state!.stationKey!]?.name ?? state!.stationKey!)
+      : state?.youtubeTitle;
+    const url = isRadio ? `radio:${state!.stationKey}` : state?.youtubeUrl;
+    if (!title || !url) {
+      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
+      return;
+    }
+    if (isLiked(interaction.user.id, url)) {
+      await import("./likes-store.js").then(m => m.removeLike(interaction.user.id, url));
+      await interaction.reply({ content: `💔 Removed **${title}** from your likes.`, ephemeral: true });
+    } else {
+      await addLike(interaction.user.id, { title, url });
+      await interaction.reply({ content: `❤️ Liked **${title}**! Use \`!likes\` to see your list.`, ephemeral: true });
+    }
+    return;
+  }
+
   // ── Info controls ──────────────────────────────────────────────────────────
   if (action === "nowplaying") {
     const { nowPlaying } = await import("./radio.js");
@@ -507,9 +550,9 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     const fakeMsg = {
       ...interaction.message,
       reply: async (_: unknown) => interaction.message,
-      edit: async (_: unknown) => interaction.message,
+      edit:  async (_: unknown) => interaction.message,
       guildId,
-      guild: interaction.guild,
+      guild:  interaction.guild,
       member: interaction.member,
       author: interaction.user,
       channel: interaction.channel,
