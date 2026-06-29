@@ -7,7 +7,7 @@ import {
   ButtonStyle,
   AttachmentBuilder,
 } from "discord.js";
-import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import path from "path";
 import { logger } from "../lib/logger.js";
 import {
@@ -68,29 +68,31 @@ export function hasDjPendingAdd(guildId: string, userId: string): boolean {
   return true;
 }
 
-// ── DJ image URL helper ───────────────────────────────────────────────────────
+// ── DJ image helpers ──────────────────────────────────────────────────────────
 
 /**
- * Returns the public URL for the DJ console image based on playback state.
+ * Returns the filename for the DJ image based on playback state.
  *  stopped.png  — nothing playing
  *  playing1.gif — 1 source active (radio OR youtube)
  *  playing2.gif — 2 sources simultaneously (soundboard effect over radio/youtube)
  */
-function getDjImageUrl(guildId: string): string {
-  const base = process.env["REPLIT_DEV_DOMAIN"]
-    ? `https://${process.env["REPLIT_DEV_DOMAIN"]}`
-    : "http://localhost:8080";
-
+function getDjImageFilename(guildId: string): string {
   const state = radioStates.get(guildId);
-  if (!state) return `${base}/dj/stopped.png`;
-
+  if (!state) return "stopped.png";
   const isPlaying = !!(state.stationKey || state.youtubeTitle);
-  if (!isPlaying) return `${base}/dj/stopped.png`;
-
-  // sbResume means a soundboard effect is actively playing while
-  // the main playback is paused/queued → conceptually 2 "decks" live
+  if (!isPlaying) return "stopped.png";
   const twoDecks = !!(state.sbResume);
-  return twoDecks ? `${base}/dj/playing2.gif` : `${base}/dj/playing1.gif`;
+  return twoDecks ? "playing2.gif" : "playing1.gif";
+}
+
+/**
+ * Returns an AttachmentBuilder for the DJ image so it works universally
+ * (Replit, Railway, Docker) without needing a public HTTP URL.
+ */
+function getDjImageFile(guildId: string): AttachmentBuilder {
+  const filename = getDjImageFilename(guildId);
+  const filePath = new URL(`../../public/dj/${filename}`, import.meta.url).pathname;
+  return new AttachmentBuilder(filePath, { name: filename });
 }
 
 // ── Volume helpers ─────────────────────────────────────────────────────────────
@@ -104,13 +106,13 @@ function volBar(vol: number): string {
 
 // ── DJ console embed ──────────────────────────────────────────────────────────
 
-export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuilder {
+export function buildDjEmbed(guildId: string, highlightMsg?: string, imageFilename?: string): EmbedBuilder {
   const state  = radioStates.get(guildId);
   const loopOn = isDjLoopEnabled(guildId);
   const vol    = getVolume(guildId);
 
   // ── Current track ────────────────────────────────────────────────────────
-  let nowLine = "*Rien en cours*";
+  let nowLine = "*Nothing playing*";
   if (state?.stationKey) {
     const st = RADIO_STATIONS[state.stationKey];
     nowLine = st ? `${st.emoji} **${st.name}**` : `📻 ${state.stationKey}`;
@@ -131,28 +133,33 @@ export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuild
   if (state?.queue && state.queue.length > 0) badges.push(`📋 ×${state.queue.length}`);
   if (state?.requestedBy) badges.push(`👤 <@${state.requestedBy}>`);
 
-  // ── Legend (radio stations) ──────────────────────────────────────────────
-  const legend = [
-    "🔥 NRJ  🎉 Fun  🎤 Skyrock  🎸 OUI FM  🌿 Groove",
-    "🎙️ Hip-Hop  💿 90s  📀 2000s  🎷 Jazz  🌸 Lush",
-  ].join("\n");
-
   const desc = [
     highlightMsg ? `> ${highlightMsg}` : null,
     "",
     `**▐** ${nowLine}`,
     `**▐** ${badges.join("  ")}    ${volBar(vol)}`,
-    "",
-    `\`\`\`\n${legend}\n\`\`\``,
   ].filter(s => s !== null).join("\n");
+
+  const filename = imageFilename ?? getDjImageFilename(guildId);
 
   return new EmbedBuilder()
     .setColor(state?.youtubeTitle ? 0x5865f2 : state?.stationKey ? 0x57f287 : 0x232428)
     .setTitle("🎛️  Mixing Table")
     .setDescription(desc)
-    .setImage(getDjImageUrl(guildId))
-    .setFooter({ text: "⏮ restart · ▶ play · ⏭ skip · 🔁 loop · ⏹ stop  —  !dj to reopen" })
-    .setTimestamp();
+    .setImage(`attachment://${filename}`)
+    .setFooter({ text: "⏮ restart · ▶ play · ⏭ skip · 🔁 loop · ⏹ stop" });
+}
+
+// ── Full DJ console payload (embed + attachment + buttons) ─────────────────────
+
+export function buildDjConsolePayload(guildId: string, highlightMsg?: string) {
+  const file     = getDjImageFile(guildId);
+  const filename = getDjImageFilename(guildId);
+  return {
+    embeds:     [buildDjEmbed(guildId, highlightMsg, filename)],
+    files:      [file],
+    components: buildDjButtonRows(guildId),
+  };
 }
 
 // ── Button rows ───────────────────────────────────────────────────────────────
@@ -293,10 +300,7 @@ export async function openDjConsole(message: Message): Promise<void> {
     return;
   }
 
-  await message.reply({
-    embeds: [buildDjEmbed(guildId, "🎛️ Welcome to the DJ Console! Control music, volume, and more.")],
-    components: buildDjButtonRows(guildId),
-  });
+  await message.reply(buildDjConsolePayload(guildId, "🎛️ Welcome to the DJ Console! Control music, volume, and more."));
 }
 
 // ── Handle DJ button interactions ─────────────────────────────────────────────
@@ -320,10 +324,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       await interaction.reply({ content: "❌ Nothing is playing right now.", ephemeral: true });
       return;
     }
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, result === "paused" ? "⏸️ Paused." : "▶️ Resumed.")],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, result === "paused" ? "⏸️ Paused." : "▶️ Resumed."));
     return;
   }
 
@@ -333,10 +334,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       await interaction.reply({ content: "❌ Rewind only works for YouTube tracks, not radio.", ephemeral: true });
       return;
     }
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, "⏮️ Restarting track from the beginning…")],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, "⏮️ Restarting track from the beginning…"));
     return;
   }
 
@@ -354,10 +352,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       const fakeMsg = interaction.message as unknown as Message;
       const { execSwitchRadioStation } = await import("./radio.js");
       await execSwitchRadioStation(guildId, nextKey, fakeMsg);
-      await interaction.editReply({
-        embeds: [buildDjEmbed(guildId, `📻 Switched to **${RADIO_STATIONS[nextKey]?.name ?? nextKey}**.`)],
-        components: buildDjButtonRows(guildId),
-      });
+      await interaction.editReply(buildDjConsolePayload(guildId, `📻 Switched to **${RADIO_STATIONS[nextKey]?.name ?? nextKey}**.`));
       return;
     }
     const skipped = skipCurrentTrack(guildId);
@@ -365,10 +360,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       await interaction.reply({ content: "❌ Nothing to skip.", ephemeral: true });
       return;
     }
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, `⏭️ Skipped **${skipped}**.`)],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, `⏭️ Skipped **${skipped}**.`));
     return;
   }
 
@@ -382,16 +374,10 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
         const idx = state.queue.indexOf(state.youtubeUrl);
         if (idx !== -1) state.queue.splice(idx, 1);
       }
-      await interaction.update({
-        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled** — track will repeat." : "🔁 Loop **disabled**.")],
-        components: buildDjButtonRows(guildId),
-      });
+      await interaction.update(buildDjConsolePayload(guildId, nowOn ? "🔁 Loop **enabled** — track will repeat." : "🔁 Loop **disabled**."));
     } else {
       const nowOn = toggleDjLoop(guildId);
-      await interaction.update({
-        embeds: [buildDjEmbed(guildId, nowOn ? "🔁 Loop **enabled**." : "🔁 Loop **disabled**.")],
-        components: buildDjButtonRows(guildId),
-      });
+      await interaction.update(buildDjConsolePayload(guildId, nowOn ? "🔁 Loop **enabled**." : "🔁 Loop **disabled**."));
     }
     return;
   }
@@ -403,10 +389,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       await interaction.reply({ content: "❌ Nothing is playing.", ephemeral: true });
       return;
     }
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, "⏹️ Stopped and disconnected.")],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, "⏹️ Stopped and disconnected."));
     return;
   }
 
@@ -421,10 +404,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       return;
     }
     const newVol = getVolume(guildId);
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, `${action === "volup" ? "🔊" : "🔉"} Volume: **${Math.round(newVol * 100)}%**`)],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, `${action === "volup" ? "🔊" : "🔉"} Volume: **${Math.round(newVol * 100)}%**`));
     return;
   }
 
@@ -463,10 +443,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
       const j = Math.floor(Math.random() * (i + 1));
       [state.queue[i], state.queue[j]] = [state.queue[j]!, state.queue[i]!];
     }
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, `🔀 Queue shuffled — **${state.queue.length} tracks** reordered.`)],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, `🔀 Queue shuffled — **${state.queue.length} tracks** reordered.`));
     return;
   }
 
@@ -497,10 +474,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     const count = state.queue.length;
     state.queue = [];
     state.queueMessages = [];
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, `🗑️ Cleared **${count} track${count !== 1 ? "s" : ""}** from the queue.`)],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, `🗑️ Cleared **${count} track${count !== 1 ? "s" : ""}** from the queue.`));
     return;
   }
 
@@ -545,10 +519,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
   }
 
   if (action === "refresh") {
-    await interaction.update({
-      embeds: [buildDjEmbed(guildId, "🔄 Console refreshed.")],
-      components: buildDjButtonRows(guildId),
-    });
+    await interaction.update(buildDjConsolePayload(guildId, "🔄 Console refreshed."));
     return;
   }
 
@@ -583,10 +554,7 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
 
     try {
       await playRadio(fakeMsg, stationKey);
-      await interaction.editReply({
-        embeds: [buildDjEmbed(guildId, `${station.emoji} Now playing **${station.name}**!`)],
-        components: buildDjButtonRows(guildId),
-      });
+      await interaction.editReply(buildDjConsolePayload(guildId, `${station.emoji} Now playing **${station.name}**!`));
     } catch (err) {
       logger.error({ err, stationKey }, "DJ radio switch error");
       await interaction.followUp({ content: `❌ Failed to start **${station.name}**. Try again.`, ephemeral: true }).catch(() => null);
