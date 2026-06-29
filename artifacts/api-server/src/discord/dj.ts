@@ -65,6 +65,31 @@ export function hasDjPendingAdd(guildId: string, userId: string): boolean {
   return true;
 }
 
+// ── DJ image URL helper ───────────────────────────────────────────────────────
+
+/**
+ * Returns the public URL for the DJ console image based on playback state.
+ *  stopped.png  — nothing playing
+ *  playing1.gif — 1 source active (radio OR youtube)
+ *  playing2.gif — 2 sources simultaneously (soundboard effect over radio/youtube)
+ */
+function getDjImageUrl(guildId: string): string {
+  const base = process.env["REPLIT_DEV_DOMAIN"]
+    ? `https://${process.env["REPLIT_DEV_DOMAIN"]}`
+    : "http://localhost:8080";
+
+  const state = radioStates.get(guildId);
+  if (!state) return `${base}/dj/stopped.png`;
+
+  const isPlaying = !!(state.stationKey || state.youtubeTitle);
+  if (!isPlaying) return `${base}/dj/stopped.png`;
+
+  // sbResume means a soundboard effect is actively playing while
+  // the main playback is paused/queued → conceptually 2 "decks" live
+  const twoDecks = !!(state.sbResume);
+  return twoDecks ? `${base}/dj/playing2.gif` : `${base}/dj/playing1.gif`;
+}
+
 // ── Volume helpers ─────────────────────────────────────────────────────────────
 
 function volBar(vol: number): string {
@@ -109,6 +134,7 @@ export function buildDjEmbed(guildId: string, highlightMsg?: string): EmbedBuild
     .setColor(state?.youtubeTitle ? 0x5865f2 : state?.stationKey ? 0x57f287 : 0x2f3136)
     .setTitle("🎛️  DJ Console — Mixing Table")
     .setDescription(highlightMsg ? `> ${highlightMsg}\n\u200b` : "\u200b")
+    .setImage(getDjImageUrl(guildId))
     .addFields(
       { name: "🎚️  DECK A — Now Playing", value: deckA, inline: false },
       { name: "📊  Status", value: statusLine || "⏹️ Stopped", inline: true },

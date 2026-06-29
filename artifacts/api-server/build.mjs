@@ -3,16 +3,39 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, access } from "node:fs/promises";
+import { spawn } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** Regenerate DJ assets only when the generator script is newer than the output */
+async function ensureDjAssets() {
+  const outFile = path.resolve(artifactDir, "public/dj/playing1.gif");
+  const genScript = path.resolve(artifactDir, "scripts/generate-dj-assets.mjs");
+  try {
+    await access(outFile);
+    // Assets already exist — skip re-generation (fast build)
+    return;
+  } catch {
+    // File missing — generate
+  }
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [genScript], {
+      cwd: artifactDir,
+      stdio: "inherit",
+    });
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`Asset gen exited ${code}`))));
+  });
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
+
+  await ensureDjAssets();
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
