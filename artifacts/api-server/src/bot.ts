@@ -41,7 +41,7 @@ import { requireConsent, handleConsentButton, resetConsent } from "./discord/ai-
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
-import { startShellGame, handleShellGameButton, showShellGameStats } from "./discord/shellgame.js";
+import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimationTest } from "./discord/shellgame.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1982,6 +1982,16 @@ export function startBot(): void {
             .setFooter({ text: "Client utilisé : android+formats=missing_pot • Vidéo test : Rick Astley" });
 
           await statusMsg.edit({ content: "", embeds: [embed] });
+          break;
+        }
+
+        // ── Animation test ───────────────────────────────────────────────────────
+        case "animation": {
+          if (args[0]?.toLowerCase() === "test") {
+            await handleAnimationTest(message);
+          } else {
+            await message.reply(`🎩 Unknown sub-command. Usage: \`${guildPrefix}animation test\``);
+          }
           break;
         }
 

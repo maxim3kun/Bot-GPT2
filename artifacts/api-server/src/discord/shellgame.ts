@@ -11,6 +11,7 @@
 
 import { readFile, readdir } from "fs/promises";
 import path from "path";
+import type { Message } from "discord.js";
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
   type ChatInputCommandInteraction, type ButtonInteraction,
@@ -62,10 +63,10 @@ interface SGStatsDoc {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const NUM_CUPS: Record<Difficulty, number>         = { easy: 3, medium: 4, hard: 5 };
-const SHUFFLE_DURATION: Record<Difficulty, number> = { easy: 4200, medium: 5500, hard: 7000 };
-const INTRO_DURATION  = 2500;
-const CHOICE_TIMEOUT  = 15_000;
+const NUM_CUPS: Record<Difficulty, number> = { easy: 3, medium: 4, hard: 5 };
+const CHOICE_TIMEOUT = 15_000;
+/** Fallback duration if metadata is missing durationMs (ms). */
+const FALLBACK_DURATION: Record<Difficulty, number> = { easy: 15_000, medium: 16_000, hard: 17_000 };
 
 const COIN_RANGE: Record<Difficulty, [number, number]> = {
   easy:   [50,  100],
@@ -133,7 +134,13 @@ async function saveStats(stats: SGStatsDoc): Promise<void> {
 
 // ── Asset helpers ─────────────────────────────────────────────────────────────
 
-async function pickRandomAnimation(difficulty: Difficulty): Promise<{ dir: string; winningCup: number }> {
+interface AnimationMeta {
+  winningCup: number;
+  /** Total GIF duration in ms (intro + shuffle + final). */
+  durationMs?: number;
+}
+
+async function pickRandomAnimation(difficulty: Difficulty): Promise<{ dir: string; winningCup: number; durationMs: number }> {
   const diffDir = path.join(ASSET_BASE, difficulty);
   let folders: string[];
   try {
@@ -145,15 +152,15 @@ async function pickRandomAnimation(difficulty: Difficulty): Promise<{ dir: strin
   if (folders.length === 0) throw new Error(`No animation folders found in ${diffDir}`);
   const chosen = folders[Math.floor(Math.random() * folders.length)]!;
   const dir = path.join(diffDir, chosen);
-  const meta = JSON.parse(await readFile(path.join(dir, "metadata.json"), "utf8")) as { winningCup: number };
-  return { dir, winningCup: meta.winningCup };
+  const meta = JSON.parse(await readFile(path.join(dir, "metadata.json"), "utf8")) as AnimationMeta;
+  return { dir, winningCup: meta.winningCup, durationMs: meta.durationMs ?? FALLBACK_DURATION[difficulty] };
 }
 
-async function loadGif(filePath: string): Promise<Buffer | null> {
+async function loadFile(filePath: string): Promise<Buffer | null> {
   try {
     return await readFile(filePath);
   } catch {
-    logger.warn({ path: filePath }, "Shell game GIF not found");
+    logger.warn({ path: filePath }, "Shell game asset not found");
     return null;
   }
 }
@@ -263,33 +270,20 @@ function grantLossConsolation(stats: SGStatsDoc, difficulty: Difficulty): string
 const DIFF_EMOJI: Record<Difficulty, string> = { easy: "🟢", medium: "🟡", hard: "🔴" };
 const DIFF_LABEL: Record<Difficulty, string> = { easy: "Easy", medium: "Medium", hard: "Hard" };
 
-function buildIntroEmbed(session: SGSession): EmbedBuilder {
+function buildAnimEmbed(session: SGSession): EmbedBuilder {
   return new EmbedBuilder()
-    .setColor(COLORS.gold)
+    .setColor(COLORS.neutral)
     .setTitle("🎩 Shell Game")
     .setDescription(
       `**${session.username}** is playing on ${DIFF_EMOJI[session.difficulty]} **${DIFF_LABEL[session.difficulty]}**\n\n` +
-      `👀 **Watch carefully!** The ball is under **Cup 1** — remember where it is!\n` +
-      `The shuffle is about to begin…`,
+      `👀 **Watch carefully!** The ball starts under **Cup 1** — follow it through the shuffle!`,
     )
     .addFields(
-      { name: "Cups", value: `${session.numCups}`, inline: true },
+      { name: "Cups",       value: `${session.numCups}`,           inline: true },
       { name: "Difficulty", value: DIFF_LABEL[session.difficulty], inline: true },
-      { name: "You have", value: "15s to choose", inline: true },
+      { name: "You have",   value: "15s to choose",                inline: true },
     )
-    .setImage("attachment://intro.gif")
-    .setFooter({ text: "Shell Game • Get ready to follow the ball!" });
-}
-
-function buildShuffleEmbed(session: SGSession): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(COLORS.neutral)
-    .setTitle("🎩 Shell Game — Shuffling…")
-    .setDescription(
-      `**Follow the ball!** 👁️\n\n` +
-      `The cups are shuffling — keep your eye on the one hiding the ball!`,
-    )
-    .setImage("attachment://shuffle.gif")
+    .setImage("attachment://animation.gif")
     .setFooter({ text: "Shell Game • Don't lose track!" });
 }
 
@@ -302,6 +296,7 @@ function buildChoiceEmbed(session: SGSession): EmbedBuilder {
       `**Which cup is hiding the ball?**\n` +
       `You have **15 seconds** to choose. Trust your eyes!`,
     )
+    .setImage("attachment://final.png")
     .setFooter({ text: "Shell Game • Only you can interact with your game" });
 }
 
@@ -392,8 +387,9 @@ export async function startShellGame(interaction: ChatInputCommandInteraction): 
   // Pick a random animation
   let animDir: string;
   let winningCup: number;
+  let durationMs: number;
   try {
-    ({ dir: animDir, winningCup } = await pickRandomAnimation(difficulty));
+    ({ dir: animDir, winningCup, durationMs } = await pickRandomAnimation(difficulty));
   } catch (err) {
     logger.error({ err }, "shellgame: pickRandomAnimation failed");
     await interaction.editReply("❌ Shell Game assets are not ready. Please wait a moment and try again.");
@@ -408,59 +404,60 @@ export async function startShellGame(interaction: ChatInputCommandInteraction): 
     numCups,
     animationDir: animDir,
     winningCup,
-    phase: "intro",
+    phase: "shuffle",
     interaction,
     active: true,
   };
   sessions.set(userId, session);
 
-  // ── Step 1: Intro ──────────────────────────────────────────────────────────
-  const introGif = await loadGif(path.join(animDir, "intro.gif"));
-  const introFiles = introGif ? [{ attachment: introGif, name: "intro.gif" }] : [];
+  // ── Step 1: Send combined animation.gif immediately (no delay) ────────────
+  const animGif = await loadFile(path.join(animDir, "animation.gif"));
+  const animFiles = animGif ? [{ attachment: animGif, name: "animation.gif" }] : [];
 
-  await interaction.editReply({
-    embeds: [buildIntroEmbed(session)],
-    files: introFiles,
-  });
+  try {
+    await interaction.editReply({
+      embeds: [buildAnimEmbed(session)],
+      files: animFiles,
+    });
+  } catch (err) {
+    logger.error({ err }, "shellgame: anim send failed");
+    sessions.delete(userId);
+    return;
+  }
 
-  // ── Step 2: Shuffle (after INTRO_DURATION) ─────────────────────────────────
+  // Validate durationMs before using it in setTimeout (guard against bad metadata)
+  const safeDelay = Number.isFinite(durationMs) && durationMs > 0 && durationMs < 60_000
+    ? durationMs
+    : FALLBACK_DURATION[difficulty];
+
+  // ── Step 2: After the GIF has played out, show the static final image + buttons ──
   session.shuffleTimer = setTimeout(async () => {
     if (!session.active) return;
-    session.phase = "shuffle";
+    session.phase = "choice";
 
-    const shuffleGif = await loadGif(path.join(animDir, "shuffle.gif"));
-    const shuffleFiles = shuffleGif ? [{ attachment: shuffleGif, name: "shuffle.gif" }] : [];
+    const finalPng = await loadFile(path.join(animDir, "final.png"));
+    const finalFiles = finalPng ? [{ attachment: finalPng, name: "final.png" }] : [];
 
     try {
       await interaction.editReply({
-        embeds: [buildShuffleEmbed(session)],
-        files: shuffleFiles,
+        embeds: [buildChoiceEmbed(session)],
+        files: finalFiles,
+        components: buildCupButtons(numCups),
       });
-    } catch (err) { logger.error({ err }, "shellgame: shuffle edit failed"); }
+    } catch (err) {
+      logger.error({ err }, "shellgame: choice edit failed — cleaning up session");
+      session.active = false;
+      sessions.delete(userId);
+      return;
+    }
 
-    // ── Step 3: Choice buttons (after SHUFFLE_DURATION) ───────────────────
-    const choiceDelay = SHUFFLE_DURATION[difficulty];
-    session.shuffleTimer = setTimeout(async () => {
-      if (!session.active) return;
-      session.phase = "choice";
+    // ── Auto-timeout after CHOICE_TIMEOUT ───────────────────────────────
+    session.choiceTimer = setTimeout(async () => {
+      if (!session.active || session.phase !== "choice") return;
+      await finishGame(session, null);
+    }, CHOICE_TIMEOUT);
 
-      try {
-        await interaction.editReply({
-          embeds: [buildChoiceEmbed(session)],
-          files: [],
-          components: buildCupButtons(numCups),
-        });
-      } catch (err) { logger.error({ err }, "shellgame: choice edit failed"); return; }
-
-      // ── Auto-timeout after CHOICE_TIMEOUT ─────────────────────────────
-      session.choiceTimer = setTimeout(async () => {
-        if (!session.active || session.phase !== "choice") return;
-        await finishGame(session, null);
-      }, CHOICE_TIMEOUT);
-
-    }, choiceDelay);
-
-  }, INTRO_DURATION);
+  }, safeDelay);
 }
 
 // ── Game finish ───────────────────────────────────────────────────────────────
@@ -485,7 +482,7 @@ async function finishGame(session: SGSession, chosenCup: number | null): Promise
     stats.currentStreak = 0;
     await saveStats(stats);
 
-    const revealGif = await loadGif(path.join(animationDir, `reveal_lose_${winningCup}.gif`));
+    const revealGif = await loadFile(path.join(animationDir, `reveal_lose_${winningCup}.gif`));
     const revealFiles = revealGif ? [{ attachment: revealGif, name: "reveal.gif" }] : [];
     try {
       await interaction.editReply({
@@ -509,7 +506,7 @@ async function finishGame(session: SGSession, chosenCup: number | null): Promise
     stats.dailyRewardsClaimed++;
     await saveStats(stats);
 
-    const revealGif = await loadGif(path.join(animationDir, `reveal_win_${winningCup}.gif`));
+    const revealGif = await loadFile(path.join(animationDir, `reveal_win_${winningCup}.gif`));
     const revealFiles = revealGif ? [{ attachment: revealGif, name: "reveal.gif" }] : [];
     try {
       await interaction.editReply({
@@ -540,7 +537,7 @@ async function finishGame(session: SGSession, chosenCup: number | null): Promise
     // Step 2: After 1.5s, reveal the winning cup with ball
     await new Promise(r => setTimeout(r, 1500));
 
-    const revealGif = await loadGif(path.join(animationDir, `reveal_lose_${winningCup}.gif`));
+    const revealGif = await loadFile(path.join(animationDir, `reveal_lose_${winningCup}.gif`));
     const revealFiles = revealGif ? [{ attachment: revealGif, name: "reveal.gif" }] : [];
     try {
       await interaction.editReply({
@@ -598,6 +595,77 @@ export async function handleShellGameButton(interaction: ButtonInteraction): Pro
 
   // Process the choice
   await finishGame(session, chosenCup);
+}
+
+// ── Animation test command ────────────────────────────────────────────────────
+
+export async function handleAnimationTest(message: Message): Promise<void> {
+  // Admin-only gate — prevents channel spam of 10 large GIFs by non-admins
+  const member = (message as any).member;
+  const isAdmin = member?.permissions?.has("Administrator") || member?.permissions?.has("ManageGuild");
+  if (!isAdmin) {
+    await message.reply("🔒 Only server admins can use `!animation test` (it sends 10 GIFs to this channel).");
+    return;
+  }
+
+  const testBase = path.join(ASSET_BASE, "test");
+
+  // Check if test assets exist
+  try {
+    await readdir(testBase);
+  } catch {
+    await message.reply(
+      "❌ Test animations not found. Run the asset generator first:\n" +
+      "```\nnode artifacts/api-server/scripts/generate-shellgame-assets.mjs\n```",
+    );
+    return;
+  }
+
+  await message.reply(
+    "🎩 **Shell Game — Animation Style Test**\n" +
+    "Here are all **10 animation styles**. Watch each one and reply with the number of your favourite! " +
+    "Sending them now…",
+  );
+
+  for (let styleId = 1; styleId <= 10; styleId++) {
+    const styleDir = path.join(testBase, `style${styleId}`);
+    let meta: { name: string; description: string; durationMs: number } | null = null;
+
+    try {
+      meta = JSON.parse(await readFile(path.join(styleDir, "metadata.json"), "utf8"));
+    } catch {
+      // Style not generated yet — skip silently
+      continue;
+    }
+
+    const gifBuf = await loadFile(path.join(styleDir, "animation.gif"));
+    if (!gifBuf || !meta) continue;
+
+    const seconds = (meta.durationMs / 1000).toFixed(1);
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle(`Style ${styleId} — ${meta.name}`)
+      .setDescription(`*${meta.description}*\n\n⏱️ Duration: **${seconds}s**`)
+      .setImage("attachment://animation.gif")
+      .setFooter({ text: `Style ${styleId} of 10 • Reply with the number you want to keep!` });
+
+    try {
+      await (message.channel as any).send({
+        embeds: [embed],
+        files: [{ attachment: gifBuf, name: "animation.gif" }],
+      });
+    } catch (err) {
+      logger.error({ err, styleId }, "handleAnimationTest: send failed");
+    }
+
+    // Small delay between messages to respect Discord rate limits
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  await (message.channel as any).send(
+    "✅ **All 10 styles shown!** Reply with the style number (1–10) you'd like to use as the default shuffle animation.",
+  );
 }
 
 // ── Stats display ─────────────────────────────────────────────────────────────
