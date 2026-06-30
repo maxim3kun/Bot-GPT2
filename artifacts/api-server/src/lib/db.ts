@@ -170,6 +170,14 @@ export let mgLeaderboardCol: Collection<{
   userId: string; guildId: string; username: string; avatarUrl?: string;
   bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
 }> | null = null;
+export let sgStatsCol: Collection<{
+  userId: string;
+  gamesPlayed: number; wins: number; losses: number;
+  currentStreak: number; bestStreak: number;
+  coinsEarned: number; xpEarned: number; diamondsFound: number; jackpotsFound: number;
+  dailyRewardsClaimed: number; lastPlayed: Date;
+  dailyCoinDate: string | null; dailyCoinCount: number;
+}> | null = null;
 
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
@@ -205,6 +213,8 @@ export async function connectDb(): Promise<void> {
     mgLeaderboardCol = db.collection("mg_leaderboard");
     await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
     await mgLeaderboardCol.createIndex({ userId: 1, guildId: 1 }, { unique: true });
+    sgStatsCol = db.collection("sg_stats");
+    await sgStatsCol.createIndex({ userId: 1 }, { unique: true });
     await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");

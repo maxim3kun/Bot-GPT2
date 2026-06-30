@@ -31,11 +31,32 @@ async function ensureDjAssets() {
   });
 }
 
+/** Regenerate Shell Game assets only when they don't yet exist */
+async function ensureShellGameAssets() {
+  const outFile = path.resolve(artifactDir, "public/shellgame/easy/animation001/intro.gif");
+  const genScript = path.resolve(artifactDir, "scripts/generate-shellgame-assets.mjs");
+  try {
+    await access(outFile);
+    // Assets already exist — skip re-generation
+    return;
+  } catch {
+    // File missing — generate
+  }
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [genScript], {
+      cwd: artifactDir,
+      stdio: "inherit",
+    });
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`Shell game asset gen exited ${code}`))));
+  });
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
   await ensureDjAssets();
+  await ensureShellGameAssets();
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],

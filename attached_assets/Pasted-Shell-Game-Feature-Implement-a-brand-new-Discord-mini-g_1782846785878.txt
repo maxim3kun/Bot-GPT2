@@ -1,0 +1,292 @@
+Shell Game Feature
+Implement a brand-new Discord mini-game called Shell Game.
+What is Shell Game?
+Shell Game (also known as Three Cup Monte) is a classic observation and memory game.
+At the beginning of each round, a small ball is placed underneath one of several upside-down cups.
+The player is shown exactly where the ball is before the game starts.
+After a short delay, all cups cover their positions and begin shuffling around.
+The player’s objective is to carefully follow the cup containing the ball during the shuffle.
+When the shuffle stops, the player must select the cup they believe still hides the ball.
+If they choose correctly, they win a reward.
+If they choose incorrectly, they lose.
+The game should reward observation and memory, not pure luck.
+ 
+⸻
+ 
+Important
+This feature must integrate naturally into the existing Discord bot.
+* Follow the existing project architecture.
+* Follow the existing coding style.
+* Reuse the existing command system.
+* Reuse the existing embed builder.
+* Reuse the existing button utilities.
+* Reuse the existing localization system.
+* Reuse the existing database layer.
+* Reuse existing XP, profile, quest and economy systems whenever possible.
+* Do not redesign or restructure the project.
+* Do not introduce a different coding style.
+* The feature should feel like it has always been part of the bot.
+ 
+⸻
+ 
+Slash Command
+Create:
+/shellgame
+Difficulty options:
+* easy
+* medium
+* hard
+ 
+⸻
+ 
+Gameplay Flow
+Step 1 — Show the Ball
+When the game starts:
+Display all cups.
+One cup is lifted so the player can clearly see the ball underneath.
+Keep the ball visible for about 2 seconds.
+This allows the player to know exactly where the ball starts.
+ 
+⸻
+ 
+Step 2 — Cover the Ball
+The lifted cup closes.
+Every cup is now upside down.
+The shuffle immediately begins.
+ 
+⸻
+ 
+Step 3 — Shuffle Animation
+Do NOT calculate cup movements in code.
+Instead:
+Randomly select one pre-rendered shuffle animation.
+Each animation already knows where the ball ends.
+Every animation includes metadata such as:
+winningCup = 2
+
+The game logic must only read this value.
+
+Never attempt to calculate or analyse the animation.
+
+The animation should be smooth, easy to follow and fair.
+
+Players should genuinely be able to track the correct cup if they pay attention.
+
+Different shuffle patterns should exist so the game does not become repetitive.
+
+⸻
+
+Step 4 — Player Choice
+
+When the shuffle finishes:
+
+Edit the SAME Discord message.
+
+Display buttons allowing the player to choose a cup.
+
+Easy
+
+3 cups
+
+Medium
+
+4 cups
+
+Hard
+
+5 cups
+
+Only the player who started the game may interact.
+
+If another player presses a button:
+
+Send an ephemeral message explaining that the game does not belong to them.
+
+Players have 15 seconds to make a choice.
+
+If no choice is made:
+
+* disable every button
+* automatically reveal the correct cup
+* end the game
+
+⸻
+
+Step 5 — Reveal Animation
+
+After the player selects a cup:
+
+Edit the SAME Discord message.
+
+Play a reveal GIF.
+
+Never use static reveal images.
+
+If the player selected the correct cup:
+
+* lift the selected cup
+* reveal the ball underneath
+* display a victory message
+* award a reward
+
+If the player selected the wrong cup:
+
+* first lift the chosen cup (empty)
+* then lift the correct cup
+* reveal the ball
+* display a defeat message
+
+Disable every button after the game finishes.
+
+⸻
+
+Visual Assets
+
+Generate every visual asset required for the game.
+
+Do not use placeholder graphics.
+
+Generate polished, game-quality assets.
+
+Everything should share the same visual style.
+
+Assets must look good on both desktop and mobile Discord.
+
+Generate multiple unique shuffle animations for every difficulty.
+
+Generate multiple reveal animations.
+
+The cups should be easy to distinguish.
+
+The ball should always remain visible to the player before the shuffle begins.
+
+The reveal animation should feel satisfying.
+Asset Structure
+Example:
+
+resources/
+
+shellgame/
+
+easy/
+
+animation001/
+
+intro.gif
+shuffle.gif
+reveal_win_1.gif
+reveal_win_2.gif
+reveal_win_3.gif
+reveal_lose_1.gif
+reveal_lose_2.gif
+reveal_lose_3.gif
+metadata.json
+
+Medium and Hard follow the same structure.
+
+Adding new animations should only require adding a new folder.
+
+No code changes should ever be required.
+
+Metadata
+
+Each animation contains:
+
+* winningCup
+
+Nothing else is required.
+
+The animation itself is completely pre-rendered.
+
+The code only loads the assets and reads the metadata.
+
+⸻
+
+Rewards
+
+Winning a game grants one reward.
+
+Reward chances:
+
+* Coins — 65%
+* XP — 15%
+* Lottery Ticket — 8%
+* Common Chest — 5%
+* Double Reward Buff — 3%
+* Diamond — 2%
+* Mouse (nothing) — 1%
+* Bomb (lose reward) — 0.5%
+* Jackpot — 0.5%
+
+Reuse the project’s existing reward system whenever possible.
+
+⸻
+
+Daily Coin Limit
+
+Coins should only be awarded for the first three victories per day in Shell Game.
+
+Example:
+
+Victory 1 → Coins awarded
+
+Victory 2 → Coins awarded
+
+Victory 3 → Coins awarded
+
+Victory 4+ → No coins
+
+After reaching the daily limit, continue awarding:
+
+* XP
+* quest progress
+* achievements
+* statistics
+
+Players should always feel rewarded for playing.
+
+⸻
+
+Statistics
+
+Track:
+
+* Games played
+* Wins
+* Losses
+* Win rate
+* Current streak
+* Best streak
+* Coins earned
+* XP earned
+* Diamonds found
+* Jackpots found
+* Daily rewards claimed
+
+The statistics system should be reusable for future mini-games.
+
+⸻
+
+Code Quality
+
+Reuse existing utilities whenever possible.
+
+Avoid duplicated code.
+
+Keep the implementation modular.
+
+Only create new utilities if absolutely necessary.
+
+Do not modify unrelated files.
+
+The code should integrate naturally into the existing project.
+
+⸻
+
+Goal
+
+The final result should feel like a premium Discord mini-game.
+
+The entire experience should happen by editing a single Discord message.
+
+The game should be visually polished, responsive, easy to understand, rewarding to play, and based on player observation rather than luck.

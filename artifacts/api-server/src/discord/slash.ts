@@ -447,6 +447,29 @@ export const SLASH_COMMANDS = [
         ),
     )
     .toJSON(),
+
+  // ── Shell Game ────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("shellgame")
+    .setDescription("Play the Shell Game — follow the ball and find the right cup!")
+    .addStringOption(opt =>
+      opt.setName("difficulty")
+        .setDescription("Game difficulty")
+        .addChoices(
+          { name: "🟢 Easy (3 cups)",   value: "easy"   },
+          { name: "🟡 Medium (4 cups)", value: "medium" },
+          { name: "🔴 Hard (5 cups)",   value: "hard"   },
+        ),
+    )
+    .addStringOption(opt =>
+      opt.setName("action")
+        .setDescription("Action to perform")
+        .addChoices(
+          { name: "Play",  value: "play"  },
+          { name: "Stats", value: "stats" },
+        ),
+    )
+    .toJSON(),
 ] as const;
 
 export async function registerSlashCommands(clientId: string, token: string): Promise<void> {

@@ -41,6 +41,7 @@ import { requireConsent, handleConsentButton, resetConsent } from "./discord/ai-
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
+import { startShellGame, handleShellGameButton, showShellGameStats } from "./discord/shellgame.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -768,6 +769,17 @@ export function startBot(): void {
           playTrivia(fakeMsg, openai).catch((err) => logger.error({ err }, "/trivia error"));
           break;
         }
+
+        case "shellgame": {
+          if (!interaction.guildId) { await interaction.editReply("❌ Shell Game only works in a server."); break; }
+          const sgAction = interaction.options.getString("action") ?? "play";
+          if (sgAction === "stats") {
+            await showShellGameStats(interaction);
+          } else {
+            await startShellGame(interaction);
+          }
+          break;
+        }
       }
     } catch (err) {
       logger.error({ err, command: interaction.commandName }, "Slash command error");
@@ -832,6 +844,15 @@ export function startBot(): void {
     if (interaction.customId.startsWith("mg:")) {
       try { await handleMgButton(interaction); } catch (err) {
         logger.error({ err }, "milliongame button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
+    // ── Shell Game buttons ────────────────────────────────────────────────────
+    if (interaction.customId.startsWith("sg:")) {
+      try { await handleShellGameButton(interaction); } catch (err) {
+        logger.error({ err }, "shellgame button error");
         await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
       }
       return;
