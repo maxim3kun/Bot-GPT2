@@ -37,6 +37,10 @@ import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
+import { requireConsent, handleConsentButton, resetConsent } from "./discord/ai-consent.js";
+import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
+import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
+import { startMillionGame, handleMgButton } from "./discord/milliongame.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -800,6 +804,39 @@ export function startBot(): void {
       return;
     }
 
+    // ── AI consent buttons ───────────────────────────────────────────────────
+    if (interaction.customId.startsWith("ai_consent:")) {
+      try { await handleConsentButton(interaction); } catch (err) { logger.error({ err }, "ai_consent button error"); }
+      return;
+    }
+
+    // ── Tier list buttons ────────────────────────────────────────────────────
+    if (interaction.customId.startsWith("tl:")) {
+      try { await handleTierlistButton(interaction); } catch (err) {
+        logger.error({ err }, "tierlist button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
+    // ── Blind test buttons ───────────────────────────────────────────────────
+    if (interaction.customId.startsWith("bt:")) {
+      try { await handleBlindtestButton(interaction); } catch (err) {
+        logger.error({ err }, "blindtest button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
+    // ── Million Game buttons ─────────────────────────────────────────────────
+    if (interaction.customId.startsWith("mg:")) {
+      try { await handleMgButton(interaction); } catch (err) {
+        logger.error({ err }, "milliongame button error");
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
+
     // ── Now Playing buttons ─────────────────────────────────────────────────
     if (interaction.customId.startsWith("np:")) {
       const action = interaction.customId.split(":")[1];
@@ -1118,6 +1155,12 @@ export function startBot(): void {
     // --- Echo processing (runs before prefix check) ---
     await processEchoMessage(message, client.user?.id ?? "").catch(() => null);
 
+    // --- Blindtest hard-mode answer capture ---
+    if (message.guildId && !content.startsWith(guildPrefix)) {
+      const handled = await handleBlindtestMessage(message).catch(() => false);
+      if (handled) return;
+    }
+
     // --- DJ pending "Add Track" listener ---
     if (message.guildId && hasDjPendingAdd(message.guildId, message.author.id)) {
       consumeDjPendingAdd(message.guildId, message.author.id);
@@ -1228,6 +1271,7 @@ export function startBot(): void {
 
         case "conspiracy": {
           if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          if (!await requireConsent(message)) break;
           try {
             const topic = args.join(" ").trim();
             if (isSendable(message.channel)) await message.channel.sendTyping();
@@ -1282,7 +1326,26 @@ export function startBot(): void {
 
         case "trivia": {
           if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          if (!await requireConsent(message)) break;
           playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
+          break;
+        }
+
+        case "tierlist":
+        case "tier": {
+          await startTierlist(message, args).catch(err => { logger.error({ err }, "tierlist error"); message.reply("❌ Failed to start tier list.").catch(() => null); });
+          break;
+        }
+
+        case "blindtest":
+        case "musicquiz": {
+          await startBlindtest(message, args).catch(err => { logger.error({ err }, "blindtest error"); message.reply("❌ Failed to start blind test.").catch(() => null); });
+          break;
+        }
+
+        case "milliongame":
+        case "million": {
+          await startMillionGame(message).catch(err => { logger.error({ err }, "milliongame error"); message.reply("❌ Failed to start Million Game.").catch(() => null); });
           break;
         }
 
@@ -2628,8 +2691,15 @@ export function startBot(): void {
             break;
           }
 
+          if (subcommand === "reset") {
+            await resetConsent(message.author.id);
+            await message.reply("♻️ Your AI preference has been reset. Next AI command will ask for consent again.");
+            break;
+          }
+
           if (subcommand !== "battle") break;
           if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          if (!await requireConsent(message)) break;
           if (!client2) { await message.reply("❌ The second bot is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           if (!isSendable(message.channel)) break;
 

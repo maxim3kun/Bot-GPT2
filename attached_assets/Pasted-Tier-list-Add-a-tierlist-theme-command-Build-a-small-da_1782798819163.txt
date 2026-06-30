@@ -1,0 +1,28 @@
+Tier list :
+
+Add a !tierlist [theme] command:
+- Build a small database/list of characters or items related to the theme
+- Send a first message with the current tier list image (rows S/A/B/C/D), empty at the start
+- Send a second message below with the current item to classify and buttons: S, A, B, C, D, Pass
+- When a button is clicked, add the item to the right tier in message 1, then update message 2 with the next item
+- Continue until all items are classified, then show the final tier list
+
+Blindtest :
+
+Add a !blindtest [theme] [mode] command:
+- Search and fetch a short audio clip matching the theme (reuse YouTube search/audio logic from existing music commands if possible)
+- Two modes:
+- easy (default): send a message with 4 multiple choice buttons (1 correct answer + 3 plausible wrong ones)
+- hard: no buttons, users must type their answer in the chat; check if the message matches the correct title (allow minor typos/partial matches, case insensitive)
+- After 15 seconds or everyone answering, reveal the correct answer and who got it right
+- Track points across multiple rounds (e.g. 10 songs) — hard mode could award more points per correct answer
+- At the end, show a final leaderboard
+
+
+Add a !milliongame command — a trivia game with 15 progressively harder questions, distinct from the existing !trivia command. Generate an image for each question showing: the question text in the center, the 3 lifelines icons/labels on the top row (50/50, phone a friend, ask the audience — greyed out once used), and the 4 multiple choice answers (A/B/C/D) on the second row below. Use Discord buttons matching the answers for interaction. Track a virtual prize amount that increases with each correct answer, with two guaranteed checkpoints at question 5 and question 10 (failing after a checkpoint falls back to that amount). Player can quit anytime to bank current winnings. A wrong answer ends the game, keeping only the last checkpoint reached.
+
+Note: this is similar in concept to the classic “Who Wants to Be a Millionaire” game show format, but rebranded as “Million Game” for copyright reasons — follow the structure described above exactly, including the checkpoint amounts, lifelines, and image layout.
+
+For !milliongame, fetch trivia questions from the OpenTDB API (https://opentdb.com/api_config.php) instead of generating them with AI — filter by difficulty matching the question progression (easier questions early, harder later). This avoids AI usage and keeps the game fast and free.
+
+Before any AI-powered command is used by a user for the first time, send them a one-time confirmation message (via button: Yes/No) explaining briefly that this feature uses AI to generate content and may take a few seconds. Store their choice (accepted/declined) in the database so they aren’t asked again. If declined, the command should politely explain it requires AI and won’t run. Add a way for users to reset this preference (e.g. !ai reset).

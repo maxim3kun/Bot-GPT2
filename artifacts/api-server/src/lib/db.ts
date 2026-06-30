@@ -165,6 +165,7 @@ export let logoBrandsCol: Collection<LogoBrandMongoDoc> | null = null;
 export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
 export let customStationsCol: Collection<CustomStationDoc> | null = null;
 export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
+export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
 
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
@@ -195,6 +196,8 @@ export async function connectDb(): Promise<void> {
     artistCacheCol = db.collection<ArtistCacheDoc>("artist_cache");
     customStationsCol = db.collection<CustomStationDoc>("custom_radio_stations");
     foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
+    aiConsentCol = db.collection("ai_consent");
+    await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");

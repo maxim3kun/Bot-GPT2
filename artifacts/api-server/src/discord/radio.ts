@@ -607,10 +607,17 @@ async function playNextFromQueue(guildId: string): Promise<void> {
   }
 
   try {
-    // Use pre-loaded stream if available (already buffering), else spawn fresh
-    const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
-    preloadedStreamCache.delete(url);
-    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+    // Use pre-loaded stream if available (already buffering), else spawn fresh.
+    // If a guild FX filter is active, skip the preload cache and pipe through FFmpeg instead.
+    const fxFilterQ = getGuildFx(guildId);
+    const audioStream = fxFilterQ
+      ? ytdlpStreamWithFx(url, fxFilterQ)
+      : (preloadedStreamCache.get(url) ?? ytdlpStream(url));
+    if (!fxFilterQ) preloadedStreamCache.delete(url);
+    const resource = createAudioResource(audioStream, {
+      inputType: fxFilterQ ? StreamType.Raw : StreamType.Arbitrary,
+      inlineVolume: true,
+    });
     resource.volume?.setVolume(state.volume ?? 1.0);
     state.activeResource = resource;
 
@@ -1158,9 +1165,12 @@ async function execPlayYoutube(
   if (!state) return;
 
   // 🚀 Start yt-dlp immediately — while Discord API calls below are in flight, it's already running.
-  // Use pre-loaded stream if available (was buffering in background), else spawn fresh.
-  const audioStream = preloadedStreamCache.get(url) ?? ytdlpStream(url);
-  preloadedStreamCache.delete(url);
+  // If a guild FX filter is active, pipe the stream through FFmpeg before handing to Discord.
+  const fxFilter = getGuildFx(guildId);
+  const audioStream = fxFilter
+    ? ytdlpStreamWithFx(url, fxFilter)
+    : (preloadedStreamCache.get(url) ?? ytdlpStream(url));
+  if (!fxFilter) preloadedStreamCache.delete(url);
 
   // Info fetch runs in parallel with stream startup (skipped when metadata already known).
   // Go straight to yt-dlp — play-dl is unreliable on YouTube and adds serial latency when it fails.
@@ -1249,7 +1259,10 @@ async function execPlayYoutube(
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] }).catch(() => null);
   };
 
-  const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+  const resource = createAudioResource(audioStream, {
+    inputType: fxFilter ? StreamType.Raw : StreamType.Arbitrary,
+    inlineVolume: true,
+  });
   resource.volume?.setVolume(state.volume ?? 1.0);
   state.activeResource = resource;
   state.player.play(resource);

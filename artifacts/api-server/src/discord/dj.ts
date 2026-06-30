@@ -267,12 +267,16 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setStyle(ButtonStyle.Danger),
   );
 
-  // ── Row 5 — Mode tabs (always visible) ────────────────────────────────────
+  // ── Row 5 — Mode tabs (always visible): Deck · FX · Synth · ❤️ · 🎵 ──────
   const tabRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("dj:tab:deck")
       .setLabel("🎚️ Deck")
       .setStyle(mode === "deck" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("dj:tab:fx")
+      .setLabel("🎛️ FX")
+      .setStyle(mode === "fx" ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId("dj:tab:synth")
       .setLabel("🎹 Synth")
@@ -285,11 +289,29 @@ export function buildDjButtonRows(guildId: string): ActionRowBuilder<ButtonBuild
       .setCustomId("dj:nowplaying")
       .setEmoji("🎵")
       .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("dj:refresh")
-      .setEmoji("🔄")
-      .setStyle(ButtonStyle.Secondary),
   );
+
+  // ── FX MODE — rows 2-4 are audio effect presets ──────────────────────────
+  if (mode === "fx") {
+    const activeId = guildActiveFxId.get(guildId) ?? "none";
+    const makeFxRow = (presets: FxPreset[]) =>
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...presets.map(p =>
+          new ButtonBuilder()
+            .setCustomId(`dj:fx:${p.id}`)
+            .setEmoji(p.emoji)
+            .setLabel(p.label)
+            .setStyle(activeId === p.id ? ButtonStyle.Success : p.style),
+        ),
+      );
+    return [
+      row1,
+      makeFxRow(FX_PRESETS.slice(0, 5)),
+      makeFxRow(FX_PRESETS.slice(5, 10)),
+      makeFxRow(FX_PRESETS.slice(10)),
+      tabRow,
+    ];
+  }
 
   // ── SYNTH MODE — rows 2-4 are soundboard effect pads ─────────────────────
   if (mode === "synth") {
@@ -610,6 +632,54 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
   if (action === "tab:synth") {
     setDjMode(guildId, "synth");
     await interaction.update(buildDjConsolePayload(guildId, "🎹 **Synth mode** — tap a pad to play a sound effect!"));
+    return;
+  }
+
+  if (action === "tab:fx") {
+    setDjMode(guildId, "fx");
+    await interaction.update(buildDjConsolePayload(guildId, "🎛️ **FX mode** — pick an audio effect for your next track!"));
+    return;
+  }
+
+  // ── FX preset buttons ──────────────────────────────────────────────────────
+  if (action.startsWith("fx:")) {
+    const fxId = action.replace("fx:", "");
+    const preset = FX_PRESETS.find(p => p.id === fxId);
+    if (!preset) {
+      await interaction.reply({ content: "❌ Unknown FX preset.", ephemeral: true });
+      return;
+    }
+
+    guildActiveFxId.set(guildId, fxId);
+    setGuildFx(guildId, preset.filter);
+
+    const state = radioStates.get(guildId);
+    const isYtPlaying = !!(state?.youtubeTitle && state.youtubeTitle !== "Loading…" && !state.stationKey);
+    const isRadioPlaying = !!(state?.stationKey);
+
+    if (isRadioPlaying) {
+      await interaction.update(buildDjConsolePayload(guildId,
+        `🎛️ **${preset.label}** saved — FX apply to YouTube tracks. Switch to a YT track to hear it!`,
+      ));
+      return;
+    }
+
+    if (isYtPlaying) {
+      await interaction.deferUpdate();
+      await rewindCurrentTrack(guildId);
+      await interaction.editReply(buildDjConsolePayload(guildId,
+        fxId === "none"
+          ? "✨ **FX off** — restarting clean."
+          : `🎛️ **${preset.label}** ${preset.emoji} applied — restarting track with effect!`,
+      ));
+      return;
+    }
+
+    await interaction.update(buildDjConsolePayload(guildId,
+      fxId === "none"
+        ? "✨ **No FX** — next track will play clean."
+        : `🎛️ **${preset.label}** ${preset.emoji} ready — will apply to the next YouTube track!`,
+    ));
     return;
   }
 
