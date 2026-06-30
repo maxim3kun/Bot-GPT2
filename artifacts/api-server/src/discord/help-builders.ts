@@ -244,7 +244,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         ].join("\n"),
       },
       {
-        name: "💰 Million Game  —  `!milliongame`",
+        name: "💰 Million Game  —  `!milliongame`  ·  `!million leaderboard`",
         value: [
           { en: "15 questions from €100 to €1,000,000. 3 lifelines: 50/50 · Phone a Friend · Ask the Audience. Safe checkpoints at Q5 & Q10.",
             fr: "15 questions de 100€ à 1 000 000€. 3 jokers : 50/50 · Téléphone ami · Sondage public. Paliers de sécurité Q5 & Q10.",
@@ -252,6 +252,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
             de: "15 Fragen von 100€ bis 1.000.000€. 3 Joker: 50/50 · Telefonjoker · Publikumsjoker. Sicherheitsstufen bei F5 & F10.",
             pt: "15 perguntas de €100 a €1.000.000. 3 salva-vidas: 50/50 · Ligar amigo · Placar do público. Checkpoints em Q5 & Q10.",
             it: "15 domande da €100 a €1.000.000. 3 aiuti: 50/50 · Chiama amico · Sondaggio. Checkpoint sicuri a Q5 e Q10." }[tl] ?? "",
+          `> 📊 \`${p}million leaderboard\` · \`${p}million top\` — ` + { en: "Server leaderboard (best prize per player)", fr: "Classement du serveur (meilleur gain par joueur)", es: "Tabla del servidor (mejor premio por jugador)", de: "Server-Rangliste (bestes Ergebnis pro Spieler)", pt: "Placar do servidor (melhor prêmio por jogador)", it: "Classifica server (miglior premio per giocatore)" }[tl],
         ].join("\n"),
       },
     );

@@ -1,8 +1,63 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Message, type ButtonInteraction } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Message, type ButtonInteraction, type Guild } from "discord.js";
 import { logger } from "../lib/logger.js";
+import { mgLeaderboardCol } from "../lib/db.js";
 
 const PRIZE_LADDER = [100,200,500,1_000,2_000,4_000,8_000,16_000,32_000,64_000,125_000,250_000,500_000,750_000,1_000_000];
-const CHECKPOINTS: number[] = [4, 9]; // indices (0-based) of safe amounts (questions 5 and 10)
+const CHECKPOINTS: number[] = [4, 9]; // indices (0-based): questions 5 and 10
+
+// ── In-memory leaderboard fallback ───────────────────────────────────────────
+
+interface LbEntry {
+  userId: string; guildId: string; username: string; avatarUrl?: string;
+  bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
+}
+const memLb = new Map<string, LbEntry>(); // key = `${guildId}:${userId}`
+
+async function saveScore(userId: string, guildId: string, username: string, avatarUrl: string | undefined, prize: number, won: boolean): Promise<void> {
+  const key = `${guildId}:${userId}`;
+  if (mgLeaderboardCol) {
+    try {
+      await mgLeaderboardCol.updateOne(
+        { userId, guildId },
+        {
+          $set: { username, avatarUrl, lastPlayed: new Date() },
+          $max: { bestScore: prize },
+          $inc: { gamesPlayed: 1, totalWon: prize, wins: won ? 1 : 0 },
+        },
+        { upsert: true },
+      );
+    } catch (err) { logger.error({ err }, "mg leaderboard save error"); }
+    return;
+  }
+  // in-memory fallback
+  const existing = memLb.get(key);
+  memLb.set(key, {
+    userId, guildId, username, avatarUrl,
+    bestScore: Math.max(prize, existing?.bestScore ?? 0),
+    gamesPlayed: (existing?.gamesPlayed ?? 0) + 1,
+    totalWon: (existing?.totalWon ?? 0) + prize,
+    wins: (existing?.wins ?? 0) + (won ? 1 : 0),
+    lastPlayed: new Date(),
+  });
+}
+
+async function getLeaderboard(guildId: string): Promise<LbEntry[]> {
+  if (mgLeaderboardCol) {
+    try {
+      return await mgLeaderboardCol
+        .find({ guildId })
+        .sort({ bestScore: -1 })
+        .limit(10)
+        .toArray() as LbEntry[];
+    } catch (err) { logger.error({ err }, "mg leaderboard fetch error"); }
+  }
+  return [...memLb.values()]
+    .filter(e => e.guildId === guildId)
+    .sort((a, b) => b.bestScore - a.bestScore)
+    .slice(0, 10);
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface OtdbQuestion {
   question: string;
@@ -15,6 +70,8 @@ interface MGSession {
   userId: string;
   channelId: string;
   guildId: string;
+  username: string;
+  avatarUrl?: string;
   questionIndex: number;
   questions: Array<{ text: string; answers: string[]; correctIdx: number }>;
   lifelines: { fiftyfifty: boolean; phone: boolean; audience: boolean };
@@ -24,6 +81,8 @@ interface MGSession {
 }
 
 const sessions = new Map<string, MGSession>();
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function decodeHtml(s: string): string {
   return s
@@ -59,12 +118,20 @@ async function fetchQuestions(): Promise<MGSession["questions"] | null> {
 
 const LETTER = ["A","B","C","D"] as const;
 
+const MEDAL = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
+
+function fmt(n: number): string {
+  return `€${n.toLocaleString("en-US")}`;
+}
+
+// ── Embed builders ────────────────────────────────────────────────────────────
+
 function buildMgEmbed(session: MGSession): EmbedBuilder {
   const qi = session.questionIndex;
   const q = session.questions[qi]!;
   const prize = PRIZE_LADDER[qi]!.toLocaleString("en-US");
-  const safe = session.safeAmount > 0 ? `€${session.safeAmount.toLocaleString("en-US")}` : "€0";
-  const next = qi < PRIZE_LADDER.length - 1 ? `€${PRIZE_LADDER[qi + 1]!.toLocaleString("en-US")}` : "—";
+  const safe = session.safeAmount > 0 ? fmt(session.safeAmount) : "€0";
+  const next = qi < PRIZE_LADDER.length - 1 ? fmt(PRIZE_LADDER[qi + 1]!) : "—";
 
   const lifelineStatus = [
     session.lifelines.fiftyfifty ? "~~50/50~~" : "**50/50**",
@@ -72,7 +139,7 @@ function buildMgEmbed(session: MGSession): EmbedBuilder {
     session.lifelines.audience ? "~~👥~~" : "**👥**",
   ].join("  ·  ");
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(`🎯 Question ${qi + 1} of 15 — 💰 €${prize}`)
     .setDescription(`### ${q.text}`)
@@ -85,8 +152,6 @@ function buildMgEmbed(session: MGSession): EmbedBuilder {
       { name: "\u200b", value: "\u200b", inline: true },
     )
     .setFooter({ text: `Safe: ${safe}  |  Next milestone: ${next}  |  Lifelines: ${lifelineStatus}` });
-
-  return embed;
 }
 
 function buildMgButtons(session: MGSession, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -108,11 +173,43 @@ function buildMgButtons(session: MGSession, disabled = false): ActionRowBuilder<
   return [answerRow, lifelineRow];
 }
 
+// ── Leaderboard display ───────────────────────────────────────────────────────
+
+export async function showMillionLeaderboard(message: Message): Promise<void> {
+  if (!message.guildId) { await message.reply("❌ Server only."); return; }
+
+  const entries = await getLeaderboard(message.guildId);
+
+  if (entries.length === 0) {
+    await message.reply("📊 No games recorded yet in this server. Start one with `!milliongame`!");
+    return;
+  }
+
+  const guild = message.guild as Guild;
+
+  const rows = entries.map((e, i) => {
+    const medal = MEDAL[i] ?? `${i + 1}.`;
+    const winBadge = e.wins > 0 ? ` 🏆×${e.wins}` : "";
+    return `${medal} **${e.username}**${winBadge}\n> Best: **${fmt(e.bestScore)}** · Total: ${fmt(e.totalWon)} · ${e.gamesPlayed} game${e.gamesPlayed !== 1 ? "s" : ""}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle(`💰 Million Game — Leaderboard  ·  ${guild.name}`)
+    .setDescription(rows.join("\n\n"))
+    .setThumbnail(guild.iconURL() ?? null)
+    .setFooter({ text: "Best prize won per player  •  !milliongame to play" })
+    .setTimestamp();
+
+  await message.reply({ embeds: [embed] });
+}
+
+// ── Game start ────────────────────────────────────────────────────────────────
+
 export async function startMillionGame(message: Message): Promise<void> {
   if (!message.guildId) { await message.reply("❌ Server only."); return; }
 
-  const existing = sessions.get(message.author.id);
-  if (existing) {
+  if (sessions.has(message.author.id)) {
     await message.reply("⚠️ You already have an active game! Finish it first.");
     return;
   }
@@ -125,10 +222,13 @@ export async function startMillionGame(message: Message): Promise<void> {
     return;
   }
 
+  const member = message.guild?.members.cache.get(message.author.id);
   const session: MGSession = {
     userId: message.author.id,
     channelId: message.channelId,
     guildId: message.guildId,
+    username: message.author.displayName,
+    avatarUrl: member?.displayAvatarURL() ?? message.author.displayAvatarURL(),
     questionIndex: 0,
     questions,
     lifelines: { fiftyfifty: false, phone: false, audience: false },
@@ -141,6 +241,8 @@ export async function startMillionGame(message: Message): Promise<void> {
   session.msgId = msg.id;
   sessions.set(message.author.id, session);
 }
+
+// ── Button handler ────────────────────────────────────────────────────────────
 
 export async function handleMgButton(interaction: ButtonInteraction): Promise<void> {
   const session = sessions.get(interaction.user.id);
@@ -157,18 +259,23 @@ export async function handleMgButton(interaction: ButtonInteraction): Promise<vo
   const parts = interaction.customId.split(":");
   const action = parts[1];
 
+  // ── Walk away ────────────────────────────────────────────────────────────
   if (action === "walkaway") {
     session.active = false;
     sessions.delete(interaction.user.id);
     const winnings = session.safeAmount;
+    await saveScore(session.userId, session.guildId, session.username, session.avatarUrl, winnings, false);
     await interaction.update({
-      content: `🚶 **${interaction.user.displayName} walked away with €${winnings.toLocaleString("en-US")}!**`,
-      embeds: [new EmbedBuilder().setColor(0xf1c40f).setDescription(`The correct answer was **${LETTER[session.questions[session.questionIndex]!.correctIdx]}**. Smart choice!`)],
+      content: `🚶 **${interaction.user.displayName} walked away with ${fmt(winnings)}!**`,
+      embeds: [new EmbedBuilder()
+        .setColor(0xf1c40f)
+        .setDescription(`The correct answer was **${LETTER[session.questions[session.questionIndex]!.correctIdx]}**. Smart choice!\n\n📊 \`!million leaderboard\` to see the rankings.`)],
       components: [],
     });
     return;
   }
 
+  // ── Lifelines ─────────────────────────────────────────────────────────────
   if (action === "lifeline") {
     const type = parts[2];
     const q = session.questions[session.questionIndex]!;
@@ -199,6 +306,7 @@ export async function handleMgButton(interaction: ButtonInteraction): Promise<vo
     return;
   }
 
+  // ── Answer ────────────────────────────────────────────────────────────────
   if (action === "ans") {
     const chosen = parseInt(parts[2] ?? "0");
     const q = session.questions[session.questionIndex]!;
@@ -209,34 +317,43 @@ export async function handleMgButton(interaction: ButtonInteraction): Promise<vo
       const prize = PRIZE_LADDER[qi]!;
       if (CHECKPOINTS.includes(qi)) session.safeAmount = prize;
 
+      // ── WINNER ─────────────────────────────────────────────────────────
       if (qi === 14) {
         session.active = false;
         sessions.delete(interaction.user.id);
+        await saveScore(session.userId, session.guildId, session.username, session.avatarUrl, 1_000_000, true);
         await interaction.update({
           content: `🏆 **${interaction.user.displayName} WON €1,000,000!** 🎉`,
-          embeds: [new EmbedBuilder().setColor(0xf1c40f).setTitle("🥇 MILLIONNAIRE!").setDescription("You answered all 15 questions correctly. Incredible!")],
+          embeds: [new EmbedBuilder()
+            .setColor(0xf1c40f)
+            .setTitle("🥇 MILLIONNAIRE!")
+            .setDescription("You answered all 15 questions correctly. Incredible!\n\n📊 `!million leaderboard` to see the rankings.")],
           components: [],
         });
         return;
       }
 
       session.questionIndex++;
-      const nextEmbed = buildMgEmbed(session);
       const correctLabel = LETTER[correct];
       await interaction.update({
-        content: `✅ Correct! **${correctLabel}** — you've won **€${prize.toLocaleString("en-US")}**${CHECKPOINTS.includes(qi) ? " 🛡️ (Checkpoint!)" : ""}`,
-        embeds: [nextEmbed],
+        content: `✅ Correct! **${correctLabel}** — you've won **${fmt(prize)}**${CHECKPOINTS.includes(qi) ? " 🛡️ (Checkpoint!)" : ""}`,
+        embeds: [buildMgEmbed(session)],
         components: buildMgButtons(session),
       });
     } else {
+      // ── WRONG ──────────────────────────────────────────────────────────
       session.active = false;
       sessions.delete(interaction.user.id);
+      const winnings = session.safeAmount;
+      await saveScore(session.userId, session.guildId, session.username, session.avatarUrl, winnings, false);
       const wrong = LETTER[chosen];
       const correctLabel = LETTER[correct];
-      const winnings = session.safeAmount;
       await interaction.update({
-        content: `❌ **Wrong!** You chose **${wrong}** but the answer was **${correctLabel}**. You leave with **€${winnings.toLocaleString("en-US")}**.`,
-        embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("Game Over").setDescription(`Correct answer: **${correctLabel}** — ${q.answers[correct]}`)],
+        content: `❌ **Wrong!** You chose **${wrong}** but the answer was **${correctLabel}**. You leave with **${fmt(winnings)}**.`,
+        embeds: [new EmbedBuilder()
+          .setColor(0xed4245)
+          .setTitle("Game Over")
+          .setDescription(`Correct answer: **${correctLabel}** — ${q.answers[correct]}\n\n📊 \`!million leaderboard\` to see the rankings.`)],
         components: [],
       });
     }

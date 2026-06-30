@@ -166,6 +166,10 @@ export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
 export let customStationsCol: Collection<CustomStationDoc> | null = null;
 export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
+export let mgLeaderboardCol: Collection<{
+  userId: string; guildId: string; username: string; avatarUrl?: string;
+  bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
+}> | null = null;
 
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
@@ -198,6 +202,9 @@ export async function connectDb(): Promise<void> {
     foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
     aiConsentCol = db.collection("ai_consent");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
+    mgLeaderboardCol = db.collection("mg_leaderboard");
+    await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
+    await mgLeaderboardCol.createIndex({ userId: 1, guildId: 1 }, { unique: true });
     await logoBrandsCol.createIndex({ tier: 1, approved: 1 });
     await usersCol.createIndex({ birthdayDay: 1, birthdayMonth: 1 }, { sparse: true });
     logger.info("MongoDB connected");

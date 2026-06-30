@@ -40,7 +40,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
-import { startMillionGame, handleMgButton } from "./discord/milliongame.js";
+import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1345,7 +1345,12 @@ export function startBot(): void {
 
         case "milliongame":
         case "million": {
-          await startMillionGame(message).catch(err => { logger.error({ err }, "milliongame error"); message.reply("❌ Failed to start Million Game.").catch(() => null); });
+          const sub = args[0]?.toLowerCase();
+          if (sub === "leaderboard" || sub === "top" || sub === "lb" || sub === "classement") {
+            await showMillionLeaderboard(message).catch(err => { logger.error({ err }, "million leaderboard error"); message.reply("❌ Failed to load leaderboard.").catch(() => null); });
+          } else {
+            await startMillionGame(message).catch(err => { logger.error({ err }, "milliongame error"); message.reply("❌ Failed to start Million Game.").catch(() => null); });
+          }
           break;
         }
 
