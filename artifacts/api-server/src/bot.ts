@@ -40,6 +40,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
+import { classifyAiMessage, currentTimeAnswer, directGreeting } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -69,18 +70,6 @@ function isBotMentioned(message: Message, botId: string): boolean {
 
 function stripMentions(content: string): string {
   return content.replace(/<@!?\d+>/g, "").trim();
-}
-
-function isSimpleGreeting(content: string): boolean {
-  const normalized = content
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[!?.,;:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)(?: (?:bot|ia|toi|a toi))?$/.test(normalized);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1134,9 +1123,33 @@ export function startBot(): void {
     // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
     if (isDm && !content.startsWith(guildPrefix)) {
-      if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
+      const route = classifyAiMessage(userText);
+      if (route.intent === "greeting") {
+        await message.reply(directGreeting(message));
+        return;
+      }
+      if (route.intent === "time") {
+        await message.reply(currentTimeAnswer(userText) ?? "Je ne peux pas déterminer le fuseau horaire demandé.");
+        return;
+      }
+      if (route.intent === "research") {
+        await message.reply(
+          "🔎 Je ne peux pas encore consulter Internet dans ce serveur. " +
+          "Je préfère te le dire plutôt que d’inventer une information récente ou une source. " +
+          "Reconnecte l’intégration de recherche web pour activer cette fonction.",
+        );
+        return;
+      }
+      if (route.intent === "discord_action") {
+        await message.reply(
+          "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
+          "Je ne vais pas prétendre l’avoir faite.",
+        );
+        return;
+      }
+      if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -1161,18 +1174,42 @@ export function startBot(): void {
     }
 
     // --- @mention AI chat ---
-    if (openai && !isDm && botId && isBotMentioned(message, botId)) {
+    if (!isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
+      const route = classifyAiMessage(userText);
+      if (route.intent === "greeting") {
+        await message.reply(directGreeting(message));
+        return;
+      }
+      if (route.intent === "time") {
+        await message.reply(currentTimeAnswer(userText) ?? "Je ne peux pas déterminer le fuseau horaire demandé.");
+        return;
+      }
+      if (route.intent === "research") {
+        await message.reply(
+          "🔎 Je ne peux pas encore consulter Internet dans ce serveur. " +
+          "Je préfère te le dire plutôt que d’inventer une information récente ou une source. " +
+          "Reconnecte l’intégration de recherche web pour activer cette fonction.",
+        );
+        return;
+      }
+      if (route.intent === "discord_action") {
+        await message.reply(
+          "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
+          "Je ne vais pas prétendre l’avoir faite.",
+        );
+        return;
+      }
+      if (!openai) {
+        await message.reply("❌ Les fonctions IA ne sont pas configurées. Demande à un modérateur de les activer.");
+        return;
+      }
       try {
-        // Moderation is scoped to mentions so normal conversation is never sent
-        // to the moderation model or acted on by the bot.
-        // A direct greeting must always receive a normal answer. This
-        // deterministic guard also protects against a classifier false
-        // positive on short, harmless messages.
-        const wasModerated = isSimpleGreeting(userText)
-          ? false
-          : await moderateMentionedMessage(message, openai);
+        // Moderation is scoped to messages that need an AI response. Direct
+        // greetings, time lookups and unsupported actions never need a
+        // classifier call.
+        const wasModerated = await moderateMentionedMessage(message, openai);
         if (wasModerated) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -1181,7 +1218,7 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}` },
+            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. Do not create citations or links. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}` },
             ...getHistory(message.channelId),
           ],
         });
