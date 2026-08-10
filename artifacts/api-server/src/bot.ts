@@ -71,6 +71,18 @@ function stripMentions(content: string): string {
   return content.replace(/<@!?\d+>/g, "").trim();
 }
 
+function isSimpleGreeting(content: string): boolean {
+  const normalized = content
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[!?.,;:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)(?: (?:bot|ia|toi|a toi))?$/.test(normalized);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1132,7 +1144,7 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in." },
+            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer." },
             ...getHistory(message.channelId),
           ],
         });
@@ -1155,7 +1167,12 @@ export function startBot(): void {
       try {
         // Moderation is scoped to mentions so normal conversation is never sent
         // to the moderation model or acted on by the bot.
-        const wasModerated = await moderateMentionedMessage(message, openai);
+        // A direct greeting must always receive a normal answer. This
+        // deterministic guard also protects against a classifier false
+        // positive on short, harmless messages.
+        const wasModerated = isSimpleGreeting(userText)
+          ? false
+          : await moderateMentionedMessage(message, openai);
         if (wasModerated) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
@@ -1164,7 +1181,7 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. If the user is insulting you, do not insult them back: you may decline to answer politely.${memoryContext}` },
+            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}` },
             ...getHistory(message.channelId),
           ],
         });

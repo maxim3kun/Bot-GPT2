@@ -63,8 +63,11 @@ async function applySafetyActions(message: Message, decision: ModerationDecision
     }
   }
 
+  // Reactions are only a social cue. They must never prevent the normal AI
+  // reply: otherwise a harmless "bonjour" can receive an emoji and then be
+  // silently ignored. Only a severe decision is allowed to take over the
+  // conversation.
   if (decision.severity !== "severe" || !message.guildId) {
-    if (decision.reply) await message.reply(decision.reply).catch(() => null);
     return;
   }
 
@@ -111,19 +114,26 @@ export async function moderateMentionedMessage(message: Message, openai: OpenAI)
             "You are a calm Discord safety classifier. Analyze the user's message, in any language. " +
             "Classify direct insults, harassment, threats, hate, sexual abuse, or repeated hostile baiting toward the bot. " +
             "Return JSON only: {\"severity\":\"none|rude|severe\",\"reply\":\"short neutral response or empty string\",\"reactions\":[\"emoji\"]}. " +
+            "A greeting, question, disagreement, joke, confusion, apology, or ordinary profanity not directed as abuse is always severity none. " +
             "Use severe only for serious abuse, threats, hate, sexual harassment, or clearly demeaning insults. " +
             "For rude, a neutral boundary is fine. Never mock, humiliate, threaten, or retaliate. " +
             "Use zero, one, or two reactions from this list only: 👍 👎 😐 ⚠️ 🤨 ❤️. " +
-            "If severe, reply in the user's language and say the bot will not engage with abuse.",
+            "Do not treat a reaction as a replacement for an answer. If severe, reply in the user's language and say the bot will not engage with abuse.",
         },
         { role: "user", content: message.content.slice(0, 4000) },
       ],
     });
     incrementGroqCalls();
     const decision = parseDecision(response.choices[0]?.message?.content ?? "");
-    if (decision.severity === "none" && !decision.reply && decision.reactions.length === 0) return false;
+    if (decision.severity === "none") {
+      // Ignore any stray reply/reaction fields from the classifier. A
+      // non-aggressive message must continue through the normal AI handler.
+      return false;
+    }
     await applySafetyActions(message, decision);
-    return decision.severity !== "none" || decision.reactions.length > 0 || !!decision.reply;
+    // "rude" can receive a reaction, but still gets a normal AI response.
+    // Only "severe" abuse is allowed to suppress that response.
+    return decision.severity === "severe";
   } catch (err) {
     logger.warn({ err, guildId: message.guildId }, "AI moderation check failed");
     return false;
