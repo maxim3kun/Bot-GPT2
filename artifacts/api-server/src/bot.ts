@@ -37,7 +37,9 @@ import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
-import { requireConsent, handleConsentButton, resetConsent } from "./discord/ai-consent.js";
+import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
+import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
+import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -822,6 +824,11 @@ export function startBot(): void {
       return;
     }
 
+    if (interaction.customId.startsWith("ai_memory_consent:")) {
+      try { await handleMemoryConsentButton(interaction); } catch (err) { logger.error({ err }, "ai_memory_consent button error"); }
+      return;
+    }
+
     // ── Tier list buttons ────────────────────────────────────────────────────
     if (interaction.customId.startsWith("tl:")) {
       try { await handleTierlistButton(interaction); } catch (err) {
@@ -1146,13 +1153,18 @@ export function startBot(): void {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
       try {
+        // Moderation is scoped to mentions so normal conversation is never sent
+        // to the moderation model or acted on by the bot.
+        const wasModerated = await moderateMentionedMessage(message, openai);
+        if (wasModerated) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+        const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in." },
+            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. If the user is insulting you, do not insult them back: you may decline to answer politely.${memoryContext}` },
             ...getHistory(message.channelId),
           ],
         });
@@ -2715,6 +2727,8 @@ export function startBot(): void {
 
         // ── AI Battle ────────────────────────────────────────────────────────────
         case "ai": {
+          const memoryHandled = await handleAiMemoryCommand(message, args);
+          if (memoryHandled) break;
           const subcommand = args.shift()?.toLowerCase();
 
           if (subcommand === "stop") {

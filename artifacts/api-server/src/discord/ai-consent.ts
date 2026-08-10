@@ -12,6 +12,7 @@ async function getCol() {
 }
 
 type ConsentStatus = "accepted" | "declined" | "unknown";
+type ConsentDoc = { userId: string; status: ConsentStatus; memoryStatus?: ConsentStatus };
 const cache = new Map<string, ConsentStatus>();
 
 export async function getConsent(userId: string): Promise<ConsentStatus> {
@@ -34,6 +35,28 @@ export async function setConsent(userId: string, status: "accepted" | "declined"
     try {
       await col.updateOne({ userId }, { $set: { userId, status } }, { upsert: true });
     } catch (e) { logger.warn({ e }, "ai-consent: DB write failed"); }
+  }
+}
+
+export async function getMemoryConsent(userId: string): Promise<ConsentStatus> {
+  const col = await getCol();
+  if (!col) return "unknown";
+  try {
+    const doc = await col.findOne({ userId }) as ConsentDoc | null;
+    return doc?.memoryStatus ?? "unknown";
+  } catch (e) {
+    logger.warn({ e }, "ai-consent: memory consent read failed");
+    return "unknown";
+  }
+}
+
+export async function setMemoryConsent(userId: string, status: "accepted" | "declined"): Promise<void> {
+  const col = await getCol();
+  if (!col) return;
+  try {
+    await col.updateOne({ userId }, { $set: { userId, memoryStatus: status } }, { upsert: true });
+  } catch (e) {
+    logger.warn({ e }, "ai-consent: memory consent write failed");
   }
 }
 
@@ -63,6 +86,24 @@ export function buildConsentPrompt(): { embeds: EmbedBuilder[]; components: Acti
   return { embeds: [embed], components: [row] };
 }
 
+export function buildMemoryConsentPrompt(userId: string): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🧠 Mémoire personnalisée — consentement")
+    .setDescription(
+      "Veux-tu autoriser l’enregistrement de **ce que tu demandes explicitement de retenir** ?\n\n" +
+      "Les souvenirs sont chiffrés dans MongoDB, séparés par serveur, et visibles uniquement par toi. " +
+      "Le bot ne mémorise rien automatiquement.",
+    )
+    .setFooter({ text: "Tu peux supprimer ta mémoire avec !ai forget all." });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`ai_memory_consent:yes:${userId}`).setLabel("✅ Oui, autoriser").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`ai_memory_consent:no:${userId}`).setLabel("❌ Non merci").setStyle(ButtonStyle.Danger),
+  );
+  return { embeds: [embed], components: [row] };
+}
+
 export async function requireConsent(message: Message): Promise<boolean> {
   const status = await getConsent(message.author.id);
   if (status === "accepted") return true;
@@ -71,6 +112,17 @@ export async function requireConsent(message: Message): Promise<boolean> {
     return false;
   }
   await message.reply(buildConsentPrompt());
+  return false;
+}
+
+export async function requireMemoryConsent(message: Message): Promise<boolean> {
+  const status = await getMemoryConsent(message.author.id);
+  if (status === "accepted") return true;
+  if (status === "declined") {
+    await message.reply("🚫 Tu as refusé la mémoire personnalisée. Utilise `!ai memory reset` si tu veux changer ce choix.");
+    return false;
+  }
+  await message.reply(buildMemoryConsentPrompt(message.author.id));
   return false;
 }
 
@@ -86,6 +138,27 @@ export async function handleConsentButton(interaction: ButtonInteraction): Promi
     await setConsent(interaction.user.id, "declined");
     await interaction.update({
       embeds: [new EmbedBuilder().setColor(0xed4245).setDescription("❌ **AI features disabled.** Use `!ai reset` anytime to re-enable them.")],
+      components: [],
+    });
+  }
+}
+
+export async function handleMemoryConsentButton(interaction: ButtonInteraction): Promise<void> {
+  const [, action, requestedBy] = interaction.customId.split(":");
+  if (requestedBy !== interaction.user.id) {
+    await interaction.reply({ content: "❌ Cette demande de consentement ne t’est pas destinée.", ephemeral: true });
+    return;
+  }
+  if (action === "yes") {
+    await setMemoryConsent(interaction.user.id, "accepted");
+    await interaction.update({
+      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription("✅ **Mémoire personnalisée autorisée.** Relance ta commande `!ai remember ...`.")],
+      components: [],
+    });
+  } else {
+    await setMemoryConsent(interaction.user.id, "declined");
+    await interaction.update({
+      embeds: [new EmbedBuilder().setColor(0xed4245).setDescription("❌ **Mémoire personnalisée désactivée.** Rien ne sera enregistré.")],
       components: [],
     });
   }

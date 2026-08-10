@@ -87,6 +87,18 @@ export interface UserData {
   likes?: LikedTrack[];
 }
 
+export interface AiMemoryEntry {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+interface AiMemoryDoc {
+  _id: string;
+  encryptedData: string;
+  updatedAt: Date;
+}
+
 // ── MongoDB client ─────────────────────────────────────────────────────────────
 
 // ── Logo brands cache ──────────────────────────────────────────────────────────
@@ -166,6 +178,7 @@ export let artistCacheCol: Collection<ArtistCacheDoc> | null = null;
 export let customStationsCol: Collection<CustomStationDoc> | null = null;
 export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
+export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
   userId: string; guildId: string; username: string; avatarUrl?: string;
   bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
@@ -210,6 +223,8 @@ export async function connectDb(): Promise<void> {
     foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
     aiConsentCol = db.collection("ai_consent");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
+    aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
+    await aiMemoryCol.createIndex({ updatedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
     await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
     await mgLeaderboardCol.createIndex({ userId: 1, guildId: 1 }, { unique: true });
@@ -224,6 +239,67 @@ export async function connectDb(): Promise<void> {
     db          = null;
     usersCol    = null;
     guildsCol   = null;
+    aiMemoryCol = null;
+  }
+}
+
+// ── AI memory CRUD ─────────────────────────────────────────────────────────────
+// Memory is always encrypted and keyed by a one-way hash of the Discord scope.
+// User memories use guildId + userId; server memories use guildId + "server".
+
+function aiMemoryId(guildId: string, userId: string): string {
+  return `${hashUserId(guildId)}:${hashUserId(userId)}`;
+}
+
+export async function getAiMemory(guildId: string, userId: string): Promise<AiMemoryEntry[]> {
+  if (!aiMemoryCol || !encKey) return [];
+  try {
+    const doc = await aiMemoryCol.findOne({ _id: aiMemoryId(guildId, userId) });
+    if (!doc) return [];
+    const parsed = JSON.parse(decrypt(doc.encryptedData)) as { entries?: AiMemoryEntry[] };
+    return Array.isArray(parsed.entries) ? parsed.entries.slice(-20) : [];
+  } catch (err) {
+    logger.error({ err }, "getAiMemory failed");
+    return [];
+  }
+}
+
+export async function saveAiMemory(
+  guildId: string,
+  userId: string,
+  entries: AiMemoryEntry[],
+): Promise<boolean> {
+  if (!aiMemoryCol || !encKey) return false;
+  try {
+    const bounded = entries
+      .filter((entry) => entry.text.trim().length > 0)
+      .slice(-20)
+      .map((entry) => ({ ...entry, text: entry.text.trim().slice(0, 500) }));
+    await aiMemoryCol.updateOne(
+      { _id: aiMemoryId(guildId, userId) },
+      {
+        $set: {
+          encryptedData: encrypt(JSON.stringify({ entries: bounded })),
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+    return true;
+  } catch (err) {
+    logger.error({ err }, "saveAiMemory failed");
+    return false;
+  }
+}
+
+export async function clearAiMemory(guildId: string, userId: string): Promise<boolean> {
+  if (!aiMemoryCol) return false;
+  try {
+    await aiMemoryCol.deleteOne({ _id: aiMemoryId(guildId, userId) });
+    return true;
+  } catch (err) {
+    logger.error({ err }, "clearAiMemory failed");
+    return false;
   }
 }
 

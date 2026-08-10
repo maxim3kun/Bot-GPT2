@@ -16,6 +16,8 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `HUGGINGFACE_TOKEN` — active `!image` / `/image`
 - `SUNO_API_KEY` — active `!music generator` et `!credits`
 - `LOGO_DEV_PUBLIC_KEY` — active `!guessthelogo` (clé publique logo.dev)
+- `MONGODB_URI` — active la mémoire persistante et chiffrée de l’IA
+- `ENCRYPTION_KEY` — clé hexadécimale de 64 caractères pour chiffrer les souvenirs
 
 ## Stack
 
@@ -79,6 +81,10 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `/image <description>` — génère une image (HuggingFace)
 - `!ai battle <sujet>` — débat entre deux bots IA
 - `!ai stop` — arrête le débat
+- `!ai remember <information>` — mémoire personnelle facultative, chiffrée et cloisonnée par serveur
+- `!ai memory` / `!ai forget <numéro|all>` — consulter en DM ou supprimer sa mémoire
+- `!ai server remember <information>` — mémoire commune réservée aux administrateurs
+- Lorsqu’il est mentionné, le bot peut ignorer une insulte, réagir, supprimer une insulte grave et appliquer un timeout progressif si les abus répétés continuent. Il ne se moque pas des utilisateurs.
 
 ### Dictionnaire
 - `/define <word>` / `!define <word>` / `!dict <word>` — définition d'un mot anglais (Free Dictionary API)
