@@ -21,6 +21,7 @@ const RESEARCH_TERMS = [
   "dernier", "dernière", "dernieres", "récent", "recente", "en ce moment",
   "current", "today", "latest", "recent", "right now", "news", "breaking",
   "prix actuel", "cours actuel", "score", "résultat", "resultat", "météo", "meteo",
+  "quel temps", "temps qu'il fait", "temps qu il fait", "prévision", "prevision",
   "weather", "forecast", "disponible", "disponibilité", "disponibilite",
   "version actuelle", "mise à jour", "mise a jour", "source", "cherche sur internet",
   "recherche sur internet", "vérifie en ligne", "verifie en ligne",
@@ -58,7 +59,10 @@ function includesAny(text: string, terms: string[]): boolean {
 export function classifyAiMessage(text: string): AiRoute {
   const normalized = normalize(text);
 
-  if (/^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)( bot| ia| toi| a toi)?[!?. ]*$/.test(normalized)) {
+  if (
+    /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)( bot| ia| toi| a toi)?[!?. ]*$/.test(normalized) ||
+    /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)?\s*(comment (vas[- ]tu|tu vas|allez[- ]vous)|ca va|comment tu vas|how are you|how's it going)[!?. ]*$/.test(normalized)
+  ) {
     return { intent: "greeting", needsResearch: false, needsConfirmation: false };
   }
 
@@ -87,7 +91,11 @@ export function classifyAiMessage(text: string): AiRoute {
   }
 
   if (/^(qui|que|quoi|comment|pourquoi|quand|où|ou|who|what|how|why|when|where)\b/.test(normalized) || normalized.endsWith("?")) {
-    return { intent: "factual", needsResearch: true, needsConfirmation: false };
+    // Stable, everyday questions can be answered by the model directly. Web
+    // research is reserved for time-sensitive requests above or an explicit
+    // request to check the Internet, so a question like "comment tu vas ?"
+    // stays instant and does not produce irrelevant source links.
+    return { intent: "factual", needsResearch: false, needsConfirmation: false };
   }
 
   return { intent: "general", needsResearch: false, needsConfirmation: false };

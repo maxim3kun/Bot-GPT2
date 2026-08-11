@@ -27,7 +27,7 @@ import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore 
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
-import { formatSearchContext, formatSearchSources, searchWeb } from "./lib/web-search.js";
+import { formatSearchContext, formatSearchSources, searchWeb, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
 import { type HelpLanguage, buildHelpEmbed, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
@@ -106,6 +106,55 @@ type SendableChannel = { id: string; send: (...args: unknown[]) => Promise<unkno
 
 function isSendable(channel: unknown): channel is SendableChannel {
   return typeof channel === "object" && channel !== null && "send" in channel && "sendTyping" in channel;
+}
+
+// Search results are kept briefly so the public AI answer stays compact. The
+// user can open them privately with the 🔎 button instead of filling the
+// channel with links on every researched answer.
+const SEARCH_SOURCE_TTL_MS = 10 * 60 * 1000;
+let searchSourceCounter = 0;
+const pendingSearchSources = new Map<string, {
+  userId: string;
+  results: WebSearchResult[];
+  expiresAt: number;
+}>();
+
+function createSearchSourceButton(results: WebSearchResult[], userId: string): ActionRowBuilder<ButtonBuilder> | null {
+  if (results.length === 0) return null;
+
+  const now = Date.now();
+  for (const [key, entry] of pendingSearchSources) {
+    if (entry.expiresAt <= now) pendingSearchSources.delete(key);
+  }
+
+  const key = `${now.toString(36)}_${(searchSourceCounter++).toString(36)}`;
+  pendingSearchSources.set(key, {
+    userId,
+    results,
+    expiresAt: now + SEARCH_SOURCE_TTL_MS,
+  });
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ai_sources:${key}`)
+      .setLabel("🔎")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+async function replyWithAiAnswer(
+  message: Message,
+  answer: string,
+  webResults: WebSearchResult[],
+): Promise<void> {
+  const chunks = answer.match(/[\s\S]{1,2000}/g) ?? [answer];
+  const sourcesButton = createSearchSourceButton(webResults, message.author.id);
+  const firstReply = sourcesButton
+    ? { content: chunks[0]!, components: [sourcesButton] }
+    : chunks[0]!;
+
+  await message.reply(firstReply);
+  for (const chunk of chunks.slice(1)) await message.reply(chunk);
 }
 
 // ── AI Battle ─────────────────────────────────────────────────────────────────
@@ -823,6 +872,32 @@ export function startBot(): void {
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
 
+    // ── AI research sources ────────────────────────────────────────────────
+    if (interaction.customId.startsWith("ai_sources:")) {
+      const key = interaction.customId.slice("ai_sources:".length);
+      const entry = pendingSearchSources.get(key);
+      if (!entry || entry.expiresAt <= Date.now()) {
+        pendingSearchSources.delete(key);
+        await interaction.reply({
+          content: "⏳ Ces sources ne sont plus disponibles. Relance la question pour effectuer une nouvelle recherche.",
+          ephemeral: true,
+        });
+        return;
+      }
+      if (interaction.user.id !== entry.userId) {
+        await interaction.reply({
+          content: "🔒 Seule la personne qui a posé la question peut voir ces sources.",
+          ephemeral: true,
+        });
+        return;
+      }
+      await interaction.reply({
+        content: formatSearchSources(entry.results),
+        ephemeral: true,
+      });
+      return;
+    }
+
     // ── DJ Console buttons ───────────────────────────────────────────────────
     if (interaction.customId.startsWith("dj:")) {
       try {
@@ -1189,10 +1264,9 @@ export function startBot(): void {
           ],
         });
         incrementGroqCalls();
-        const reply = (response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅") + formatSearchSources(webResults);
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
-        const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
-        for (const chunk of chunks) await message.reply(chunk);
+        await replyWithAiAnswer(message, reply, webResults);
       } catch (err) {
         logger.error({ err }, "DM AI error");
         await message.reply("Oops, something went wrong! 😅 Try again in a moment.");
@@ -1251,10 +1325,9 @@ export function startBot(): void {
           ],
         });
         incrementGroqCalls();
-        const reply = (response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅") + formatSearchSources(webResults);
+        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
         addToHistory(message.channelId, "assistant", reply);
-        const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
-        for (const chunk of chunks) await message.reply(chunk);
+        await replyWithAiAnswer(message, reply, webResults);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {
           const botName = client.user?.username;
