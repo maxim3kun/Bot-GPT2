@@ -116,6 +116,21 @@ function stripMentions(content: string): string {
   return content.replace(/<@!?\d+>/g, "").trim();
 }
 
+function isPornographicSiteListRequest(text: string): boolean {
+  const normalized = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const adultContent = /\b(?:pornographique?s?|porno|porn|adultes?|nsfw|x-rated)\b/.test(normalized);
+  const siteRequest = /\b(?:site?s?|plateforme?s?|liens?|pages?)\b/.test(normalized);
+  const listRequest = /\b(?:liste|list|classement|top|plus connus?|plus populaires?|connus?|populaires?|meilleurs?|noms?|recommande?s?|recommandations?)\b/.test(normalized);
+  return adultContent && siteRequest && (listRequest || /\b(?:quels?|quel(?:s)?|donne(?:-moi)?|fournis?|chercher?|recherche?r?|trouve?r?)\b/.test(normalized));
+}
+
+const PORNOGRAPHIC_SITE_REFUSAL =
+  "Je ne peux pas fournir de liste, de classement, de noms ou de liens vers des sites pornographiques. " +
+  "Je peux toutefois aider avec des informations générales sur la sexualité, le consentement, la sécurité en ligne ou la confidentialité.";
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -136,7 +151,9 @@ const WEB_RESEARCH_ANSWER_INSTRUCTIONS =
   "a short recommendation, the necessary ingredients or materials, numbered steps, and useful tips or cautions. " +
   "Do not start with a list of websites, do not repeat search snippets, and do not mention site names unless the user asks for sources. " +
   "If several sources agree, combine their useful details instead of presenting them separately; if they conflict, explain the relevant difference briefly. " +
-  "For a cooking request, prioritize a concrete recipe with quantities, cooking time, and serving guidance over a discussion of recipes found online. ";
+  "For a cooking request, prioritize a concrete recipe with quantities, cooking time, and serving guidance over a discussion of recipes found online. " +
+  "Never use the non-French word 'adultique'; in French, say 'pornographique' or 'contenu pour adultes'. " +
+  "For requests to find, list, rank, or recommend pornographic websites, do not search, name, link, or rank any site; give a brief refusal instead. ";
 
 // Search results are kept briefly so the public AI answer stays compact. The
 // user can open them privately with the 🔎 button instead of filling the
@@ -1261,6 +1278,10 @@ export function startBot(): void {
         await message.reply(timeFollowUp);
         return;
       }
+      if (isPornographicSiteListRequest(userText)) {
+        await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
+        return;
+      }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message));
@@ -1315,6 +1336,10 @@ export function startBot(): void {
       const timeFollowUp = consumeTimeFollowUp(message, userText);
       if (timeFollowUp) {
         await message.reply(timeFollowUp);
+        return;
+      }
+      if (isPornographicSiteListRequest(userText)) {
+        await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
       const route = classifyAiMessage(userText);
