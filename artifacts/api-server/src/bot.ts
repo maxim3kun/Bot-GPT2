@@ -40,7 +40,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
-import { classifyAiMessage, currentTimeAnswer, directGreeting } from "./discord/ai-router.js";
+import { classifyAiMessage, currentTimeAnswer, directGreeting, requestedTimePlace } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -51,6 +51,31 @@ import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimat
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
+const pendingTimeRequests = new Map<string, number>();
+const TIME_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
+
+function timeRequestKey(message: Message): string {
+  return `${message.channelId}:${message.author.id}`;
+}
+
+function rememberTimeRequest(message: Message): void {
+  pendingTimeRequests.set(timeRequestKey(message), Date.now() + TIME_FOLLOW_UP_TTL_MS);
+}
+
+function consumeTimeFollowUp(message: Message, text: string): string | null {
+  const key = timeRequestKey(message);
+  const expiresAt = pendingTimeRequests.get(key);
+  if (!expiresAt) return null;
+  if (expiresAt < Date.now()) {
+    pendingTimeRequests.delete(key);
+    return null;
+  }
+
+  const place = requestedTimePlace(text);
+  if (!place) return null;
+  pendingTimeRequests.delete(key);
+  return currentTimeAnswer(text, place);
+}
 
 function getHistory(channelId: string): ChatMessage[] {
   if (!conversationHistory.has(channelId)) conversationHistory.set(channelId, []);
@@ -1125,13 +1150,20 @@ export function startBot(): void {
     if (isDm && !content.startsWith(guildPrefix)) {
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
+      const timeFollowUp = consumeTimeFollowUp(message, userText);
+      if (timeFollowUp) {
+        await message.reply(timeFollowUp);
+        return;
+      }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message));
         return;
       }
       if (route.intent === "time") {
-        await message.reply(currentTimeAnswer(userText) ?? "Je ne peux pas déterminer le fuseau horaire demandé.");
+        const answer = currentTimeAnswer(userText);
+        if (!requestedTimePlace(userText)) rememberTimeRequest(message);
+        await message.reply(answer);
         return;
       }
       if (route.intent === "research") {
@@ -1177,13 +1209,20 @@ export function startBot(): void {
     if (!isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
+      const timeFollowUp = consumeTimeFollowUp(message, userText);
+      if (timeFollowUp) {
+        await message.reply(timeFollowUp);
+        return;
+      }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message));
         return;
       }
       if (route.intent === "time") {
-        await message.reply(currentTimeAnswer(userText) ?? "Je ne peux pas déterminer le fuseau horaire demandé.");
+        const answer = currentTimeAnswer(userText);
+        if (!requestedTimePlace(userText)) rememberTimeRequest(message);
+        await message.reply(answer);
         return;
       }
       if (route.intent === "research") {

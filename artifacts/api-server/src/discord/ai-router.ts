@@ -145,26 +145,28 @@ const CITY_TIMEZONES: Record<string, string> = {
   "new zealand": "Pacific/Auckland",
 };
 
-function requestedPlace(text: string): string | null {
+export function requestedTimePlace(text: string): string | null {
   const normalized = normalize(text);
   const match = normalized.match(/(?:heure|time)(?: actuelle| locale)?(?:\s+est[- ]il|\s+is it|\s+is)?\s+(?:a|en|in)\s+(.+?)(?:[?.!]|$)/);
   if (match?.[1]?.trim()) return match[1].trim();
 
-  for (const place of Object.keys(CITY_TIMEZONES)) {
-    if (normalized.includes(place)) return place;
+  // Prefer the longest name first so "new york" is not partially matched
+  // as "york", and normalize aliases such as Montréal/Montréal.
+  for (const place of Object.keys(CITY_TIMEZONES).sort((a, b) => b.length - a.length)) {
+    if (normalize(place) && normalized.includes(normalize(place))) return place;
   }
   return null;
 }
 
-export function currentTimeAnswer(text: string): string | null {
-  const place = requestedPlace(text);
+export function currentTimeAnswer(text: string, fallbackPlace?: string | null): string {
+  const place = requestedTimePlace(text) ?? fallbackPlace;
   if (!place) {
-    return "Dans quelle ville ou quel pays veux-tu connaître l’heure ? Exemple : `@Bot quelle heure est-il à Tokyo ?`";
+    return "Dans quelle ville ou quel pays ?";
   }
 
-  const timezone = CITY_TIMEZONES[place];
+  const timezone = CITY_TIMEZONES[place] ?? CITY_TIMEZONES[normalize(place)];
   if (!timezone) {
-    return `Je ne connais pas encore le fuseau horaire de **${place}**. Donne-moi une grande ville proche et je pourrai te donner l’heure exacte.`;
+    return `Je ne connais pas le fuseau horaire de **${place}**.`;
   }
 
   const now = new Date();
@@ -172,15 +174,13 @@ export function currentTimeAnswer(text: string): string | null {
     timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZoneName: "short",
   }).format(now);
 
-  return `Il est actuellement **${formatted}** à **${place}**.`;
+  const displayPlace = place
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  return `Il est **${formatted}** en **${displayPlace}**.`;
 }
 
 export function directGreeting(message: Message): string {
