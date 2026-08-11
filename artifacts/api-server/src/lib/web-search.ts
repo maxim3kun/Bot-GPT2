@@ -9,7 +9,7 @@ export interface WebSearchResult {
 
 const SEARCH_TIMEOUT_MS = 8_000;
 const PAGE_TIMEOUT_MS = 6_000;
-const MAX_RESULTS = 4;
+const MAX_RESULTS = 6;
 // Keep the evidence compact enough for the LLM context window. The search
 // result list remains available in full through the private sources button.
 const MAX_PAGE_CHARS = 2_000;
@@ -89,14 +89,61 @@ async function fetchText(url: string, timeoutMs: number): Promise<string> {
   return response.text();
 }
 
-async function readPage(result: WebSearchResult): Promise<void> {
+async function readPage(result: WebSearchResult): Promise<boolean> {
   try {
     const html = await fetchText(result.url, PAGE_TIMEOUT_MS);
     const text = stripHtml(html);
-    if (text) result.content = text.slice(0, MAX_PAGE_CHARS);
+    if (!text) return false;
+    result.content = text.slice(0, MAX_PAGE_CHARS);
+    return true;
   } catch (err) {
     logger.debug({ err, url: result.url }, "Web result page unavailable");
+    return false;
   }
+}
+
+function normalizedQuery(query: string): string {
+  return query
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function getResearchPlan(query: string): { initialPages: number; maxPages: number } {
+  const normalized = normalizedQuery(query);
+  const explicitConflict = /\b(?:contradictoire?s?|contredisent|desaccord|désaccord|verifie|vérifie|recoupe|conflicting|disagree)\b/.test(normalized);
+  const sensitiveOrCurrent = /\b(?:actualite?s?|aujourd'hui|dernier|recen(?:t|te)|prix|meteo|météo|medical|medic(?:al|ine)|juridique|legal|financ(?:e|ier)|politique|election|elections|news|today|latest|current)\b/.test(normalized);
+  const comparison = /\b(?:compar(?:e|aison)|versus|vs|difference|différence|meilleur|meilleure|recommand(?:e|ation)|avis|review|top)\b/.test(normalized);
+  const practical = /\b(?:comment|recette|faire|tutoriel|guide|installer|utiliser|etapes?|étapes?|how to|recipe|tutorial|guide)\b/.test(normalized);
+
+  if (explicitConflict) return { initialPages: 4, maxPages: 6 };
+  if (sensitiveOrCurrent) return { initialPages: 4, maxPages: 6 };
+  if (comparison) return { initialPages: 3, maxPages: 6 };
+  if (practical) return { initialPages: 2, maxPages: 4 };
+  return { initialPages: 1, maxPages: 2 };
+}
+
+function sourceQualityScore(result: WebSearchResult): number {
+  try {
+    const hostname = new URL(result.url).hostname.toLowerCase();
+    let score = 0;
+    if (hostname.endsWith(".gouv.fr") || hostname.endsWith(".gov") || hostname.endsWith(".gov.uk")) score += 5;
+    if (hostname.endsWith(".edu") || hostname.endsWith(".ac.uk")) score += 4;
+    if (/\b(?:who\.int|service-public|europa\.eu|un\.org|official|docs?|developer)\b/.test(hostname)) score += 3;
+    if (hostname.endsWith(".org")) score += 1;
+    if (/\b(?:forum|pinterest|facebook|instagram|tiktok)\b/.test(hostname)) score -= 2;
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
+function hasConflictSignals(results: WebSearchResult[]): boolean {
+  const combined = results
+    .filter((result) => result.content)
+    .map((result) => result.content)
+    .join(" ");
+  return /\b(?:contrairement|cependant|toutefois|en revanche|desaccord|désaccord|differe|diffère|incompatible|conflict(?:ing)?|disagree|however|whereas)\b/i.test(combined);
 }
 
 export async function searchWeb(query: string): Promise<WebSearchResult[]> {
@@ -112,8 +159,41 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
     const endpoint = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(trimmed)}`;
     const html = await fetchText(endpoint, SEARCH_TIMEOUT_MS);
     const results = parseResults(html);
-    await Promise.all(results.map(readPage));
-    return results;
+    const plan = getResearchPlan(trimmed);
+    const ranked = [...results].sort((a, b) => sourceQualityScore(b) - sourceQualityScore(a));
+    const consulted = new Set<WebSearchResult>();
+
+    async function readCandidates(candidates: WebSearchResult[]): Promise<void> {
+      await Promise.all(
+        candidates.map(async (result) => {
+          consulted.add(result);
+          await readPage(result);
+        }),
+      );
+    }
+
+    await readCandidates(ranked.slice(0, plan.initialPages));
+
+    // A page that is blocked or empty should not consume the whole research
+    // budget. Fill missing evidence before deciding whether more cross-checking
+    // is needed.
+    const unread = ranked.filter((result) => !consulted.has(result));
+    const usableCount = [...consulted].filter((result) => result.content).length;
+    if (usableCount < plan.initialPages && unread.length > 0) {
+      await readCandidates(unread.slice(0, plan.initialPages - usableCount));
+    }
+
+    // Five or six pages are reserved for genuine uncertainty: the first
+    // sources contain conflict signals or the requested evidence is still too
+    // thin. Ordinary questions therefore remain fast and low-noise.
+    const needsMoreEvidence = hasConflictSignals([...consulted]) ||
+      [...consulted].filter((result) => result.content).length < Math.min(2, plan.initialPages);
+    if (needsMoreEvidence && consulted.size < plan.maxPages) {
+      const remaining = ranked.filter((result) => !consulted.has(result));
+      await readCandidates(remaining.slice(0, plan.maxPages - consulted.size));
+    }
+
+    return results.filter((result) => consulted.has(result));
   } catch (err) {
     logger.warn({ err, query: trimmed }, "Web search failed");
     return [];
