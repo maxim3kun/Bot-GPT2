@@ -41,7 +41,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
-import { classifyAiMessage, currentTimeAnswer, directGreeting, requestedTimePlace } from "./discord/ai-router.js";
+import { classifyAiMessage, currentTimeAnswer, directGreeting, directIdentityAnswer, requestedTimePlace } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -52,6 +52,7 @@ import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimat
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
+const MAX_AI_HISTORY_CHARS = 6_000;
 const pendingTimeRequests = new Map<string, number>();
 const TIME_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -83,6 +84,23 @@ function getHistory(channelId: string): ChatMessage[] {
   return conversationHistory.get(channelId)!;
 }
 
+function getAiHistory(channelId: string): ChatMessage[] {
+  const history = getHistory(channelId);
+  let usedChars = 0;
+  const bounded: ChatMessage[] = [];
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index]!;
+    const remaining = MAX_AI_HISTORY_CHARS - usedChars;
+    if (remaining <= 0) break;
+    const content = item.content.slice(-remaining);
+    bounded.unshift({ role: item.role, content });
+    usedChars += content.length;
+  }
+
+  return bounded;
+}
+
 function addToHistory(channelId: string, role: "user" | "assistant", content: string): void {
   const history = getHistory(channelId);
   history.push({ role, content });
@@ -107,6 +125,10 @@ type SendableChannel = { id: string; send: (...args: unknown[]) => Promise<unkno
 function isSendable(channel: unknown): channel is SendableChannel {
   return typeof channel === "object" && channel !== null && "send" in channel && "sendTyping" in channel;
 }
+
+const AI_IDENTITY_INSTRUCTIONS =
+  "Your name is MaximeGPT. If the user asks your name, answer that your name is MaximeGPT. " +
+  "Do not present the creator or owner, and do not mention Maxime or Maxim3kun, unless the user directly asks who created or owns you. ";
 
 // Search results are kept briefly so the public AI answer stays compact. The
 // user can open them privately with the 🔎 button instead of filling the
@@ -1236,6 +1258,10 @@ export function startBot(): void {
         await message.reply(directGreeting(message));
         return;
       }
+      if (route.intent === "identity") {
+        await message.reply(directIdentityAnswer());
+        return;
+      }
       if (route.intent === "time") {
         const answer = currentTimeAnswer(userText);
         if (!requestedTimePlace(userText)) rememberTimeRequest(message);
@@ -1259,8 +1285,8 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. ${webContext ? `The following web search results were retrieved for this request. Use them as evidence, distinguish facts from uncertainty, and do not cite any URL that is not listed here:\n${webContext}` : ""}` },
-            ...getHistory(message.channelId),
+            { role: "system", content: `${AI_IDENTITY_INSTRUCTIONS}You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. ${webContext ? `The following web search results were retrieved for this request. Use them as evidence, distinguish facts from uncertainty, and do not cite any URL that is not listed here:\n${webContext}` : ""}` },
+             ...getAiHistory(message.channelId),
           ],
         });
         incrementGroqCalls();
@@ -1286,6 +1312,10 @@ export function startBot(): void {
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message));
+        return;
+      }
+      if (route.intent === "identity") {
+        await message.reply(directIdentityAnswer());
         return;
       }
       if (route.intent === "time") {
@@ -1320,8 +1350,8 @@ export function startBot(): void {
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided below, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}${webContext ? `\n\nWeb research results:\n${webContext}` : ""}` },
-            ...getHistory(message.channelId),
+            { role: "system", content: `${AI_IDENTITY_INSTRUCTIONS}You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided below, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}${webContext ? `\n\nWeb research results:\n${webContext}` : ""}` },
+             ...getAiHistory(message.channelId),
           ],
         });
         incrementGroqCalls();

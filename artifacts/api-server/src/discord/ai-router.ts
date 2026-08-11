@@ -2,6 +2,7 @@ import type { Message } from "discord.js";
 
 export type AiIntent =
   | "greeting"
+  | "identity"
   | "time"
   | "research"
   | "discord_action"
@@ -64,6 +65,13 @@ export function classifyAiMessage(text: string): AiRoute {
     /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)?\s*(comment (vas[- ]tu|tu vas|allez[- ]vous)|ca va|comment tu vas|how are you|how's it going)[!?. ]*$/.test(normalized)
   ) {
     return { intent: "greeting", needsResearch: false, needsConfirmation: false };
+  }
+
+  if (
+    /^(quel est|c'est quoi|c est quoi|comment s'appelle|comment s appelle|what is)\s+(ton|ta|votre|your)\s+(nom|name)/.test(normalized) ||
+    /^(ton|ta|votre|your)\s+(nom|name)\b/.test(normalized)
+  ) {
+    return { intent: "identity", needsResearch: false, needsConfirmation: false };
   }
 
   if (includesAny(normalized, TIME_TERMS)) {
@@ -200,4 +208,8 @@ export function directGreeting(message: Message): string {
     return `Hello ${message.author}! How can I help?`;
   }
   return `Coucou ${message.author} ! Comment vas-tu ?`;
+}
+
+export function directIdentityAnswer(): string {
+  return "Je m’appelle **MaximeGPT** 🤖";
 }

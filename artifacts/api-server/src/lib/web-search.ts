@@ -10,7 +10,10 @@ export interface WebSearchResult {
 const SEARCH_TIMEOUT_MS = 8_000;
 const PAGE_TIMEOUT_MS = 6_000;
 const MAX_RESULTS = 4;
-const MAX_PAGE_CHARS = 4_000;
+// Keep the evidence compact enough for the LLM context window. The search
+// result list remains available in full through the private sources button.
+const MAX_PAGE_CHARS = 2_000;
+const MAX_CONTEXT_CHARS = 9_000;
 
 function decodeHtml(value: string): string {
   return value
@@ -97,7 +100,12 @@ async function readPage(result: WebSearchResult): Promise<void> {
 }
 
 export async function searchWeb(query: string): Promise<WebSearchResult[]> {
-  const trimmed = query.trim().slice(0, 300);
+  const trimmed = query
+    .trim()
+    .replace(/^(?:recherche|cherche)\s+(?:sur\s+internet|sur\s+le\s+net|en\s+ligne)\s*/i, "")
+    .replace(/^(?:search|look\s+up)\s+(?:the\s+)?(?:internet|online)\s*/i, "")
+    .trim()
+    .slice(0, 300);
   if (!trimmed) return [];
 
   try {
@@ -114,12 +122,19 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
 
 export function formatSearchContext(results: WebSearchResult[]): string {
   if (results.length === 0) return "";
-  return results
-    .map((result, index) => {
-      const page = result.content ? `\nPage text: ${result.content}` : "";
-      return `[${index + 1}] ${result.title}\nURL: ${result.url}\nSnippet: ${result.snippet}${page}`;
-    })
-    .join("\n\n");
+  let usedChars = 0;
+  const sections: string[] = [];
+
+  for (const [index, result] of results.entries()) {
+    const page = result.content ? `\nPage text: ${result.content}` : "";
+    const section = `[${index + 1}] ${result.title}\nURL: ${result.url}\nSnippet: ${result.snippet}${page}`;
+    const remaining = MAX_CONTEXT_CHARS - usedChars;
+    if (remaining <= 0) break;
+    sections.push(section.slice(0, remaining));
+    usedChars += section.length;
+  }
+
+  return sections.join("\n\n");
 }
 
 export function formatSearchSources(results: WebSearchResult[]): string {
