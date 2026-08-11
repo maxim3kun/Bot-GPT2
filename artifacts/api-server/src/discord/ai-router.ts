@@ -87,7 +87,7 @@ export function classifyAiMessage(text: string): AiRoute {
   }
 
   if (/^(qui|que|quoi|comment|pourquoi|quand|où|ou|who|what|how|why|when|where)\b/.test(normalized) || normalized.endsWith("?")) {
-    return { intent: "factual", needsResearch: false, needsConfirmation: false };
+    return { intent: "factual", needsResearch: true, needsConfirmation: false };
   }
 
   return { intent: "general", needsResearch: false, needsConfirmation: false };

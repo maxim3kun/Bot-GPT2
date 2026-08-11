@@ -78,6 +78,7 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 
 ### IA & Bataille
 - `@bot <message>` — chat IA (fonctionne aussi en DM)
+- Les questions factuelles et demandes d’actualité consultent DuckDuckGo Lite, lisent quelques résultats publics et ajoutent les sources à la réponse. Aucun compte ou clé supplémentaire n’est nécessaire.
 - `/image <description>` — génère une image (HuggingFace)
 - `!ai battle <sujet>` — débat entre deux bots IA
 - `!ai stop` — arrête le débat

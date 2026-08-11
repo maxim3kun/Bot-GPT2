@@ -27,6 +27,7 @@ import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore 
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
+import { formatSearchContext, formatSearchSources, searchWeb } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
 import { type HelpLanguage, buildHelpEmbed, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
@@ -1166,14 +1167,6 @@ export function startBot(): void {
         await message.reply(answer);
         return;
       }
-      if (route.intent === "research") {
-        await message.reply(
-          "🔎 Je ne peux pas encore consulter Internet dans ce serveur. " +
-          "Je préfère te le dire plutôt que d’inventer une information récente ou une source. " +
-          "Reconnecte l’intégration de recherche web pour activer cette fonction.",
-        );
-        return;
-      }
       if (route.intent === "discord_action") {
         await message.reply(
           "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
@@ -1185,16 +1178,18 @@ export function startBot(): void {
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+        const webResults = route.needsResearch ? await searchWeb(userText) : [];
+        const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: "You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer." },
+            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. ${webContext ? `The following web search results were retrieved for this request. Use them as evidence, distinguish facts from uncertainty, and do not cite any URL that is not listed here:\n${webContext}` : ""}` },
             ...getHistory(message.channelId),
           ],
         });
         incrementGroqCalls();
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const reply = (response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅") + formatSearchSources(webResults);
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
@@ -1225,14 +1220,6 @@ export function startBot(): void {
         await message.reply(answer);
         return;
       }
-      if (route.intent === "research") {
-        await message.reply(
-          "🔎 Je ne peux pas encore consulter Internet dans ce serveur. " +
-          "Je préfère te le dire plutôt que d’inventer une information récente ou une source. " +
-          "Reconnecte l’intégration de recherche web pour activer cette fonction.",
-        );
-        return;
-      }
       if (route.intent === "discord_action") {
         await message.reply(
           "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
@@ -1253,16 +1240,18 @@ export function startBot(): void {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
+        const webResults = route.needsResearch ? await searchWeb(userText) : [];
+        const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. Do not create citations or links. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}` },
+            { role: "system", content: `You are a friendly, helpful, and cheerful Discord bot created by Maxime (also known as @Maxim3kun). Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided below, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}${webContext ? `\n\nWeb research results:\n${webContext}` : ""}` },
             ...getHistory(message.channelId),
           ],
         });
         incrementGroqCalls();
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const reply = (response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅") + formatSearchSources(webResults);
         addToHistory(message.channelId, "assistant", reply);
         const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [reply];
         for (const chunk of chunks) await message.reply(chunk);
