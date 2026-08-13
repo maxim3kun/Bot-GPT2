@@ -35,7 +35,7 @@ import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
 import { detectUserLanguage, buildLanguageGuardPrompt } from "./discord/ai-language-guard.js";
-import { extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
+import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
@@ -1311,6 +1311,10 @@ export function startBot(): void {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
+      if (extractNaturalHelpCommand(userText) === "help") {
+        await sendHelpPaginator(message, getUserLang(message.author.id) as HelpLanguage);
+        return;
+      }
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, getUserLang(message.author.id), (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
@@ -1384,6 +1388,10 @@ export function startBot(): void {
       }
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
+        return;
+      }
+      if (extractNaturalHelpCommand(userText) === "help") {
+        await sendHelpPaginator(message, getUserLang(message.author.id) as HelpLanguage);
         return;
       }
       const pokemonQuery = extractPokemonQuery(userText);

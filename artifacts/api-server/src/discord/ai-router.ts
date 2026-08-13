@@ -25,7 +25,8 @@ const RESEARCH_TERMS = [
   "quel temps", "temps qu'il fait", "temps qu il fait", "prévision", "prevision",
   "weather", "forecast", "disponible", "disponibilité", "disponibilite",
   "version actuelle", "mise à jour", "mise a jour", "source", "cherche sur internet",
-  "recherche sur internet", "vérifie en ligne", "verifie en ligne",
+  "recherche sur internet", "regarde sur internet", "regarder sur internet",
+  "sur internet", "sur le web", "vérifie en ligne", "verifie en ligne",
 ];
 
 const TIME_TERMS = [

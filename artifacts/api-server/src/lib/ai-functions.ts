@@ -262,6 +262,24 @@ export function extractPokemonQuery(text: string): string | null {
 }
 
 /**
+ * Detect a command request expressed in ordinary language. Commands that are
+ * safe and deterministic should not be handed to the language model.
+ */
+export function extractNaturalHelpCommand(text: string): "help" | null {
+  const normalized = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+  if (/^(?:help|aide)\b/.test(normalized)) return "help";
+  if (/^(?:fais|fait|lance|ouvre|montre|affiche|execute|donne(?: moi)?|donne-moi)\s+(?:(?:la|le|une?|commande)\s+)*(?:help|aide)\b/.test(normalized)) {
+    return "help";
+  }
+  return null;
+}
+
+/**
  * Extract radio station key
  */
 export function extractRadioStation(text: string): string | null {
