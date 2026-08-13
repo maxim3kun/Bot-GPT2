@@ -18,6 +18,7 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `LOGO_DEV_PUBLIC_KEY` — active `!guessthelogo` (clé publique logo.dev)
 - `MONGODB_URI` — active la mémoire persistante et chiffrée de l’IA
 - `ENCRYPTION_KEY` — clé hexadécimale de 64 caractères pour chiffrer les souvenirs
+- Le fuseau horaire utilisé pour les demandes d’heure est mémorisé dans MongoDB (`ai_timezones`) après que l’utilisateur a indiqué une ville ou un pays. Sans `MONGODB_URI`, ce réglage ne peut pas survivre à un redémarrage.
 
 ## Stack
 
@@ -78,6 +79,8 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 
 ### IA & Bataille
 - `@bot <message>` — chat IA (fonctionne aussi en DM)
+- Les demandes naturelles de Pokédex comme « donne-moi les infos du Pokémon Flambusard » utilisent directement PokéAPI et comprennent les alias français connus.
+- Les demandes composées (par exemple heure + météo sur plusieurs jours) sont traitées en entier ; la partie météo déclenche une recherche web et l’heure est ajoutée comme contexte déterministe.
 - Les demandes d’actualité ou de recherche explicite consultent DuckDuckGo Lite. Les sources restent masquées derrière le bouton 🔎 pour ne pas encombrer le salon.
 - `/image <description>` — génère une image (HuggingFace)
 - `!ai battle <sujet>` — débat entre deux bots IA

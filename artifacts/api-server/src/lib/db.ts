@@ -99,6 +99,13 @@ interface AiMemoryDoc {
   updatedAt: Date;
 }
 
+export interface AiTimezoneDoc {
+  _id: string; // hashed Discord user id
+  place: string;
+  timezone: string;
+  updatedAt: Date;
+}
+
 // ── MongoDB client ─────────────────────────────────────────────────────────────
 
 // ── Logo brands cache ──────────────────────────────────────────────────────────
@@ -179,6 +186,7 @@ export let customStationsCol: Collection<CustomStationDoc> | null = null;
 export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
 export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
+export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
   userId: string; guildId: string; username: string; avatarUrl?: string;
   bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
@@ -225,6 +233,8 @@ export async function connectDb(): Promise<void> {
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
     await aiMemoryCol.createIndex({ updatedAt: -1 });
+    aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
+    await aiTimezoneCol.createIndex({ updatedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
     await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
     await mgLeaderboardCol.createIndex({ userId: 1, guildId: 1 }, { unique: true });
@@ -240,6 +250,31 @@ export async function connectDb(): Promise<void> {
     usersCol    = null;
     guildsCol   = null;
     aiMemoryCol = null;
+  }
+}
+
+// ── AI timezone preference ───────────────────────────────────────────────────
+
+export async function getAiTimezone(discordId: string): Promise<AiTimezoneDoc | null> {
+  if (!aiTimezoneCol) return null;
+  try {
+    return await aiTimezoneCol.findOne({ _id: hashUserId(discordId) });
+  } catch (err) {
+    logger.error({ err }, "getAiTimezone failed");
+    return null;
+  }
+}
+
+export async function saveAiTimezone(discordId: string, place: string, timezone: string): Promise<void> {
+  if (!aiTimezoneCol) return;
+  try {
+    await aiTimezoneCol.updateOne(
+      { _id: hashUserId(discordId) },
+      { $set: { place, timezone, updatedAt: new Date() } },
+      { upsert: true },
+    );
+  } catch (err) {
+    logger.error({ err }, "saveAiTimezone failed");
   }
 }
 

@@ -33,6 +33,11 @@ const TIME_TERMS = [
   "what time", "heure actuelle", "heure locale", "fuseau horaire", "timezone",
 ];
 
+const WEATHER_TERMS = [
+  "météo", "meteo", "quel temps", "temps qu'il fait", "temps qu il fait",
+  "prévision", "prevision", "weather", "forecast",
+];
+
 const ACTION_TERMS = [
   "supprime", "supprimer", "efface", "effacer", "ban", "bannis", "bannir",
   "kick", "exclure", "timeout", "mute", "réagis", "reagis", "envoie dans",
@@ -75,7 +80,10 @@ export function classifyAiMessage(text: string): AiRoute {
   }
 
   if (includesAny(normalized, TIME_TERMS)) {
-    return { intent: "time", needsResearch: false, needsConfirmation: false };
+    // A request such as "quelle heure et la météo à Paris" must not return
+    // after answering only the first clause. Let the AI synthesize both parts
+    // with web evidence while the time is supplied as deterministic context.
+    return { intent: "time", needsResearch: includesAny(normalized, WEATHER_TERMS), needsConfirmation: false };
   }
 
   if (includesAny(normalized, ACTION_TERMS)) {
@@ -161,9 +169,20 @@ const CITY_TIMEZONES: Record<string, string> = {
   "new zealand": "Pacific/Auckland",
 };
 
+export function resolveTimeZone(place: string): string | null {
+  const normalizedPlace = normalize(place);
+  return CITY_TIMEZONES[place] ?? CITY_TIMEZONES[normalizedPlace] ?? (
+    /^[a-z]+\/[a-z_]+(?:\/[a-z_]+)?$/i.test(place.trim()) ? place.trim() : null
+  );
+}
+
+export function isWeatherRequest(text: string): boolean {
+  return includesAny(normalize(text), WEATHER_TERMS);
+}
+
 export function requestedTimePlace(text: string): string | null {
   const normalized = normalize(text);
-  const match = normalized.match(/(?:heure|time)(?: actuelle| locale)?(?:\s+est[- ]il|\s+is it|\s+is)?\s+(?:a|en|in)\s+(.+?)(?:[?.!]|$)/);
+  const match = normalized.match(/(?:heure|time)(?: actuelle| locale)?(?:\s+est[- ]il|\s+is it|\s+is)?\s+(?:a|en|in)\s+(.+?)(?=\s+(?:et|and)\s+|[?.!,]|$)/);
   if (match?.[1]?.trim()) return match[1].trim();
 
   // Prefer the longest name first so "new york" is not partially matched
@@ -180,7 +199,7 @@ export function currentTimeAnswer(text: string, fallbackPlace?: string | null): 
     return "Dans quelle ville ou quel pays ?";
   }
 
-  const timezone = CITY_TIMEZONES[place] ?? CITY_TIMEZONES[normalize(place)];
+  const timezone = resolveTimeZone(place);
   if (!timezone) {
     return `Je ne connais pas le fuseau horaire de **${place}**.`;
   }

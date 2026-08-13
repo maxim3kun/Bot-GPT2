@@ -32,7 +32,6 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash scripts/start-api.sh"
-waitForPort = 8080
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"

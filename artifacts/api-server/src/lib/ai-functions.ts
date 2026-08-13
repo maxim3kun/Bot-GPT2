@@ -251,6 +251,17 @@ export function isTopListQuery(text: string): boolean {
 }
 
 /**
+ * Extract a Pokémon name from a natural-language request, for example:
+ * "Donne-moi les infos du Pokémon Flambusard".
+ */
+export function extractPokemonQuery(text: string): string | null {
+  const match = text.match(
+    /\b(?:pok[eé]mon|pokedex|pok[eé]dex)\b\s*(?:(?:le|la|les|du|de|sur|about|info(?:rmations?)?)\s+)*([a-zà-ÿ0-9][a-zà-ÿ0-9'_-]*)/iu,
+  );
+  return match?.[1]?.trim() || null;
+}
+
+/**
  * Extract radio station key
  */
 export function extractRadioStation(text: string): string | null {

@@ -21,7 +21,7 @@ import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/fo
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
 import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
-import { isMongoConnected, getDbStats } from "./lib/db";
+import { getAiTimezone, isMongoConnected, getDbStats, saveAiTimezone } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
 import { loadDynamicBrands } from "./discord/logo-brands";
@@ -34,6 +34,8 @@ import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
+import { detectUserLanguage, buildLanguageGuardPrompt } from "./discord/ai-language-guard.js";
+import { extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
@@ -41,7 +43,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
-import { classifyAiMessage, currentTimeAnswer, directGreeting, directIdentityAnswer, requestedTimePlace } from "./discord/ai-router.js";
+import { classifyAiMessage, currentTimeAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -49,6 +51,11 @@ import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimat
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
+
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const MAX_HISTORY = 20;
@@ -64,7 +71,7 @@ function rememberTimeRequest(message: Message): void {
   pendingTimeRequests.set(timeRequestKey(message), Date.now() + TIME_FOLLOW_UP_TTL_MS);
 }
 
-function consumeTimeFollowUp(message: Message, text: string): string | null {
+async function consumeTimeFollowUp(message: Message, text: string): Promise<string | null> {
   const key = timeRequestKey(message);
   const expiresAt = pendingTimeRequests.get(key);
   if (!expiresAt) return null;
@@ -76,6 +83,8 @@ function consumeTimeFollowUp(message: Message, text: string): string | null {
   const place = requestedTimePlace(text);
   if (!place) return null;
   pendingTimeRequests.delete(key);
+  const timezone = resolveTimeZone(place);
+  if (timezone) await saveAiTimezone(message.author.id, place, timezone);
   return currentTimeAnswer(text, place);
 }
 
@@ -154,6 +163,26 @@ const WEB_RESEARCH_ANSWER_INSTRUCTIONS =
   "For a cooking request, prioritize a concrete recipe with quantities, cooking time, and serving guidance over a discussion of recipes found online. " +
   "Never use the non-French word 'adultique'; in French, say 'pornographique' or 'contenu pour adultes'. " +
   "For requests to find, list, rank, or recommend pornographic websites, do not search, name, link, or rank any site; give a brief refusal instead. ";
+
+function buildAiSystemPrompt(
+  userText: string,
+  routeIntent: string,
+  webContext: string,
+  memoryContext = "",
+  timeContext = "",
+): string {
+  const languageGuard = buildLanguageGuardPrompt(detectUserLanguage(userText));
+  const research = webContext
+    ? `\n\n${WEB_RESEARCH_ANSWER_INSTRUCTIONS}\nWeb research results:\n${webContext}`
+    : "";
+  const time = timeContext
+    ? `\n\nDeterministic time result for this request (use it and do not recalculate it):\n${timeContext}`
+    : "";
+
+  return `${AI_IDENTITY_INSTRUCTIONS}${languageGuard}
+You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Respond to every part of the user's current message, including multiple questions joined by "and"/"et". The message route is "${routeIntent}".
+Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim to have searched the Internet unless search results are explicitly provided. Never claim to have performed a Discord action unless the application confirms it succeeded. If you are unsure, say so clearly instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. ${memoryContext}${research}${time}`;
+}
 
 // Search results are kept briefly so the public AI answer stays compact. The
 // user can open them privately with the 🔎 button instead of filling the
@@ -1273,13 +1302,18 @@ export function startBot(): void {
     if (isDm && !content.startsWith(guildPrefix)) {
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
-      const timeFollowUp = consumeTimeFollowUp(message, userText);
+      const timeFollowUp = await consumeTimeFollowUp(message, userText);
       if (timeFollowUp) {
         await message.reply(timeFollowUp);
         return;
       }
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
+        return;
+      }
+      const pokemonQuery = extractPokemonQuery(userText);
+      if (pokemonQuery) {
+        await handlePokemon(pokemonQuery, getUserLang(message.author.id), (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const route = classifyAiMessage(userText);
@@ -1291,9 +1325,13 @@ export function startBot(): void {
         await message.reply(directIdentityAnswer());
         return;
       }
-      if (route.intent === "time") {
-        const answer = currentTimeAnswer(userText);
-        if (!requestedTimePlace(userText)) rememberTimeRequest(message);
+      if (route.intent === "time" && !isWeatherRequest(userText)) {
+        const explicitPlace = requestedTimePlace(userText);
+        const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+        if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+        const savedTime = await getAiTimezone(message.author.id);
+        const answer = currentTimeAnswer(userText, savedTime?.place);
+        if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
       }
@@ -1308,13 +1346,19 @@ export function startBot(): void {
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
-        const webResults = route.needsResearch ? await searchWeb(userText) : [];
+        const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
+        const explicitPlace = route.intent === "time" ? requestedTimePlace(userText) : null;
+        const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+        if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+        const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place) : "";
+        const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `${AI_IDENTITY_INSTRUCTIONS}You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, casual tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. Always answer the user's current message when possible. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. If you are unsure, say so clearly instead of guessing. Do not pretend that a reaction was a written answer. ${webContext ? `${WEB_RESEARCH_ANSWER_INSTRUCTIONS}The following web search results were retrieved for this request. Use them as evidence, distinguish facts from uncertainty, and do not cite any URL that is not listed here:\n${webContext}` : ""}` },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
              ...getAiHistory(message.channelId),
           ],
         });
@@ -1333,13 +1377,18 @@ export function startBot(): void {
     if (!isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
-      const timeFollowUp = consumeTimeFollowUp(message, userText);
+      const timeFollowUp = await consumeTimeFollowUp(message, userText);
       if (timeFollowUp) {
         await message.reply(timeFollowUp);
         return;
       }
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
+        return;
+      }
+      const pokemonQuery = extractPokemonQuery(userText);
+      if (pokemonQuery) {
+        await handlePokemon(pokemonQuery, getUserLang(message.author.id), (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const route = classifyAiMessage(userText);
@@ -1351,9 +1400,13 @@ export function startBot(): void {
         await message.reply(directIdentityAnswer());
         return;
       }
-      if (route.intent === "time") {
-        const answer = currentTimeAnswer(userText);
-        if (!requestedTimePlace(userText)) rememberTimeRequest(message);
+      if (route.intent === "time" && !isWeatherRequest(userText)) {
+        const explicitPlace = requestedTimePlace(userText);
+        const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+        if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+        const savedTime = await getAiTimezone(message.author.id);
+        const answer = currentTimeAnswer(userText, savedTime?.place);
+        if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
       }
@@ -1377,13 +1430,18 @@ export function startBot(): void {
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
-        const webResults = route.needsResearch ? await searchWeb(userText) : [];
+        const explicitPlace = route.intent === "time" ? requestedTimePlace(userText) : null;
+        const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+        if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+        const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place) : "";
+        const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "llama-3.1-8b-instant",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: `${AI_IDENTITY_INSTRUCTIONS}You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Never break character. Respond in the same language the user writes in. The message route is "${route.intent}". Always answer the user's current message when possible; do not silently ignore a greeting or ordinary question. Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim you did not see a message that is present in the current conversation. Never claim to have searched the Internet unless a search result is explicitly provided to you. Never claim to have performed a Discord action unless the application actually confirms that action succeeded. Never say you saw an image, message, or link unless it was actually provided in the conversation. If you are unsure, say "I don't know" or its equivalent in the user's language instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided below, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. Do not pretend that a reaction was a written answer. If the user is mildly rude, remain calm and still try to help. Only refuse to engage when the message is clearly severe abuse, a threat, hate, sexual harassment, or similarly serious aggression.${memoryContext}${webContext ? `\n\n${WEB_RESEARCH_ANSWER_INSTRUCTIONS}\nWeb research results:\n${webContext}` : ""}` },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
              ...getAiHistory(message.channelId),
           ],
         });

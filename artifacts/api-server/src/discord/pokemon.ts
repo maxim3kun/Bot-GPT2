@@ -94,6 +94,31 @@ interface PokeApiPokemon {
   sprites: { other: { "official-artwork": { front_default: string } }; front_default: string };
 }
 
+// PokéAPI uses English slugs even when Discord users speak French. Keep the
+// aliases here so a natural-language request can use the localized name.
+const POKEMON_ALIASES: Record<string, string> = {
+  flambusard: "talonflame",
+  dracaufeu: "charizard",
+  salamèche: "charmander",
+  salameche: "charmander",
+  reptincel: "charmeleon",
+  carapuce: "squirtle",
+  bulbizarre: "bulbasaur",
+  pikachu: "pikachu",
+  mewtwo: "mewtwo",
+  leviator: "gyarados",
+  léviator: "gyarados",
+  roucarnage: "pidgeot",
+};
+
+function normalizePokemonName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 export async function handlePokemon(
   name: string,
   locale: string,
@@ -104,8 +129,9 @@ export async function handlePokemon(
   if (!name.trim()) { await reply(s.noName); return; }
 
   try {
+    const lookupName = POKEMON_ALIASES[normalizePokemonName(name)] ?? normalizePokemonName(name);
     const res = await fetch(
-      `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(name.trim().toLowerCase())}`,
+      `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(lookupName)}`,
     );
 
     if (res.status === 404) { await reply(s.notFound); return; }
