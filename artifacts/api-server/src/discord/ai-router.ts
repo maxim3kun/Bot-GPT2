@@ -67,7 +67,7 @@ export function classifyAiMessage(text: string): AiRoute {
 
   if (
     /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)( bot| ia| toi| a toi)?[!?. ]*$/.test(normalized) ||
-    /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)?\s*(comment (vas[- ]tu|tu vas|allez[- ]vous)|ca va|comment tu vas|how are you|how's it going)[!?. ]*$/.test(normalized)
+    /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)?\s*(comment (?:va|vas)[- ]tu|comment tu vas|comment allez[- ]vous|comment ca va|ca va|how are you|how's it going)[!?. ]*$/.test(normalized)
   ) {
     return { intent: "greeting", needsResearch: false, needsConfirmation: false };
   }

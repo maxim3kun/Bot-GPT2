@@ -9,6 +9,13 @@
  */
 export function detectUserLanguage(text: string): string {
   const normalized = text.toLowerCase();
+
+  // Short French messages often have no accent at all ("coucou comment va
+  // tu ?"). Check common phrases before the accent-based fallback so they do
+  // not get sent to the model with an incorrect English instruction.
+  if (/\b(?:bonjour|bonsoir|salut|coucou|comment (?:va|vas)[ -]tu|comment tu vas|comment ca va|s'il te plait|merci beaucoup)\b/.test(normalized)) {
+    return "fr";
+  }
   
   // French indicators
   if (/\b(je|tu|il|elle|nous|vous|ils|elles|c'est|qu'est|ça|où|comment|pourquoi|bonjour|oui|non|s'il|merci|de|et|ou|mais)\b/.test(normalized) &&
