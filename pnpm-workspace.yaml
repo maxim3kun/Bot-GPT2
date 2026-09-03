@@ -166,3 +166,8 @@ allowBuilds:
   esbuild: true
   "@discordjs/opus": true
   ffmpeg-static: true
+  tesseract.js: true
+  sharp: true
+  msw: true
+  unrs-resolver: true
+  "@swc/core": true
