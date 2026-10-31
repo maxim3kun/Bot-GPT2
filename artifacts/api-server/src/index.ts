@@ -1,21 +1,7 @@
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startBot } from "./bot.js";
-import { connectDb } from "./lib/db.js";
-import { runMigration } from "./lib/migrate.js";
-import { initQuestStore } from "./discord/quests.js";
-import { initBirthdayStore } from "./discord/birthdays.js";
-import { initSuggestPrefs } from "./discord/suggest-prefs.js";
-import { initPrefixStore } from "./discord/prefix-store.js";
-import { initLangStore } from "./discord/lang-store.js";
-import { initUserLangStore } from "./discord/user-lang-store.js";
-import { initPlaylists } from "./discord/playlist.js";
-import { initAdminChannels } from "./discord/command-suggest.js";
-import { initVoicePickerChannels } from "./discord/voice-picker-channels.js";
-import { initLikesStore } from "./discord/likes-store.js";
-import { initLogoBrandStore } from "./discord/logo-brand-store.js";
-import { initArtistCache } from "./discord/artist-cache.js";
-import { loadCustomStations } from "./discord/radio.js";
+import { initializeRuntime } from "./bootstrap/startup.js";
 
 const rawPort = process.env["PORT"];
 
@@ -29,27 +15,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// ── Database + data store initialisation ──────────────────────────────────────
-
-await connectDb();
-await runMigration();
-await Promise.all([
-  initQuestStore(),
-  initBirthdayStore(),
-  initSuggestPrefs(),
-  initPrefixStore(),
-  initLangStore(),
-  initUserLangStore(),
-  initPlaylists(),
-  initAdminChannels(),
-  initVoicePickerChannels(),
-  initLikesStore(),
-  initLogoBrandStore(),
-  initArtistCache(),
-  loadCustomStations(),
-]);
-
-// ── HTTP server ───────────────────────────────────────────────────────────────
+await initializeRuntime();
 
 app.listen(port, (err) => {
   if (err) {
@@ -62,8 +28,6 @@ app.listen(port, (err) => {
 });
 
 startBot();
-
-// ── Keep-alive self-ping ───────────────────────────────────────────────────────
 
 function startKeepAlive(serverPort: number): void {
   const INTERVAL_MS = 4 * 60 * 1000;
