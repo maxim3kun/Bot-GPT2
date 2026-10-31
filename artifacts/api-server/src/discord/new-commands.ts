@@ -1,5 +1,6 @@
 import { Message, EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { getLang, setLang, GuildLang } from "./lang-store.js";
+import { handleKoyaTestCommand } from "./koya-test.js";
 
 const VALID_LANGS: GuildLang[] = ["en", "fr", "es"];
 
@@ -8,8 +9,6 @@ const LANG_LABELS: Record<GuildLang, string> = {
   fr: "🇫🇷 Français",
   es: "🇪🇸 Español",
 };
-
-// ── !new setlang ──────────────────────────────────────────────────────────────
 
 async function handleSetLang(message: Message, args: string[], prefix: string): Promise<void> {
   const isAdmin =
@@ -64,22 +63,23 @@ async function handleSetLang(message: Message, args: string[], prefix: string): 
   await message.reply({ embeds: [embed] });
 }
 
-// ── !new help ─────────────────────────────────────────────────────────────────
-
 async function handleNewHelp(message: Message, prefix: string): Promise<void> {
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle("🆕 New Commands (beta)")
     .setDescription(`These commands are in testing. Access them with \`${prefix}new <command>\`.\n\u200b`)
-    .addFields({
-      name: "🌐 Language",
-      value:
-        `\`${prefix}new setlang [en|fr|es]\` — View or set the server's default language`,
-    });
+    .addFields(
+      {
+        name: "🎭 Koya test",
+        value: `\`${prefix}new koya test\` — sends a temporary Koya reaction test in the current channel`,
+      },
+      {
+        name: "🌐 Language",
+        value: `\`${prefix}new setlang [en|fr|es]\` — View or set the server's default language`,
+      },
+    );
   await message.reply({ embeds: [embed] });
 }
-
-// ── Main dispatcher ───────────────────────────────────────────────────────────
 
 export async function handleNewCommand(message: Message, args: string[], prefix: string): Promise<void> {
   const sub = args.shift()?.toLowerCase();
@@ -90,6 +90,12 @@ export async function handleNewCommand(message: Message, args: string[], prefix:
     case "lang":
     case "language":
       await handleSetLang(message, args, prefix);
+      break;
+
+    case "koya":
+    case "koya-test":
+    case "testkoya":
+      await handleKoyaTestCommand(message, args, prefix);
       break;
 
     case undefined:
