@@ -15,25 +15,27 @@ import { initLogoBrandStore } from "../discord/logo-brand-store.js";
 import { initArtistCache } from "../discord/artist-cache.js";
 import { loadCustomStations } from "../discord/radio.js";
 import { feature, initializeFeatures, type RuntimeFeature } from "./feature-registry.js";
+import { isFeatureEnabled, logFeatureFlags } from "./feature-flags.js";
 
 export const runtimeFeatures: RuntimeFeature[] = [
-  feature("quest-store", () => initQuestStore()),
-  feature("birthday-store", () => initBirthdayStore()),
-  feature("suggest-prefs", () => initSuggestPrefs()),
-  feature("prefix-store", () => initPrefixStore()),
-  feature("lang-store", () => initLangStore()),
-  feature("user-lang-store", () => initUserLangStore()),
-  feature("playlists", () => initPlaylists()),
-  feature("admin-channels", () => initAdminChannels()),
-  feature("voice-picker-channels", () => initVoicePickerChannels()),
-  feature("likes-store", () => initLikesStore()),
-  feature("logo-brand-store", () => initLogoBrandStore()),
-  feature("artist-cache", () => initArtistCache()),
-  feature("custom-radio-stations", () => loadCustomStations()),
+  feature("quest-store", () => initQuestStore(), isFeatureEnabled("stores")),
+  feature("birthday-store", () => initBirthdayStore(), isFeatureEnabled("stores")),
+  feature("suggest-prefs", () => initSuggestPrefs(), isFeatureEnabled("stores")),
+  feature("prefix-store", () => initPrefixStore(), isFeatureEnabled("stores")),
+  feature("lang-store", () => initLangStore(), isFeatureEnabled("stores")),
+  feature("user-lang-store", () => initUserLangStore(), isFeatureEnabled("stores")),
+  feature("playlists", () => initPlaylists(), isFeatureEnabled("stores")),
+  feature("admin-channels", () => initAdminChannels(), isFeatureEnabled("admin")),
+  feature("voice-picker-channels", () => initVoicePickerChannels(), isFeatureEnabled("voice")),
+  feature("likes-store", () => initLikesStore(), isFeatureEnabled("stores")),
+  feature("logo-brand-store", () => initLogoBrandStore(), isFeatureEnabled("stores")),
+  feature("artist-cache", () => initArtistCache(), isFeatureEnabled("stores")),
+  feature("custom-radio-stations", () => loadCustomStations(), isFeatureEnabled("radio")),
 ];
 
 export async function initializeRuntime(): Promise<void> {
   logger.info("Starting runtime bootstrap");
+  logFeatureFlags();
 
   await connectDb();
   await runMigration();
