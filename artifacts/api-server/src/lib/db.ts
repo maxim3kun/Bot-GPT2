@@ -2,7 +2,7 @@ import { MongoClient, type Db, type Collection } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import { logger } from "./logger.js";
 
-// ── Config ─────────────────────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────
 
 // Prefer MONGODB_URI; fall back to DATABASE_URL only when it looks like a
 // MongoDB connection string (starts with "mongodb"), so we never mistake a
@@ -23,7 +23,7 @@ if (ENCRYPTION_KEY_HEX) {
   }
 }
 
-// ── SHA-256 hashing ────────────────────────────────────────────────────────────
+// ── SHA-256 hashing ───────────────────────────────────────────────────────
 
 export function hashUserId(discordId: string): string {
   return createHash("sha256").update(discordId).digest("hex");
@@ -52,7 +52,7 @@ export function decrypt(data: string): string {
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
 }
 
-// ── Document types ─────────────────────────────────────────────────────────────
+// ── Document types ─────────────────────────────────────────────────────────
 
 export interface UserDoc {
   _id: string;
@@ -106,9 +106,15 @@ export interface AiTimezoneDoc {
   updatedAt: Date;
 }
 
-// ── MongoDB client ─────────────────────────────────────────────────────────────
+export interface BetaTesterDoc {
+  _id: string; // Discord user id
+  addedBy: string;
+  addedAt: Date;
+}
 
-// ── Logo brands cache ──────────────────────────────────────────────────────────
+// ── MongoDB client ────────────────────────────────────────────────────────
+
+// ── Logo brands cache ───────────────────────────────────────────────────────
 
 export interface LogoBrandCacheDoc {
   _id: "logo_brands";
@@ -156,7 +162,7 @@ export interface CustomStationDoc {
   addedAt: Date;
 }
 
-// ── Food history ────────────────────────────────────────────────────────────────
+// ── Food history ─────────────────────────────────────────────────────────
 
 export interface FoodHistoryEntry {
   productName: string;
@@ -187,6 +193,7 @@ export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
 export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
+export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
   userId: string; guildId: string; username: string; avatarUrl?: string;
   bestScore: number; gamesPlayed: number; totalWon: number; wins: number; lastPlayed: Date;
@@ -230,11 +237,13 @@ export async function connectDb(): Promise<void> {
     customStationsCol = db.collection<CustomStationDoc>("custom_radio_stations");
     foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
     aiConsentCol = db.collection("ai_consent");
-    await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
-    await aiMemoryCol.createIndex({ updatedAt: -1 });
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
+    betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
+    await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
+    await aiMemoryCol.createIndex({ updatedAt: -1 });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
+    await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
     await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
     await mgLeaderboardCol.createIndex({ userId: 1, guildId: 1 }, { unique: true });
@@ -250,6 +259,54 @@ export async function connectDb(): Promise<void> {
     usersCol    = null;
     guildsCol   = null;
     aiMemoryCol = null;
+    betaTestersCol = null;
+  }
+}
+
+// ── Beta tester access ──────────────────────────────────────────────────────
+
+export async function addBetaTester(userId: string, addedBy: string): Promise<boolean> {
+  if (!betaTestersCol) return false;
+  try {
+    const existing = await betaTestersCol.findOne({ _id: userId });
+    if (existing) return false;
+    await betaTestersCol.insertOne({ _id: userId, addedBy, addedAt: new Date() });
+    return true;
+  } catch (err) {
+    logger.error({ err }, "addBetaTester failed");
+    return false;
+  }
+}
+
+export async function removeBetaTester(userId: string): Promise<boolean> {
+  if (!betaTestersCol) return false;
+  try {
+    const result = await betaTestersCol.deleteOne({ _id: userId });
+    return result.deletedCount > 0;
+  } catch (err) {
+    logger.error({ err }, "removeBetaTester failed");
+    return false;
+  }
+}
+
+export async function isBetaTester(userId: string): Promise<boolean> {
+  if (!betaTestersCol) return false;
+  try {
+    const doc = await betaTestersCol.findOne({ _id: userId });
+    return !!doc;
+  } catch (err) {
+    logger.error({ err }, "isBetaTester failed");
+    return false;
+  }
+}
+
+export async function listBetaTesters(): Promise<BetaTesterDoc[]> {
+  if (!betaTestersCol) return [];
+  try {
+    return await betaTestersCol.find({}).sort({ addedAt: -1 }).toArray();
+  } catch (err) {
+    logger.error({ err }, "listBetaTesters failed");
+    return [];
   }
 }
 
@@ -278,7 +335,7 @@ export async function saveAiTimezone(discordId: string, place: string, timezone:
   }
 }
 
-// ── AI memory CRUD ─────────────────────────────────────────────────────────────
+// ── AI memory CRUD ────────────────────────────────────────────────────────
 // Memory is always encrypted and keyed by a one-way hash of the Discord scope.
 // User memories use guildId + userId; server memories use guildId + "server".
 
@@ -338,7 +395,7 @@ export async function clearAiMemory(guildId: string, userId: string): Promise<bo
   }
 }
 
-// ── User CRUD ──────────────────────────────────────────────────────────────────
+// ── User CRUD ──────────────────────────────────────────────────────────
 
 export async function getUserData(discordId: string): Promise<UserData | null> {
   if (!usersCol || !encKey) return null;
@@ -397,7 +454,6 @@ export async function patchUserData(discordId: string, patch: Partial<UserData>)
     }
   });
   _patchLocks.set(key, next);
-  // Clean up the lock entry once the chain settles to avoid growing the map indefinitely
   next.finally(() => {
     if (_patchLocks.get(key) === next) _patchLocks.delete(key);
   }).catch(() => null);
@@ -442,7 +498,7 @@ export async function getUsersWithBirthday(day: number, month: number): Promise<
   }
 }
 
-// ── Guild CRUD ─────────────────────────────────────────────────────────────────
+// ── Guild CRUD ──────────────────────────────────────────────────────────
 
 export async function getGuildDoc(guildId: string): Promise<GuildDoc | null> {
   if (!guildsCol) return null;
@@ -480,7 +536,7 @@ export async function getAllGuildDocs(): Promise<GuildDoc[]> {
   }
 }
 
-// ── Food history CRUD ──────────────────────────────────────────────────────────
+// ── Food history CRUD ───────────────────────────────────────────────────────
 
 export async function saveFoodHistory(discordId: string, entry: FoodHistoryEntry): Promise<void> {
   if (!foodHistoryCol) return;
@@ -524,7 +580,7 @@ export async function clearFoodHistory(discordId: string): Promise<void> {
   }
 }
 
-// ── DB storage stats ───────────────────────────────────────────────────────────
+// ── DB storage stats ────────────────────────────────────────────────────────
 
 export interface DbStats {
   dataSize: number;    // bytes — uncompressed data
