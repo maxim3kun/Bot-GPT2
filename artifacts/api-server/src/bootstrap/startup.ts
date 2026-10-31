@@ -1,44 +1,13 @@
-import { connectDb } from "../lib/db.js";
-import { runMigration } from "../lib/migrate.js";
 import { logger } from "../lib/logger.js";
-import { initQuestStore } from "../discord/quests.js";
-import { initBirthdayStore } from "../discord/birthdays.js";
-import { initSuggestPrefs } from "../discord/suggest-prefs.js";
-import { initPrefixStore } from "../discord/prefix-store.js";
-import { initLangStore } from "../discord/lang-store.js";
-import { initUserLangStore } from "../discord/user-lang-store.js";
-import { initPlaylists } from "../discord/playlist.js";
-import { initAdminChannels } from "../discord/command-suggest.js";
-import { initVoicePickerChannels } from "../discord/voice-picker-channels.js";
-import { initLikesStore } from "../discord/likes-store.js";
-import { initLogoBrandStore } from "../discord/logo-brand-store.js";
-import { initArtistCache } from "../discord/artist-cache.js";
-import { loadCustomStations } from "../discord/radio.js";
-import { feature, initializeFeatures, type RuntimeFeature } from "./feature-registry.js";
-import { isFeatureEnabled, logFeatureFlags } from "./feature-flags.js";
-
-export const runtimeFeatures: RuntimeFeature[] = [
-  feature("quest-store", () => initQuestStore(), isFeatureEnabled("stores")),
-  feature("birthday-store", () => initBirthdayStore(), isFeatureEnabled("stores")),
-  feature("suggest-prefs", () => initSuggestPrefs(), isFeatureEnabled("stores")),
-  feature("prefix-store", () => initPrefixStore(), isFeatureEnabled("stores")),
-  feature("lang-store", () => initLangStore(), isFeatureEnabled("stores")),
-  feature("user-lang-store", () => initUserLangStore(), isFeatureEnabled("stores")),
-  feature("playlists", () => initPlaylists(), isFeatureEnabled("stores")),
-  feature("admin-channels", () => initAdminChannels(), isFeatureEnabled("admin")),
-  feature("voice-picker-channels", () => initVoicePickerChannels(), isFeatureEnabled("voice")),
-  feature("likes-store", () => initLikesStore(), isFeatureEnabled("stores")),
-  feature("logo-brand-store", () => initLogoBrandStore(), isFeatureEnabled("stores")),
-  feature("artist-cache", () => initArtistCache(), isFeatureEnabled("stores")),
-  feature("custom-radio-stations", () => loadCustomStations(), isFeatureEnabled("radio")),
-];
+import { initializeFeatures } from "./feature-registry.js";
+import { runtimeFeatures, initializeDatabase } from "./runtime-features.js";
+import { logFeatureFlags } from "./feature-flags.js";
 
 export async function initializeRuntime(): Promise<void> {
   logger.info("Starting runtime bootstrap");
   logFeatureFlags();
 
-  await connectDb();
-  await runMigration();
+  await initializeDatabase();
   await initializeFeatures(runtimeFeatures);
 
   logger.info("Runtime bootstrap complete");
