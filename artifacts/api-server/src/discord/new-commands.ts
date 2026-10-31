@@ -84,7 +84,7 @@ export async function handleBetaCommand(message: Message, args: string[], prefix
 
   if (!sub || sub === "help" || sub === "status") {
     const testers = await listBetaTesters();
-    const betaList = testers.length > 0 ? testers.map((t) => `• <@${t.userId}>`).join("\n") : "• Aucun bêta testeur pour le moment";
+    const betaList = testers.length > 0 ? testers.map((t) => `• <@${t._id}>`).join("\n") : "• Aucun bêta testeur pour le moment";
     await message.reply({
       embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
@@ -109,7 +109,7 @@ export async function handleBetaCommand(message: Message, args: string[], prefix
       await message.reply("🧪 No beta tester is registered yet.");
       return;
     }
-    await message.reply(`🧪 Beta testers (${testers.length}):\n${testers.map((t) => `• <@${t.userId}>`).join("\n")}`);
+    await message.reply(`🧪 Beta testers (${testers.length}):\n${testers.map((t) => `• <@${t._id}>`).join("\n")}`);
     return;
   }
 
