@@ -76,8 +76,8 @@ export function buildConsentPrompt(language: UserLang = "en"): { embeds: EmbedBu
     .setTitle(isFrench ? "🤖 Fonction IA — consentement" : "🤖 AI Feature — One-time Consent")
     .setDescription(
       isFrench
-        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse de messages, cela peut inclure jusqu’à 50 messages récents de la personne ciblée ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
-        : "The text needed for your request will be sent to **Groq**, the AI provider. A message analysis may include up to 50 recent messages from the selected person; the bot does not store them.\n\nDo you agree to use AI features?",
+        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse, cela peut inclure jusqu’à 50 messages récents de la personne ciblée dans les salons que toi et le bot pouvez lire ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
+        : "The text needed for your request will be sent to **Groq**, the AI provider. An analysis may include up to 50 recent messages from the selected person in channels both you and the bot can read; the bot does not store them.\n\nDo you agree to use AI features?",
     )
     .setFooter({ text: isFrench ? "Ton choix est enregistré. Utilise !ai reset pour le modifier." : "Your choice is saved. Use !ai reset to change it later." });
 
