@@ -6,7 +6,7 @@ import { isValidUserLang, type UserLang } from "./user-lang-store.js";
 
 export type GuildLang = UserLang;
 
-export const DEFAULT_LANG: GuildLang = "en";
+export const DEFAULT_LANG: GuildLang = "fr";
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "langs.json");

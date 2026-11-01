@@ -260,6 +260,48 @@ export function commandSuggestText(language: UserLang, key: CopyKey, ...values: 
   return COPY[language][key].replace(/\{(\d+)\}/g, (_, index: string) => values[Number(index)] ?? "");
 }
 
+const SUGGESTION_STATUS_COPY: Record<UserLang, (status: string, enableCommand: string, disableCommand: string) => string> = {
+  en: (status, enableCommand, disableCommand) => `💡 Command suggestions are currently ${status}.\n➤ \`${enableCommand}\` — enable\n➤ \`${disableCommand}\` — disable`,
+  fr: (status, enableCommand, disableCommand) => `💡 Les suggestions de commandes sont actuellement ${status}.\n➤ \`${enableCommand}\` — activer\n➤ \`${disableCommand}\` — désactiver`,
+  es: (status, enableCommand, disableCommand) => `💡 Las sugerencias de comandos están ${status}.\n➤ \`${enableCommand}\` — activar\n➤ \`${disableCommand}\` — desactivar`,
+  de: (status, enableCommand, disableCommand) => `💡 Befehlsvorschläge sind derzeit ${status}.\n➤ \`${enableCommand}\` — aktivieren\n➤ \`${disableCommand}\` — deaktivieren`,
+  pt: (status, enableCommand, disableCommand) => `💡 As sugestões de comandos estão ${status}.\n➤ \`${enableCommand}\` — ativar\n➤ \`${disableCommand}\` — desativar`,
+  it: (status, enableCommand, disableCommand) => `💡 I suggerimenti dei comandi sono ${status}.\n➤ \`${enableCommand}\` — attiva\n➤ \`${disableCommand}\` — disattiva`,
+  ja: (status, enableCommand, disableCommand) => `💡 コマンド候補は現在${status}です。\n➤ \`${enableCommand}\` — 有効にする\n➤ \`${disableCommand}\` — 無効にする`,
+  nl: (status, enableCommand, disableCommand) => `💡 Opdrachtsuggesties zijn momenteel ${status}.\n➤ \`${enableCommand}\` — inschakelen\n➤ \`${disableCommand}\` — uitschakelen`,
+  ru: (status, enableCommand, disableCommand) => `💡 Подсказки команд сейчас ${status}.\n➤ \`${enableCommand}\` — включить\n➤ \`${disableCommand}\` — выключить`,
+  pl: (status, enableCommand, disableCommand) => `💡 Podpowiedzi poleceń są obecnie ${status}.\n➤ \`${enableCommand}\` — włącz\n➤ \`${disableCommand}\` — wyłącz`,
+  tr: (status, enableCommand, disableCommand) => `💡 Komut önerileri şu anda ${status}.\n➤ \`${enableCommand}\` — aç\n➤ \`${disableCommand}\` — kapat`,
+};
+
+const SUGGESTION_STATUS_LABELS: Record<UserLang, [string, string, string]> = {
+  en: ["on", "off", "not set yet"],
+  fr: ["activées", "désactivées", "pas encore configurées"],
+  es: ["activadas", "desactivadas", "aún sin configurar"],
+  de: ["aktiviert", "deaktiviert", "noch nicht festgelegt"],
+  pt: ["ativadas", "desativadas", "ainda não configuradas"],
+  it: ["attivi", "disattivi", "non ancora configurati"],
+  ja: ["有効", "無効", "未設定"],
+  nl: ["ingeschakeld", "uitgeschakeld", "nog niet ingesteld"],
+  ru: ["включены", "выключены", "ещё не настроены"],
+  pl: ["włączone", "wyłączone", "jeszcze nieustawione"],
+  tr: ["açık", "kapalı", "henüz ayarlanmadı"],
+};
+
+export function commandSuggestStatus(
+  language: UserLang,
+  preference: boolean | null,
+  enableCommand: string,
+  disableCommand: string,
+): string {
+  const labels = SUGGESTION_STATUS_LABELS[language];
+  return SUGGESTION_STATUS_COPY[language](
+    preference === true ? labels[0] : preference === false ? labels[1] : labels[2],
+    enableCommand,
+    disableCommand,
+  );
+}
+
 export function commandDescription(language: UserLang, command: string, fallback: string): string {
   const index = COMMAND_DESCRIPTION_KEYS.indexOf(command as typeof COMMAND_DESCRIPTION_KEYS[number]);
   return index < 0 ? fallback : DESCRIPTIONS[language][index] ?? fallback;

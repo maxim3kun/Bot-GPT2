@@ -18,7 +18,7 @@ import { getLang, setLang, GuildLang } from "./discord/lang-store";
 import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { getEffectiveLanguage } from "./discord/effective-language.js";
 import { botText } from "./discord/bot-i18n.js";
-import { commandSuggestText } from "./discord/command-suggest-i18n.js";
+import { commandSuggestStatus, commandSuggestText } from "./discord/command-suggest-i18n.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
@@ -2407,16 +2407,18 @@ export function startBot(): void {
             setSuggestPref(message.author.id, enabled);
             await message.reply(
               enabled
-                ? "💡 **Suggestions enabled.** I'll help you correct typos from now on."
-                : "🔕 **Suggestions disabled.** I'll stay silent on unknown commands.\nUse `!help` to browse all commands.",
+                ? commandSuggestText(responseLang, "enabled", guildPrefix)
+                : commandSuggestText(responseLang, "optedOut", guildPrefix),
             );
           } else {
             const current = getSuggestPref(message.author.id);
-            const status  = current === true ? "**on** ✅" : current === false ? "**off** 🔕" : "**not set yet**";
             await message.reply(
-              `💡 Command suggestions are currently ${status}.\n` +
-              `➤ \`${guildPrefix}suggest on\` — enable\n` +
-              `➤ \`${guildPrefix}suggest off\` — disable`,
+              commandSuggestStatus(
+                responseLang,
+                current ?? null,
+                `${guildPrefix}suggest on`,
+                `${guildPrefix}suggest off`,
+              ),
             );
           }
           break;

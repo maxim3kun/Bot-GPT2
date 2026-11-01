@@ -16,6 +16,22 @@ import type { IncomingMessage } from "http";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpStreamWithFx, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 import { customStationsCol } from "../lib/db.js";
+import { getEffectiveLanguage } from "./effective-language.js";
+import type { UserLang } from "./user-lang-store.js";
+
+const RADIO_COMMAND_COPY: Record<UserLang, { missing: string; suggestions: string; fullList: string }> = {
+  en: { missing: "No station found for", suggestions: "Station not found. Did you mean:", fullList: "Full list" },
+  fr: { missing: "Aucune station trouvée pour", suggestions: "Station introuvable. Tu voulais dire :", fullList: "Liste complète" },
+  es: { missing: "No se encontró ninguna emisora para", suggestions: "Emisora no encontrada. ¿Querías decir:", fullList: "Lista completa" },
+  de: { missing: "Kein Sender gefunden für", suggestions: "Sender nicht gefunden. Meintest du:", fullList: "Vollständige Liste" },
+  pt: { missing: "Nenhuma estação encontrada para", suggestions: "Estação não encontrada. Você quis dizer:", fullList: "Lista completa" },
+  it: { missing: "Nessuna stazione trovata per", suggestions: "Stazione non trovata. Intendevi:", fullList: "Elenco completo" },
+  ja: { missing: "次のラジオ局は見つかりませんでした：", suggestions: "ラジオ局が見つかりません。こちらのことですか？", fullList: "全一覧" },
+  nl: { missing: "Geen station gevonden voor", suggestions: "Station niet gevonden. Bedoelde je:", fullList: "Volledige lijst" },
+  ru: { missing: "Станция не найдена:", suggestions: "Станция не найдена. Возможно, вы имели в виду:", fullList: "Полный список" },
+  pl: { missing: "Nie znaleziono stacji dla", suggestions: "Nie znaleziono stacji. Czy chodziło Ci o:", fullList: "Pełna lista" },
+  tr: { missing: "Şu istasyon bulunamadı:", suggestions: "İstasyon bulunamadı. Şunu mu demek istedin:", fullList: "Tam liste" },
+};
 
 // ── Custom stations (admin-added, persisted in MongoDB) ───────────────────────
 
@@ -1056,6 +1072,7 @@ function resolveStation(input: string): { key: string } | { suggestions: string[
 }
 
 export async function playRadio(message: Message, stationInput: string): Promise<void> {
+  const copy = RADIO_COMMAND_COPY[getEffectiveLanguage(message.guildId, message.author.id)];
   const resolved = resolveStation(stationInput);
 
   let stationKey: string;
@@ -1064,14 +1081,14 @@ export async function playRadio(message: Message, stationInput: string): Promise
   } else {
     if (resolved.suggestions.length === 0) {
       await message.reply(
-        `❌ No station found for \`${stationInput}\`.\nSee the full list with \`!radio list\`.`,
+        `❌ ${copy.missing} \`${stationInput}\`.\n${copy.fullList} : \`!radio list\`.`,
       );
     } else {
       const list = resolved.suggestions
         .map(k => `${RADIO_STATIONS[k]!.emoji} \`${k}\` — **${RADIO_STATIONS[k]!.name}**`)
         .join("\n");
       await message.reply(
-        `❓ Station \`${stationInput}\` not found. Did you mean:\n${list}\n\nFull list: \`!radio list\``,
+        `❓ ${copy.suggestions}\n${list}\n\n${copy.fullList} : \`!radio list\``,
       );
     }
     return;
@@ -1079,7 +1096,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
   if (!station) {
-    await message.reply(`❌ Station \`${stationKey}\` not found. See the list with \`!radio list\`.`);
+    await message.reply(`❌ ${copy.missing} \`${stationKey}\`. ${copy.fullList} : \`!radio list\`.`);
     return;
   }
 
