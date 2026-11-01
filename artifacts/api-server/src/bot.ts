@@ -47,7 +47,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
-import { classifyAiMessage, currentTimeAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
+import { classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -155,8 +155,11 @@ function isSendable(channel: unknown): channel is SendableChannel {
 }
 
 const AI_IDENTITY_INSTRUCTIONS =
-  "Your name is MaximeGPT. If the user asks your name, answer that your name is MaximeGPT. " +
-  "Do not present the creator or owner, and do not mention Maxime or Maxim3kun, unless the user directly asks who created or owns you. ";
+  "Your name is MaximeGPT, a Discord bot created and developed by Maxime, also known as Maxim3kun. " +
+  "If asked who created or developed you, name Maxime (Maxim3kun). Never claim OpenAI created or developed this Discord bot; an AI model provider is not the bot's creator. " +
+  "Describe only capabilities supported by the application: conversational AI, web search when routed for current information, quizzes and mini-games, quests, voice features, radio and YouTube audio, and optional Suno music generation. " +
+  "Server admins can configure settings such as prefix, language, welcome messages, and scheduled messages. Do not claim you can assign roles, ban, kick, or mute members on request. " +
+  "Some features require permissions or configuration. Never invent commands or features; if unsure, direct users to the server's help command using its configured prefix. ";
 
 const WEB_RESEARCH_ANSWER_INSTRUCTIONS =
   "When web research is provided, answer the user's actual goal rather than summarizing the search results. " +
@@ -457,6 +460,14 @@ export function startBot(): void {
     }
     if (route.intent === "identity") {
       await message.reply(directIdentityAnswer(responseLang));
+      return;
+    }
+    if (route.intent === "creator") {
+      await message.reply(directCreatorAnswer(responseLang));
+      return;
+    }
+    if (route.intent === "capabilities") {
+      await message.reply(directCapabilitiesAnswer(responseLang));
       return;
     }
     if (route.intent === "time" && !isWeatherRequest(prompt)) {
@@ -1441,6 +1452,14 @@ export function startBot(): void {
         await message.reply(directIdentityAnswer(responseLang));
         return;
       }
+      if (route.intent === "creator") {
+        await message.reply(directCreatorAnswer(responseLang));
+        return;
+      }
+      if (route.intent === "capabilities") {
+        await message.reply(directCapabilitiesAnswer(responseLang));
+        return;
+      }
       if (route.intent === "time" && !isWeatherRequest(userText)) {
         const explicitPlace = requestedTimePlace(userText);
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
@@ -1518,6 +1537,14 @@ export function startBot(): void {
       }
       if (route.intent === "identity") {
         await message.reply(directIdentityAnswer(responseLang));
+        return;
+      }
+      if (route.intent === "creator") {
+        await message.reply(directCreatorAnswer(responseLang));
+        return;
+      }
+      if (route.intent === "capabilities") {
+        await message.reply(directCapabilitiesAnswer(responseLang));
         return;
       }
       if (route.intent === "time" && !isWeatherRequest(userText)) {

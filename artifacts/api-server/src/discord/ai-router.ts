@@ -4,6 +4,8 @@ import type { UserLang } from "./user-lang-store.js";
 export type AiIntent =
   | "greeting"
   | "identity"
+  | "creator"
+  | "capabilities"
   | "time"
   | "research"
   | "discord_action"
@@ -79,6 +81,22 @@ export function classifyAiMessage(text: string): AiRoute {
     /^(ton|ta|votre|your)\s+(nom|name)\b/.test(normalized)
   ) {
     return { intent: "identity", needsResearch: false, needsConfirmation: false };
+  }
+
+  if (
+    /\b(?:qui (?:est|a cree|t a cree|t a developpe)|(?:ton|ta|votre) createur|who (?:created|made|developed) you|who is your creator)\b/.test(normalized) ||
+    /\b(?:qui est derriere toi|qui t a concu|who built you)\b/.test(normalized)
+  ) {
+    return { intent: "creator", needsResearch: false, needsConfirmation: false };
+  }
+
+  if (
+    /\b(?:tes|vos) (?:fonctions|fonctionnalites|capacites|possibilites)\b/.test(normalized) ||
+    /\b(?:que|quoi) (?:peux|sais) tu faire\b/.test(normalized) ||
+    /\b(?:tu peux faire quoi|tu sais faire quoi|a quoi tu sers)\b/.test(normalized) ||
+    /\b(?:what can you do|what are your (?:functions|features|capabilities)|tell me your (?:functions|features|capabilities))\b/.test(normalized)
+  ) {
+    return { intent: "capabilities", needsResearch: false, needsConfirmation: false };
   }
 
   if (includesAny(normalized, TIME_TERMS)) {
@@ -276,6 +294,40 @@ export function directIdentityAnswer(language: UserLang = "en"): string {
     ru: "Меня зовут **MaximeGPT** 🤖",
     pl: "Mam na imię **MaximeGPT** 🤖",
     tr: "Benim adım **MaximeGPT** 🤖",
+  };
+  return answers[language];
+}
+
+export function directCreatorAnswer(language: UserLang = "en"): string {
+  const answers: Record<UserLang, string> = {
+    en: "I was created and developed by **Maxime**, also known as **Maxim3kun**. I’m the MaximeGPT Discord bot.",
+    fr: "J’ai été créé et développé par **Maxime**, connu sous le pseudo **Maxim3kun**. Je suis le bot Discord MaximeGPT.",
+    es: "Fui creado y desarrollado por **Maxime**, conocido como **Maxim3kun**. Soy el bot de Discord MaximeGPT.",
+    de: "Ich wurde von **Maxime**, auch bekannt als **Maxim3kun**, erstellt und entwickelt. Ich bin der MaximeGPT-Discord-Bot.",
+    pt: "Fui criado e desenvolvido por **Maxime**, conhecido como **Maxim3kun**. Sou o bot do Discord MaximeGPT.",
+    it: "Sono stato creato e sviluppato da **Maxime**, conosciuto come **Maxim3kun**. Sono il bot Discord MaximeGPT.",
+    ja: "**Maxime**（**Maxim3kun**）が開発したDiscordボット、MaximeGPTです。",
+    nl: "Ik ben gemaakt en ontwikkeld door **Maxime**, ook bekend als **Maxim3kun**. Ik ben de MaximeGPT-Discordbot.",
+    ru: "Меня создал и разработал **Maxime**, также известный как **Maxim3kun**. Я Discord-бот MaximeGPT.",
+    pl: "Stworzył mnie i rozwija **Maxime**, znany także jako **Maxim3kun**. Jestem botem Discord MaximeGPT.",
+    tr: "Beni **Maxime**, diğer adıyla **Maxim3kun**, oluşturup geliştirdi. Ben MaximeGPT Discord botuyum.",
+  };
+  return answers[language];
+}
+
+export function directCapabilitiesAnswer(language: UserLang = "en"): string {
+  const answers: Record<UserLang, string> = {
+    en: "I’m **MaximeGPT**, created by **Maxime (Maxim3kun)**. I can chat and search the web with sources, run quizzes and mini-games, help with quests, handle voice chat, and play radio or YouTube audio. I can also generate music when Suno is configured. Server admins can configure the prefix, language, welcome messages, and scheduled posts. I can’t assign roles or ban, kick, or mute members on request. Some features require permissions or extra setup. Type `help` with your server’s configured prefix (default: `!help`) for the command list.",
+    fr: "Je suis **MaximeGPT**, créé par **Maxime (Maxim3kun)**. Je peux discuter et rechercher sur le Web avec des sources, lancer des quiz et mini-jeux, aider avec les quêtes, participer aux échanges vocaux et lire la radio ou l’audio YouTube. Je peux aussi générer de la musique si Suno est configuré. Les admins peuvent régler le préfixe, la langue, les messages de bienvenue et les messages programmés. Je ne peux pas attribuer de rôles ni bannir, expulser ou muter des membres à la demande. Certaines fonctions nécessitent des permissions ou une configuration. Tape `help` après le préfixe de ton serveur (par défaut : `!help`) pour voir les commandes.",
+    es: "Soy **MaximeGPT**, creado por **Maxime (Maxim3kun)**. Puedo conversar y buscar en la web con fuentes, iniciar concursos y minijuegos, ayudar con misiones, participar en voz y reproducir radio o audio de YouTube. También puedo generar música si el Suno está configurado. Los administradores pueden configurar el prefijo, el idioma, los mensajes de bienvenida y los mensajes programados. No puedo asignar roles ni expulsar, banear o silenciar miembros por petición. Algunas funciones requieren permisos o configuración. Escribe `help` con el prefijo configurado en tu servidor (por defecto: `!help`) para ver los comandos.",
+    de: "Ich bin **MaximeGPT**, erstellt von **Maxime (Maxim3kun)**. Ich kann chatten, mit Quellen im Web suchen, Quizze und Minispiele starten, bei Quests helfen, Sprachfunktionen nutzen sowie Radio oder YouTube-Audio abspielen. Mit eingerichtetem Suno kann ich auch Musik generieren. Admins können Präfix, Sprache, Begrüßungen und geplante Nachrichten konfigurieren. Ich kann auf Anfrage keine Rollen vergeben oder Mitglieder bannen, kicken oder stummschalten. Einige Funktionen benötigen Berechtigungen oder zusätzliche Einrichtung. Gib `help` mit dem Serverpräfix ein (Standard: `!help`), um die Befehle zu sehen.",
+    pt: "Sou o **MaximeGPT**, criado por **Maxime (Maxim3kun)**. Posso conversar e pesquisar na Web com fontes, iniciar quizzes e minijogos, ajudar com missões, participar de conversas por voz e reproduzir rádio ou áudio do YouTube. Também posso gerar música se o Suno estiver configurado. Administradores podem configurar prefixo, idioma, mensagens de boas-vindas e mensagens agendadas. Não posso atribuir cargos nem banir, expulsar ou silenciar membros a pedido. Alguns recursos exigem permissões ou configuração. Use `help` com o prefixo configurado no servidor (padrão: `!help`) para ver os comandos.",
+    it: "Sono **MaximeGPT**, creato da **Maxime (Maxim3kun)**. Posso chattare e cercare sul Web con fonti, avviare quiz e minigiochi, aiutare con le missioni, partecipare alla chat vocale e riprodurre radio o audio YouTube. Posso anche generare musica se Suno è configurato. Gli amministratori possono configurare prefisso, lingua, messaggi di benvenuto e messaggi programmati. Non posso assegnare ruoli né bannare, espellere o silenziare membri su richiesta. Alcune funzioni richiedono autorizzazioni o configurazione. Digita `help` con il prefisso configurato nel server (predefinito: `!help`) per vedere i comandi.",
+    ja: "**Maxime（Maxim3kun）**が作成したMaximeGPTです。会話、出典付きWeb検索、クイズやミニゲーム、クエスト支援、音声チャット、ラジオやYouTube音声の再生ができます。Sunoの設定があれば音楽も生成できます。管理者はプレフィックス、言語、歓迎メッセージ、予約投稿を設定できます。依頼に応じてロールを付与したり、メンバーをBAN・キック・ミュートしたりはできません。一部機能には権限や追加設定が必要です。コマンド一覧はサーバー設定のプレフィックスと`help`（初期値は`!help`）で確認できます。",
+    nl: "Ik ben **MaximeGPT**, gemaakt door **Maxime (Maxim3kun)**. Ik kan chatten, met bronnen op het web zoeken, quizzen en minigames starten, helpen met quests, spraakchat ondersteunen en radio of YouTube-audio afspelen. Met Suno ingesteld kan ik ook muziek genereren. Beheerders kunnen prefix, taal, welkomstberichten en geplande berichten instellen. Ik kan op verzoek geen rollen toewijzen of leden bannen, kicken of dempen. Sommige functies vereisen rechten of extra instellingen. Typ `help` met de ingestelde serverprefix (standaard: `!help`) voor de opdrachten.",
+    ru: "Я **MaximeGPT**, созданный **Maxime (Maxim3kun)**. Я могу общаться, искать информацию в интернете с источниками, запускать викторины и мини-игры, помогать с заданиями, работать с голосовым чатом и воспроизводить радио или аудио YouTube. При настройке Suno я также могу создавать музыку. Администраторы могут настраивать префикс, язык, приветствия и запланированные сообщения. Я не могу по запросу назначать роли, банить, исключать или отключать звук участникам. Для некоторых функций нужны права или дополнительная настройка. Введите `help` с префиксом сервера (по умолчанию: `!help`), чтобы посмотреть список команд.",
+    pl: "Jestem **MaximeGPT**, stworzonym przez **Maxime (Maxim3kun)**. Mogę rozmawiać, wyszukiwać w sieci ze źródłami, uruchamiać quizy i minigry, pomagać w zadaniach, obsługiwać rozmowy głosowe oraz odtwarzać radio lub dźwięk z YouTube. Po skonfigurowaniu Suno mogę też generować muzykę. Administratorzy mogą ustawiać prefiks, język, powitania i zaplanowane wiadomości. Nie mogę na żądanie nadawać ról ani banować, wyrzucać lub wyciszać członków. Niektóre funkcje wymagają uprawnień lub konfiguracji. Wpisz `help` z prefiksem serwera (domyślnie: `!help`), aby zobaczyć polecenia.",
+    tr: "**MaximeGPT**, **Maxime (Maxim3kun)** tarafından oluşturuldu. Sohbet edebilir, kaynaklı web araması yapabilir, quiz ve mini oyunlar başlatabilir, görevlerde yardımcı olabilir, sesli sohbeti kullanabilir ve radyo ya da YouTube sesi oynatabilirim. Suno yapılandırılmışsa müzik de oluşturabilirim. Yöneticiler öneki, dili, karşılama mesajlarını ve zamanlanmış iletileri ayarlayabilir. İstek üzerine rol veremem; üyeleri banlayamam, atamam veya susturamam. Bazı özellikler izin ya da ek yapılandırma gerektirir. Komut listesini görmek için sunucu önekin ve `help` yaz (varsayılan: `!help`).",
   };
   return answers[language];
 }
