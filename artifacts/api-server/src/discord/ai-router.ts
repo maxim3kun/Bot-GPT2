@@ -72,6 +72,30 @@ function isNamedEntityLookup(text: string): boolean {
   return Boolean(firstLetter && firstLetter === firstLetter.toLocaleUpperCase() && firstLetter !== firstLetter.toLocaleLowerCase());
 }
 
+function cleanResearchPhrase(text: string): string {
+  return text
+    .replace(/^[^:]{1,80}:\s*/, "")
+    .replace(/<@!?\d+>/g, "")
+    .replace(/^(?:non|no|en fait|actually|je voulais dire|je veux dire|je parle de|i meant|i mean)\s+/i, "")
+    .replace(/^(?:dis[- ]?moi|explique[- ]?moi|tell me)\s+/i, "")
+    .replace(/^(?:qu['’]est[- ]ce que|c['’]est quoi|what is|who is|who was)\s+/i, "")
+    .replace(/\b(?:regarde|cherche|vérifie|verifie|look up|search)\s+(?:sur internet|sur le web|en ligne|online|on the internet)\b/gi, "")
+    .replace(/\b(?:sur internet|sur le web|en ligne|online|on the internet)\b/gi, "")
+    .replace(/\s+(?:et|and|mais|but)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function buildResearchQuery(currentText: string, previousText = ""): string {
+  const isCorrection = /^(?:non\b|no\b|en fait\b|actually\b|je voulais dire\b|je veux dire\b|je parle de\b|i meant\b|i mean\b)/i
+    .test(currentText.trim());
+  if (!previousText || !isCorrection) return currentText.trim().slice(0, 300);
+
+  const previous = cleanResearchPhrase(previousText).slice(-150);
+  const clarification = cleanResearchPhrase(currentText).slice(0, 140);
+  return `${previous} ${clarification}`.trim().slice(0, 300);
+}
+
 export function classifyAiMessage(text: string): AiRoute {
   const normalized = normalize(text);
 

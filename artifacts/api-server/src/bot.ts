@@ -48,7 +48,7 @@ import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetCo
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
-import { classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
+import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -63,8 +63,10 @@ type ChatMessage = {
 };
 
 const conversationHistory = new Map<string, ChatMessage[]>();
+const lastResearchQueries = new Map<string, { query: string; timestamp: number }>();
 const MAX_HISTORY = 20;
 const MAX_AI_HISTORY_CHARS = 6_000;
+const RESEARCH_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
 const pendingTimeRequests = new Map<string, number>();
 const TIME_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -121,6 +123,23 @@ function addToHistory(channelId: string, role: "user" | "assistant", content: st
   if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
 }
 
+function buildMessageResearchQuery(message: Message, text: string): string {
+  const key = `${message.channelId}:${message.author.id}`;
+  const previous = lastResearchQueries.get(key);
+  const previousQuery = previous && Date.now() - previous.timestamp <= RESEARCH_FOLLOW_UP_TTL_MS
+    ? previous.query
+    : "";
+  const query = buildResearchQuery(text, previousQuery);
+  lastResearchQueries.set(key, { query, timestamp: Date.now() });
+  return query;
+}
+
+function noResearchEvidenceReply(language: string): string {
+  return language === "fr"
+    ? "Je n’ai pas trouvé de source assez précise pour vérifier ça. Tu peux préciser le sujet ou réessayer."
+    : "I couldn't find a specific enough source to verify that. Please clarify the topic or try again.";
+}
+
 function isBotMentioned(message: Message, botId: string): boolean {
   if (message.mentions.users.has(botId)) return true;
   return new RegExp(`<@!?${botId}>`).test(message.content);
@@ -164,10 +183,11 @@ const AI_IDENTITY_INSTRUCTIONS =
 
 const WEB_RESEARCH_ANSWER_INSTRUCTIONS =
   "When web research is provided, answer the user's actual goal rather than summarizing the search results. Answer in the user's language and start with the answer, not a heading or preamble. " +
-  "For a simple factual lookup, use at most 2 short sentences (about 45 words). For latest-news requests, give at most 3 important, distinct items, one short sentence each, and stay under about 75 words total. " +
+  "Be concise by default, but adapt the length naturally to the question; do not follow an arbitrary word count. For latest-news requests, report only the most relevant, specific stories, usually 1 to 3 short items, and never pad the answer to reach a fixed count. " +
   "Do not use Markdown tables, pipe characters, or HTML line breaks. Use plain paragraphs or at most 3 brief bullets. Do not list search engines or repeat source names; the source button provides the links. " +
-  "Never call a story 'today's' or 'latest' based only on its search position; use publication dates only when the supplied source metadata confirms them. If dates are missing, say so briefly or avoid date claims. " +
-  "For ambiguous names, briefly state the relevant meanings supported by the results and ask one short clarification only if needed. " +
+  "For news, every item must be a specific event supported by an article page. Never present a newspaper, publisher, search engine, homepage, or general news section (for example, 20 Minutes or Google News) as a news story. Skip generic landing pages and vague summaries. If no specific current story can be verified, say so instead of filling the answer. " +
+  "Never call a story 'today's' or 'latest' based only on its search position; use publication dates only when the supplied source metadata confirms them. If dates are missing, avoid date claims. " +
+  "For ambiguous names, do not default to the most famous meaning. Briefly distinguish meanings supported by the results, including an app or product when found, and ask one short clarification if the intended meaning is still unclear. " +
   "For practical requests such as recipes, tutorials, recommendations, or how-to questions, choose the clearest and most reliable answer from the evidence and give it directly in a useful format: " +
   "a short recommendation, the necessary ingredients or materials, numbered steps, and useful tips or cautions. " +
   "Do not start with a list of websites, do not repeat search snippets, and do not mention site names unless the user asks for sources. " +
@@ -505,7 +525,13 @@ export function startBot(): void {
       const timeContext = route.intent === "time"
         ? currentTimeAnswer(prompt, savedTime?.place, responseLang)
         : "";
-      const webResults = (isTopListQuery(prompt) || route.needsResearch) ? await searchWeb(prompt) : [];
+      const shouldSearch = isTopListQuery(prompt) || route.needsResearch;
+      const searchQuery = shouldSearch ? buildMessageResearchQuery(message, prompt) : prompt;
+      const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
+      if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
+        await message.reply(noResearchEvidenceReply(responseLang));
+        return;
+      }
       const response = await openai.chat.completions.create({
         model: "openai/gpt-oss-20b",
         max_completion_tokens: 1024,
@@ -517,7 +543,7 @@ export function startBot(): void {
       incrementGroqCalls();
       const rawReply = response.choices[0]?.message?.content
         ?? (responseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
-      const reply = webResults.length ? normalizeResearchAnswer(rawReply, prompt) : rawReply;
+      const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
       addToHistory(message.channelId, "assistant", reply);
       await replyWithAiAnswer(message, reply, webResults);
     } catch (err) {
@@ -1493,7 +1519,13 @@ export function startBot(): void {
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
         const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
-        const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
+        const shouldSearch = isTopListQuery(userText) || route.needsResearch;
+        const searchQuery = shouldSearch ? buildMessageResearchQuery(message, userText) : userText;
+        const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
+        if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
+          await message.reply(noResearchEvidenceReply(responseLang));
+          return;
+        }
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",
@@ -1505,7 +1537,7 @@ export function startBot(): void {
         });
         incrementGroqCalls();
         const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
-        const reply = webResults.length ? normalizeResearchAnswer(rawReply, userText) : rawReply;
+        const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(message.channelId, "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
       } catch (err) {
@@ -1589,7 +1621,13 @@ export function startBot(): void {
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
         const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
-        const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
+        const shouldSearch = isTopListQuery(userText) || route.needsResearch;
+        const searchQuery = shouldSearch ? buildMessageResearchQuery(message, userText) : userText;
+        const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
+        if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
+          await message.reply(noResearchEvidenceReply(responseLang));
+          return;
+        }
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",
@@ -1601,7 +1639,7 @@ export function startBot(): void {
         });
         incrementGroqCalls();
         const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
-        const reply = webResults.length ? normalizeResearchAnswer(rawReply, userText) : rawReply;
+        const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(message.channelId, "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
         // Also speak in voice if bot is connected

@@ -13,40 +13,11 @@ function isTableSeparator(cells: string[]): boolean {
 
 const SOURCE_COLUMN = /^(?:source|sources|site|website|publisher|provider|fuente|fuentes|fonte|fontes|quelle|quellen|źródło|источник|kaynak|ソース|出典)$/i;
 
-function researchWordLimit(request: string): number | null {
-  const normalized = request
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-  if (/\b(?:actualites?|news|latest|breaking|today(?:'s)? news|dernieres? nouvelles?)\b/.test(normalized)) return 75;
-  if (/\b(qu['’]est[- ]ce que|c['’]est quoi|qui est|que signifie|what is|who is|who was|tell me about)\b/.test(normalized)) {
-    return 45;
-  }
-  return null;
-}
-
-function capWords(answer: string, limit: number): string {
-  const words = answer.split(/\s+/).filter(Boolean);
-  if (words.length <= limit) return answer;
-
-  const shortened = words.slice(0, limit).join(" ");
-  const lastSentenceEnd = Math.max(
-    shortened.lastIndexOf(". "),
-    shortened.lastIndexOf("! "),
-    shortened.lastIndexOf("? "),
-  );
-  if (lastSentenceEnd >= shortened.length * 0.6) {
-    return shortened.slice(0, lastSentenceEnd + 1).trim();
-  }
-  return `${shortened.replace(/[,:;—–-]+$/, "").trim()}…`;
-}
-
 /**
  * Keep researched answers readable if the model ignores the no-table prompt.
  * Search links remain available through the Discord sources button.
  */
-export function normalizeResearchAnswer(answer: string, request = ""): string {
+export function normalizeResearchAnswer(answer: string): string {
   const lines = answer
     .replace(/<br\s*\/?>/gi, " — ")
     .split(/\r?\n/)
@@ -85,7 +56,5 @@ export function normalizeResearchAnswer(answer: string, request = ""): string {
     }
   }
 
-  const normalized = output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  const wordLimit = researchWordLimit(request);
-  return wordLimit ? capWords(normalized, wordLimit) : normalized;
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }

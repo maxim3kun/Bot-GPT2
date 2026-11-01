@@ -126,11 +126,12 @@ function getResearchPlan(query: string): ResearchPlan {
   const explicitConflict = /\b(?:contradictoire?s?|contredisent|desaccord|verifie|recoupe|conflicting|disagree)\b/.test(normalized);
   const health = /\b(?:sante|sante|medical|medic(?:al|ine)|maladie|symptome|traitement|nutrition)\b/.test(normalized);
   const legal = /\b(?:juridique|legal|loi|droit|administration|impot|visa|passeport|demarche)\b/.test(normalized);
-  const technology = /\b(?:code|coder|programm(?:e|ation)|logiciel|api|documentation|installer|bug|erreur|javascript|typescript|python|discord)\b/.test(normalized);
+  const technology = /\b(?:code|coder|programm(?:e|ation)|logiciel|api|documentation|installer|bug|erreur|javascript|typescript|python|discord|application|appli|app|jeu|game|gaming|multijoueur|multiplayer)\b/.test(normalized);
   const science = /\b(?:etude|etudes|scientifique|science|recherche|universite|publication)\b/.test(normalized);
   const current = /\b(?:actualite?s?|aujourd'hui|dernier|recen(?:t|te)|prix|meteo|medical|politique|election|news|today|latest|current)\b/.test(normalized);
   const comparison = /\b(?:compar(?:e|aison)|versus|vs|difference|meilleur|recommand(?:e|ation)|avis|review|top)\b/.test(normalized);
   const practical = /\b(?:comment|recette|faire|tutoriel|guide|utiliser|etapes?|how to|recipe|tutorial)\b/.test(normalized);
+  const entityLookup = /\b(?:qu['’]est[- ]ce que|qu est ce que|c['’]est quoi|c est quoi|qui est|que signifie|what is|who is|who was|tell me about)\b/.test(normalized);
 
   if (explicitConflict || current) return { initialPages: 4, maxPages: 6, topic: current ? "current" : "general" };
   if (health) return { initialPages: 4, maxPages: 6, topic: "health" };
@@ -139,6 +140,7 @@ function getResearchPlan(query: string): ResearchPlan {
   if (science) return { initialPages: 3, maxPages: 6, topic: "science" };
   if (comparison) return { initialPages: 3, maxPages: 6, topic: "comparison" };
   if (practical) return { initialPages: 2, maxPages: 4, topic: "practical" };
+  if (entityLookup) return { initialPages: 3, maxPages: 5, topic: "general" };
   return { initialPages: 1, maxPages: 2, topic: "general" };
 }
 
@@ -266,7 +268,12 @@ function buildTargetedQuery(query: string, plan: ResearchPlan): string | undefin
   if (/\bsite:/i.test(query)) return undefined;
   if (plan.topic === "legal") return `${query} site:gouv.fr`;
   if (plan.topic === "health") return `${query} site:who.int OR site:sante.gouv.fr`;
-  if (plan.topic === "technology") return `${query} official documentation`;
+  if (plan.topic === "technology") {
+    if (/\b(?:application|appli|app|jeu|game|gaming|multijoueur|multiplayer)\b/.test(normalizedQuery(query))) {
+      return `${query} official app`;
+    }
+    return `${query} official documentation`;
+  }
   if (plan.topic === "science") return `${query} scientific study`;
   if (plan.topic === "current") return `${query} official latest`;
   return undefined;
