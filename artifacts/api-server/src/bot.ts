@@ -417,6 +417,100 @@ export function startBot(): void {
 
   if (!openai) logger.warn("GROQ_API_KEY not set — AI features disabled");
 
+  const answerAiQuestion = async (
+    message: Message,
+    userText: string,
+    responseLang: Parameters<typeof botText>[0],
+    prefix: string,
+  ): Promise<void> => {
+    const prompt = userText.trim();
+    if (!prompt) {
+      await message.reply(responseLang === "fr"
+        ? `🤖 Pose une question après \`${prefix}ask\` ou \`${prefix}ia\`.`
+        : `🤖 Ask a question after \`${prefix}ask\`.`);
+      return;
+    }
+
+    if (isPornographicSiteListRequest(prompt)) {
+      await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
+      return;
+    }
+    if (extractNaturalHelpCommand(prompt) === "help") {
+      await sendHelpPaginator(message, responseLang);
+      return;
+    }
+    const pokemonQuery = extractPokemonQuery(prompt);
+    if (pokemonQuery) {
+      await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+      return;
+    }
+    const requestedStation = extractRadioStationRequest(prompt, RADIO_STATIONS);
+    if (requestedStation) {
+      await playRadio(message, requestedStation);
+      return;
+    }
+
+    const route = classifyAiMessage(prompt);
+    if (route.intent === "greeting") {
+      await message.reply(directGreeting(message, responseLang));
+      return;
+    }
+    if (route.intent === "identity") {
+      await message.reply(directIdentityAnswer(responseLang));
+      return;
+    }
+    if (route.intent === "time" && !isWeatherRequest(prompt)) {
+      const explicitPlace = requestedTimePlace(prompt);
+      const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+      if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+      const savedTime = await getAiTimezone(message.author.id);
+      if (!explicitPlace && !savedTime) rememberTimeRequest(message);
+      await message.reply(currentTimeAnswer(prompt, savedTime?.place, responseLang));
+      return;
+    }
+    if (route.intent === "discord_action") {
+      await message.reply("⚠️ I can't execute that Discord action from a chat request, and I won't claim that I did.");
+      return;
+    }
+    if (!openai) {
+      await message.reply(botText(responseLang, "aiDisabled", prefix));
+      return;
+    }
+
+    try {
+      if (await moderateMentionedMessage(message, openai)) return;
+      if (isSendable(message.channel)) await message.channel.sendTyping();
+      addToHistory(message.channelId, "user", `${message.author.displayName}: ${prompt}`);
+      const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
+      const explicitPlace = route.intent === "time" ? requestedTimePlace(prompt) : null;
+      const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
+      if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
+      const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
+      const timeContext = route.intent === "time"
+        ? currentTimeAnswer(prompt, savedTime?.place, responseLang)
+        : "";
+      const webResults = (isTopListQuery(prompt) || route.needsResearch) ? await searchWeb(prompt) : [];
+      const response = await openai.chat.completions.create({
+        model: "openai/gpt-oss-20b",
+        max_completion_tokens: 1024,
+        messages: [
+          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, responseLang) },
+          ...getAiHistory(message.channelId),
+        ],
+      });
+      incrementGroqCalls();
+      const reply = response.choices[0]?.message?.content
+        ?? (responseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
+      addToHistory(message.channelId, "assistant", reply);
+      await replyWithAiAnswer(message, reply, webResults);
+    } catch (err) {
+      logger.error({ err }, "Prefixed AI question error");
+      await message.reply(responseLang === "fr"
+        ? "Désolé, une erreur m’empêche de répondre. Réessaie dans un instant."
+        : "Sorry, something went wrong. Try again in a moment.");
+    }
+  };
+
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -3902,6 +3996,9 @@ export function startBot(): void {
               case "playlist":
                 await message.reply(`📁 Usage: \`${guildPrefix}playlist add <nom> <url>\` · \`${guildPrefix}playlist play <nom>\` · \`${guildPrefix}playlist list\``);
                 break;
+              case "ask":
+                await answerAiQuestion(message, args.join(" "), responseLang, guildPrefix);
+                break;
               case "ai":
                 await message.reply(`🤖 Usage: \`${guildPrefix}ai battle <sujet>\` · \`${guildPrefix}ai stop\``);
                 break;
@@ -3944,6 +4041,11 @@ export function startBot(): void {
           });
           break;
         }
+
+        case "ask":
+        case "ia":
+          await answerAiQuestion(message, args.join(" "), responseLang, guildPrefix);
+          break;
 
         // ── New commands (beta) ───────────────────────────────────────────────
         case "new": {
