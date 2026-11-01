@@ -12,8 +12,15 @@ export interface WebSearchResult {
 
 const SEARCH_TIMEOUT_MS = 8_000;
 const PAGE_TIMEOUT_MS = 6_000;
+const NEWS_FEED_TIMEOUT_MS = 6_000;
 const MAX_RESULTS = 6;
 const MAX_NEWS_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const NEWS_RSS_FEEDS = [
+  { name: "Le Monde", url: "https://www.lemonde.fr/rss/une.xml" },
+  { name: "franceinfo", url: "https://www.francetvinfo.fr/titres.rss" },
+  { name: "France 24", url: "https://www.france24.com/fr/rss" },
+  { name: "20 Minutes", url: "https://www.20minutes.fr/feeds/rss-une.xml" },
+];
 // Keep the evidence compact enough for the LLM context window. The search
 // result list remains available in full through the private sources button.
 const MAX_PAGE_CHARS = 2_000;
@@ -24,6 +31,8 @@ function decodeHtml(value: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
@@ -308,7 +317,7 @@ function isGenericNewsLandingPage(result: WebSearchResult): boolean {
     "actu", "actualite", "actualites", "news", "france", "international",
     "monde", "economie", "politique", "societe", "culture", "sport",
     "environnement", "technology", "tech", "world", "business", "live",
-    "direct", "latest",
+    "direct", "en-direct", "encontinu", "breaking-news", "latest",
   ]);
   const lastSegment = normalizedQuery(pathSegments.at(-1) ?? "").replace(/\.html?$/, "");
   if (pathSegments.length <= 2 && sectionNames.has(lastSegment)) return true;
@@ -316,21 +325,18 @@ function isGenericNewsLandingPage(result: WebSearchResult): boolean {
   const genericNewsTitle =
     /\b(?:actualites?|news)\b/.test(title) &&
     /\b(?:en direct|en continu|du jour|temps reel|live|videos? et infos?)\b/.test(title);
+  const genericLiveTitle = /^(?:en direct|live|direct|actualites? en continu)\b/.test(title);
   const publisherTagline =
     /\b(?:1er|premier)\s+site\s+d information\b/.test(pageDescription) ||
     /\bles articles du journal et toute l actualite en continu\b/.test(pageDescription) ||
     /\btoute l actualite en continu\s*:/.test(pageDescription) ||
     /\bsite d information\b/.test(pageDescription) && /\b(?:toute l actualite|infos? en france et dans le monde)\b/.test(pageDescription);
 
-  return publisherTagline || genericNewsTitle && pathSegments.length <= 2 && !result.publishedAt;
+  return publisherTagline || genericNewsTitle || genericLiveTitle;
 }
 
 function isVerifiedRecentNewsArticle(result: WebSearchResult): boolean {
-  if (!result.content?.trim() || isGenericNewsLandingPage(result) || !result.publishedAt) return false;
-
-  const publishedAt = new Date(result.publishedAt).getTime();
-  const ageMs = Date.now() - publishedAt;
-  if (!Number.isFinite(publishedAt) || ageMs < 0 || ageMs > MAX_NEWS_AGE_MS) return false;
+  if ((!result.content?.trim() && !result.snippet.trim()) || isGenericNewsLandingPage(result)) return false;
 
   let pathSegments: string[];
   try {
@@ -338,7 +344,20 @@ function isVerifiedRecentNewsArticle(result: WebSearchResult): boolean {
   } catch {
     return false;
   }
-  if (pathSegments.length < 2) return false;
+  const lastSegment = normalizedQuery(pathSegments.at(-1) ?? "").replace(/\.html?$/, "");
+  const articleLikePath =
+    pathSegments.length >= 3 ||
+    /[-_\d]/.test(lastSegment);
+  if (!articleLikePath) return false;
+
+  // When the publisher exposes a date, use it as a hard freshness check.
+  // Some valid article pages omit publication metadata, so those may still
+  // qualify when DuckDuckGo returned them from its past-week search.
+  if (result.publishedAt) {
+    const publishedAt = new Date(result.publishedAt).getTime();
+    const ageMs = Date.now() - publishedAt;
+    if (!Number.isFinite(publishedAt) || ageMs < 0 || ageMs > MAX_NEWS_AGE_MS) return false;
+  }
 
   const title = result.title.replace(/\s+/g, " ").trim();
   return title.length >= 18 && !/^(?:actualites?|news|le monde\.fr|franceinfo|20 minutes)\s*[-|:]/i.test(title);
@@ -359,10 +378,95 @@ function researchConfidence(results: WebSearchResult[]): { level: "high" | "medi
   return { level: "medium", reason: "Une source exploitable a été trouvée, mais la vérification reste limitée." };
 }
 
-async function fetchSearchResults(query: string): Promise<WebSearchResult[]> {
-  const endpoint = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-  const html = await fetchText(endpoint, SEARCH_TIMEOUT_MS);
+async function fetchSearchResults(query: string, timeLimit?: "d" | "w" | "m"): Promise<WebSearchResult[]> {
+  const endpoint = new URL("https://lite.duckduckgo.com/lite/");
+  endpoint.searchParams.set("q", query);
+  if (timeLimit) endpoint.searchParams.set("df", timeLimit);
+  const html = await fetchText(endpoint.toString(), SEARCH_TIMEOUT_MS);
   return parseResults(html);
+}
+
+function extractXmlElement(xml: string, tag: string): string {
+  const match = xml.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  if (!match) return "";
+  const cdata = match[1]!.trim().match(/^<!\[CDATA\[([\s\S]*)\]\]>$/i);
+  return stripHtml(cdata ? cdata[1]! : match[1]!);
+}
+
+function parseNewsRss(xml: string): WebSearchResult[] {
+  const results: WebSearchResult[] = [];
+  for (const item of xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/gi) ?? []) {
+    const title = extractXmlElement(item, "title");
+    const url = extractXmlElement(item, "link");
+    const snippet = extractXmlElement(item, "description");
+    const dateValue =
+      extractXmlElement(item, "pubDate") ||
+      extractXmlElement(item, "published") ||
+      extractXmlElement(item, "dc:date");
+    const publishedAt = dateValue ? new Date(dateValue) : undefined;
+    if (
+      !title ||
+      !isSafeUrl(url) ||
+      !publishedAt ||
+      Number.isNaN(publishedAt.getTime())
+    ) continue;
+
+    results.push({
+      title,
+      url,
+      snippet,
+      publishedAt: publishedAt.toISOString(),
+    });
+  }
+  return results;
+}
+
+const NEWS_QUERY_STOP_WORDS = new Set([
+  "actualite", "actualites", "derniere", "dernieres", "dernier", "derniers",
+  "recent", "recente", "recents", "recentes", "news", "latest", "today",
+  "current", "breaking", "aujourd", "hui", "jour", "infos", "info",
+  "donne", "donnez", "dis", "dit", "moi", "tell", "give", "me", "the",
+  "les", "des", "une", "un", "du", "de", "la", "le", "en", "dans",
+  "france", "francais", "francaise", "monde", "international",
+]);
+
+function newsTopicTerms(query: string): string[] {
+  return normalizeNewsText(query.replace(/<@!?\d+>/g, " "))
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter((term) => term.length >= 4 && !NEWS_QUERY_STOP_WORDS.has(term));
+}
+
+async function fetchLatestNewsFromFeeds(query: string): Promise<WebSearchResult[]> {
+  const topicTerms = newsTopicTerms(query);
+  const feedResults = await Promise.all(
+    NEWS_RSS_FEEDS.map(async (feed) => {
+      try {
+        return parseNewsRss(await fetchText(feed.url, NEWS_FEED_TIMEOUT_MS));
+      } catch (err) {
+        logger.debug({ err, feed: feed.name }, "News RSS feed unavailable");
+        return [];
+      }
+    }),
+  );
+
+  const seen = new Set<string>();
+  return feedResults
+    .flat()
+    .filter(isVerifiedRecentNewsArticle)
+    .filter((result) => {
+      const key = canonicalUrl(result.url);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .filter((result) => {
+      if (topicTerms.length === 0) return true;
+      const content = normalizeNewsText(`${result.title} ${result.snippet}`);
+      return topicTerms.some((term) => content.includes(term));
+    })
+    .sort((a, b) => new Date(b.publishedAt!).getTime() - new Date(a.publishedAt!).getTime())
+    .slice(0, MAX_RESULTS);
 }
 
 function canonicalUrl(value: string): string {
@@ -403,7 +507,7 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
 
   try {
     const plan = getResearchPlan(trimmed);
-    let results = await fetchSearchResults(trimmed);
+    let results = await fetchSearchResults(trimmed, plan.topic === "current" ? "w" : undefined);
     if (plan.topic === "current") {
       results = results.filter((result) => !isGenericNewsLandingPage(result));
     }
@@ -457,12 +561,26 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
 
     markDuplicateSources([...consulted]);
     for (const result of consulted) result.qualityScore = sourceQualityScore(result, plan);
-    return results
+    const visibleResults = results
       .filter((result) => consulted.has(result))
       .filter((result) => plan.topic !== "current" || !isGenericNewsLandingPage(result))
       .sort((a, b) => (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
+    if (
+      plan.topic === "current" &&
+      !visibleResults.some((result) => !result.duplicateOf && isVerifiedRecentNewsArticle(result))
+    ) {
+      const feedResults = await fetchLatestNewsFromFeeds(trimmed);
+      if (feedResults.length > 0) {
+        logger.info({ count: feedResults.length }, "Latest news loaded from publisher feeds");
+        return feedResults;
+      }
+    }
+    return visibleResults;
   } catch (err) {
     logger.warn({ err, query: trimmed }, "Web search failed");
+    if (getResearchPlan(trimmed).topic === "current") {
+      return fetchLatestNewsFromFeeds(trimmed);
+    }
     return [];
   }
 }
