@@ -259,11 +259,13 @@ async function replyWithAiAnswer(
   const chunks = answer.match(/[\s\S]{1,2000}/g) ?? [answer];
   const sourcesButton = createSearchSourceButton(webResults, message.author.id);
   const firstReply = sourcesButton
-    ? { content: chunks[0]!, components: [sourcesButton] }
+    ? { content: chunks[0]!, components: [sourcesButton], flags: ["SuppressEmbeds" as const] }
     : chunks[0]!;
 
   await message.reply(firstReply);
-  for (const chunk of chunks.slice(1)) await message.reply(chunk);
+  for (const chunk of chunks.slice(1)) {
+    await message.reply(webResults.length ? { content: chunk, flags: ["SuppressEmbeds" as const] } : chunk);
+  }
 }
 
 // ── AI Battle ─────────────────────────────────────────────────────────────────
@@ -1114,6 +1116,7 @@ export function startBot(): void {
       await interaction.reply({
         content: formatSearchSources(entry.results),
         ephemeral: true,
+        flags: ["SuppressEmbeds"],
       });
       return;
     }

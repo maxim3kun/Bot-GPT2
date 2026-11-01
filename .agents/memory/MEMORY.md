@@ -3,4 +3,4 @@
 - [Groq model lifecycle](groq-model-lifecycle.md) — Check official production/deprecation docs; one stale model ID can hide behind a generic AI error.
 - [Discord language precedence](language-precedence.md) — Server language is the default; an explicit personal language overrides it.
 - [Bot identity](bot-identity.md) — Maxime (Maxim3kun) created the bot; distinguish its creator from its AI provider.
-- [Research answer style](research-answer-style.md) — Keep web answers concise and readable; avoid tables unless a user asks for one.
+- [Research answer style](research-answer-style.md) — Keep answers fitted to the question; no fixed word cap or generic publisher presented as news.

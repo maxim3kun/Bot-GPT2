@@ -279,6 +279,24 @@ function buildTargetedQuery(query: string, plan: ResearchPlan): string | undefin
   return undefined;
 }
 
+function isGenericNewsLandingPage(result: WebSearchResult): boolean {
+  const hostname = domainOf(result);
+  const title = normalizedQuery(result.title);
+  let pathSegments: string[] = [];
+  try {
+    pathSegments = new URL(result.url).pathname.split("/").filter(Boolean);
+  } catch {
+    return true;
+  }
+
+  if (hostname === "news.google.com" || hostname.endsWith(".news.google.com")) return true;
+
+  const genericNewsTitle =
+    /\b(?:actualites?|news)\b/.test(title) &&
+    /\b(?:en direct|en continu|du jour|temps reel|live|videos? et infos?)\b/.test(title);
+  return genericNewsTitle && pathSegments.length <= 2 && !result.publishedAt;
+}
+
 function researchConfidence(results: WebSearchResult[]): { level: "high" | "medium" | "low"; reason: string } {
   const evidence = results.filter((result) => result.content && !result.duplicateOf);
   const domains = new Set(evidence.map(domainOf).filter(Boolean));
@@ -339,13 +357,19 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
   try {
     const plan = getResearchPlan(trimmed);
     let results = await fetchSearchResults(trimmed);
+    if (plan.topic === "current") {
+      results = results.filter((result) => !isGenericNewsLandingPage(result));
+    }
     const targetedQuery = buildTargetedQuery(trimmed, plan);
     let ranked = rankResults(results, plan);
 
     // If the first search does not surface a trustworthy source, make one
     // focused follow-up search before spending the page-reading budget.
     if (targetedQuery && (ranked[0]?.qualityScore ?? 0) < 10) {
-      const targetedResults = await fetchSearchResults(targetedQuery).catch(() => []);
+      let targetedResults = await fetchSearchResults(targetedQuery).catch(() => []);
+      if (plan.topic === "current") {
+        targetedResults = targetedResults.filter((result) => !isGenericNewsLandingPage(result));
+      }
       results = mergeResults(results, targetedResults);
       ranked = rankResults(results, plan);
     }
