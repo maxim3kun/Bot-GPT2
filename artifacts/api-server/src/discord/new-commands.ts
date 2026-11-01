@@ -1,14 +1,11 @@
 import { Message, EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { getLang, setLang, GuildLang } from "./lang-store.js";
 import { handleKoyaTestCommand } from "./koya-test.js";
+import { USER_LANGUAGES, USER_LANG_LABELS } from "./user-lang-store.js";
 
-const VALID_LANGS: GuildLang[] = ["en", "fr", "es"];
+const VALID_LANGS: readonly GuildLang[] = USER_LANGUAGES;
 
-const LANG_LABELS: Record<GuildLang, string> = {
-  en: "🇬🇧 English",
-  fr: "🇫🇷 Français",
-  es: "🇪🇸 Español",
-};
+const LANG_LABELS = USER_LANG_LABELS;
 
 // ── !new setlang ──────────────────────────────────────────────────────────────
 
@@ -32,9 +29,7 @@ async function handleSetLang(message: Message, args: string[], prefix: string): 
       .setDescription(
         `Current language: **${LANG_LABELS[currentLang]}**\n\n` +
         `To change it (admin only):\n` +
-        `\`${prefix}new setlang en\` — 🇬🇧 English\n` +
-        `\`${prefix}new setlang fr\` — 🇫🇷 Français\n` +
-        `\`${prefix}new setlang es\` — 🇪🇸 Español`,
+        USER_LANGUAGES.map((lang) => `\`${prefix}new setlang ${lang}\` — ${LANG_LABELS[lang]}`).join("\n"),
       );
     await message.reply({ embeds: [embed] });
     return;
@@ -61,7 +56,7 @@ async function handleSetLang(message: Message, args: string[], prefix: string): 
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle("✅ Language updated")
-    .setDescription(`Server language is now **${LANG_LABELS[input]}**.\n\nCommands that support localisation will default to this language.`);
+    .setDescription(`Server language is now **${LANG_LABELS[input]}**.\n\nCommands without a personal override will default to this language.`);
   await message.reply({ embeds: [embed] });
 }
 

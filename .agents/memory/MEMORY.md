@@ -1,3 +1,4 @@
 - [yt-dlp YouTube client for Replit](yt-dlp-client.md) — tv_embedded broken (0 bytes); use android,formats=missing_pot as of 2025-06
 - [Dashboard auth & per-guild features](dashboard-auth.md) — JWT + Discord OAuth + per-guild feature toggles; dashboard served at /dashboard (not GitHub Pages)
 - [Groq model lifecycle](groq-model-lifecycle.md) — Check official production/deprecation docs; one stale model ID can hide behind a generic AI error.
+- [Discord language precedence](language-precedence.md) — Server language is the default; an explicit personal language overrides it.

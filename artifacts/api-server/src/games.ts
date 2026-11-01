@@ -4,6 +4,8 @@ import { logger } from "./lib/logger";
 import { LogoBrand, HARDCODED_BRANDS, loadBrandsWithCache } from "./discord/logo-brands";
 import { getApprovedBrandsForTiers } from "./discord/logo-brand-store";
 import { incrementGroqCalls } from "./lib/bot-stats";
+import { getEffectiveLanguage } from "./discord/effective-language";
+import { USER_LANG_NAMES, type UserLang } from "./discord/user-lang-store";
 
 // ─────────────────────────────────────────
 // HELPERS
@@ -531,13 +533,32 @@ function isCorrectGuess(guess: string, country: Country): boolean {
 
 const CHOICES = ["A", "B", "C", "D"];
 const activeTriviaGames = new Set<string>();
+const TRIVIA_COPY: Record<UserLang, {
+  active: string; failed: string; invalid: string; title: string; instruction: string;
+  wrong: string; correct: string; timeout: string; error: string;
+}> = {
+  en: { active: "🧠 A trivia game is already running here!", failed: "❌ Couldn't generate the question. Try again!", invalid: "❌ The generated question was invalid. Try again!", title: "🧠 TRIVIA — Be the first to answer!", instruction: "Reply with **A**, **B**, **C**, or **D** — 30 seconds!", wrong: "Wrong answer!", correct: "got it right! The answer was", timeout: "⏱️ Time's up! The answer was", error: "❌ An error occurred during the trivia game!" },
+  fr: { active: "🧠 Une partie de quiz est déjà en cours ici !", failed: "❌ Impossible de générer la question. Réessaie !", invalid: "❌ La question générée est invalide. Réessaie !", title: "🧠 QUIZ — Soyez le premier à répondre !", instruction: "Réponds **A**, **B**, **C** ou **D** — 30 secondes !", wrong: "Mauvaise réponse !", correct: "a trouvé ! La réponse était", timeout: "⏱️ Temps écoulé ! La réponse était", error: "❌ Une erreur est survenue pendant le quiz !" },
+  es: { active: "🧠 Ya hay una partida de preguntas en curso aquí.", failed: "❌ No se pudo generar la pregunta. ¡Inténtalo de nuevo!", invalid: "❌ La pregunta generada no es válida. ¡Inténtalo de nuevo!", title: "🧠 TRIVIA — ¡Sé el primero en responder!", instruction: "Responde **A**, **B**, **C** o **D** — ¡30 segundos!", wrong: "¡Respuesta incorrecta!", correct: "acertó. La respuesta era", timeout: "⏱️ ¡Se acabó el tiempo! La respuesta era", error: "❌ ¡Se produjo un error durante la trivia!" },
+  de: { active: "🧠 Hier läuft bereits ein Quiz!", failed: "❌ Die Frage konnte nicht erstellt werden. Versuch es erneut!", invalid: "❌ Die erstellte Frage ist ungültig. Versuch es erneut!", title: "🧠 QUIZ — Sei der Erste mit der richtigen Antwort!", instruction: "Antworte mit **A**, **B**, **C** oder **D** — 30 Sekunden!", wrong: "Falsche Antwort!", correct: "hat richtig geantwortet! Die Antwort war", timeout: "⏱️ Die Zeit ist um! Die Antwort war", error: "❌ Beim Quiz ist ein Fehler aufgetreten!" },
+  pt: { active: "🧠 Já existe um quiz em andamento aqui!", failed: "❌ Não foi possível gerar a pergunta. Tente novamente!", invalid: "❌ A pergunta gerada é inválida. Tente novamente!", title: "🧠 QUIZ — Seja o primeiro a responder!", instruction: "Responda **A**, **B**, **C** ou **D** — 30 segundos!", wrong: "Resposta errada!", correct: "acertou! A resposta era", timeout: "⏱️ O tempo acabou! A resposta era", error: "❌ Ocorreu um erro durante o quiz!" },
+  it: { active: "🧠 C'è già un quiz in corso qui!", failed: "❌ Impossibile generare la domanda. Riprova!", invalid: "❌ La domanda generata non è valida. Riprova!", title: "🧠 QUIZ — Sii il primo a rispondere!", instruction: "Rispondi con **A**, **B**, **C** o **D** — 30 secondi!", wrong: "Risposta sbagliata!", correct: "ha indovinato! La risposta era", timeout: "⏱️ Tempo scaduto! La risposta era", error: "❌ Si è verificato un errore durante il quiz!" },
+  ja: { active: "🧠 ここではすでにクイズが進行中です！", failed: "❌ 質問を作成できませんでした。もう一度試してください！", invalid: "❌ 生成された質問が無効です。もう一度試してください！", title: "🧠 クイズ — 最初に答えよう！", instruction: "**A**、**B**、**C**、**D** で回答してください — 30秒！", wrong: "不正解！", correct: "が正解しました！答えは", timeout: "⏱️ 時間切れ！答えは", error: "❌ クイズ中にエラーが発生しました！" },
+  nl: { active: "🧠 Er is hier al een quiz bezig!", failed: "❌ De vraag kon niet worden gemaakt. Probeer het opnieuw!", invalid: "❌ De gemaakte vraag is ongeldig. Probeer het opnieuw!", title: "🧠 QUIZ — Wees de eerste die antwoordt!", instruction: "Antwoord met **A**, **B**, **C** of **D** — 30 seconden!", wrong: "Fout antwoord!", correct: "had het goed! Het antwoord was", timeout: "⏱️ De tijd is om! Het antwoord was", error: "❌ Er is een fout opgetreden tijdens de quiz!" },
+  ru: { active: "🧠 Здесь уже идёт викторина!", failed: "❌ Не удалось создать вопрос. Попробуй ещё раз!", invalid: "❌ Созданный вопрос некорректен. Попробуй ещё раз!", title: "🧠 ВИКТОРИНА — Ответь первым!", instruction: "Ответь **A**, **B**, **C** или **D** — 30 секунд!", wrong: "Неправильный ответ!", correct: "ответил правильно! Ответ был", timeout: "⏱️ Время вышло! Ответ был", error: "❌ Во время викторины произошла ошибка!" },
+  pl: { active: "🧠 W tym kanale trwa już quiz!", failed: "❌ Nie udało się wygenerować pytania. Spróbuj ponownie!", invalid: "❌ Wygenerowane pytanie jest nieprawidłowe. Spróbuj ponownie!", title: "🧠 QUIZ — Odpowiedz jako pierwszy!", instruction: "Odpowiedz **A**, **B**, **C** lub **D** — 30 sekund!", wrong: "Błędna odpowiedź!", correct: "odpowiedział poprawnie! Odpowiedź to", timeout: "⏱️ Czas minął! Odpowiedź to", error: "❌ Wystąpił błąd podczas quizu!" },
+  tr: { active: "🧠 Burada zaten bir bilgi yarışması devam ediyor!", failed: "❌ Soru oluşturulamadı. Tekrar dene!", invalid: "❌ Oluşturulan soru geçersiz. Tekrar dene!", title: "🧠 BİLGİ YARIŞMASI — İlk cevaplayan ol!", instruction: "**A**, **B**, **C** veya **D** ile cevapla — 30 saniye!", wrong: "Yanlış cevap!", correct: "doğru bildi! Cevap", timeout: "⏱️ Süre doldu! Cevap", error: "❌ Bilgi yarışması sırasında bir hata oluştu!" },
+};
 
 export async function playTrivia(message: Message, openai: OpenAI): Promise<void> {
   const channel = toSendable(message.channel);
   if (!channel) return;
+  const language = getEffectiveLanguage(message.guildId, message.author.id);
+  const languageName = USER_LANG_NAMES[language];
+  const copy = TRIVIA_COPY[language];
 
   if (activeTriviaGames.has(channel.id)) {
-    await channel.send("🧠 A trivia game is already running here!");
+    await channel.send(copy.active);
     return;
   }
 
@@ -553,7 +574,7 @@ export async function playTrivia(message: Message, openai: OpenAI): Promise<void
       messages: [
         {
           role: "system",
-          content: `You are a trivia question generator. Generate ONE interesting general knowledge question in English with 4 choices (A, B, C, D) and exactly one correct answer.
+          content: `You are a trivia question generator. Generate ONE interesting general knowledge question in ${languageName} with 4 choices (A, B, C, D) and exactly one correct answer. Write the question, choices, and explanation entirely in ${languageName}.
 Respond ONLY with this JSON:
 {
   "question": "...",
@@ -562,7 +583,7 @@ Respond ONLY with this JSON:
   "explanation": "..."
 }`,
         },
-        { role: "user", content: "Generate a varied and interesting trivia question." },
+        { role: "user", content: `Generate a varied and interesting trivia question in ${languageName}.` },
       ],
     });
 
@@ -573,13 +594,13 @@ Respond ONLY with this JSON:
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
-      await channel.send("❌ Couldn't generate the question. Try again!");
+      await channel.send(copy.failed);
       return;
     }
 
     const { question, choices, answer, explanation } = data;
     if (!question || !choices || !answer) {
-      await channel.send("❌ The generated question was invalid. Try again!");
+      await channel.send(copy.invalid);
       return;
     }
 
@@ -588,8 +609,8 @@ Respond ONLY with this JSON:
       .join("\n");
 
     const embed = new EmbedBuilder()
-      .setTitle("🧠 TRIVIA — Be the first to answer!")
-      .setDescription(`❓ **${question}**\n\n${choicesText}\n\n_Reply with **A**, **B**, **C**, or **D** — 30 seconds!_ ⏱️`)
+      .setTitle(copy.title)
+      .setDescription(`❓ **${question}**\n\n${choicesText}\n\n_${copy.instruction}_ ⏱️`)
       .setColor(0x9b59b6);
 
     await channel.send({ embeds: [embed] });
@@ -621,7 +642,7 @@ Respond ONLY with this JSON:
           winner = { user: msg.author.displayName };
           break;
         } else if (letter !== correctLetter) {
-          await channel.send(`❌ **${msg.author.displayName}** — Wrong answer!`);
+          await channel.send(`❌ **${msg.author.displayName}** — ${copy.wrong}`);
         }
       }
     } catch {
@@ -631,16 +652,16 @@ Respond ONLY with this JSON:
     const correctText = choices[correctLetter] ?? "";
     if (winner) {
       await channel.send(
-        `✅ **${winner.user}** got it right! The answer was **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
+        `✅ **${winner.user}** ${copy.correct} **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
       );
     } else {
       await channel.send(
-        `⏱️ Time's up! The answer was **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
+        `${copy.timeout} **${correctLetter}. ${correctText}**\n\n💡 ${explanation}`
       );
     }
   } catch (err) {
     logger.error({ err }, "Trivia error");
-    await channel.send("❌ An error occurred during the trivia game!");
+    await channel.send(copy.error);
   } finally {
     activeTriviaGames.delete(channel.id);
   }

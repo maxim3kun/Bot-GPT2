@@ -33,7 +33,7 @@ export const USER_LANG_LABELS: Record<UserLang, string> = {
   tr: "🇹🇷 Türkçe",
 };
 
-const VALID_USER_LANGS: UserLang[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
+export const USER_LANGUAGES: readonly UserLang[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
 
 const DATA_DIR   = join(process.cwd(), "data");
 const STORE_PATH = join(DATA_DIR, "user-langs.json");
@@ -67,11 +67,20 @@ export function getUserLang(userId: string): UserLang {
   return store[userId] ?? DEFAULT_USER_LANG;
 }
 
+export function getUserLangOverride(userId: string): UserLang | undefined {
+  return store[userId];
+}
+
 export function isValidUserLang(lang: string): lang is UserLang {
-  return VALID_USER_LANGS.includes(lang as UserLang);
+  return USER_LANGUAGES.includes(lang as UserLang);
 }
 
 export function setUserLang(userId: string, lang: UserLang): void {
   store[userId] = lang;
+  saveToJson();
+}
+
+export function clearUserLang(userId: string): void {
+  delete store[userId];
   saveToJson();
 }

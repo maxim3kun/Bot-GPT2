@@ -62,13 +62,17 @@ export function detectUserLanguage(text: string): string {
  */
 export function buildLanguageGuardPrompt(userLanguage: string): string {
   const langNames: Record<string, string> = {
+    en: "English",
     fr: "French",
     es: "Spanish",
     de: "German",
     it: "Italian",
     pt: "Portuguese",
     ja: "Japanese",
-    en: "English",
+    nl: "Dutch",
+    ru: "Russian",
+    pl: "Polish",
+    tr: "Turkish",
   };
   
   return `🔒 **LANGUAGE PROTOCOL — CRITICAL & NON-NEGOTIABLE**:

@@ -15,7 +15,9 @@ import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { getLang, setLang, GuildLang } from "./discord/lang-store";
-import { getUserLang, setUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
+import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
+import { getEffectiveLanguage } from "./discord/effective-language.js";
+import { botText } from "./discord/bot-i18n.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
@@ -34,7 +36,7 @@ import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
-import { detectUserLanguage, buildLanguageGuardPrompt } from "./discord/ai-language-guard.js";
+import { buildLanguageGuardPrompt } from "./discord/ai-language-guard.js";
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
@@ -85,7 +87,7 @@ async function consumeTimeFollowUp(message: Message, text: string): Promise<stri
   pendingTimeRequests.delete(key);
   const timezone = resolveTimeZone(place);
   if (timezone) await saveAiTimezone(message.author.id, place, timezone);
-  return currentTimeAnswer(text, place);
+  return currentTimeAnswer(text, place, getEffectiveLanguage(message.guildId, message.author.id));
 }
 
 function getHistory(channelId: string): ChatMessage[] {
@@ -170,8 +172,9 @@ function buildAiSystemPrompt(
   webContext: string,
   memoryContext = "",
   timeContext = "",
+  language: "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr" = "en",
 ): string {
-  const languageGuard = buildLanguageGuardPrompt(detectUserLanguage(userText));
+  const languageGuard = buildLanguageGuardPrompt(language);
   const research = webContext
     ? `\n\n${WEB_RESEARCH_ANSWER_INSTRUCTIONS}\nWeb research results:\n${webContext}`
     : "";
@@ -576,6 +579,7 @@ export function startBot(): void {
 
     try {
       await interaction.deferReply();
+      const responseLang = getEffectiveLanguage(interaction.guildId, interaction.user.id);
 
       // Fetch full GuildMember for voice-state access
       const member = interaction.member instanceof GuildMember
@@ -605,7 +609,7 @@ export function startBot(): void {
       switch (interaction.commandName) {
 
         case "help": {
-          const lang = (interaction.options.getString("lang") ?? "en") as HelpLanguage;
+          const lang = (interaction.options.getString("lang") ?? responseLang) as HelpLanguage;
           await sendHelpPaginator(interaction, lang);
           break;
         }
@@ -898,7 +902,7 @@ export function startBot(): void {
 
         case "joke": {
           const jokeLangArg = interaction.options.getString("lang");
-          const jokeLang = jokeLangArg ? parseLanguage(jokeLangArg) : getLang(interaction.guildId);
+          const jokeLang = jokeLangArg ? parseLanguage(jokeLangArg) : responseLang;
           const jokeList = jokeLang === "fr" ? JOKES_FR : jokeLang === "es" ? JOKES_ES : jokeLang === "de" ? JOKES_DE : jokeLang === "pt" ? JOKES_PT : jokeLang === "it" ? JOKES_IT : jokeLang === "ja" ? JOKES_JA : jokeLang === "nl" ? JOKES_NL : jokeLang === "ru" ? JOKES_RU : jokeLang === "pl" ? JOKES_PL : jokeLang === "tr" ? JOKES_TR : JOKES;
           await interaction.editReply(getRandom(jokeList));
           break;
@@ -907,13 +911,14 @@ export function startBot(): void {
         case "roll": {
           const faces = interaction.options.getInteger("faces") ?? 6;
           const rollResult = Math.floor(Math.random() * faces) + 1;
-          await interaction.editReply(`🎲 You rolled a **${faces}**-sided die and got: **${rollResult}**!`);
+          await interaction.editReply(botText(responseLang, "diceResult", String(faces), String(rollResult)));
           break;
         }
 
         case "8ball": {
           const question = interaction.options.getString("question", true);
-          await interaction.editReply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(EIGHT_BALL_RESPONSES)}`);
+          const answers = responseLang === "fr" ? EIGHT_BALL_RESPONSES_FR : responseLang === "es" ? EIGHT_BALL_RESPONSES_ES : responseLang === "de" ? EIGHT_BALL_RESPONSES_DE : responseLang === "pt" ? EIGHT_BALL_RESPONSES_PT : responseLang === "it" ? EIGHT_BALL_RESPONSES_IT : responseLang === "ja" ? EIGHT_BALL_RESPONSES_JA : responseLang === "nl" ? EIGHT_BALL_RESPONSES_NL : responseLang === "ru" ? EIGHT_BALL_RESPONSES_RU : responseLang === "pl" ? EIGHT_BALL_RESPONSES_PL : responseLang === "tr" ? EIGHT_BALL_RESPONSES_TR : EIGHT_BALL_RESPONSES;
+          await interaction.editReply(`${botText(responseLang, "eightBallQuestion", question)}\n${botText(responseLang, "eightBallAnswer", getRandom(answers))}`);
           break;
         }
 
@@ -1263,6 +1268,7 @@ export function startBot(): void {
     const botId = client.user?.id ?? "";
     const content = message.content;
     const guildPrefix = getPrefix(message.guildId);
+    const responseLang = getEffectiveLanguage(message.guildId, message.author.id);
 
     // --- Image generation ---
     if (content.startsWith("/image ") || content.startsWith(`${guildPrefix}image `)) {
@@ -1312,21 +1318,21 @@ export function startBot(): void {
         return;
       }
       if (extractNaturalHelpCommand(userText) === "help") {
-        await sendHelpPaginator(message, getUserLang(message.author.id) as HelpLanguage);
+        await sendHelpPaginator(message, responseLang);
         return;
       }
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
-        await handlePokemon(pokemonQuery, getUserLang(message.author.id), (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
-        await message.reply(directGreeting(message));
+        await message.reply(directGreeting(message, responseLang));
         return;
       }
       if (route.intent === "identity") {
-        await message.reply(directIdentityAnswer());
+        await message.reply(directIdentityAnswer(responseLang));
         return;
       }
       if (route.intent === "time" && !isWeatherRequest(userText)) {
@@ -1334,7 +1340,7 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = await getAiTimezone(message.author.id);
-        const answer = currentTimeAnswer(userText, savedTime?.place);
+        const answer = currentTimeAnswer(userText, savedTime?.place, responseLang);
         if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
@@ -1355,14 +1361,14 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
-        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place) : "";
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
         const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, responseLang) },
              ...getAiHistory(message.channelId),
           ],
         });
@@ -1391,21 +1397,21 @@ export function startBot(): void {
         return;
       }
       if (extractNaturalHelpCommand(userText) === "help") {
-        await sendHelpPaginator(message, getUserLang(message.author.id) as HelpLanguage);
+        await sendHelpPaginator(message, responseLang);
         return;
       }
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
-        await handlePokemon(pokemonQuery, getUserLang(message.author.id), (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
-        await message.reply(directGreeting(message));
+        await message.reply(directGreeting(message, responseLang));
         return;
       }
       if (route.intent === "identity") {
-        await message.reply(directIdentityAnswer());
+        await message.reply(directIdentityAnswer(responseLang));
         return;
       }
       if (route.intent === "time" && !isWeatherRequest(userText)) {
@@ -1413,7 +1419,7 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = await getAiTimezone(message.author.id);
-        const answer = currentTimeAnswer(userText, savedTime?.place);
+        const answer = currentTimeAnswer(userText, savedTime?.place, responseLang);
         if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
@@ -1442,14 +1448,14 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
-        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place) : "";
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
         const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",
           max_completion_tokens: 1024,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, responseLang) },
              ...getAiHistory(message.channelId),
           ],
         });
@@ -1460,7 +1466,7 @@ export function startBot(): void {
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {
           const botName = client.user?.username;
-          speakText(message.guildId, reply, "en", botName).catch(() => null);
+          speakText(message.guildId, reply, responseLang, botName).catch(() => null);
         }
       } catch (err) {
         logger.error({ err }, "Mention AI error");
@@ -1530,20 +1536,20 @@ export function startBot(): void {
         case "salut":
         case "hello":
         case "hi": {
-          await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
+          await message.reply(directGreeting(message, responseLang));
           break;
         }
 
         // ── Fun ──────────────────────────────────────────────────────────────────
         case "compliment": {
-          const lang = parseLanguage(args[0]);
+          const lang = args[0] ? parseLanguage(args[0]) : responseLang;
           const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : lang === "ja" ? COMPLIMENTS_JA : lang === "nl" ? COMPLIMENTS_NL : lang === "ru" ? COMPLIMENTS_RU : lang === "pl" ? COMPLIMENTS_PL : lang === "tr" ? COMPLIMENTS_TR : COMPLIMENTS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "joke": {
-          const lang = args[0] ? parseLanguage(args[0]) : getLang(guildId);
+          const lang = args[0] ? parseLanguage(args[0]) : responseLang;
           const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
           await message.reply(getRandom(list));
           break;
@@ -1551,28 +1557,28 @@ export function startBot(): void {
 
         case "encouragement":
         case "cheer": {
-          const lang = parseLanguage(args[0]);
+          const lang = args[0] ? parseLanguage(args[0]) : responseLang;
           const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : lang === "ja" ? ENCOURAGEMENTS_JA : lang === "nl" ? ENCOURAGEMENTS_NL : lang === "ru" ? ENCOURAGEMENTS_RU : lang === "pl" ? ENCOURAGEMENTS_PL : lang === "tr" ? ENCOURAGEMENTS_TR : ENCOURAGEMENTS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "hug": {
-          const lang = parseLanguage(args[0]);
+          const lang = args[0] ? parseLanguage(args[0]) : responseLang;
           const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : lang === "ja" ? HUGS_JA : lang === "nl" ? HUGS_NL : lang === "ru" ? HUGS_RU : lang === "pl" ? HUGS_PL : lang === "tr" ? HUGS_TR : HUGS;
           await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
           break;
         }
 
         case "8ball": {
-          const lang = parseLanguage(args[0]);
-          if (lang !== "en") args.shift();
+          const firstArgIsLanguage = args[0] ? isValidUserLang(args[0].toLowerCase()) : false;
+          const lang = firstArgIsLanguage ? parseLanguage(args.shift()) : responseLang;
           const question = args.join(" ");
           if (!question) {
-            await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`");
+            await message.reply(botText(responseLang, "eightBallPrompt", guildPrefix));
           } else {
             const answers = lang === "fr" ? EIGHT_BALL_RESPONSES_FR : lang === "es" ? EIGHT_BALL_RESPONSES_ES : lang === "de" ? EIGHT_BALL_RESPONSES_DE : lang === "pt" ? EIGHT_BALL_RESPONSES_PT : lang === "it" ? EIGHT_BALL_RESPONSES_IT : lang === "ja" ? EIGHT_BALL_RESPONSES_JA : lang === "nl" ? EIGHT_BALL_RESPONSES_NL : lang === "ru" ? EIGHT_BALL_RESPONSES_RU : lang === "pl" ? EIGHT_BALL_RESPONSES_PL : lang === "tr" ? EIGHT_BALL_RESPONSES_TR : EIGHT_BALL_RESPONSES;
-            await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(answers)}`);
+            await message.reply(`${botText(lang, "eightBallQuestion", question)}\n${botText(lang, "eightBallAnswer", getRandom(answers))}`);
           }
           break;
         }
@@ -1582,7 +1588,7 @@ export function startBot(): void {
           const faces = parseInt(args[0] ?? "6");
           const nb = isNaN(faces) || faces < 2 ? 6 : Math.min(faces, 1000);
           const result = Math.floor(Math.random() * nb) + 1;
-          await message.reply(`🎲 You rolled a ${nb}-sided die and got: **${result}**!`);
+          await message.reply(botText(responseLang, "diceResult", String(nb), String(result)));
           break;
         }
 
@@ -1599,7 +1605,7 @@ export function startBot(): void {
               model: "openai/gpt-oss-20b",
               max_completion_tokens: 300,
               messages: [
-                { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used. If no topic, use English. Be creative, funny, absurd — never harmful." },
+                { role: "system", content: `You are a dramatic conspiracy theory generator. Always write in ${USER_LANG_NAMES[responseLang]}, regardless of the language of the input. Be creative, funny, absurd — never harmful.` },
                 { role: "user", content: prompt },
               ],
             });
@@ -3311,7 +3317,7 @@ export function startBot(): void {
           const target = message.mentions.users.first() ?? message.author;
           const isSelf = target.id === message.author.id;
 
-          const lang = getUserLang(isSelf ? message.author.id : target.id);
+          const lang = getEffectiveLanguage(message.guildId, isSelf ? message.author.id : target.id);
           const langLabel = USER_LANG_LABELS[lang] ?? "🇬🇧 English";
 
           const questData = getUserQuestData(target.id);
@@ -3389,7 +3395,7 @@ export function startBot(): void {
             { name: "🌐 Language", value: langLabel, inline: true },
             {
               name: "📅 Member since",
-              value: questData ? new Date(questData.createdAt).toLocaleDateString("en-GB") : "—",
+              value: questData ? new Date(questData.createdAt).toLocaleDateString(lang) : "—",
               inline: true,
             },
           );
@@ -3406,11 +3412,12 @@ export function startBot(): void {
         case "lang":
         case "langage": {
           const input = args[0]?.toLowerCase();
-          const currentLang = getUserLang(message.author.id);
+          const currentLang = getEffectiveLanguage(message.guildId, message.author.id);
+          const personalOverride = getUserLangOverride(message.author.id);
           if (!input) {
             await message.reply(
-              `🌐 Your current bot language: **${USER_LANG_LABELS[currentLang]}**\n` +
-              `Change it with:\n` +
+              `${botText(currentLang, "languageCurrent", USER_LANG_LABELS[currentLang])}\n` +
+              `${botText(currentLang, "languageOptions")}\n` +
               `\`${guildPrefix}language en\` — 🇬🇧 English\n` +
               `\`${guildPrefix}language fr\` — 🇫🇷 Français\n` +
               `\`${guildPrefix}language es\` — 🇪🇸 Español\n` +
@@ -3421,20 +3428,27 @@ export function startBot(): void {
               `\`${guildPrefix}language nl\` — 🇳🇱 Nederlands\n` +
               `\`${guildPrefix}language ru\` — 🇷🇺 Русский\n` +
               `\`${guildPrefix}language pl\` — 🇵🇱 Polski\n` +
-              `\`${guildPrefix}language tr\` — 🇹🇷 Türkçe`,
+              `\`${guildPrefix}language tr\` — 🇹🇷 Türkçe\n` +
+              `${botText(currentLang, "languageResetOption", guildPrefix)}`,
             );
             break;
           }
-          if (!isValidUserLang(input)) {
-            await message.reply(`❌ Invalid language. Use \`${guildPrefix}language en\`, \`fr\`, \`es\`, \`de\`, \`pt\`, \`it\`, \`ja\`, \`nl\`, \`ru\`, \`pl\` or \`tr\`.`);
+          if (input === "reset" || input === "server" || input === "default") {
+            clearUserLang(message.author.id);
+            const inheritedLang = getEffectiveLanguage(message.guildId, message.author.id);
+            await message.reply(botText(inheritedLang, "languageReset", USER_LANG_LABELS[inheritedLang]));
             break;
           }
-          if (input === currentLang) {
-            await message.reply(`ℹ️ Your language is already set to **${USER_LANG_LABELS[input]}**.`);
+          if (!isValidUserLang(input)) {
+            await message.reply(botText(currentLang, "languageInvalid", guildPrefix));
+            break;
+          }
+          if (input === personalOverride) {
+            await message.reply(botText(currentLang, "languageAlready", USER_LANG_LABELS[input]));
             break;
           }
           setUserLang(message.author.id, input);
-          await message.reply(`✅ Your bot language is now **${USER_LANG_LABELS[input]}**. Quests and AI replies will be in ${USER_LANG_NAMES[input]}.`);
+          await message.reply(botText(input, "languageChanged", USER_LANG_LABELS[input]));
           break;
         }
 
@@ -3446,11 +3460,11 @@ export function startBot(): void {
             if (!guildId) { await message.reply("❌ This command can only be used in a server."); break; }
             const langArg = args[1]?.toLowerCase();
             const currentGuildLang = getLang(guildId);
-            const GUILD_LANG_LABELS: Record<string, string> = { en: "🇬🇧 English", fr: "🇫🇷 Français", es: "🇪🇸 Español", de: "🇩🇪 Deutsch", pt: "🇧🇷 Português", it: "🇮🇹 Italiano", ja: "🇯🇵 日本語", nl: "🇳🇱 Nederlands", ru: "🇷🇺 Русский", pl: "🇵🇱 Polski", tr: "🇹🇷 Türkçe" };
+            const GUILD_LANG_LABELS = USER_LANG_LABELS;
             if (!langArg) {
               await message.reply(
-                `🌐 Server language: **${GUILD_LANG_LABELS[currentGuildLang] ?? currentGuildLang}**\n` +
-                `*(Admin only)* Change it with:\n` +
+                `${botText(responseLang, "serverLanguageCurrent", GUILD_LANG_LABELS[currentGuildLang] ?? currentGuildLang)}\n` +
+                `${botText(responseLang, "serverLanguageOptions")}\n` +
                 `\`${guildPrefix}server language en\` — 🇬🇧 English\n` +
                 `\`${guildPrefix}server language fr\` — 🇫🇷 Français\n` +
                 `\`${guildPrefix}server language es\` — 🇪🇸 Español\n` +
@@ -3468,17 +3482,17 @@ export function startBot(): void {
             const isAdmin =
               message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
               message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-            if (!isAdmin) { await message.reply("🔒 Only admins can change the server language. (**Manage Server** required)"); break; }
-            if (!["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"].includes(langArg)) {
-              await message.reply(`❌ Invalid language. Use \`${guildPrefix}server language en\`, \`fr\`, \`es\`, \`de\`, \`pt\`, \`it\`, \`ja\`, \`nl\`, \`ru\`, \`pl\` or \`tr\`.`);
+            if (!isAdmin) { await message.reply(botText(responseLang, "serverLanguageAdminOnly")); break; }
+            if (!isValidUserLang(langArg)) {
+              await message.reply(botText(responseLang, "serverLanguageInvalid", guildPrefix));
               break;
             }
             if (langArg === currentGuildLang) {
-              await message.reply(`ℹ️ Server language is already **${GUILD_LANG_LABELS[langArg] ?? langArg}**.`);
+              await message.reply(botText(responseLang, "serverLanguageAlready", GUILD_LANG_LABELS[langArg]));
               break;
             }
-            setLang(guildId, langArg as GuildLang);
-            await message.reply(`✅ Server language set to **${GUILD_LANG_LABELS[langArg] ?? langArg}**. The \`!help\` menu will now default to this language.`);
+            setLang(guildId, langArg);
+            await message.reply(botText(responseLang, "serverLanguageChanged", GUILD_LANG_LABELS[langArg]));
           } else {
             await message.reply(`❓ Unknown server command. Try \`${guildPrefix}server language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr]\`.`);
           }
@@ -3560,13 +3574,13 @@ export function startBot(): void {
 
           // Plain `!help`, `!help fr`, `!help es`, `!help de`, `!help pt`, `!help it` → paginated help
           if (!arg0 || arg0 === "fr" || arg0 === "es" || arg0 === "en" || arg0 === "de" || arg0 === "pt" || arg0 === "it" || arg0 === "ja" || arg0 === "nl" || arg0 === "ru" || arg0 === "pl" || arg0 === "tr") {
-            const helpLang: HelpLanguage = (["fr","es","de","pt","it","ja","nl","ru","pl","tr"] as HelpLanguage[]).includes(arg0 as HelpLanguage) ? (arg0 as HelpLanguage) : "en";
+            const helpLang: HelpLanguage = arg0 ? parseLanguage(arg0) : responseLang;
             await sendHelpPaginator(message, helpLang);
             break;
           }
 
           // Topic-specific help
-          const detected = resolveTopicKey(arg0, arg1 as HelpLanguage || undefined);
+          const detected = resolveTopicKey(arg0, isValidUserLang(arg1) ? parseLanguage(arg1) : responseLang);
           if (detected) {
             if (detected.topic === "guesslogo" && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
               await message.reply({ content: "🔒 The `!help guesslogo` page is restricted to moderators (requires **Manage Server** permission).", ephemeral: true } as Parameters<typeof message.reply>[0]);
@@ -3574,7 +3588,7 @@ export function startBot(): void {
             }
             await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
           } else {
-            await sendHelpPaginator(message, "en");
+            await sendHelpPaginator(message, responseLang);
           }
           break;
         }
@@ -3623,7 +3637,7 @@ export function startBot(): void {
                 break;
               }
               case "joke": {
-                const lang = args[0] ? parseLanguage(args[0]) : getLang(guildId);
+                const lang = args[0] ? parseLanguage(args[0]) : responseLang;
                 const list = lang === "fr" ? JOKES_FR : lang === "es" ? JOKES_ES : lang === "de" ? JOKES_DE : lang === "pt" ? JOKES_PT : lang === "it" ? JOKES_IT : lang === "ja" ? JOKES_JA : lang === "nl" ? JOKES_NL : lang === "ru" ? JOKES_RU : lang === "pl" ? JOKES_PL : lang === "tr" ? JOKES_TR : JOKES;
                 await message.reply(getRandom(list));
                 break;

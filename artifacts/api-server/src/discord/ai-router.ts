@@ -1,4 +1,5 @@
 import type { Message } from "discord.js";
+import type { UserLang } from "./user-lang-store.js";
 
 export type AiIntent =
   | "greeting"
@@ -194,19 +195,36 @@ export function requestedTimePlace(text: string): string | null {
   return null;
 }
 
-export function currentTimeAnswer(text: string, fallbackPlace?: string | null): string {
+export function currentTimeAnswer(
+  text: string,
+  fallbackPlace?: string | null,
+  language: UserLang = "en",
+): string {
+  const prompts: Record<UserLang, { askPlace: string; unknownPlace: (place: string) => string; result: (time: string, place: string) => string }> = {
+    en: { askPlace: "Which city or country?", unknownPlace: (place) => `I don't know the time zone for **${place}**.`, result: (time, place) => `It's **${time}** in **${place}**.` },
+    fr: { askPlace: "Dans quelle ville ou quel pays ?", unknownPlace: (place) => `Je ne connais pas le fuseau horaire de **${place}**.`, result: (time, place) => `Il est **${time}** à **${place}**.` },
+    es: { askPlace: "¿En qué ciudad o país?", unknownPlace: (place) => `No conozco la zona horaria de **${place}**.`, result: (time, place) => `Son las **${time}** en **${place}**.` },
+    de: { askPlace: "In welcher Stadt oder welchem Land?", unknownPlace: (place) => `Ich kenne die Zeitzone von **${place}** nicht.`, result: (time, place) => `In **${place}** ist es **${time}** Uhr.` },
+    pt: { askPlace: "Em qual cidade ou país?", unknownPlace: (place) => `Não conheço o fuso horário de **${place}**.`, result: (time, place) => `São **${time}** em **${place}**.` },
+    it: { askPlace: "In quale città o paese?", unknownPlace: (place) => `Non conosco il fuso orario di **${place}**.`, result: (time, place) => `Sono le **${time}** a **${place}**.` },
+    ja: { askPlace: "どの都市または国ですか？", unknownPlace: (place) => `**${place}** のタイムゾーンがわかりません。`, result: (time, place) => `**${place}** は **${time}** です。` },
+    nl: { askPlace: "Welke stad of welk land?", unknownPlace: (place) => `Ik ken de tijdzone van **${place}** niet.`, result: (time, place) => `Het is **${time}** in **${place}**.` },
+    ru: { askPlace: "В каком городе или стране?", unknownPlace: (place) => `Я не знаю часовой пояс **${place}**.`, result: (time, place) => `В **${place}** сейчас **${time}**.` },
+    pl: { askPlace: "W jakim mieście lub kraju?", unknownPlace: (place) => `Nie znam strefy czasowej **${place}**.`, result: (time, place) => `W **${place}** jest **${time}**.` },
+    tr: { askPlace: "Hangi şehir veya ülke?", unknownPlace: (place) => `**${place}** saat dilimini bilmiyorum.`, result: (time, place) => `**${place}** saat **${time}**.` },
+  };
+  const localeNames: Record<UserLang, string> = {
+    en: "en-GB", fr: "fr-FR", es: "es-ES", de: "de-DE", pt: "pt-PT",
+    it: "it-IT", ja: "ja-JP", nl: "nl-NL", ru: "ru-RU", pl: "pl-PL", tr: "tr-TR",
+  };
   const place = requestedTimePlace(text) ?? fallbackPlace;
-  if (!place) {
-    return "Dans quelle ville ou quel pays ?";
-  }
+  if (!place) return prompts[language].askPlace;
 
   const timezone = resolveTimeZone(place);
-  if (!timezone) {
-    return `Je ne connais pas le fuseau horaire de **${place}**.`;
-  }
+  if (!timezone) return prompts[language].unknownPlace(place);
 
   const now = new Date();
-  const formatted = new Intl.DateTimeFormat("fr-FR", {
+  const formatted = new Intl.DateTimeFormat(localeNames[language], {
     timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
@@ -216,20 +234,39 @@ export function currentTimeAnswer(text: string, fallbackPlace?: string | null): 
     .split(" ")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-  return `Il est **${formatted}** en **${displayPlace}**.`;
+  return prompts[language].result(formatted, displayPlace);
 }
 
-export function directGreeting(message: Message): string {
-  const language = normalize(message.content);
-  if (/\b(hola|buenos dias|buenas tardes|buenas noches)\b/.test(language)) {
-    return `¡Hola ${message.author}! ¿Cómo estás?`;
-  }
-  if (/\b(hello|hi|hey)\b/.test(language)) {
-    return `Hello ${message.author}! How can I help?`;
-  }
-  return `Coucou ${message.author} ! Comment vas-tu ?`;
+export function directGreeting(message: Message, language: UserLang = "en"): string {
+  const greetings: Record<UserLang, (name: string) => string> = {
+    en: (name) => `Hello ${name}! How can I help?`,
+    fr: (name) => `Coucou ${name} ! Comment vas-tu ?`,
+    es: (name) => `¡Hola ${name}! ¿Cómo puedo ayudarte?`,
+    de: (name) => `Hallo ${name}! Wie kann ich dir helfen?`,
+    pt: (name) => `Olá, ${name}! Como posso ajudar?`,
+    it: (name) => `Ciao ${name}! Come posso aiutarti?`,
+    ja: (name) => `${name}さん、こんにちは！何かお手伝いできますか？`,
+    nl: (name) => `Hallo ${name}! Hoe kan ik je helpen?`,
+    ru: (name) => `Привет, ${name}! Чем могу помочь?`,
+    pl: (name) => `Cześć ${name}! Jak mogę pomóc?`,
+    tr: (name) => `Merhaba ${name}! Nasıl yardımcı olabilirim?`,
+  };
+  return greetings[language](message.author.toString());
 }
 
-export function directIdentityAnswer(): string {
-  return "Je m’appelle **MaximeGPT** 🤖";
+export function directIdentityAnswer(language: UserLang = "en"): string {
+  const answers: Record<UserLang, string> = {
+    en: "My name is **MaximeGPT** 🤖",
+    fr: "Je m’appelle **MaximeGPT** 🤖",
+    es: "Me llamo **MaximeGPT** 🤖",
+    de: "Ich heiße **MaximeGPT** 🤖",
+    pt: "Meu nome é **MaximeGPT** 🤖",
+    it: "Mi chiamo **MaximeGPT** 🤖",
+    ja: "私の名前は **MaximeGPT** です 🤖",
+    nl: "Ik heet **MaximeGPT** 🤖",
+    ru: "Меня зовут **MaximeGPT** 🤖",
+    pl: "Mam na imię **MaximeGPT** 🤖",
+    tr: "Benim adım **MaximeGPT** 🤖",
+  };
+  return answers[language];
 }

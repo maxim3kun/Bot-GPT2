@@ -2,8 +2,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { logger } from "../lib/logger.js";
 import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { isValidUserLang, type UserLang } from "./user-lang-store.js";
 
-export type GuildLang = "en" | "fr" | "es";
+export type GuildLang = UserLang;
 
 export const DEFAULT_LANG: GuildLang = "en";
 
@@ -17,7 +18,12 @@ let store: Record<string, GuildLang> = {};
 function loadFromJson(): void {
   if (!existsSync(STORE_PATH)) return;
   try {
-    store = JSON.parse(readFileSync(STORE_PATH, "utf8")) as Record<string, GuildLang>;
+    const parsed = JSON.parse(readFileSync(STORE_PATH, "utf8")) as Record<string, unknown>;
+    store = Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, GuildLang] =>
+        typeof entry[1] === "string" && isValidUserLang(entry[1]),
+      ),
+    );
   } catch (err) {
     logger.warn({ err }, "Could not load langs.json — using defaults");
   }
@@ -42,8 +48,8 @@ export async function initLangStore(): Promise<void> {
   }
   const guilds = await getAllGuildDocs();
   for (const guild of guilds) {
-    if (guild.lang && (guild.lang === "en" || guild.lang === "fr" || guild.lang === "es")) {
-      store[guild._id] = guild.lang as GuildLang;
+    if (typeof guild.lang === "string" && isValidUserLang(guild.lang)) {
+      store[guild._id] = guild.lang;
     }
   }
   logger.info({ count: Object.keys(store).length }, "Lang store loaded from MongoDB");
