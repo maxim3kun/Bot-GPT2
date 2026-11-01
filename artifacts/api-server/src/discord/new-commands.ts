@@ -79,7 +79,7 @@ async function handleNewHelp(message: Message, prefix: string): Promise<void> {
       },
       {
         name: "🧪 Koya",
-        value: `\`${prefix}new koya test\` — Check that the Koya command is wired correctly`,
+        value: `\`${prefix}new koya test [@member]\` — Send a Koya test to yourself or a mentioned member`,
       },
     );
   await message.reply({ embeds: [embed] });
@@ -99,9 +99,16 @@ export async function handleNewCommand(message: Message, args: string[], prefix:
       break;
 
     case "koya":
+      if (args[0]?.toLowerCase() !== "test") {
+        await message.reply(`Usage: \`${prefix}new koya test [@member]\`.`);
+        break;
+      }
+      await handleKoyaTestCommand(message);
+      break;
+
     case "koya-test":
     case "testkoya":
-      await handleKoyaTestCommand(message, args, prefix);
+      await handleKoyaTestCommand(message);
       break;
 
     case undefined:

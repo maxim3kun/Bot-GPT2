@@ -104,7 +104,7 @@ export async function moderateMentionedMessage(message: Message, openai: OpenAI)
 
   try {
     const response = await openai.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "openai/gpt-oss-20b",
       max_completion_tokens: 180,
       temperature: 0,
       messages: [

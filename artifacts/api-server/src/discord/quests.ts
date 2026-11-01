@@ -286,7 +286,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
           const reminderLang = USER_LANG_NAMES[getUserLang(profile.userId)] ?? "English";
           try {
             const res = await openai.chat.completions.create({
-              model: "llama-3.3-70b-versatile",
+              model: "openai/gpt-oss-120b",
               messages: [
                 {
                   role: "system",
@@ -399,7 +399,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
   try {
     const response = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       messages: [
         {
           role: "system",
@@ -696,7 +696,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
 
   try {
     const qRes = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       messages: [
         {
           role: "system",
@@ -724,7 +724,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     const answer = answered && answered.size > 0 ? answered.first()!.content : "";
 
     const questRes = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       messages: [
         {
           role: "system",
@@ -997,7 +997,7 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
     let aiRaw = "";
     try {
       const aiRes = await openai.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         messages: [
           {
             role: "system",

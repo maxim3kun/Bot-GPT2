@@ -286,7 +286,7 @@ async function runAiBattle(
     battleHistory.push({ role: "user", content: forPrompt });
 
     const forResponse = await openai.chat.completions.create({
-      model: "mixtral-8x7b-32768",
+      model: "openai/gpt-oss-20b",
       max_completion_tokens: 350,
       messages: [{ role: "system", content: systemFor }, ...battleHistory],
     });
@@ -309,7 +309,7 @@ async function runAiBattle(
     const againstHistory = [...battleHistory, { role: "user" as const, content: againstPrompt }];
 
     const againstResponse = await openai.chat.completions.create({
-      model: "mixtral-8x7b-32768",
+      model: "openai/gpt-oss-20b",
       max_completion_tokens: 350,
       messages: [{ role: "system", content: systemAgainst }, ...againstHistory],
     });
@@ -332,7 +332,7 @@ async function runAiBattle(
   }
 
   const verdictResponse = await openai.chat.completions.create({
-    model: "mixtral-8x7b-32768",
+    model: "openai/gpt-oss-20b",
     max_completion_tokens: 200,
     messages: [
       {
@@ -1359,7 +1359,7 @@ export function startBot(): void {
         const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
-          model: "mixtral-8x7b-32768",
+          model: "openai/gpt-oss-20b",
           max_completion_tokens: 1024,
           messages: [
             { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
@@ -1446,7 +1446,7 @@ export function startBot(): void {
         const webResults = (isTopListQuery(userText) || route.needsResearch) ? await searchWeb(userText) : [];
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
-          model: "mixtral-8x7b-32768",
+          model: "openai/gpt-oss-20b",
           max_completion_tokens: 1024,
           messages: [
             { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext) },
@@ -1596,7 +1596,7 @@ export function startBot(): void {
               ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`
               : `Generate a short, absurd and funny random conspiracy theory. Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`;
             const response = await openai.chat.completions.create({
-              model: "mixtral-8x7b-32768",
+              model: "openai/gpt-oss-20b",
               max_completion_tokens: 300,
               messages: [
                 { role: "system", content: "You are a dramatic conspiracy theory generator. Always write in the language the user used. If no topic, use English. Be creative, funny, absurd — never harmful." },

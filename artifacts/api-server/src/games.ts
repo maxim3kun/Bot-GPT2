@@ -547,7 +547,7 @@ export async function playTrivia(message: Message, openai: OpenAI): Promise<void
     await channel.sendTyping();
 
     const gen = await openai.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "openai/gpt-oss-20b",
       max_completion_tokens: 300,
       response_format: { type: "json_object" },
       messages: [
