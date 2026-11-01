@@ -31,7 +31,7 @@ import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore 
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
-import { formatSearchContext, formatSearchSources, searchWeb, type WebSearchResult } from "./lib/web-search.js";
+import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, searchWeb, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
 import { type HelpLanguage, buildHelpEmbed, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
@@ -48,7 +48,7 @@ import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetCo
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
-import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
+import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
@@ -266,6 +266,25 @@ async function replyWithAiAnswer(
   for (const chunk of chunks.slice(1)) {
     await message.reply(webResults.length ? { content: chunk, flags: ["SuppressEmbeds" as const] } : chunk);
   }
+}
+
+async function replyWithLatestNews(
+  message: Message,
+  prompt: string,
+  webResults: WebSearchResult[],
+  language: string,
+): Promise<boolean> {
+  if (!isLatestNewsRequest(prompt)) return false;
+
+  const answer = formatLatestNewsAnswer(webResults);
+  if (!answer) {
+    await message.reply(noResearchEvidenceReply(language));
+    return true;
+  }
+
+  addToHistory(message.channelId, "assistant", answer);
+  await replyWithAiAnswer(message, answer, webResults);
+  return true;
 }
 
 // ── AI Battle ─────────────────────────────────────────────────────────────────
@@ -528,12 +547,15 @@ export function startBot(): void {
         ? currentTimeAnswer(prompt, savedTime?.place, responseLang)
         : "";
       const shouldSearch = isTopListQuery(prompt) || route.needsResearch;
-      const searchQuery = shouldSearch ? buildMessageResearchQuery(message, prompt) : prompt;
+      const searchQuery = shouldSearch
+        ? isLatestNewsRequest(prompt) ? prompt : buildMessageResearchQuery(message, prompt)
+        : prompt;
       const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
       if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
         await message.reply(noResearchEvidenceReply(responseLang));
         return;
       }
+      if (await replyWithLatestNews(message, prompt, webResults, responseLang)) return;
       const response = await openai.chat.completions.create({
         model: "openai/gpt-oss-20b",
         max_completion_tokens: 1024,
@@ -1523,12 +1545,15 @@ export function startBot(): void {
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
         const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
         const shouldSearch = isTopListQuery(userText) || route.needsResearch;
-        const searchQuery = shouldSearch ? buildMessageResearchQuery(message, userText) : userText;
+        const searchQuery = shouldSearch
+          ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
+          : userText;
         const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
         if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
           await message.reply(noResearchEvidenceReply(responseLang));
           return;
         }
+        if (await replyWithLatestNews(message, userText, webResults, responseLang)) return;
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",
@@ -1625,12 +1650,15 @@ export function startBot(): void {
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
         const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
         const shouldSearch = isTopListQuery(userText) || route.needsResearch;
-        const searchQuery = shouldSearch ? buildMessageResearchQuery(message, userText) : userText;
+        const searchQuery = shouldSearch
+          ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
+          : userText;
         const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
         if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
           await message.reply(noResearchEvidenceReply(responseLang));
           return;
         }
+        if (await replyWithLatestNews(message, userText, webResults, responseLang)) return;
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
           model: "openai/gpt-oss-20b",

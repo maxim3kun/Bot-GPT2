@@ -275,7 +275,10 @@ function buildTargetedQuery(query: string, plan: ResearchPlan): string | undefin
     return `${query} official documentation`;
   }
   if (plan.topic === "science") return `${query} scientific study`;
-  if (plan.topic === "current") return `${query} official latest`;
+  // The original news query already expresses recency. Adding English
+  // modifiers here can broaden a French request into unrelated international
+  // stories, so leave current-news searches focused on what the user asked.
+  if (plan.topic === "current") return undefined;
   return undefined;
 }
 
@@ -449,4 +452,16 @@ export function formatSearchContext(results: WebSearchResult[]): string {
 export function formatSearchSources(results: WebSearchResult[]): string {
   if (results.length === 0) return "";
   return `\n\n🔎 **Sources consultées**\n${results.map((result, index) => `${index + 1}. [${result.title}](${result.url})`).join("\n")}`;
+}
+
+export function formatLatestNewsAnswer(results: WebSearchResult[]): string {
+  return results
+    .filter((result) => result.content?.trim() && !result.duplicateOf)
+    .slice(0, 3)
+    .map((result) => {
+      const title = result.title.replace(/\s+/g, " ").trim();
+      const snippet = result.snippet.replace(/\s+/g, " ").trim();
+      return `• **${title}**${snippet ? ` — ${snippet}` : ""}`;
+    })
+    .join("\n");
 }

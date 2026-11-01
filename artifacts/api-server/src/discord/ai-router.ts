@@ -96,6 +96,11 @@ export function buildResearchQuery(currentText: string, previousText = ""): stri
   return `${previous} ${clarification}`.trim().slice(0, 300);
 }
 
+export function isLatestNewsRequest(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(?:dernier(?:e|es)?\s+actualites?|actualites?\s+(?:du jour|recentes?|en direct)|infos?\s+du jour|latest news|news today|current news|breaking news)\b/.test(normalized);
+}
+
 export function classifyAiMessage(text: string): AiRoute {
   const normalized = normalize(text);
 
