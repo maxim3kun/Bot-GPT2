@@ -14,6 +14,6 @@ export async function handleKoyaTestCommand(message: Message): Promise<void> {
 
   const target = message.mentions.users.first() ?? message.author;
 
-  await channel.send(`Koya kiss <@${target.id}> 💋`);
-  await message.reply(`✅ Test Koya lancé sur **${target.username}**.`);
+  await channel.send(`Koya kiss <@${target.id}>`);
+  await message.reply(`✅ Commande Koya envoyée dans le salon pour **${target.username}**.`);
 }
