@@ -171,6 +171,15 @@ const CITY_TIMEZONES: Record<string, string> = {
   "new zealand": "Pacific/Auckland",
 };
 
+function frenchPlacePreposition(place: string): string {
+  const normalized = normalize(place);
+  if (["france", "chine", "australie", "coree du sud", "nouvelle zelande"].includes(normalized)) {
+    return "en";
+  }
+  if (["japon", "mexique"].includes(normalized)) return "au";
+  return "à";
+}
+
 export function resolveTimeZone(place: string): string | null {
   const normalizedPlace = normalize(place);
   return CITY_TIMEZONES[place] ?? CITY_TIMEZONES[normalizedPlace] ?? (
@@ -202,7 +211,7 @@ export function currentTimeAnswer(
 ): string {
   const prompts: Record<UserLang, { askPlace: string; unknownPlace: (place: string) => string; result: (time: string, place: string) => string }> = {
     en: { askPlace: "Which city or country? Reply with its name once and I'll remember it for next time.", unknownPlace: (place) => `I don't know the time zone for **${place}**.`, result: (time, place) => `It's **${time}** in **${place}**.` },
-    fr: { askPlace: "Dans quelle ville ou quel pays ? Réponds avec son nom et je le retiendrai pour la prochaine fois.", unknownPlace: (place) => `Je ne connais pas le fuseau horaire de **${place}**.`, result: (time, place) => `Il est **${time}** à **${place}**.` },
+    fr: { askPlace: "Dans quelle ville ou quel pays ? Réponds avec son nom et je le retiendrai pour la prochaine fois.", unknownPlace: (place) => `Je ne connais pas le fuseau horaire de **${place}**.`, result: (time, place) => `Il est **${time}** ${frenchPlacePreposition(place)} **${place}**.` },
     es: { askPlace: "¿En qué ciudad o país?", unknownPlace: (place) => `No conozco la zona horaria de **${place}**.`, result: (time, place) => `Son las **${time}** en **${place}**.` },
     de: { askPlace: "In welcher Stadt oder welchem Land?", unknownPlace: (place) => `Ich kenne die Zeitzone von **${place}** nicht.`, result: (time, place) => `In **${place}** ist es **${time}** Uhr.` },
     pt: { askPlace: "Em qual cidade ou país?", unknownPlace: (place) => `Não conheço o fuso horário de **${place}**.`, result: (time, place) => `São **${time}** em **${place}**.` },
