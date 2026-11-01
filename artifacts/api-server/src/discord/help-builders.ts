@@ -642,48 +642,211 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
 
 // ── Setup & admin guides ──────────────────────────────────────────────────────
 
-export async function sendSetupGuide(message: Message): Promise<void> {
+const SETUP_GUIDE_COPY: Record<HelpLanguage, {
+  title: string; description: string; fields: [string, string][]; footer: string;
+}> = {
+  en: {
+    title: "🛠️ Bot Setup Guide", description: "Required and optional API keys to unlock all features.",
+    fields: [
+      ["✅ Required", "`DISCORD_TOKEN` — main bot token"],
+      ["🤖 AI features (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — free at console.groq.com"],
+      ["🎵 Music generation (`!music generator`)", "`SUNO_API_KEY` — from sunoapi.org"],
+      ["🖼️ Image generation (`!image`)", "`HUGGINGFACE_TOKEN` — free at huggingface.co"],
+      ["🗄️ Persistent data (quests, likes, playlists, logos)", "`MONGODB_URI` — free tier at mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-char hex (run the project's key-generation command)"],
+      ["🏷️ Guess The Logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — from logo.dev"],
+      ["🎵 Song recognition (`!shazam`)", "`AUDD_API_KEY` — from audd.io"],
+      ["⚔️ AI Battle (`!ai battle`)", "`DISCORD_TOKEN_2` — second bot token"],
+    ],
+    footer: "Add secrets in the Replit Secrets tab or your deployment environment.",
+  },
+  fr: {
+    title: "🛠️ Guide de configuration du bot", description: "Clés API requises et facultatives pour activer les fonctionnalités.",
+    fields: [
+      ["✅ Obligatoire", "`DISCORD_TOKEN` — jeton principal du bot"],
+      ["🤖 Fonctions IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratuit sur console.groq.com"],
+      ["🎵 Génération musicale (`!music generator`)", "`SUNO_API_KEY` — disponible sur sunoapi.org"],
+      ["🖼️ Génération d’images (`!image`)", "`HUGGINGFACE_TOKEN` — gratuit sur huggingface.co"],
+      ["🗄️ Données persistantes (quêtes, likes, playlists, logos)", "`MONGODB_URI` — offre gratuite sur mongodb.com/atlas\n`ENCRYPTION_KEY` — clé hexadécimale de 64 caractères, générée avec la commande prévue dans le projet"],
+      ["🏷️ Devine le logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — disponible sur logo.dev"],
+      ["🎵 Reconnaissance musicale (`!shazam`)", "`AUDD_API_KEY` — disponible sur audd.io"],
+      ["⚔️ Combat IA (`!ai battle`)", "`DISCORD_TOKEN_2` — jeton du deuxième bot"],
+    ],
+    footer: "Ajoute les secrets dans l’onglet Secrets de Replit ou dans l’environnement de déploiement.",
+  },
+  es: {
+    title: "🛠️ Guía de configuración del bot", description: "Claves API necesarias y opcionales para activar todas las funciones.",
+    fields: [
+      ["✅ Obligatorio", "`DISCORD_TOKEN` — token principal del bot"],
+      ["🤖 Funciones de IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratis en console.groq.com"],
+      ["🎵 Generación de música (`!music generator`)", "`SUNO_API_KEY` — en sunoapi.org"],
+      ["🖼️ Generación de imágenes (`!image`)", "`HUGGINGFACE_TOKEN` — gratis en huggingface.co"],
+      ["🗄️ Datos persistentes (misiones, likes, listas, logos)", "`MONGODB_URI` — plan gratuito en mongodb.com/atlas\n`ENCRYPTION_KEY` — clave hexadecimal de 64 caracteres, generada con el comando del proyecto"],
+      ["🏷️ Adivina el logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — en logo.dev"],
+      ["🎵 Reconocimiento de canciones (`!shazam`)", "`AUDD_API_KEY` — en audd.io"],
+      ["⚔️ Combate de IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token del segundo bot"],
+    ],
+    footer: "Añade los secretos en la pestaña Secrets de Replit o en el entorno de despliegue.",
+  },
+  de: {
+    title: "🛠️ Bot-Einrichtungsanleitung", description: "Erforderliche und optionale API-Schlüssel für alle Funktionen.",
+    fields: [
+      ["✅ Erforderlich", "`DISCORD_TOKEN` — Haupttoken des Bots"],
+      ["🤖 KI-Funktionen (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — kostenlos auf console.groq.com"],
+      ["🎵 Musikerstellung (`!music generator`)", "`SUNO_API_KEY` — auf sunoapi.org"],
+      ["🖼️ Bilderstellung (`!image`)", "`HUGGINGFACE_TOKEN` — kostenlos auf huggingface.co"],
+      ["🗄️ Dauerhafte Daten (Quests, Likes, Playlists, Logos)", "`MONGODB_URI` — kostenloser Tarif auf mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-stelliger Hex-Schlüssel, mit dem Projektbefehl erstellt"],
+      ["🏷️ Logo erraten (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — auf logo.dev"],
+      ["🎵 Musikerkennung (`!shazam`)", "`AUDD_API_KEY` — auf audd.io"],
+      ["⚔️ KI-Kampf (`!ai battle`)", "`DISCORD_TOKEN_2` — Token des zweiten Bots"],
+    ],
+    footer: "Füge Secrets im Replit-Tab „Secrets“ oder in der Deployment-Umgebung hinzu.",
+  },
+  pt: {
+    title: "🛠️ Guia de configuração do bot", description: "Chaves de API obrigatórias e opcionais para ativar todos os recursos.",
+    fields: [
+      ["✅ Obrigatório", "`DISCORD_TOKEN` — token principal do bot"],
+      ["🤖 Recursos de IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — grátis em console.groq.com"],
+      ["🎵 Geração de música (`!music generator`)", "`SUNO_API_KEY` — em sunoapi.org"],
+      ["🖼️ Geração de imagens (`!image`)", "`HUGGINGFACE_TOKEN` — grátis em huggingface.co"],
+      ["🗄️ Dados persistentes (missões, curtidas, playlists, logos)", "`MONGODB_URI` — plano gratuito em mongodb.com/atlas\n`ENCRYPTION_KEY` — chave hexadecimal de 64 caracteres, gerada pelo comando do projeto"],
+      ["🏷️ Adivinhe o logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — em logo.dev"],
+      ["🎵 Reconhecimento de música (`!shazam`)", "`AUDD_API_KEY` — em audd.io"],
+      ["⚔️ Batalha de IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token do segundo bot"],
+    ],
+    footer: "Adicione os secrets na aba Secrets do Replit ou no ambiente de implantação.",
+  },
+  it: {
+    title: "🛠️ Guida alla configurazione del bot", description: "Chiavi API obbligatorie e facoltative per attivare tutte le funzioni.",
+    fields: [
+      ["✅ Obbligatorio", "`DISCORD_TOKEN` — token principale del bot"],
+      ["🤖 Funzioni IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratuito su console.groq.com"],
+      ["🎵 Generazione musicale (`!music generator`)", "`SUNO_API_KEY` — su sunoapi.org"],
+      ["🖼️ Generazione immagini (`!image`)", "`HUGGINGFACE_TOKEN` — gratuito su huggingface.co"],
+      ["🗄️ Dati persistenti (missioni, like, playlist, loghi)", "`MONGODB_URI` — piano gratuito su mongodb.com/atlas\n`ENCRYPTION_KEY` — chiave esadecimale di 64 caratteri, generata dal comando del progetto"],
+      ["🏷️ Indovina il logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — su logo.dev"],
+      ["🎵 Riconoscimento musicale (`!shazam`)", "`AUDD_API_KEY` — su audd.io"],
+      ["⚔️ Sfida IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token del secondo bot"],
+    ],
+    footer: "Aggiungi i secrets nella scheda Secrets di Replit o nell’ambiente di deployment.",
+  },
+  ja: {
+    title: "🛠️ ボット設定ガイド", description: "すべての機能を有効にするために必要なAPIキーと任意のAPIキーです。",
+    fields: [
+      ["✅ 必須", "`DISCORD_TOKEN` — メインボットのトークン"],
+      ["🤖 AI機能 (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — console.groq.comで無料取得"],
+      ["🎵 音楽生成 (`!music generator`)", "`SUNO_API_KEY` — sunoapi.orgで取得"],
+      ["🖼️ 画像生成 (`!image`)", "`HUGGINGFACE_TOKEN` — huggingface.coで無料取得"],
+      ["🗄️ 永続データ（クエスト、いいね、プレイリスト、ロゴ）", "`MONGODB_URI` — mongodb.com/atlasの無料プラン\n`ENCRYPTION_KEY` — プロジェクトのコマンドで生成する64文字の16進数キー"],
+      ["🏷️ ロゴ当て (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — logo.devで取得"],
+      ["🎵 曲の認識 (`!shazam`)", "`AUDD_API_KEY` — audd.ioで取得"],
+      ["⚔️ AIバトル (`!ai battle`)", "`DISCORD_TOKEN_2` — 2つ目のボットのトークン"],
+    ],
+    footer: "ReplitのSecretsタブ、またはデプロイ環境にシークレットを追加してください。",
+  },
+  nl: {
+    title: "🛠️ Installatiegids voor de bot", description: "Vereiste en optionele API-sleutels om alle functies te gebruiken.",
+    fields: [
+      ["✅ Vereist", "`DISCORD_TOKEN` — hoofdtoken van de bot"],
+      ["🤖 AI-functies (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratis via console.groq.com"],
+      ["🎵 Muziek maken (`!music generator`)", "`SUNO_API_KEY` — via sunoapi.org"],
+      ["🖼️ Afbeeldingen maken (`!image`)", "`HUGGINGFACE_TOKEN` — gratis via huggingface.co"],
+      ["🗄️ Blijvende gegevens (quests, likes, playlists, logo's)", "`MONGODB_URI` — gratis pakket via mongodb.com/atlas\n`ENCRYPTION_KEY` — 64 tekens lange hexsleutel, gemaakt met het projectcommando"],
+      ["🏷️ Logo raden (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — via logo.dev"],
+      ["🎵 Nummers herkennen (`!shazam`)", "`AUDD_API_KEY` — via audd.io"],
+      ["⚔️ AI-gevecht (`!ai battle`)", "`DISCORD_TOKEN_2` — token van de tweede bot"],
+    ],
+    footer: "Voeg secrets toe via het tabblad Secrets van Replit of je deploymentomgeving.",
+  },
+  ru: {
+    title: "🛠️ Руководство по настройке бота", description: "Обязательные и дополнительные API-ключи для всех функций.",
+    fields: [
+      ["✅ Обязательно", "`DISCORD_TOKEN` — основной токен бота"],
+      ["🤖 Функции ИИ (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — бесплатно на console.groq.com"],
+      ["🎵 Создание музыки (`!music generator`)", "`SUNO_API_KEY` — на sunoapi.org"],
+      ["🖼️ Создание изображений (`!image`)", "`HUGGINGFACE_TOKEN` — бесплатно на huggingface.co"],
+      ["🗄️ Постоянные данные (задания, лайки, плейлисты, логотипы)", "`MONGODB_URI` — бесплатный тариф на mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-символьный hex-ключ, созданный командой проекта"],
+      ["🏷️ Угадай логотип (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — на logo.dev"],
+      ["🎵 Распознавание музыки (`!shazam`)", "`AUDD_API_KEY` — на audd.io"],
+      ["⚔️ Битва ИИ (`!ai battle`)", "`DISCORD_TOKEN_2` — токен второго бота"],
+    ],
+    footer: "Добавь secrets на вкладке Secrets Replit или в среде развёртывания.",
+  },
+  pl: {
+    title: "🛠️ Instrukcja konfiguracji bota", description: "Wymagane i opcjonalne klucze API do uruchomienia wszystkich funkcji.",
+    fields: [
+      ["✅ Wymagane", "`DISCORD_TOKEN` — główny token bota"],
+      ["🤖 Funkcje AI (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — bezpłatnie na console.groq.com"],
+      ["🎵 Generowanie muzyki (`!music generator`)", "`SUNO_API_KEY` — na sunoapi.org"],
+      ["🖼️ Generowanie obrazów (`!image`)", "`HUGGINGFACE_TOKEN` — bezpłatnie na huggingface.co"],
+      ["🗄️ Dane trwałe (zadania, polubienia, playlisty, logotypy)", "`MONGODB_URI` — bezpłatny plan na mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-znakowy klucz szesnastkowy wygenerowany poleceniem projektu"],
+      ["🏷️ Zgadnij logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — z logo.dev"],
+      ["🎵 Rozpoznawanie utworów (`!shazam`)", "`AUDD_API_KEY` — z audd.io"],
+      ["⚔️ Bitwa AI (`!ai battle`)", "`DISCORD_TOKEN_2` — token drugiego bota"],
+    ],
+    footer: "Dodaj secrets w zakładce Secrets Replit albo w środowisku wdrożeniowym.",
+  },
+  tr: {
+    title: "🛠️ Bot kurulum rehberi", description: "Tüm özellikleri açmak için gerekli ve isteğe bağlı API anahtarları.",
+    fields: [
+      ["✅ Gerekli", "`DISCORD_TOKEN` — ana bot belirteci"],
+      ["🤖 Yapay zekâ özellikleri (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — console.groq.com adresinde ücretsiz"],
+      ["🎵 Müzik oluşturma (`!music generator`)", "`SUNO_API_KEY` — sunoapi.org adresinden"],
+      ["🖼️ Görsel oluşturma (`!image`)", "`HUGGINGFACE_TOKEN` — huggingface.co adresinde ücretsiz"],
+      ["🗄️ Kalıcı veriler (görevler, beğeniler, çalma listeleri, logolar)", "`MONGODB_URI` — mongodb.com/atlas ücretsiz planı\n`ENCRYPTION_KEY` — proje komutuyla oluşturulan 64 karakterlik onaltılık anahtar"],
+      ["🏷️ Logoyu tahmin et (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — logo.dev adresinden"],
+      ["🎵 Şarkı tanıma (`!shazam`)", "`AUDD_API_KEY` — audd.io adresinden"],
+      ["⚔️ Yapay zekâ savaşı (`!ai battle`)", "`DISCORD_TOKEN_2` — ikinci botun belirteci"],
+    ],
+    footer: "Secrets değerlerini Replit Secrets sekmesine veya dağıtım ortamına ekle.",
+  },
+};
+
+export async function sendSetupGuide(message: Message, language: HelpLanguage = "en"): Promise<void> {
+  const copy = SETUP_GUIDE_COPY[language];
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("🛠️ Bot Setup Guide")
-    .setDescription("Required and optional API keys to unlock all features.")
-    .addFields(
-      { name: "✅ Required", value: "`DISCORD_TOKEN` — main bot token", inline: false },
-      { name: "🤖 AI features (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", value: "`GROQ_API_KEY` — free at console.groq.com", inline: false },
-      { name: "🎵 Music generation (`!music generator`)", value: "`SUNO_API_KEY` — from sunoapi.org", inline: false },
-      { name: "🖼️ Image generation (`!image`)", value: "`HUGGINGFACE_TOKEN` — free at huggingface.co", inline: false },
-      { name: "🗄️ Persistent data (quests, likes, playlists, logos)", value: "`MONGODB_URI` — free tier at mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-char hex (run: `node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"`)", inline: false },
-      { name: "🏷️ Guess The Logo (`!guessthelogo`)", value: "`LOGO_DEV_PUBLIC_KEY` — from logo.dev", inline: false },
-      { name: "🎵 Song recognition (`!shazam`)", value: "`AUDD_API_KEY` — from audd.io", inline: false },
-      { name: "⚔️ AI Battle (`!ai battle`)", value: "`DISCORD_TOKEN_2` — second bot token", inline: false },
-    )
-    .setFooter({ text: "Add secrets in the Replit Secrets tab or your deployment environment." });
+    .setTitle(copy.title)
+    .setDescription(copy.description)
+    .addFields(copy.fields.map(([name, value]) => ({ name, value, inline: false })))
+    .setFooter({ text: copy.footer });
   await message.reply({ embeds: [embed] });
 }
 
-export async function sendAdminGuide(message: Message, prefix = "!"): Promise<void> {
+const ADMIN_GUIDE_COPY: Record<HelpLanguage, {
+  title: string; description: string; footer: string; names: string[]; descriptions: string[];
+}> = {
+  en: { title: "🔧 Admin Commands", description: "Requires Manage Server or Administrator permission.", footer: "These commands are not listed in public !help.", names: ["🌐 Server language", "📝 Prefix", "👋 Welcome", "⏰ Schedule", "🎤 Voice Picker", "🏷️ Logo admin", "📢 Admin channel", "📻 Custom radio", "🚫 Moderation"], descriptions: ["set the server's default language", "change the command prefix", "configure welcome messages", "schedule, list, or cancel messages", "choose suggested voice channels", "manage the logo game database", "choose the channel for unknown-command suggestions", "add a custom radio station", "block, unblock, or list users"] },
+  fr: { title: "🔧 Commandes d’administration", description: "Nécessite la permission Gérer le serveur ou Administrateur.", footer: "Ces commandes ne figurent pas dans !help public.", names: ["🌐 Langue du serveur", "📝 Préfixe", "👋 Bienvenue", "⏰ Planification", "🎤 Sélecteur vocal", "🏷️ Administration des logos", "📢 Salon d’administration", "📻 Radio personnalisée", "🚫 Modération"], descriptions: ["définir la langue par défaut du serveur", "modifier le préfixe des commandes", "configurer les messages de bienvenue", "planifier, lister ou annuler des messages", "choisir les salons vocaux proposés", "gérer la base du jeu de logos", "choisir le salon des suggestions de commandes inconnues", "ajouter une station personnalisée", "bloquer, débloquer ou lister des utilisateurs"] },
+  es: { title: "🔧 Comandos de administración", description: "Requiere el permiso Gestionar servidor o Administrador.", footer: "Estos comandos no aparecen en el !help público.", names: ["🌐 Idioma del servidor", "📝 Prefijo", "👋 Bienvenida", "⏰ Programación", "🎤 Selector de voz", "🏷️ Administración de logos", "📢 Canal de administración", "📻 Radio personalizada", "🚫 Moderación"], descriptions: ["establecer el idioma predeterminado", "cambiar el prefijo de los comandos", "configurar mensajes de bienvenida", "programar, listar o cancelar mensajes", "elegir los canales de voz sugeridos", "gestionar la base de datos del juego de logos", "elegir el canal para sugerencias de comandos", "añadir una emisora personalizada", "bloquear, desbloquear o listar usuarios"] },
+  de: { title: "🔧 Admin-Befehle", description: "Erfordert „Server verwalten“ oder Administratorrechte.", footer: "Diese Befehle stehen nicht in der öffentlichen !help-Liste.", names: ["🌐 Serversprache", "📝 Präfix", "👋 Begrüßung", "⏰ Zeitplan", "🎤 Sprachkanal-Auswahl", "🏷️ Logo-Administration", "📢 Admin-Kanal", "📻 Benutzerdefiniertes Radio", "🚫 Moderation"], descriptions: ["Standardsprache des Servers festlegen", "Befehlspräfix ändern", "Begrüßungsnachrichten einrichten", "Nachrichten planen, anzeigen oder abbrechen", "vorgeschlagene Sprachkanäle auswählen", "Datenbank des Logo-Spiels verwalten", "Kanal für Vorschläge unbekannter Befehle festlegen", "einen eigenen Sender hinzufügen", "Benutzer sperren, entsperren oder auflisten"] },
+  pt: { title: "🔧 Comandos de administração", description: "Exige a permissão Gerenciar servidor ou Administrador.", footer: "Estes comandos não aparecem no !help público.", names: ["🌐 Idioma do servidor", "📝 Prefixo", "👋 Boas-vindas", "⏰ Agendamento", "🎤 Seletor de voz", "🏷️ Administração de logos", "📢 Canal de administração", "📻 Rádio personalizado", "🚫 Moderação"], descriptions: ["definir o idioma padrão do servidor", "alterar o prefixo dos comandos", "configurar mensagens de boas-vindas", "agendar, listar ou cancelar mensagens", "escolher os canais de voz sugeridos", "gerenciar o banco de dados do jogo de logos", "escolher o canal de sugestões de comandos", "adicionar uma estação personalizada", "bloquear, desbloquear ou listar usuários"] },
+  it: { title: "🔧 Comandi amministrativi", description: "Richiede il permesso Gestire server o Amministratore.", footer: "Questi comandi non sono elencati in !help pubblico.", names: ["🌐 Lingua del server", "📝 Prefisso", "👋 Benvenuto", "⏰ Pianificazione", "🎤 Selettore vocale", "🏷️ Amministrazione loghi", "📢 Canale admin", "📻 Radio personalizzata", "🚫 Moderazione"], descriptions: ["impostare la lingua predefinita del server", "cambiare il prefisso dei comandi", "configurare i messaggi di benvenuto", "pianificare, elencare o annullare messaggi", "scegliere i canali vocali suggeriti", "gestire il database del gioco dei loghi", "scegliere il canale dei suggerimenti", "aggiungere una stazione personalizzata", "bloccare, sbloccare o elencare gli utenti"] },
+  ja: { title: "🔧 管理者コマンド", description: "サーバー管理または管理者権限が必要です。", footer: "これらのコマンドは公開用 !help には表示されません。", names: ["🌐 サーバーの言語", "📝 プレフィックス", "👋 ウェルカム", "⏰ スケジュール", "🎤 ボイスチャンネル選択", "🏷️ ロゴ管理", "📢 管理者チャンネル", "📻 カスタムラジオ", "🚫 モデレーション"], descriptions: ["サーバーの既定の言語を設定", "コマンドのプレフィックスを変更", "歓迎メッセージを設定", "メッセージを予約、一覧表示、キャンセル", "候補に表示するボイスチャンネルを設定", "ロゴ当てゲームのデータを管理", "不明なコマンドの候補を送るチャンネルを設定", "ラジオ局を追加", "ユーザーのブロック、解除、一覧表示"] },
+  nl: { title: "🔧 Beheeropdrachten", description: "Vereist de machtiging Server beheren of Beheerder.", footer: "Deze opdrachten staan niet in de openbare !help.", names: ["🌐 Servertaal", "📝 Prefix", "👋 Welkom", "⏰ Planning", "🎤 Spraakkanaalkiezer", "🏷️ Logobeheer", "📢 Beheerkanaal", "📻 Eigen radio", "🚫 Moderatie"], descriptions: ["de standaardtaal instellen", "de opdrachtprefix wijzigen", "welkomstberichten instellen", "berichten plannen, bekijken of annuleren", "voorgestelde spraakkanalen kiezen", "de database van het logo-spel beheren", "kanaal voor onbekende-opdrachtsuggesties kiezen", "een eigen station toevoegen", "gebruikers blokkeren, deblokkeren of weergeven"] },
+  ru: { title: "🔧 Команды администратора", description: "Требует права «Управление сервером» или прав администратора.", footer: "Эти команды не отображаются в открытом списке !help.", names: ["🌐 Язык сервера", "📝 Префикс", "👋 Приветствие", "⏰ Расписание", "🎤 Выбор голосового канала", "🏷️ Управление логотипами", "📢 Канал администратора", "📻 Своя радиостанция", "🚫 Модерация"], descriptions: ["установить язык сервера по умолчанию", "изменить префикс команд", "настроить приветственные сообщения", "запланировать, показать или отменить сообщения", "выбрать предлагаемые голосовые каналы", "управлять базой игры с логотипами", "выбрать канал подсказок неизвестных команд", "добавить собственную радиостанцию", "блокировать, разблокировать или просматривать пользователей"] },
+  pl: { title: "🔧 Polecenia administratora", description: "Wymaga uprawnienia Zarządzanie serwerem lub Administrator.", footer: "Te polecenia nie są dostępne w publicznym !help.", names: ["🌐 Język serwera", "📝 Prefiks", "👋 Powitanie", "⏰ Harmonogram", "🎤 Wybór kanału głosowego", "🏷️ Administracja logo", "📢 Kanał administratora", "📻 Własne radio", "🚫 Moderacja"], descriptions: ["ustawić domyślny język serwera", "zmienić prefiks poleceń", "skonfigurować wiadomości powitalne", "zaplanować, wyświetlić lub anulować wiadomości", "wybrać sugerowane kanały głosowe", "zarządzać bazą gry w odgadywanie logo", "wybrać kanał podpowiedzi nieznanych poleceń", "dodać własną stację", "blokować, odblokowywać i wyświetlać użytkowników"] },
+  tr: { title: "🔧 Yönetici komutları", description: "Sunucuyu Yönet veya Yönetici izni gerektirir.", footer: "Bu komutlar herkese açık !help listesinde gösterilmez.", names: ["🌐 Sunucu dili", "📝 Önek", "👋 Karşılama", "⏰ Zamanlama", "🎤 Ses kanalı seçici", "🏷️ Logo yönetimi", "📢 Yönetici kanalı", "📻 Özel radyo", "🚫 Moderasyon"], descriptions: ["sunucunun varsayılan dilini ayarlama", "komut önekini değiştirme", "karşılama mesajlarını yapılandırma", "mesajları zamanlama, listeleme veya iptal etme", "önerilen ses kanallarını seçme", "logo oyunu veritabanını yönetme", "bilinmeyen komut önerileri için kanal seçme", "özel bir istasyon ekleme", "kullanıcıları engelleme, engeli kaldırma veya listeleme"] },
+};
+
+export async function sendAdminGuide(message: Message, prefix = "!", language: HelpLanguage = "en"): Promise<void> {
   const p = prefix;
+  const copy = ADMIN_GUIDE_COPY[language];
+  const snippets = [
+    `\`${p}server language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr]\` — ${copy.descriptions[0]}`,
+    `\`${p}prefix <char>\` — ${copy.descriptions[1]} (e.g. \`${p}prefix ?\`)`,
+    `\`${p}welcome set #channel\` · \`${p}welcome msg <text>\` · \`${p}welcome clear\` — ${copy.descriptions[2]}`,
+    `\`${p}schedule daily HH:MM #ch <msg>\` · \`${p}schedule list\` · \`${p}schedule cancel <ID>\` — ${copy.descriptions[3]}`,
+    `\`${p}voicepicker set #ch1 #ch2\` — ${copy.descriptions[4]}`,
+    `\`${p}logo add/remove/approve/exclude/test/stats\` — ${copy.descriptions[5]}`,
+    `\`${p}suggest admin #channel\` — ${copy.descriptions[6]}`,
+    `\`${p}radio add <key> <name> <url> <emoji> <genre> [fr|es|en]\` — ${copy.descriptions[7]}`,
+    `\`${p}block @user\` · \`${p}unblock @user\` · \`${p}banlist\` — ${copy.descriptions[8]}`,
+  ];
   const embed = new EmbedBuilder()
     .setColor(0xe67e22)
-    .setTitle("🔧 Admin Commands")
-    .setDescription("Commands requiring Manage Server or Administrator permission.")
-    .addFields(
-      { name: "🌐 Server language", value: `\`${p}server language [en|fr|es|de|pt|it|ja|nl|ru|pl|tr]\` — sets the default help language for the server`, inline: false },
-      { name: "📝 Prefix", value: `\`${p}prefix <char>\` — change the command prefix (e.g. \`!prefix ?\`)`, inline: false },
-      { name: "👋 Welcome", value: `\`${p}welcome set #channel\` · \`${p}welcome msg <text>\` · \`${p}welcome clear\``, inline: false },
-      { name: "⏰ Schedule", value: `\`${p}schedule daily HH:MM #ch <msg>\` · \`${p}schedule list\` · \`${p}schedule cancel <ID>\``, inline: false },
-      { name: "🎤 Voice Picker", value: `\`${p}voicepicker set #ch1 #ch2\` — set suggested voice channels`, inline: false },
-      { name: "🏷️ Logo admin", value: `\`${p}logo add/remove/approve/exclude/test/stats\` — manage the logo game database`, inline: false },
-      { name: "📢 Admin channel", value: `\`${p}suggest admin #channel\` — channel for unknown-command suggestions`, inline: false },
-      { name: "📻 Custom radio", value: `\`${p}radio add <key> <name> <url> <emoji> <genre> [fr|es|en]\` — add a custom radio station`, inline: false },
-      { name: "🚫 Moderation", value: `\`${p}block @user\` · \`${p}unblock @user\` · \`${p}banlist\``, inline: false },
-    )
-    .setFooter({ text: "These commands are not listed in !help public." });
-
-  if (prefix !== "!") {
-    for (const f of embed.data.fields ?? []) {
-      f.value = f.value.replaceAll("`!", `\`${prefix}`);
-    }
-  }
+    .setTitle(copy.title)
+    .setDescription(copy.description)
+    .addFields(copy.names.map((name, index) => ({ name, value: snippets[index]!, inline: false })))
+    .setFooter({ text: copy.footer });
   await message.reply({ embeds: [embed] });
 }

@@ -18,6 +18,7 @@ import { getLang, setLang, GuildLang } from "./discord/lang-store";
 import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { getEffectiveLanguage } from "./discord/effective-language.js";
 import { botText } from "./discord/bot-i18n.js";
+import { commandSuggestText } from "./discord/command-suggest-i18n.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
@@ -1995,7 +1996,12 @@ export function startBot(): void {
             await message.reply({ embeds: [embed] });
 
           } else {
-            await message.reply("❓ Unknown subcommand. Try `!music generator <prompt>` or `!music prompt`.");
+            await message.reply(commandSuggestText(
+              responseLang,
+              "unknownSubcommand",
+              `${guildPrefix}music generator <prompt>`,
+              `${guildPrefix}music prompt`,
+            ));
           }
           break;
         }
@@ -2004,12 +2010,18 @@ export function startBot(): void {
         case "generator": {
           const genSub = args.shift()?.toLowerCase();
           if (genSub !== "music") {
-            await message.reply("❓ Did you mean `!generator music <prompt>`?");
+            await message.reply(commandSuggestText(responseLang, "generatorHint", `${guildPrefix}generator music <prompt>`));
             break;
           }
           const genPrompt = args.join(" ").trim();
-          if (!genPrompt) { await message.reply("❌ Give me a prompt! e.g. `!generator music lo-fi hip hop beats chill`"); break; }
-          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
+          if (!genPrompt) {
+            await message.reply(commandSuggestText(responseLang, "promptRequired", `${guildPrefix}generator music lo-fi hip hop beats chill`));
+            break;
+          }
+          if (!process.env["SUNO_API_KEY"]) {
+            await message.reply(commandSuggestText(responseLang, "musicNotConfigured", `${guildPrefix}guide`));
+            break;
+          }
 
           const genStartEmbed = new EmbedBuilder()
             .setColor(0x5865f2)
@@ -2080,17 +2092,18 @@ export function startBot(): void {
         case "guide":
         case "guia":
         case "guía": {
-          await sendSetupGuide(message);
+          await sendSetupGuide(message, responseLang);
           break;
         }
 
         case "mode": {
           const modeRest = args.join(" ").toLowerCase().replace(/['\u2019\u02BC]/g, "'");
-          if (!modeRest.includes("emploi")) {
-            await message.reply("❓ Did you mean `!mode d'emploi`?");
+          const setupWords = ["emploi", "help", "setup", "guide", "ayuda", "hilfe", "ajuda", "aiuto", "ヘルプ", "hulp", "помощь", "pomoc", "yardım"];
+          if (!setupWords.some((word) => modeRest.includes(word))) {
+            await message.reply(commandSuggestText(responseLang, "modeHint", `${guildPrefix}guide`));
             break;
           }
-          await sendSetupGuide(message);
+          await sendSetupGuide(message, responseLang);
           break;
         }
 
@@ -3562,13 +3575,13 @@ export function startBot(): void {
 
           // Admin commands guide — !help admin
           if (arg0 === "admin") {
-            await sendAdminGuide(message, guildPrefix);
+            await sendAdminGuide(message, guildPrefix, responseLang);
             break;
           }
 
           // Setup guide (API keys) — !help setup
           if (arg0 === "setup") {
-            await sendSetupGuide(message);
+            await sendSetupGuide(message, responseLang);
             break;
           }
 
@@ -3621,17 +3634,17 @@ export function startBot(): void {
           await handleUnknownCommand(message, command, guildPrefix, async (match) => {
             switch (match.cmd) {
               case "hello":
-                await message.reply(`Hello ${message.author.displayName}! 👋 Great to see you here! How are you doing? 😊`);
+                await message.reply(directGreeting(message, responseLang));
                 break;
               case "say": {
                 const text = args.join(" ");
-                if (!text) { await message.reply("❓ Tell me what to say! e.g. `!say Hello everyone`"); break; }
+                if (!text) { await message.reply(botText(responseLang, "sayPrompt", guildPrefix)); break; }
                 await message.delete().catch(() => null);
                 if (isSendable(message.channel)) await message.channel.send(text);
                 break;
               }
               case "compliment": {
-                const lang = parseLanguage(args[0]);
+                const lang = args[0] ? parseLanguage(args[0]) : responseLang;
                 const list = lang === "fr" ? COMPLIMENTS_FR : lang === "es" ? COMPLIMENTS_ES : lang === "de" ? COMPLIMENTS_DE : lang === "pt" ? COMPLIMENTS_PT : lang === "it" ? COMPLIMENTS_IT : lang === "ja" ? COMPLIMENTS_JA : lang === "nl" ? COMPLIMENTS_NL : lang === "ru" ? COMPLIMENTS_RU : lang === "pl" ? COMPLIMENTS_PL : lang === "tr" ? COMPLIMENTS_TR : COMPLIMENTS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
@@ -3643,27 +3656,28 @@ export function startBot(): void {
                 break;
               }
               case "encouragement": {
-                const lang = parseLanguage(args[0]);
+                const lang = args[0] ? parseLanguage(args[0]) : responseLang;
                 const list = lang === "fr" ? ENCOURAGEMENTS_FR : lang === "es" ? ENCOURAGEMENTS_ES : lang === "de" ? ENCOURAGEMENTS_DE : lang === "pt" ? ENCOURAGEMENTS_PT : lang === "it" ? ENCOURAGEMENTS_IT : lang === "ja" ? ENCOURAGEMENTS_JA : lang === "nl" ? ENCOURAGEMENTS_NL : lang === "ru" ? ENCOURAGEMENTS_RU : lang === "pl" ? ENCOURAGEMENTS_PL : lang === "tr" ? ENCOURAGEMENTS_TR : ENCOURAGEMENTS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
               }
               case "hug": {
-                const lang = parseLanguage(args[0]);
+                const lang = args[0] ? parseLanguage(args[0]) : responseLang;
                 const list = lang === "fr" ? HUGS_FR : lang === "es" ? HUGS_ES : lang === "de" ? HUGS_DE : lang === "pt" ? HUGS_PT : lang === "it" ? HUGS_IT : lang === "ja" ? HUGS_JA : lang === "nl" ? HUGS_NL : lang === "ru" ? HUGS_RU : lang === "pl" ? HUGS_PL : lang === "tr" ? HUGS_TR : HUGS;
                 await message.reply(`${message.author.displayName}, ${getRandom(list)}`);
                 break;
               }
               case "8ball": {
                 const question = args.join(" ");
-                if (!question) { await message.reply("🎱 Ask me a question! e.g. `!8ball Will today be a good day?`"); break; }
-                await message.reply(`🎱 **Question:** ${question}\n**Answer:** ${getRandom(EIGHT_BALL_RESPONSES)}`);
+                if (!question) { await message.reply(botText(responseLang, "eightBallPrompt", guildPrefix)); break; }
+                const answers = responseLang === "fr" ? EIGHT_BALL_RESPONSES_FR : responseLang === "es" ? EIGHT_BALL_RESPONSES_ES : responseLang === "de" ? EIGHT_BALL_RESPONSES_DE : responseLang === "pt" ? EIGHT_BALL_RESPONSES_PT : responseLang === "it" ? EIGHT_BALL_RESPONSES_IT : responseLang === "ja" ? EIGHT_BALL_RESPONSES_JA : responseLang === "nl" ? EIGHT_BALL_RESPONSES_NL : responseLang === "ru" ? EIGHT_BALL_RESPONSES_RU : responseLang === "pl" ? EIGHT_BALL_RESPONSES_PL : responseLang === "tr" ? EIGHT_BALL_RESPONSES_TR : EIGHT_BALL_RESPONSES;
+                await message.reply(`${botText(responseLang, "eightBallQuestion", question)}\n${botText(responseLang, "eightBallAnswer", getRandom(answers))}`);
                 break;
               }
               case "dice": {
                 const faces = parseInt(args[0] ?? "6");
                 const nb = isNaN(faces) || faces < 2 ? 6 : Math.min(faces, 1000);
-                await message.reply(`🎲 You rolled a ${nb}-sided die and got: **${Math.floor(Math.random() * nb) + 1}**!`);
+                await message.reply(botText(responseLang, "diceResult", String(nb), String(Math.floor(Math.random() * nb) + 1)));
                 break;
               }
               case "conspiracy":
@@ -3882,10 +3896,10 @@ export function startBot(): void {
                 await message.reply("🖼️ Use the slash command `/image <description>` to generate an image.");
                 break;
               case "help":
-                await sendHelpPaginator(message, "en");
+                await sendHelpPaginator(message, responseLang);
                 break;
               case "guide":
-                await sendModeratorGuide(message);
+                await sendSetupGuide(message, responseLang);
                 break;
               case "birthday":
                 await handleBirthday(message, args);

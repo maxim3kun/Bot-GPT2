@@ -7,6 +7,8 @@ import {
 } from "discord.js";
 import { getSuggestPref, setSuggestPref } from "./suggest-prefs.js";
 import { isMongoConnected, upsertGuildDoc, getAllGuildDocs } from "../lib/db.js";
+import { getEffectiveLanguage } from "./effective-language.js";
+import { commandDescription, commandSuggestText } from "./command-suggest-i18n.js";
 
 // ── Command registry ──────────────────────────────────────────────────────────
 
@@ -99,14 +101,10 @@ export function findClosestCommand(input: string): CommandEntry | null {
     if (n.length > shortest * 2 + 1) continue;
     if (names.some(nm => nm === n)) return entry;
 
-    if (names.some(nm => nm.includes(n) || n.includes(nm))) {
-      if (!best || 0.9 > best.score) best = { entry, score: 0.9 };
-      continue;
-    }
-
     const minDist = Math.min(...names.map(nm => levenshtein(n, nm)));
     const maxLen  = Math.max(n.length, shortest);
-    const score   = 1 - minDist / maxLen;
+    const prefixBoost = names.some((nm) => nm.startsWith(n)) ? 0.12 : 0;
+    const score   = 1 - minDist / maxLen + prefixBoost;
 
     const lenClose = Math.abs(n.length - shortest) <= 2;
     if ((score >= 0.60 || (minDist <= 2 && lenClose)) && (!best || score > best.score)) {
@@ -357,6 +355,7 @@ export async function handleUnknownCommand(
   onConfirm: (match: CommandEntry) => Promise<void>,
 ): Promise<void> {
   const userId = message.author.id;
+  const language = getEffectiveLanguage(message.guildId, userId);
   const rec    = banMap.get(userId);
   const now    = Date.now();
 
@@ -370,7 +369,7 @@ export async function handleUnknownCommand(
   // ── Level 0 (warned): any further bad command escalates ───────────────────
   if (rec && rec.level === 0) {
     const escalated = escalateTroll(userId);
-    await handleEscalation(message, prefix, escalated);
+    await handleEscalation(message, prefix, escalated, language);
     return;
   }
 
@@ -382,14 +381,14 @@ export async function handleUnknownCommand(
 
   if (recordUnknown(userId)) {
     const escalated = escalateTroll(userId);
-    await handleEscalation(message, prefix, escalated);
+    await handleEscalation(message, prefix, escalated, language);
     return;
   }
 
   // ── Normal suggestion flow ─────────────────────────────────────────────────
   if (pref === true) {
-    if (!match) { await showHelpFallback(message, wrongCmd, prefix, onConfirm); return; }
-    await showSuggestion(message, wrongCmd, prefix, match, onConfirm);
+    if (!match) { await showHelpFallback(message, wrongCmd, prefix, onConfirm, language); return; }
+    await showSuggestion(message, wrongCmd, prefix, match, onConfirm, language);
     return;
   }
 
@@ -398,14 +397,12 @@ export async function handleUnknownCommand(
   const noOptId  = `sugoptin_no_${message.id}`;
 
   const optRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(yesOptId).setLabel("✅  Yes, help me").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(noOptId).setLabel("No thanks").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesOptId).setLabel(commandSuggestText(language, "yesHelp")).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noOptId).setLabel(commandSuggestText(language, "noThanks")).setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
-    content:
-      `❓ Unknown command \`${prefix}${wrongCmd}\`.\n` +
-      `Would you like me to suggest corrections when you mistype a command?`,
+    content: `${commandSuggestText(language, "unknown", prefix, wrongCmd)}\n${commandSuggestText(language, "optInPrompt")}`,
     components: [optRow],
   });
 
@@ -423,7 +420,7 @@ export async function handleUnknownCommand(
       setSuggestPref(userId, true);
 
       if (!match) {
-        await reply.edit({ content: `✅ Got it! I'll suggest corrections from now on.\nUse \`${prefix}help\` to see all available commands.`, components: [] });
+        await reply.edit({ content: commandSuggestText(language, "enabled", prefix), components: [] });
         return;
       }
 
@@ -432,12 +429,12 @@ export async function handleUnknownCommand(
       const noRunId  = `sugrun_no_${message.id}`;
 
       const runRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(yesRunId).setLabel(`✅  Yes, run ${correctedCmd}`).setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(noRunId).setLabel("No").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(yesRunId).setLabel(commandSuggestText(language, "yesRun", correctedCmd)).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(noRunId).setLabel(commandSuggestText(language, "no")).setStyle(ButtonStyle.Secondary),
       );
 
       await reply.edit({
-        content: `✅ Enabled! Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
+        content: commandSuggestText(language, "suggestion", prefix, wrongCmd, match.emoji, correctedCmd, commandDescription(language, match.cmd, match.desc)),
         components: [runRow],
       });
 
@@ -451,12 +448,12 @@ export async function handleUnknownCommand(
       runCollector.on("collect", async (i2) => {
         await i2.deferUpdate();
         if (i2.customId === yesRunId) {
-          await reply.edit({ content: `▶️ Running \`${correctedCmd}\`…`, components: [] });
+          await reply.edit({ content: commandSuggestText(language, "running", correctedCmd), components: [] });
           try { await onConfirm(match); } catch {
-            await reply.edit({ content: `❌ Something went wrong running \`${correctedCmd}\`.`, components: [] }).catch(() => null);
+            await reply.edit({ content: commandSuggestText(language, "runError", correctedCmd), components: [] }).catch(() => null);
           }
         } else {
-          await reply.edit({ content: "👍 No problem.", components: [] });
+          await reply.edit({ content: commandSuggestText(language, "thanks"), components: [] });
         }
       });
 
@@ -467,7 +464,7 @@ export async function handleUnknownCommand(
     } else {
       setSuggestPref(userId, false);
       await reply.edit({
-        content: `👍 No problem — I won't suggest corrections.\nUse \`${prefix}help\` to see all available commands.`,
+        content: commandSuggestText(language, "optedOut", prefix),
         components: [],
       });
     }
@@ -480,35 +477,23 @@ export async function handleUnknownCommand(
 
 // ── Escalation message dispatcher ────────────────────────────────────────────
 
-async function handleEscalation(message: Message, prefix: string, rec: BanRecord): Promise<void> {
+async function handleEscalation(message: Message, prefix: string, rec: BanRecord, language: ReturnType<typeof getEffectiveLanguage>): Promise<void> {
   const user = message.author.username;
 
   switch (rec.level) {
     case 0: {
       // First troll warning
-      await message.reply(
-        `🧌 **You're a troll.**\n` +
-        `If you're genuinely lost, use \`${prefix}help\` to see all available commands.\n` +
-        `**Don't push it** — one more junk command and you'll be blocked for 3 minutes.`,
-      );
+      await message.reply(commandSuggestText(language, "troll0", prefix));
       break;
     }
     case 1: {
       // 3-min unknown-command block
-      await message.reply(
-        `⏱️ **3-minute restriction.** You had your warning.\n` +
-        `Junk commands are locked for **3 minutes** — real commands still work.\n` +
-        `Use \`${prefix}help\` to see what's actually available.`,
-      );
+      await message.reply(commandSuggestText(language, "restriction3m", prefix));
       break;
     }
     case 2: {
       // 12h unknown-command block
-      await message.reply(
-        `🚫 **12-hour restriction.** Still not getting it?\n` +
-        `You can't send unknown commands for **12 hours**. Real commands still work fine.\n` +
-        `Try \`${prefix}help\` if you want to see the full list.`,
-      );
+      await message.reply(commandSuggestText(language, "restriction12h", prefix));
       break;
     }
     case 3: {
@@ -516,11 +501,11 @@ async function handleEscalation(message: Message, prefix: string, rec: BanRecord
       await message.delete().catch(() => null);
       const notified3 = await notifyAdminChannel(
         message,
-        `🚨 **Anti-troll** — <@${message.author.id}> (\`${user}\`) has been put on a **2-hour full lockout** after repeated junk commands. Use \`${prefix}unblock @${user}\` to lift it early.`,
+        commandSuggestText(language, "adminLockout2h", message.author.id, user, prefix, user),
       );
       if (!notified3 && message.channel && "send" in message.channel) {
         await (message.channel as { send: (c: string) => Promise<unknown> }).send(
-          `🔒 <@${message.author.id}> You've been locked out for **2 hours** — all commands are disabled. Contact an admin to lift it early.`,
+          commandSuggestText(language, "lockout2h", message.author.id),
         ).catch(() => null);
       }
       break;
@@ -530,11 +515,11 @@ async function handleEscalation(message: Message, prefix: string, rec: BanRecord
       await message.delete().catch(() => null);
       const notified4 = await notifyAdminChannel(
         message,
-        `🚨 **Anti-troll** — <@${message.author.id}> (\`${user}\`) has been **permanently banned** from bot commands after exhausting all escalation levels. Use \`${prefix}unblock @${user}\` to lift it.`,
+        commandSuggestText(language, "adminPermanentBan", message.author.id, user, prefix, user),
       );
       if (!notified4 && message.channel && "send" in message.channel) {
         await (message.channel as { send: (c: string) => Promise<unknown> }).send(
-          `⛔ <@${message.author.id}> You are permanently banned from using bot commands. Contact an admin to be unblocked.`,
+          commandSuggestText(language, "permanentBan", message.author.id),
         ).catch(() => null);
       }
       break;
@@ -550,6 +535,7 @@ async function showSuggestion(
   prefix: string,
   match: CommandEntry,
   onConfirm: (match: CommandEntry) => Promise<void>,
+  language: ReturnType<typeof getEffectiveLanguage>,
 ): Promise<void> {
   const userId       = message.author.id;
   const correctedCmd = `${prefix}${match.cmd}`;
@@ -557,14 +543,12 @@ async function showSuggestion(
   const noId         = `sug_no_${message.id}`;
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(yesId).setLabel(`✅  Yes, run ${correctedCmd}`).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesId).setLabel(commandSuggestText(language, "yesRun", correctedCmd)).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noId).setLabel(commandSuggestText(language, "no")).setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
-    content:
-      `❓ Unknown command \`${prefix}${wrongCmd}\`.\n` +
-      `Did you mean ${match.emoji} **\`${correctedCmd}\`** — *${match.desc}*?`,
+    content: commandSuggestText(language, "suggestion", prefix, wrongCmd, match.emoji, correctedCmd, commandDescription(language, match.cmd, match.desc)),
     components: [row],
   });
 
@@ -578,12 +562,12 @@ async function showSuggestion(
   collector.on("collect", async (interaction) => {
     await interaction.deferUpdate();
     if (interaction.customId === yesId) {
-      await reply.edit({ content: `▶️ Running \`${correctedCmd}\`…`, components: [] });
+      await reply.edit({ content: commandSuggestText(language, "running", correctedCmd), components: [] });
       try { await onConfirm(match); } catch {
-        await reply.edit({ content: `❌ Something went wrong running \`${correctedCmd}\`.`, components: [] }).catch(() => null);
+        await reply.edit({ content: commandSuggestText(language, "runError", correctedCmd), components: [] }).catch(() => null);
       }
     } else {
-      await reply.edit({ content: "👍 No problem.", components: [] });
+      await reply.edit({ content: commandSuggestText(language, "thanks"), components: [] });
     }
   });
 
@@ -599,6 +583,7 @@ async function showHelpFallback(
   wrongCmd: string,
   prefix: string,
   onConfirm: (match: CommandEntry) => Promise<void>,
+  language: ReturnType<typeof getEffectiveLanguage>,
 ): Promise<void> {
   const userId  = message.author.id;
   const helpCmd = `${prefix}help`;
@@ -608,14 +593,12 @@ async function showHelpFallback(
   const helpEntry = COMMANDS.find(c => c.cmd === "help")!;
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(yesId).setLabel(`✅  Yes, show ${helpCmd}`).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(yesId).setLabel(commandSuggestText(language, "yesShowHelp", helpCmd)).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(noId).setLabel(commandSuggestText(language, "no")).setStyle(ButtonStyle.Secondary),
   );
 
   const reply = await message.reply({
-    content:
-      `❓ No command found for \`${prefix}${wrongCmd}\`.\n` +
-      `Would you like to see the full command list with \`${helpCmd}\`?`,
+    content: commandSuggestText(language, "helpFallback", prefix, wrongCmd, helpCmd),
     components: [row],
   });
 
@@ -629,12 +612,12 @@ async function showHelpFallback(
   collector.on("collect", async (interaction) => {
     await interaction.deferUpdate();
     if (interaction.customId === yesId) {
-      await reply.edit({ content: `▶️ Running \`${helpCmd}\`…`, components: [] });
+      await reply.edit({ content: commandSuggestText(language, "runningHelp", helpCmd), components: [] });
       try { await onConfirm(helpEntry); } catch {
-        await reply.edit({ content: `❌ Something went wrong.`, components: [] }).catch(() => null);
+        await reply.edit({ content: commandSuggestText(language, "helpError"), components: [] }).catch(() => null);
       }
     } else {
-      await reply.edit({ content: "👍 No problem.", components: [] });
+      await reply.edit({ content: commandSuggestText(language, "thanks"), components: [] });
     }
   });
 
