@@ -17,6 +17,7 @@ import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
 import { getLang, setLang, GuildLang } from "./discord/lang-store";
 import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
 import { getEffectiveLanguage } from "./discord/effective-language.js";
+import { handleAdminUnlockTrigger, registerAdminUnlockInteractions } from "./discord/admin-unlock.js";
 import { botText } from "./discord/bot-i18n.js";
 import { commandSuggestStatus, commandSuggestText } from "./discord/command-suggest-i18n.js";
 import { extractRadioStationRequest } from "./discord/radio-intent.js";
@@ -593,6 +594,7 @@ export function startBot(): void {
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
   _botClient = client;
+  registerAdminUnlockInteractions(client);
 
   let client2: Client | null = null;
   if (token2) {
@@ -1430,6 +1432,7 @@ export function startBot(): void {
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
+    if (await handleAdminUnlockTrigger(message, client)) return;
 
     const botId = client.user?.id ?? "";
     const content = message.content;
