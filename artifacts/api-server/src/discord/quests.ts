@@ -1,4 +1,4 @@
-import { type Client, type Message, EmbedBuilder, type TextChannel } from "discord.js";
+import { type Client, type Message, type MessageReaction, type User, EmbedBuilder, type TextChannel } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -331,6 +331,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
 // ── Public commands ───────────────────────────────────────────────────────────
 
 export async function startQuestSetup(message: Message, openai: OpenAI | null): Promise<void> {
+  if (!message.channel.isTextBased() || !message.channel.isSendable()) return;
   if (!openai) {
     await message.reply(
       "❌ The AI quest creator isn't available right now.\n" +
@@ -456,7 +457,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     await modeMsg.react("💬").catch(() => null);
 
     const modeCollected = await modeMsg.awaitReactions({
-      filter: (r, u) => ["🔥", "💬"].includes(r.emoji.name ?? "") && u.id === message.author.id,
+      filter: (r: MessageReaction, u: User) => ["🔥", "💬"].includes(r.emoji.name ?? "") && u.id === message.author.id,
       max: 1,
       time: 30_000,
     }).catch(() => null);
@@ -667,6 +668,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     return;
   }
 
+  if (!message.channel.isTextBased() || !message.channel.isSendable()) return;
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   recordChannel(profile, message);
 
@@ -906,6 +908,7 @@ export function getUserQuestData(userId: string): {
 }
 
 export async function negotiateQuests(message: Message, openai: OpenAI | null): Promise<void> {
+  if (!message.channel.isTextBased() || !message.channel.isSendable()) return;
   if (!openai) {
     await message.reply("❌ AI features aren't available right now. GROQ_API_KEY is required for negotiation.");
     return;

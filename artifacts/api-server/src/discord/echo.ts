@@ -55,14 +55,11 @@ export async function processEchoMessage(message: Message, botId: string): Promi
 
   session.count++;
 
-  if (typeof message.channel.send === "function") {
-    await (message.channel as { send: (t: string) => Promise<unknown> }).send(message.content);
-  }
+  if (!message.channel.isSendable()) return;
+  await message.channel.send(message.content);
 
   if (session.count >= MAX_ECHO) {
     echoSessions.delete(key);
-    if (typeof message.channel.send === "function") {
-      await (message.channel as { send: (t: string) => Promise<unknown> }).send(STRINGS.ended);
-    }
+    await message.channel.send(STRINGS.ended);
   }
 }

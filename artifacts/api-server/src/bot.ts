@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel } from "discord.js";
+import { ChannelType, Client, ComponentType, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel } from "discord.js";
 import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
@@ -2428,7 +2428,9 @@ export function startBot(): void {
               }
               if (chunk) chunks.push(chunk);
               await message.reply(`📋 **Registered artists (${all.length}):**\n${chunks[0]}`);
-              for (let i = 1; i < chunks.length; i++) await message.channel.send(chunks[i]!);
+              if (message.channel.isSendable()) {
+                for (let i = 1; i < chunks.length; i++) await message.channel.send(chunks[i]!);
+              }
             }
           } else {
             await message.reply("❓ Usage:\n`!artist add <name>` — register an artist\n`!artist remove <name>` — unregister\n`!artist list` — show all");
@@ -2682,6 +2684,7 @@ export function startBot(): void {
         // ── Soundboard ──────────────────────────────────────────────────────────
         case "soundboard":
         case "sb": {
+          const guildId = message.guildId;
           const sbSub = args[0]?.toLowerCase();
 
           // !sb add <emoji> <name> <search query...>
@@ -2915,6 +2918,11 @@ export function startBot(): void {
               await playRadio(message, customKey);
 
               // Ask admin whether to save permanently
+              if (!message.channel.isSendable()) {
+                await message.reply("❌ This channel does not support messages.");
+                customStations.delete(customKey);
+                break;
+              }
               const saveMsg = await message.channel.send(
                 `💾 Veux-tu ajouter **${customName}** (\`!radio ${customKey}\`) **en permanence** à la liste radio ?\n` +
                 `✅ = Oui, sauvegarder pour tout le monde  ·  ❌ = Non, juste cette session`
@@ -3343,6 +3351,10 @@ export function startBot(): void {
             .setDescription(description)
             .setColor(0x5865f2)
             .setFooter({ text: `Poll by ${message.author.displayName ?? message.author.username}` });
+          if (!message.channel.isSendable()) {
+            await message.reply("❌ This channel does not support messages.");
+            break;
+          }
           const pollMsg = await message.channel.send({ embeds: [embed] });
           for (let i = 0; i < choices.length; i++) {
             await pollMsg.react(POLL_EMOJIS[i]!).catch(() => null);

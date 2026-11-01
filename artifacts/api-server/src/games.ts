@@ -1092,7 +1092,7 @@ export async function playConnect4(message: Message, args: string[]): Promise<vo
     }
   });
 
-  collector.on("end", async (_: unknown, reason: string) => {
+  collector.on("end", async (_collected, reason) => {
     if (reason === "time") {
       const g = activeConnect4Games.get(channel.id);
       if (g) {

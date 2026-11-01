@@ -12,8 +12,8 @@ import { getPrefix } from "./prefix-store.js";
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
-export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
-export const HELP_TOTAL_PAGES = 6;
+export type HelpPage = 1 | 2 | 3 | 4 | 5;
+export const HELP_TOTAL_PAGES = 5;
 
 // Text languages with full translations — new langs fall back to "en"
 const FULL_TEXT_LANGS = ["en", "fr", "es", "de", "pt", "it"] as const;
@@ -44,6 +44,10 @@ const L = {
                de: "Abgelaufen · !help erneut eingeben", pt: "Expirada · Use !help novamente", it: "Scaduta · Usa !help di nuovo",
                ja: "期限切れ · !help を再実行", nl: "Verlopen · Voer !help opnieuw uit",
                ru: "Истекло · Запусти !help снова", pl: "Wygasło · Użyj !help ponownie", tr: "Süresi doldu · !help yazın tekrar" },
+  unauthorized: { en: "These buttons aren't for you!", fr: "Ces boutons ne sont pas pour toi !", es: "¡Estos botones no son para ti!",
+    de: "Diese Schaltflächen sind nicht für dich!", pt: "Estes botões não são para você!", it: "Questi pulsanti non sono per te!",
+    ja: "このボタンはあなた用ではありません！", nl: "Deze knoppen zijn niet voor jou!", ru: "Эти кнопки не для вас!",
+    pl: "Te przyciski nie są dla ciebie!", tr: "Bu düğmeler sana ait değil!" },
 } as const;
 
 function t<K extends keyof typeof L>(key: K, lang: HelpLanguage): string {
@@ -85,6 +89,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           `\`${p}say\` · \`${p}hello\` · \`${p}poll\` · \`${p}profile\``,
           `\`@bot <msg>\` 🤖 · \`${p}ask <question>\` (\`${p}ia\`) · \`${p}image <desc>\` 🎨`,
           `\`${p}language [code]\` — ` + { en: "Change your language", fr: "Changer ta langue", es: "Cambiar idioma", de: "Sprache ändern", pt: "Mudar idioma", it: "Cambiare lingua" }[tl],
+          `\`${p}suggest [on|off]\` — ` + { en: "Toggle command suggestions", fr: "Activer ou désactiver les suggestions de commandes", es: "Activar o desactivar sugerencias de comandos", de: "Befehlsvorschläge ein- oder ausschalten", pt: "Ativar ou desativar sugestões de comandos", it: "Attiva o disattiva i suggerimenti dei comandi" }[tl],
         ].join("\n"),
       },
       {
@@ -110,7 +115,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[tl] ?? "🎮 Games",
         value: [
           `\`${p}minesweeper\` 💣  \`${p}geo\` 🌍  \`${p}trivia\` 🧠  \`${p}guessnumber\` 🎯`,
-          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️`,
+          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️  \`${p}shellgame\` 🥤`,
           `> ` + { en: "All support `easy|medium|hard`  •  `!help games` for details", fr: "Tous supportent `easy|medium|hard`  •  `!help jeux` pour les détails", es: "Todos soportan `easy|medium|hard`  •  `!help juegos` para detalles", de: "Alle unterstützen `easy|medium|hard`  •  `!help spiele` für Details", pt: "Todos suportam `easy|medium|hard`  •  `!help jogos` para detalhes", it: "Tutti supportano `easy|medium|hard`  •  `!help giochi` per dettagli" }[tl],
         ].join("\n"),
       },
@@ -118,14 +123,14 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🆕 New Games", fr: "🆕 Nouveaux jeux", es: "🆕 Nuevos juegos", de: "🆕 Neue Spiele", pt: "🆕 Novos jogos", it: "🆕 Nuovi giochi" }[tl] ?? "🆕 New Games",
         value: [
           `\`${p}tierlist [theme]\` 🏆  \`${p}blindtest [theme] [easy|hard]\` 🎵  \`${p}milliongame\` 💰`,
-          `> ` + { en: "Page 6 for details  •  `!help tierlist`, `!help blindtest`, `!help million`", fr: "Page 6 pour les détails  •  `!help tierlist`, `!help blindtest`, `!help million`", es: "Página 6 para detalles  •  `!help tierlist`, `!help blindtest`, `!help million`", de: "Seite 6 für Details  •  `!help tierlist`, `!help blindtest`, `!help million`", pt: "Página 6 para detalhes  •  `!help tierlist`, `!help blindtest`, `!help million`", it: "Pagina 6 per i dettagli  •  `!help tierlist`, `!help blindtest`, `!help million`" }[tl],
+          `> ` + { en: "Themes and instructions: `!help tierlist`, `!help blindtest`, `!help million`", fr: "Thèmes et règles : `!help tierlist`, `!help blindtest`, `!help million`", es: "Temas e instrucciones: `!help tierlist`, `!help blindtest`, `!help million`", de: "Themen und Regeln: `!help tierlist`, `!help blindtest`, `!help million`", pt: "Temas e regras: `!help tierlist`, `!help blindtest`, `!help million`", it: "Temi e regole: `!help tierlist`, `!help blindtest`, `!help million`" }[tl],
         ].join("\n"),
       },
       {
         name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools",
         value: [
           `\`${p}define <word>\` 📖  \`${p}pokemon <name>\` 🔴  \`${p}qr <text>\` 📷`,
-          `\`${p}echo\` 🦜  \`${p}food\` 🥗  \`${p}shazam\` 🎵`,
+          `\`${p}echo\` 🦜  \`${p}food\` 🥗  \`${p}rate <food>\` ⭐  \`${p}shazam\` 🎵`,
           `> ` + { en: "`!help <tool>` for details", fr: "`!help <outil>` pour les détails", es: "`!help <herramienta>` para detalles", de: "`!help <Werkzeug>` für Details", pt: "`!help <ferramenta>` para detalhes", it: "`!help <strumento>` per i dettagli" }[tl],
         ].join("\n"),
       },
@@ -139,12 +144,12 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[tl] ?? "🎵 YouTube & Queue",
         value: [
-          `\`${p}y <query>\` · \`${p}play <url>\` · \`${p}np\` · \`${p}skip\` · \`${p}queue\``,
+          `\`${p}y <query>\` · \`${p}play <url>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
           `\`${p}like\` ❤️  \`${p}likes\` 📋  \`${p}playlist add|play|list\``,
         ].join("\n"),
       },
       {
-        name: "🎛️ DJ Console",
+        name: { en: "🎛️ DJ Console", fr: "🎛️ Console DJ", es: "🎛️ Consola de DJ", de: "🎛️ DJ-Konsole", pt: "🎛️ Console de DJ", it: "🎛️ Console DJ" }[tl] ?? "🎛️ DJ Console",
         value: `\`${p}dj\` — ` + { en: "Interactive mixing table with buttons", fr: "Table de mixage interactive avec boutons", es: "Mesa de mezclas interactiva con botones", de: "Interaktiver Mixer mit Buttons", pt: "Mesa de mixagem interativa com botões", it: "Tavolo di mixaggio interattivo con pulsanti" }[tl],
       },
       {
@@ -155,12 +160,12 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         ].join("\n"),
       },
       {
-        name: "🎤 Karaoke",
+        name: { en: "🎤 Karaoke", fr: "🎤 Karaoké", es: "🎤 Karaoke", de: "🎤 Karaoke", pt: "🎤 Karaokê", it: "🎤 Karaoke" }[tl] ?? "🎤 Karaoke",
         value: `\`${p}karaoke <artist song>\` · \`${p}karaoke stop\``,
       },
       {
-        name: "🎵 Suno AI",
-        value: `\`${p}music generator <prompt>\` · \`${p}music prompt\` · \`${p}balance\``,
+        name: { en: "🎵 Suno AI", fr: "🎵 Suno AI", es: "🎵 Suno AI", de: "🎵 Suno AI", pt: "🎵 Suno AI", it: "🎵 Suno AI" }[tl] ?? "🎵 Suno AI",
+        value: `\`${p}music generator <prompt>\` · \`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
       },
     );
 
@@ -298,7 +303,7 @@ export async function sendHelpPaginator(
 
   collector.on("collect", async (i) => {
     if (i.user.id !== (isInteraction ? (source as ChatInputCommandInteraction).user.id : (source as Message).author.id)) {
-      await i.reply({ content: "These buttons aren't for you!", ephemeral: true });
+      await i.reply({ content: t("unauthorized", lang), ephemeral: true });
       return;
     }
     if (i.customId === "help_prev") page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
@@ -381,12 +386,12 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "language":
       embed.setTitle({ en: "🌐 Language", fr: "🌐 Langue", es: "🌐 Idioma", de: "🌐 Sprache", pt: "🌐 Idioma", it: "🌐 Lingua" }[tl] ?? "🌐 Language");
       embed.setDescription(
-        { en: "Change the language the bot uses for your responses.",
+        ({ en: "Change the language the bot uses for your responses.",
           fr: "Change la langue que le bot utilise pour toi.",
           es: "Cambia el idioma que el bot usa para ti.",
           de: "Ändere die Sprache des Bots für dich.",
           pt: "Mude o idioma que o bot usa para você.",
-          it: "Cambia la lingua che il bot usa per te." }[tl] ?? "" +
+          it: "Cambia la lingua che il bot usa per te." }[tl] ?? "") +
         `\n\n🇬🇧 \`${p}language en\`  🇫🇷 \`${p}language fr\`  🇪🇸 \`${p}language es\`  🇩🇪 \`${p}language de\`\n` +
         `🇧🇷 \`${p}language pt\`  🇮🇹 \`${p}language it\`  🇯🇵 \`${p}language ja\`  🇳🇱 \`${p}language nl\`\n` +
         `🇷🇺 \`${p}language ru\`  🇵🇱 \`${p}language pl\`  🇹🇷 \`${p}language tr\``
@@ -592,7 +597,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       break;
 
     case "tierlist":
-      embed.setTitle("🏆 Tier List");
+      embed.setTitle({ en: "🏆 Tier List", fr: "🏆 Tier list", es: "🏆 Tier list", de: "🏆 Tier-Liste", pt: "🏆 Tier list", it: "🏆 Tier list" }[tl] ?? "🏆 Tier List");
       embed.addFields(
         { name: `\`${p}tierlist [theme]\`  ·  \`${p}tier [theme]\``, value: { en: "Start a tier list game. Sort 20 items into S / A / B / C / D tiers using buttons. The embed updates live after each pick.", fr: "Lance une tier list. Classe 20 éléments en tiers S / A / B / C / D via des boutons. L'embed se met à jour en direct.", es: "Inicia una tier list. Clasifica 20 elementos en tiers S / A / B / C / D con botones. El embed se actualiza en directo.", de: "Starte eine Tier-Liste. Sortiere 20 Elemente per Buttons in S / A / B / C / D. Das Embed aktualisiert sich live.", pt: "Inicia uma tier list. Classifica 20 itens em tiers S / A / B / C / D com botões. O embed atualiza ao vivo.", it: "Avvia una tier list. Classifica 20 elementi in tier S / A / B / C / D con pulsanti. L'embed si aggiorna in tempo reale." }[tl] ?? "" },
         { name: { en: "🎨 Themes", fr: "🎨 Thèmes", es: "🎨 Temas", de: "🎨 Themen", pt: "🎨 Temas", it: "🎨 Temi" }[tl] ?? "Themes",
@@ -601,19 +606,19 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       break;
 
     case "blindtest":
-      embed.setTitle("🎵 Blind Test");
+      embed.setTitle({ en: "🎵 Blind Test", fr: "🎵 Blind test", es: "🎵 Blind test", de: "🎵 Musikquiz", pt: "🎵 Quiz musical", it: "🎵 Quiz musicale" }[tl] ?? "🎵 Blind Test");
       embed.addFields(
         { name: `\`${p}blindtest [theme] [easy|hard]\`  ·  \`${p}musicquiz\``,
           value: { en: "10-round music blind test. A 25-second audio clip is sent — guess the song title.", fr: "Blind test musical en 10 manches. Un clip audio de 25s est envoyé — devine le titre de la chanson.", es: "Blind test musical de 10 rondas. Se envía un clip de 25s — adivina el título de la canción.", de: "10 Runden Musik-Blindtest. Ein 25s-Audioclip wird gesendet — errate den Songtitel.", pt: "Blind test musical de 10 rodadas. Um clipe de 25s é enviado — adivinhe o título da música.", it: "Blind test musicale di 10 round. Un clip audio di 25s viene inviato — indovina il titolo della canzone." }[tl] ?? "" },
-        { name: "🟢 Easy", value: { en: "4 answer buttons (+1 pt each). Press the right one before time runs out.", fr: "4 boutons de réponse (+1 pt). Appuie sur le bon avant la fin du temps.", es: "4 botones de respuesta (+1 pt). Pulsa el correcto antes de que se acabe el tiempo.", de: "4 Antwortknöpfe (+1 Pkt.). Drücke den richtigen, bevor die Zeit abläuft.", pt: "4 botões de resposta (+1 pt). Pressione o correto antes do tempo acabar.", it: "4 pulsanti di risposta (+1 pt). Premi quello giusto prima che il tempo scada." }[tl] ?? "", inline: true },
-        { name: "🔴 Hard", value: { en: "Type the answer in chat (+2 pts, 15s timer). Typos of ±3 characters are accepted.", fr: "Tape la réponse dans le chat (+2 pts, 15s). Les fautes de ±3 caractères sont acceptées.", es: "Escribe la respuesta en el chat (+2 pts, 15s). Se aceptan ±3 caracteres de diferencia.", de: "Antwort im Chat eintippen (+2 Pkt., 15s). ±3 Zeichen Tippfehler werden akzeptiert.", pt: "Digite a resposta no chat (+2 pts, 15s). Erros de ±3 caracteres são aceitos.", it: "Scrivi la risposta nella chat (+2 pt, 15s). Vengono accettati ±3 caratteri di errore." }[tl] ?? "", inline: true },
+        { name: { en: "🟢 Easy", fr: "🟢 Facile", es: "🟢 Fácil", de: "🟢 Einfach", pt: "🟢 Fácil", it: "🟢 Facile" }[tl] ?? "🟢 Easy", value: { en: "4 answer buttons (+1 pt each). Press the right one before time runs out.", fr: "4 boutons de réponse (+1 pt). Appuie sur le bon avant la fin du temps.", es: "4 botones de respuesta (+1 pt). Pulsa el correcto antes de que se acabe el tiempo.", de: "4 Antwortknöpfe (+1 Pkt.). Drücke den richtigen, bevor die Zeit abläuft.", pt: "4 botões de resposta (+1 pt). Pressione o correto antes do tempo acabar.", it: "4 pulsanti di risposta (+1 pt). Premi quello giusto prima che il tempo scada." }[tl] ?? "", inline: true },
+        { name: { en: "🔴 Hard", fr: "🔴 Difficile", es: "🔴 Difícil", de: "🔴 Schwer", pt: "🔴 Difícil", it: "🔴 Difficile" }[tl] ?? "🔴 Hard", value: { en: "Type the answer in chat (+2 pts, 15s timer). Typos of ±3 characters are accepted.", fr: "Tape la réponse dans le chat (+2 pts, 15s). Les fautes de ±3 caractères sont acceptées.", es: "Escribe la respuesta en el chat (+2 pts, 15s). Se aceptan ±3 caracteres de diferencia.", de: "Antwort im Chat eintippen (+2 Pkt., 15s). ±3 Zeichen Tippfehler werden akzeptiert.", pt: "Digite a resposta no chat (+2 pts, 15s). Erros de ±3 caracteres são aceitos.", it: "Scrivi la risposta nella chat (+2 pt, 15s). Vengono accettati ±3 caratteri di errore." }[tl] ?? "", inline: true },
         { name: { en: "🎧 Themes", fr: "🎧 Thèmes", es: "🎧 Temas", de: "🎧 Themen", pt: "🎧 Temas", it: "🎧 Temi" }[tl] ?? "Themes",
           value: "`pop` · `rock` · `hiphop` · `rnb` · `electronic` · `kpop` · `french` · `lofi` · `gaming` · `80s` · `90s` · `anime`" },
       );
       break;
 
     case "milliongame":
-      embed.setTitle("💰 Million Game");
+      embed.setTitle({ en: "💰 Million Game", fr: "💰 Jeu du million", es: "💰 Juego del millón", de: "💰 Millionenspiel", pt: "💰 Jogo do milhão", it: "💰 Gioco del milione" }[tl] ?? "💰 Million Game");
       embed.addFields(
         { name: `\`${p}milliongame\`  ·  \`${p}million\``,
           value: { en: "15 questions from €100 to €1,000,000 (OpenTDB API). Answers via buttons.", fr: "15 questions de 100€ à 1 000 000€ (API OpenTDB). Réponses via boutons.", es: "15 preguntas de €100 a €1.000.000 (API OpenTDB). Respuestas con botones.", de: "15 Fragen von 100€ bis 1.000.000€ (OpenTDB API). Antworten per Buttons.", pt: "15 perguntas de €100 a €1.000.000 (API OpenTDB). Respostas via botões.", it: "15 domande da €100 a €1.000.000 (API OpenTDB). Risposte tramite pulsanti." }[tl] ?? "" },
@@ -621,7 +626,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
           value: { en: "Q5 = €1,000 · Q10 = €32,000 · You keep the checkpoint prize if you answer wrong after.", fr: "Q5 = 1 000€ · Q10 = 32 000€ · Tu gardes le palier si tu réponds mal après.", es: "Q5 = €1.000 · Q10 = €32.000 · Conservas el checkpoint si fallas después.", de: "F5 = 1.000€ · F10 = 32.000€ · Du behältst den Betrag wenn du danach falsch liegst.", pt: "Q5 = €1.000 · Q10 = €32.000 · Você fica com o checkpoint se errar depois.", it: "Q5 = €1.000 · Q10 = €32.000 · Mantieni il checkpoint se sbagli dopo." }[tl] ?? "" },
         { name: { en: "🃏 Lifelines", fr: "🃏 Jokers", es: "🃏 Comodines", de: "🃏 Joker", pt: "🃏 Salva-vidas", it: "🃏 Aiuti" }[tl] ?? "Lifelines",
           value: { en: "**50/50** — removes 2 wrong answers · **📞 Phone** — hint from a friend · **👥 Audience** — bar chart poll", fr: "**50/50** — supprime 2 mauvaises réponses · **📞 Téléphone** — indice d'un ami · **👥 Sondage** — vote du public", es: "**50/50** — elimina 2 respuestas incorrectas · **📞 Llamada** — pista de un amigo · **👥 Público** — votación", de: "**50/50** — entfernt 2 falsche Antworten · **📞 Joker** — Hinweis vom Freund · **👥 Publikum** — Abstimmung", pt: "**50/50** — remove 2 respostas erradas · **📞 Ligar** — dica de um amigo · **👥 Público** — votação", it: "**50/50** — rimuove 2 risposte sbagliate · **📞 Chiama** — suggerimento da un amico · **👥 Pubblico** — sondaggio" }[tl] ?? "" },
-        { name: "🚶 Walk Away", value: { en: "Press Walk Away at any time to leave with your current prize.", fr: "Appuie sur Walk Away pour partir avec ta cagnotte actuelle.", es: "Pulsa Walk Away en cualquier momento para irte con tu premio actual.", de: "Drücke Walk Away, um jederzeit mit deinem aktuellen Gewinn zu gehen.", pt: "Pressione Walk Away a qualquer momento para sair com seu prêmio atual.", it: "Premi Walk Away in qualsiasi momento per andartene con il premio attuale." }[tl] ?? "" },
+        { name: { en: "🚶 Walk Away", fr: "🚶 Arrêter et garder le gain", es: "🚶 Retirarse con el premio", de: "🚶 Mit dem Gewinn aufhören", pt: "🚶 Parar e ficar com o prêmio", it: "🚶 Fermarsi e tenere il premio" }[tl] ?? "🚶 Walk Away", value: { en: "Press Walk Away at any time to leave with your current prize.", fr: "Appuie sur « Arrêter » à tout moment pour repartir avec ta cagnotte actuelle.", es: "Pulsa «Retirarse» para llevarte el premio actual.", de: "Wähle „Aufhören“, um deinen aktuellen Gewinn mitzunehmen.", pt: "Pressione «Parar» para sair com o prêmio atual.", it: "Premi «Fermati» per tenere il premio attuale." }[tl] ?? "" },
       );
       break;
 

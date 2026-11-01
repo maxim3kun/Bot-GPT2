@@ -9,6 +9,7 @@ import { ensureVoiceConnection, radioStates } from "./radio";
 import { isInVoice, resubscribeVoicePlayer } from "./voice";
 import { logger } from "../lib/logger";
 import { ytdlpStream } from "../lib/ytdlp";
+import type { Readable } from "node:stream";
 
 // ── Finish messages ───────────────────────────────────────────────────────────
 
@@ -626,7 +627,7 @@ async function searchYouTube(query: string, minDurationSec = 60, lrcTitle = ""):
   }
 }
 
-async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStream; type: StreamType } | null> {
+async function streamYouTube(url: string): Promise<{ stream: Readable; type: StreamType } | null> {
   // Try play-dl first (faster, in-process)
   try {
     const play = await getPlay();
@@ -637,7 +638,7 @@ async function streamYouTube(url: string): Promise<{ stream: NodeJS.ReadableStre
     if (typeStr === "webm/opus") djsType = StreamType.WebmOpus;
     else if (typeStr === "ogg/opus") djsType = StreamType.OggOpus;
     else if (typeStr === "opus") djsType = StreamType.Opus;
-    return { stream: result.stream as NodeJS.ReadableStream, type: djsType };
+    return { stream: result.stream as Readable, type: djsType };
   } catch (err) {
     logger.warn({ err, url }, "play-dl karaoke stream failed — falling back to yt-dlp");
   }

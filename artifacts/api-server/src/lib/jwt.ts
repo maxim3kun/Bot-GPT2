@@ -1,9 +1,12 @@
 import { createHmac } from "crypto";
 
-const SECRET = process.env["SESSION_SECRET"];
-if (!SECRET) {
-  throw new Error("SESSION_SECRET env var is required but not set. Set it before starting the server.");
-}
+const SECRET = (() => {
+  const value = process.env["SESSION_SECRET"];
+  if (!value) {
+    throw new Error("SESSION_SECRET env var is required but not set. Set it before starting the server.");
+  }
+  return value;
+})();
 
 export type JwtRole = "admin" | "guild";
 

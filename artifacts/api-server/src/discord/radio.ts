@@ -78,7 +78,7 @@ export async function addCustomRadio(
   try {
     await customStationsCol.replaceOne(
       { _id: key },
-      { _id: key, name, url, emoji, genre, lang, addedBy, addedAt: new Date() },
+      { name, url, emoji, genre, lang, addedBy, addedAt: new Date() },
       { upsert: true },
     );
   } catch (err) {
