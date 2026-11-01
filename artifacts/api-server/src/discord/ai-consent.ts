@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Message, type ButtonInteraction } from "discord.js";
 import { logger } from "../lib/logger.js";
+import type { UserLang } from "./user-lang-store.js";
 
 let _col: { findOne: Function; updateOne: Function } | null = null;
 async function getCol() {
@@ -68,20 +69,21 @@ export async function resetConsent(userId: string): Promise<void> {
   }
 }
 
-export function buildConsentPrompt(): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
+export function buildConsentPrompt(language: UserLang = "en"): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
+  const isFrench = language === "fr";
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("🤖 AI Feature — One-time Consent")
+    .setTitle(isFrench ? "🤖 Fonction IA — consentement" : "🤖 AI Feature — One-time Consent")
     .setDescription(
-      "This command uses **AI** (Groq / LLaMA) to generate content.\n" +
-      "It may take a few seconds, and responses are generated automatically.\n\n" +
-      "Do you agree to use AI-powered features on this server?",
+      isFrench
+        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse de messages, cela peut inclure jusqu’à 50 messages récents de la personne ciblée ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
+        : "The text needed for your request will be sent to **Groq**, the AI provider. A message analysis may include up to 50 recent messages from the selected person; the bot does not store them.\n\nDo you agree to use AI features?",
     )
-    .setFooter({ text: "Your choice is saved. Use !ai reset to change it later." });
+    .setFooter({ text: isFrench ? "Ton choix est enregistré. Utilise !ai reset pour le modifier." : "Your choice is saved. Use !ai reset to change it later." });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("ai_consent:yes").setLabel("✅ Yes, enable AI").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("ai_consent:no").setLabel("❌ No thanks").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`ai_consent:yes:${language}`).setLabel(isFrench ? "✅ Oui, activer" : "✅ Yes, enable AI").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`ai_consent:no:${language}`).setLabel(isFrench ? "❌ Non merci" : "❌ No thanks").setStyle(ButtonStyle.Danger),
   );
   return { embeds: [embed], components: [row] };
 }
@@ -104,14 +106,16 @@ export function buildMemoryConsentPrompt(userId: string): { embeds: EmbedBuilder
   return { embeds: [embed], components: [row] };
 }
 
-export async function requireConsent(message: Message): Promise<boolean> {
+export async function requireConsent(message: Message, language: UserLang = "en"): Promise<boolean> {
   const status = await getConsent(message.author.id);
   if (status === "accepted") return true;
   if (status === "declined") {
-    await message.reply("🚫 You've opted out of AI features. Use `!ai reset` to change this.");
+    await message.reply(language === "fr"
+      ? "🚫 Tu as désactivé les fonctions IA. Utilise `!ai reset` pour changer ce choix."
+      : "🚫 You've opted out of AI features. Use `!ai reset` to change this.");
     return false;
   }
-  await message.reply(buildConsentPrompt());
+  await message.reply(buildConsentPrompt(language));
   return false;
 }
 
@@ -127,17 +131,22 @@ export async function requireMemoryConsent(message: Message): Promise<boolean> {
 }
 
 export async function handleConsentButton(interaction: ButtonInteraction): Promise<void> {
-  const action = interaction.customId.split(":")[1];
+  const [, action, languageTag] = interaction.customId.split(":");
+  const isFrench = languageTag === "fr";
   if (action === "yes") {
     await setConsent(interaction.user.id, "accepted");
     await interaction.update({
-      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription("✅ **AI features enabled!** Re-run your command and it will work now.")],
+      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(isFrench
+        ? "✅ **Fonctions IA activées !** Relance ta commande pour continuer."
+        : "✅ **AI features enabled!** Re-run your command and it will work now.")],
       components: [],
     });
   } else {
     await setConsent(interaction.user.id, "declined");
     await interaction.update({
-      embeds: [new EmbedBuilder().setColor(0xed4245).setDescription("❌ **AI features disabled.** Use `!ai reset` anytime to re-enable them.")],
+      embeds: [new EmbedBuilder().setColor(0xed4245).setDescription(isFrench
+        ? "❌ **Fonctions IA désactivées.** Utilise `!ai reset` pour les réactiver."
+        : "❌ **AI features disabled.** Use `!ai reset` anytime to re-enable them.")],
       components: [],
     });
   }

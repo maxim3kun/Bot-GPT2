@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
+import { USER_LANG_NAMES, type UserLang } from "./user-lang-store.js";
 
 type ModerationSeverity = "none" | "rude" | "severe";
 
@@ -56,7 +57,7 @@ function targetCanBeTimedOut(message: Message): message is Message & { member: G
   return me.roles.highest.comparePositionTo(member.roles.highest) > 0;
 }
 
-async function applySafetyActions(message: Message, decision: ModerationDecision): Promise<void> {
+async function applySafetyActions(message: Message, decision: ModerationDecision, language: UserLang): Promise<void> {
   if (decision.reactions.length > 0) {
     for (const emoji of decision.reactions) {
       await message.react(emoji).catch(() => null);
@@ -89,17 +90,23 @@ async function applySafetyActions(message: Message, decision: ModerationDecision
       logger.warn({ err, userId: message.author.id }, "Could not timeout abusive user");
     });
     if (message.channel.isSendable()) {
-      await message.channel.send(`⚠️ ${message.author}, merci de respecter les règles. Un timeout de ${duration / 60000} minutes a été appliqué après plusieurs messages graves.`).catch(() => null);
+      const warning = language === "fr"
+        ? `⚠️ ${message.author}, merci de respecter les règles. Un timeout de ${duration / 60000} minutes a été appliqué après plusieurs messages graves.`
+        : `⚠️ ${message.author}, please follow the rules. A ${duration / 60000}-minute timeout was applied after repeated severe abuse.`;
+      await message.channel.send(warning).catch(() => null);
     }
     return;
   }
 
   if (message.channel.isSendable()) {
-    await message.channel.send(decision.reply || `⚠️ ${message.author}, merci de rester respectueux. Le message a été retiré.`).catch(() => null);
+    const warning = language === "fr"
+      ? `⚠️ ${message.author}, merci de rester respectueux. Le message a été retiré.`
+      : `⚠️ ${message.author}, please remain respectful. The message was removed.`;
+    await message.channel.send(decision.reply || warning).catch(() => null);
   }
 }
 
-export async function moderateMentionedMessage(message: Message, openai: OpenAI): Promise<boolean> {
+export async function moderateMentionedMessage(message: Message, openai: OpenAI, language: UserLang = "en"): Promise<boolean> {
   if (!message.guildId || !message.content.trim()) return false;
 
   try {
@@ -118,7 +125,7 @@ export async function moderateMentionedMessage(message: Message, openai: OpenAI)
             "Use severe only for serious abuse, threats, hate, sexual harassment, or clearly demeaning insults. " +
             "For rude, a neutral boundary is fine. Never mock, humiliate, threaten, or retaliate. " +
             "Use zero, one, or two reactions from this list only: 👍 👎 😐 ⚠️ 🤨 ❤️. " +
-            "Do not treat a reaction as a replacement for an answer. If severe, reply in the user's language and say the bot will not engage with abuse.",
+            `Do not treat a reaction as a replacement for an answer. If severe, reply in ${USER_LANG_NAMES[language]} and say the bot will not engage with abuse.`,
         },
         { role: "user", content: message.content.slice(0, 4000) },
       ],
@@ -130,7 +137,7 @@ export async function moderateMentionedMessage(message: Message, openai: OpenAI)
       // non-aggressive message must continue through the normal AI handler.
       return false;
     }
-    await applySafetyActions(message, decision);
+    await applySafetyActions(message, decision, language);
     // "rude" can receive a reaction, but still gets a normal AI response.
     // Only "severe" abuse is allowed to suppress that response.
     return decision.severity === "severe";

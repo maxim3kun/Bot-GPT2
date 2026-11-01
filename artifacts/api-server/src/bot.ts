@@ -39,7 +39,7 @@ import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
-import { buildLanguageGuardPrompt } from "./discord/ai-language-guard.js";
+import { buildLanguageGuardPrompt, detectUserLanguage } from "./discord/ai-language-guard.js";
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
@@ -54,6 +54,7 @@ import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
 import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimationTest } from "./discord/shellgame.js";
+import { handleAiMessageAnalysis } from "./discord/ai-message-analysis.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -65,8 +66,8 @@ type ChatMessage = {
 
 const conversationHistory = new Map<string, ChatMessage[]>();
 const lastResearchQueries = new Map<string, { query: string; timestamp: number }>();
-const MAX_HISTORY = 20;
-const MAX_AI_HISTORY_CHARS = 6_000;
+const MAX_HISTORY = 40;
+const MAX_AI_HISTORY_CHARS = 16_000;
 const RESEARCH_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
 const pendingTimeRequests = new Map<string, number>();
 const TIME_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
@@ -99,6 +100,18 @@ async function consumeTimeFollowUp(message: Message, text: string): Promise<stri
 function getHistory(channelId: string): ChatMessage[] {
   if (!conversationHistory.has(channelId)) conversationHistory.set(channelId, []);
   return conversationHistory.get(channelId)!;
+}
+
+function conversationKey(message: Message): string {
+  return `${message.channelId}:${message.author.id}`;
+}
+
+function getAiResponseLanguage(
+  userId: string,
+  text: string,
+  fallback: ReturnType<typeof getEffectiveLanguage>,
+): ReturnType<typeof getEffectiveLanguage> {
+  return getUserLangOverride(userId) ?? detectUserLanguage(text) ?? fallback;
 }
 
 function getAiHistory(channelId: string): ChatMessage[] {
@@ -285,7 +298,7 @@ async function replyWithLatestNews(
     return true;
   }
 
-  addToHistory(message.channelId, "assistant", answer);
+  addToHistory(conversationKey(message), "assistant", answer);
   await replyWithAiAnswer(message, answer, webResults);
   return true;
 }
@@ -476,8 +489,9 @@ export function startBot(): void {
     prefix: string,
   ): Promise<void> => {
     const prompt = userText.trim();
+    const aiResponseLang = getAiResponseLanguage(message.author.id, prompt, responseLang);
     if (!prompt) {
-      await message.reply(responseLang === "fr"
+      await message.reply(aiResponseLang === "fr"
         ? `🤖 Pose une question après \`${prefix}ask\` ou \`${prefix}ia\`.`
         : `🤖 Ask a question after \`${prefix}ask\`.`);
       return;
@@ -488,12 +502,12 @@ export function startBot(): void {
       return;
     }
     if (extractNaturalHelpCommand(prompt) === "help") {
-      await sendHelpPaginator(message, responseLang);
+      await sendHelpPaginator(message, aiResponseLang);
       return;
     }
     const pokemonQuery = extractPokemonQuery(prompt);
     if (pokemonQuery) {
-      await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+      await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
       return;
     }
     const requestedStation = extractRadioStationRequest(prompt, RADIO_STATIONS);
@@ -504,19 +518,19 @@ export function startBot(): void {
 
     const route = classifyAiMessage(prompt);
     if (route.intent === "greeting") {
-      await message.reply(directGreeting(message, responseLang));
+      await message.reply(directGreeting(message, aiResponseLang));
       return;
     }
     if (route.intent === "identity") {
-      await message.reply(directIdentityAnswer(responseLang));
+      await message.reply(directIdentityAnswer(aiResponseLang));
       return;
     }
     if (route.intent === "creator") {
-      await message.reply(directCreatorAnswer(responseLang));
+      await message.reply(directCreatorAnswer(aiResponseLang));
       return;
     }
     if (route.intent === "capabilities") {
-      await message.reply(directCapabilitiesAnswer(responseLang));
+      await message.reply(directCapabilitiesAnswer(aiResponseLang));
       return;
     }
     if (route.intent === "time" && !isWeatherRequest(prompt)) {
@@ -525,7 +539,7 @@ export function startBot(): void {
       if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
       const savedTime = await getAiTimezone(message.author.id);
       if (!explicitPlace && !savedTime) rememberTimeRequest(message);
-      await message.reply(currentTimeAnswer(prompt, savedTime?.place, responseLang));
+      await message.reply(currentTimeAnswer(prompt, savedTime?.place, aiResponseLang));
       return;
     }
     if (route.intent === "discord_action") {
@@ -533,21 +547,21 @@ export function startBot(): void {
       return;
     }
     if (!openai) {
-      await message.reply(botText(responseLang, "aiDisabled", prefix));
+      await message.reply(botText(aiResponseLang, "aiDisabled", prefix));
       return;
     }
 
     try {
       if (await moderateMentionedMessage(message, openai)) return;
       if (isSendable(message.channel)) await message.channel.sendTyping();
-      addToHistory(message.channelId, "user", `${message.author.displayName}: ${prompt}`);
+      addToHistory(conversationKey(message), "user", `${message.author.displayName}: ${prompt}`);
       const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
       const explicitPlace = route.intent === "time" ? requestedTimePlace(prompt) : null;
       const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
       if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
       const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
       const timeContext = route.intent === "time"
-        ? currentTimeAnswer(prompt, savedTime?.place, responseLang)
+          ? currentTimeAnswer(prompt, savedTime?.place, aiResponseLang)
         : "";
       const shouldSearch = isTopListQuery(prompt) || route.needsResearch;
       const searchQuery = shouldSearch
@@ -555,27 +569,27 @@ export function startBot(): void {
         : prompt;
       const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
       if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-        await message.reply(noResearchEvidenceReply(responseLang));
+        await message.reply(noResearchEvidenceReply(aiResponseLang));
         return;
       }
-      if (await replyWithLatestNews(message, prompt, webResults, responseLang)) return;
+      if (await replyWithLatestNews(message, prompt, webResults, aiResponseLang)) return;
       const response = await openai.chat.completions.create({
-        model: "openai/gpt-oss-20b",
-        max_completion_tokens: 1024,
+        model: "openai/gpt-oss-120b",
+        max_completion_tokens: 2048,
         messages: [
-          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, responseLang) },
-          ...getAiHistory(message.channelId),
+          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang) },
+          ...getAiHistory(conversationKey(message)),
         ],
       });
       incrementGroqCalls();
       const rawReply = response.choices[0]?.message?.content
-        ?? (responseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
+        ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
       const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
-      addToHistory(message.channelId, "assistant", reply);
+      addToHistory(conversationKey(message), "assistant", reply);
       await replyWithAiAnswer(message, reply, webResults);
     } catch (err) {
       logger.error({ err }, "Prefixed AI question error");
-      await message.reply(responseLang === "fr"
+      await message.reply(aiResponseLang === "fr"
         ? "Désolé, une erreur m’empêche de répondre. Réessaie dans un instant."
         : "Sorry, something went wrong. Try again in a moment.");
     }
@@ -1487,17 +1501,19 @@ export function startBot(): void {
     if (isDm && !content.startsWith(guildPrefix)) {
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
+      const aiResponseLang = getAiResponseLanguage(message.author.id, userText, responseLang);
+      if (await handleAiMessageAnalysis(message, userText, openai, aiResponseLang, botId)) return;
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
       if (extractNaturalHelpCommand(userText) === "help") {
-        await sendHelpPaginator(message, responseLang);
+        await sendHelpPaginator(message, aiResponseLang);
         return;
       }
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
-        await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
@@ -1507,19 +1523,19 @@ export function startBot(): void {
       }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
-        await message.reply(directGreeting(message, responseLang));
+        await message.reply(directGreeting(message, aiResponseLang));
         return;
       }
       if (route.intent === "identity") {
-        await message.reply(directIdentityAnswer(responseLang));
+        await message.reply(directIdentityAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "creator") {
-        await message.reply(directCreatorAnswer(responseLang));
+        await message.reply(directCreatorAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "capabilities") {
-        await message.reply(directCapabilitiesAnswer(responseLang));
+        await message.reply(directCapabilitiesAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "time" && !isWeatherRequest(userText)) {
@@ -1527,55 +1543,64 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = await getAiTimezone(message.author.id);
-        const answer = currentTimeAnswer(userText, savedTime?.place, responseLang);
+        const answer = currentTimeAnswer(userText, savedTime?.place, aiResponseLang);
         if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
       }
       if (route.intent === "discord_action") {
         await message.reply(
-          "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
-          "Je ne vais pas prétendre l’avoir faite.",
+          aiResponseLang === "fr"
+            ? "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. Je ne vais pas prétendre l’avoir faite."
+            : "⚠️ I can't execute that Discord action from a chat request, and I won't claim that I did.",
         );
         return;
       }
-      if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
+      if (!openai) {
+        await message.reply(aiResponseLang === "fr"
+          ? "❌ Les fonctions IA ne sont pas configurées. Demande à un modérateur de les activer."
+          : "❌ AI features are not configured. Ask a moderator to set them up.");
+        return;
+      }
       try {
         if (isSendable(message.channel)) await message.channel.sendTyping();
-        addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+        addToHistory(conversationKey(message), "user", `${message.author.displayName}: ${userText}`);
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
         const explicitPlace = route.intent === "time" ? requestedTimePlace(userText) : null;
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
-        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, aiResponseLang) : "";
         const shouldSearch = isTopListQuery(userText) || route.needsResearch;
         const searchQuery = shouldSearch
           ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
           : userText;
         const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
         if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-          await message.reply(noResearchEvidenceReply(responseLang));
+          await message.reply(noResearchEvidenceReply(aiResponseLang));
           return;
         }
-        if (await replyWithLatestNews(message, userText, webResults, responseLang)) return;
+        if (await replyWithLatestNews(message, userText, webResults, aiResponseLang)) return;
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
-          model: "openai/gpt-oss-20b",
-          max_completion_tokens: 1024,
+          model: "openai/gpt-oss-120b",
+          max_completion_tokens: 2048,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, responseLang) },
-             ...getAiHistory(message.channelId),
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang) },
+             ...getAiHistory(conversationKey(message)),
           ],
         });
         incrementGroqCalls();
-        const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const rawReply = response.choices[0]?.message?.content
+          ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
-        addToHistory(message.channelId, "assistant", reply);
+        addToHistory(conversationKey(message), "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
       } catch (err) {
         logger.error({ err }, "DM AI error");
-        await message.reply("Oops, something went wrong! 😅 Try again in a moment.");
+        await message.reply(aiResponseLang === "fr"
+          ? "Désolé, une erreur m’empêche de répondre. Réessaie dans un instant."
+          : "Sorry, something went wrong. Try again in a moment.");
       }
       return;
     }
@@ -1584,17 +1609,19 @@ export function startBot(): void {
     if (!isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
+      const aiResponseLang = getAiResponseLanguage(message.author.id, userText, responseLang);
+      if (await handleAiMessageAnalysis(message, userText, openai, aiResponseLang, botId)) return;
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
       if (extractNaturalHelpCommand(userText) === "help") {
-        await sendHelpPaginator(message, responseLang);
+        await sendHelpPaginator(message, aiResponseLang);
         return;
       }
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
-        await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
       }
       const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
@@ -1604,19 +1631,19 @@ export function startBot(): void {
       }
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
-        await message.reply(directGreeting(message, responseLang));
+        await message.reply(directGreeting(message, aiResponseLang));
         return;
       }
       if (route.intent === "identity") {
-        await message.reply(directIdentityAnswer(responseLang));
+        await message.reply(directIdentityAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "creator") {
-        await message.reply(directCreatorAnswer(responseLang));
+        await message.reply(directCreatorAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "capabilities") {
-        await message.reply(directCapabilitiesAnswer(responseLang));
+        await message.reply(directCapabilitiesAnswer(aiResponseLang));
         return;
       }
       if (route.intent === "time" && !isWeatherRequest(userText)) {
@@ -1624,68 +1651,74 @@ export function startBot(): void {
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = await getAiTimezone(message.author.id);
-        const answer = currentTimeAnswer(userText, savedTime?.place, responseLang);
+        const answer = currentTimeAnswer(userText, savedTime?.place, aiResponseLang);
         if (!explicitPlace && !savedTime) rememberTimeRequest(message);
         await message.reply(answer);
         return;
       }
       if (route.intent === "discord_action") {
         await message.reply(
-          "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. " +
-          "Je ne vais pas prétendre l’avoir faite.",
+          aiResponseLang === "fr"
+            ? "⚠️ Je ne peux pas encore exécuter cette action Discord depuis une conversation. Je ne vais pas prétendre l’avoir faite."
+            : "⚠️ I can't execute that Discord action from a chat request, and I won't claim that I did.",
         );
         return;
       }
       if (!openai) {
-        await message.reply("❌ Les fonctions IA ne sont pas configurées. Demande à un modérateur de les activer.");
+        await message.reply(aiResponseLang === "fr"
+          ? "❌ Les fonctions IA ne sont pas configurées. Demande à un modérateur de les activer."
+          : "❌ AI features are not configured. Ask a moderator to set them up.");
         return;
       }
       try {
         // Moderation is scoped to messages that need an AI response. Direct
         // greetings, time lookups and unsupported actions never need a
         // classifier call.
-        const wasModerated = await moderateMentionedMessage(message, openai);
+        const wasModerated = await moderateMentionedMessage(message, openai, aiResponseLang);
         if (wasModerated) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
-        addToHistory(message.channelId, "user", `${message.author.displayName}: ${userText}`);
+        addToHistory(conversationKey(message), "user", `${message.author.displayName}: ${userText}`);
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
         const explicitPlace = route.intent === "time" ? requestedTimePlace(userText) : null;
         const timezone = explicitPlace ? resolveTimeZone(explicitPlace) : null;
         if (explicitPlace && timezone) await saveAiTimezone(message.author.id, explicitPlace, timezone);
         const savedTime = route.intent === "time" ? await getAiTimezone(message.author.id) : null;
-        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, responseLang) : "";
+        const timeContext = route.intent === "time" ? currentTimeAnswer(userText, savedTime?.place, aiResponseLang) : "";
         const shouldSearch = isTopListQuery(userText) || route.needsResearch;
         const searchQuery = shouldSearch
           ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
           : userText;
         const webResults = shouldSearch ? await searchWeb(searchQuery) : [];
         if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-          await message.reply(noResearchEvidenceReply(responseLang));
+          await message.reply(noResearchEvidenceReply(aiResponseLang));
           return;
         }
-        if (await replyWithLatestNews(message, userText, webResults, responseLang)) return;
+        if (await replyWithLatestNews(message, userText, webResults, aiResponseLang)) return;
         const webContext = formatSearchContext(webResults);
         const response = await openai.chat.completions.create({
-          model: "openai/gpt-oss-20b",
-          max_completion_tokens: 1024,
+          model: "openai/gpt-oss-120b",
+          max_completion_tokens: 2048,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, responseLang) },
-             ...getAiHistory(message.channelId),
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang) },
+             ...getAiHistory(conversationKey(message)),
           ],
         });
         incrementGroqCalls();
-        const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const rawReply = response.choices[0]?.message?.content
+          ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
-        addToHistory(message.channelId, "assistant", reply);
+        addToHistory(conversationKey(message), "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {
           const botName = client.user?.username;
-          speakText(message.guildId, reply, responseLang, botName).catch(() => null);
+          speakText(message.guildId, reply, aiResponseLang, botName).catch(() => null);
         }
       } catch (err) {
         logger.error({ err }, "Mention AI error");
-        await message.reply("Oops, something went wrong! 😅 Try again in a moment.");
+        await message.reply(aiResponseLang === "fr"
+          ? "Désolé, une erreur m’empêche de répondre. Réessaie dans un instant."
+          : "Sorry, something went wrong. Try again in a moment.");
       }
       return;
     }
@@ -3270,7 +3303,18 @@ export function startBot(): void {
 
           if (subcommand === "reset") {
             await resetConsent(message.author.id);
-            await message.reply("♻️ Your AI preference has been reset. Next AI command will ask for consent again.");
+            await message.reply(responseLang === "fr"
+              ? "♻️ Ton choix IA a été réinitialisé. La prochaine commande IA te redemandera ton accord."
+              : "♻️ Your AI preference has been reset. The next AI command will ask for consent again.");
+            break;
+          }
+
+          if (subcommand === "enable" || subcommand === "consent") {
+            if (await requireConsent(message, responseLang)) {
+              await message.reply(responseLang === "fr"
+                ? "✅ Les fonctions IA sont activées pour ton compte."
+                : "✅ AI features are enabled for your account.");
+            }
             break;
           }
 
