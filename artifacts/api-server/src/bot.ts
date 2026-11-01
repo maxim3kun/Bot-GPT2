@@ -278,7 +278,9 @@ async function replyWithLatestNews(
 
   const answer = formatLatestNewsAnswer(webResults);
   if (!answer) {
-    await message.reply(noResearchEvidenceReply(language));
+    await message.reply(language === "fr"
+      ? "Je n’ai pas trouvé d’articles récents, datés et suffisamment précis pour te présenter de vraies actualités. Essaie avec un sujet ou un pays."
+      : "I couldn't find recent, dated, specific articles to report as real news. Try asking about a topic or country.");
     return true;
   }
 
