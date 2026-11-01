@@ -19,6 +19,7 @@ import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_
 import { getEffectiveLanguage } from "./discord/effective-language.js";
 import { botText } from "./discord/bot-i18n.js";
 import { commandSuggestStatus, commandSuggestText } from "./discord/command-suggest-i18n.js";
+import { extractRadioStationRequest } from "./discord/radio-intent.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
@@ -67,7 +68,7 @@ const pendingTimeRequests = new Map<string, number>();
 const TIME_FOLLOW_UP_TTL_MS = 5 * 60 * 1000;
 
 function timeRequestKey(message: Message): string {
-  return `${message.channelId}:${message.author.id}`;
+  return message.author.id;
 }
 
 function rememberTimeRequest(message: Message): void {
@@ -1271,6 +1272,16 @@ export function startBot(): void {
     const guildPrefix = getPrefix(message.guildId);
     const responseLang = getEffectiveLanguage(message.guildId, message.author.id);
 
+    // A location reply to a time question should work without mentioning the bot
+    // again, and the saved preference is keyed by user rather than channel.
+    if (!content.startsWith(guildPrefix) && !content.startsWith("/")) {
+      const timeFollowUp = await consumeTimeFollowUp(message, stripMentions(content));
+      if (timeFollowUp) {
+        await message.reply(timeFollowUp);
+        return;
+      }
+    }
+
     // --- Image generation ---
     if (content.startsWith("/image ") || content.startsWith(`${guildPrefix}image `)) {
       const prompt = content.slice(content.indexOf(" ") + 1).trim();
@@ -1309,11 +1320,6 @@ export function startBot(): void {
     if (isDm && !content.startsWith(guildPrefix)) {
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }
-      const timeFollowUp = await consumeTimeFollowUp(message, userText);
-      if (timeFollowUp) {
-        await message.reply(timeFollowUp);
-        return;
-      }
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
@@ -1325,6 +1331,11 @@ export function startBot(): void {
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        return;
+      }
+      const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
+      if (requestedStation) {
+        await playRadio(message, requestedStation);
         return;
       }
       const route = classifyAiMessage(userText);
@@ -1388,11 +1399,6 @@ export function startBot(): void {
     if (!isDm && botId && isBotMentioned(message, botId)) {
       const userText = stripMentions(content);
       if (!userText) { await message.reply("Hey! 👋 Mention me with a message and I'll help!"); return; }
-      const timeFollowUp = await consumeTimeFollowUp(message, userText);
-      if (timeFollowUp) {
-        await message.reply(timeFollowUp);
-        return;
-      }
       if (isPornographicSiteListRequest(userText)) {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
@@ -1404,6 +1410,11 @@ export function startBot(): void {
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+        return;
+      }
+      const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
+      if (requestedStation) {
+        await playRadio(message, requestedStation);
         return;
       }
       const route = classifyAiMessage(userText);

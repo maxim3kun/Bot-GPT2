@@ -57,7 +57,7 @@ const COPY: Record<UserLang, Record<CopyKey, string>> = {
   fr: {
     unknown: "❓ Commande inconnue `{0}{1}`.", optInPrompt: "Veux-tu que je propose des corrections quand tu fais une faute de frappe dans une commande ?",
     yesHelp: "✅ Oui, aide-moi", noThanks: "Non merci", enabled: "✅ Compris ! Je proposerai désormais des corrections.\nUtilise `{0}help` pour voir toutes les commandes.",
-    suggestion: "❓ Commande inconnue `{0}{1}`.\nTu voulais dire {2} **`{3}`** — *{4}* ?",
+    suggestion: "❓ Je ne reconnais pas la commande `{0}{1}`.\n💡 Tu voulais peut-être dire **`{3}`** — *{4}* ?",
     yesRun: "✅ Oui, lancer {0}", no: "Non", running: "▶️ Lancement de `{0}`…", runError: "❌ Une erreur est survenue lors du lancement de `{0}`.",
     thanks: "👍 Pas de problème.", helpFallback: "❓ Aucune commande trouvée pour `{0}{1}`.\nVeux-tu afficher la liste complète des commandes avec `{2}` ?",
     yesShowHelp: "✅ Oui, afficher {0}", runningHelp: "▶️ Affichage de `{0}`…", helpError: "❌ Une erreur est survenue.",

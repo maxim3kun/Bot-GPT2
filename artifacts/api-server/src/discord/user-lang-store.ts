@@ -3,7 +3,7 @@ import { join } from "path";
 import { logger } from "../lib/logger.js";
 
 export type UserLang = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
-export const DEFAULT_USER_LANG: UserLang = "fr";
+export const DEFAULT_USER_LANG: UserLang = "en";
 
 export const USER_LANG_NAMES: Record<UserLang, string> = {
   en: "English",

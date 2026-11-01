@@ -3,7 +3,7 @@ import { getUserLang, getUserLangOverride, type UserLang } from "./user-lang-sto
 
 /**
  * Personal preference overrides the server default. DMs have no server default,
- * so they use the user's preference (French when none has been saved).
+ * so they use the user's preference (English when none has been saved).
  */
 export function getEffectiveLanguage(
   guildId: string | null | undefined,
