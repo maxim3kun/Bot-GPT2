@@ -66,6 +66,12 @@ function includesAny(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(normalize(term)));
 }
 
+function isNamedEntityLookup(text: string): boolean {
+  const match = text.match(/\b(?:qu['’]est[- ]ce que|c['’]est quoi|qui est|que signifie|que veut dire|what is|who is|who was|tell me about)\s+(?:(?:le|la|les|un|une|the|a|an)\s+)?([\p{L}][\p{L}\p{M}\d'’.-]*)/iu);
+  const firstLetter = match?.[1]?.[0];
+  return Boolean(firstLetter && firstLetter === firstLetter.toLocaleUpperCase() && firstLetter !== firstLetter.toLocaleLowerCase());
+}
+
 export function classifyAiMessage(text: string): AiRoute {
   const normalized = normalize(text);
 
@@ -115,6 +121,10 @@ export function classifyAiMessage(text: string): AiRoute {
   }
 
   if (includesAny(normalized, RESEARCH_TERMS)) {
+    return { intent: "research", needsResearch: true, needsConfirmation: false };
+  }
+
+  if (isNamedEntityLookup(text)) {
     return { intent: "research", needsResearch: true, needsConfirmation: false };
   }
 

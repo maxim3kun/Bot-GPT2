@@ -47,6 +47,7 @@ import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSou
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
+import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
 import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -162,7 +163,11 @@ const AI_IDENTITY_INSTRUCTIONS =
   "Some features require permissions or configuration. Never invent commands or features; if unsure, direct users to the server's help command using its configured prefix. ";
 
 const WEB_RESEARCH_ANSWER_INSTRUCTIONS =
-  "When web research is provided, answer the user's actual goal rather than summarizing the search results. " +
+  "When web research is provided, answer the user's actual goal rather than summarizing the search results. Answer in the user's language and start with the answer, not a heading or preamble. " +
+  "For a simple factual lookup, use at most 2 short sentences (about 45 words). For latest-news requests, give at most 3 important, distinct items, one short sentence each, and stay under about 75 words total. " +
+  "Do not use Markdown tables, pipe characters, or HTML line breaks. Use plain paragraphs or at most 3 brief bullets. Do not list search engines or repeat source names; the source button provides the links. " +
+  "Never call a story 'today's' or 'latest' based only on its search position; use publication dates only when the supplied source metadata confirms them. If dates are missing, say so briefly or avoid date claims. " +
+  "For ambiguous names, briefly state the relevant meanings supported by the results and ask one short clarification only if needed. " +
   "For practical requests such as recipes, tutorials, recommendations, or how-to questions, choose the clearest and most reliable answer from the evidence and give it directly in a useful format: " +
   "a short recommendation, the necessary ingredients or materials, numbered steps, and useful tips or cautions. " +
   "Do not start with a list of websites, do not repeat search snippets, and do not mention site names unless the user asks for sources. " +
@@ -188,7 +193,7 @@ function buildAiSystemPrompt(
     : "";
 
   return `${AI_IDENTITY_INSTRUCTIONS}${languageGuard}
-You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Respond to every part of the user's current message, including multiple questions joined by "and"/"et". The message route is "${routeIntent}".
+You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Prefer plain text or brief bullets; do not use Markdown tables unless the user explicitly asks for one. Respond to every part of the user's current message, including multiple questions joined by "and"/"et". The message route is "${routeIntent}".
 Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim to have searched the Internet unless search results are explicitly provided. Never claim to have performed a Discord action unless the application confirms it succeeded. If you are unsure, say so clearly instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. ${memoryContext}${research}${time}`;
 }
 
@@ -510,8 +515,9 @@ export function startBot(): void {
         ],
       });
       incrementGroqCalls();
-      const reply = response.choices[0]?.message?.content
+      const rawReply = response.choices[0]?.message?.content
         ?? (responseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
+      const reply = webResults.length ? normalizeResearchAnswer(rawReply, prompt) : rawReply;
       addToHistory(message.channelId, "assistant", reply);
       await replyWithAiAnswer(message, reply, webResults);
     } catch (err) {
@@ -1498,7 +1504,8 @@ export function startBot(): void {
           ],
         });
         incrementGroqCalls();
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const reply = webResults.length ? normalizeResearchAnswer(rawReply, userText) : rawReply;
         addToHistory(message.channelId, "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
       } catch (err) {
@@ -1593,7 +1600,8 @@ export function startBot(): void {
           ],
         });
         incrementGroqCalls();
-        const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const rawReply = response.choices[0]?.message?.content ?? "Sorry, I couldn't come up with a response! 😅";
+        const reply = webResults.length ? normalizeResearchAnswer(rawReply, userText) : rawReply;
         addToHistory(message.channelId, "assistant", reply);
         await replyWithAiAnswer(message, reply, webResults);
         // Also speak in voice if bot is connected
