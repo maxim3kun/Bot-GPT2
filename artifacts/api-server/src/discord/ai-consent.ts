@@ -13,7 +13,13 @@ async function getCol() {
 }
 
 type ConsentStatus = "accepted" | "declined" | "unknown";
-type ConsentDoc = { userId: string; status: ConsentStatus; memoryStatus?: ConsentStatus };
+const AI_CONSENT_VERSION = 2;
+type ConsentDoc = {
+  userId: string;
+  status: ConsentStatus;
+  consentVersion?: number;
+  memoryStatus?: ConsentStatus;
+};
 const cache = new Map<string, ConsentStatus>();
 
 export async function getConsent(userId: string): Promise<ConsentStatus> {
@@ -22,8 +28,14 @@ export async function getConsent(userId: string): Promise<ConsentStatus> {
   const col = await getCol();
   if (col) {
     try {
-      const doc = await col.findOne({ userId }) as { status: ConsentStatus } | null;
-      if (doc) { cache.set(userId, doc.status); return doc.status; }
+      const doc = await col.findOne({ userId }) as ConsentDoc | null;
+      if (doc) {
+        if (doc.status === "accepted" && doc.consentVersion !== AI_CONSENT_VERSION) {
+          return "unknown";
+        }
+        cache.set(userId, doc.status);
+        return doc.status;
+      }
     } catch (e) { logger.warn({ e }, "ai-consent: DB read failed"); }
   }
   return "unknown";
@@ -34,7 +46,11 @@ export async function setConsent(userId: string, status: "accepted" | "declined"
   const col = await getCol();
   if (col) {
     try {
-      await col.updateOne({ userId }, { $set: { userId, status } }, { upsert: true });
+      await col.updateOne(
+        { userId },
+        { $set: { userId, status, consentVersion: AI_CONSENT_VERSION } },
+        { upsert: true },
+      );
     } catch (e) { logger.warn({ e }, "ai-consent: DB write failed"); }
   }
 }
@@ -76,14 +92,14 @@ export function buildConsentPrompt(language: UserLang = "en"): { embeds: EmbedBu
     .setTitle(isFrench ? "🤖 Fonction IA — consentement" : "🤖 AI Feature — One-time Consent")
     .setDescription(
       isFrench
-        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse, cela peut inclure jusqu’à 50 messages récents de la personne ciblée dans les salons que toi et le bot pouvez lire ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
-        : "The text needed for your request will be sent to **Groq**, the AI provider. An analysis may include up to 50 recent messages from the selected person in channels both you and the bot can read; the bot does not store them.\n\nDo you agree to use AI features?",
+        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse, cela peut inclure jusqu’à 100 messages récents de la personne ciblée dans les salons que toi et le bot pouvez lire ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
+        : "The text needed for your request will be sent to **Groq**, the AI provider. An analysis may include up to 100 recent messages from the selected person in channels both you and the bot can read; the bot does not store them.\n\nDo you agree to use AI features?",
     )
     .setFooter({ text: isFrench ? "Ton choix est enregistré. Utilise !ai reset pour le modifier." : "Your choice is saved. Use !ai reset to change it later." });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`ai_consent:yes:${language}`).setLabel(isFrench ? "✅ Oui, activer" : "✅ Yes, enable AI").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`ai_consent:no:${language}`).setLabel(isFrench ? "❌ Non merci" : "❌ No thanks").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`ai_consent:yes:${language}:${AI_CONSENT_VERSION}`).setLabel(isFrench ? "✅ Oui, activer" : "✅ Yes, enable AI").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`ai_consent:no:${language}:${AI_CONSENT_VERSION}`).setLabel(isFrench ? "❌ Non merci" : "❌ No thanks").setStyle(ButtonStyle.Danger),
   );
   return { embeds: [embed], components: [row] };
 }
@@ -131,8 +147,16 @@ export async function requireMemoryConsent(message: Message): Promise<boolean> {
 }
 
 export async function handleConsentButton(interaction: ButtonInteraction): Promise<void> {
-  const [, action, languageTag] = interaction.customId.split(":");
+  const [, action, languageTag, consentVersion] = interaction.customId.split(":");
   const isFrench = languageTag === "fr";
+  if (action === "yes" && consentVersion !== String(AI_CONSENT_VERSION)) {
+    const currentPrompt = buildConsentPrompt(isFrench ? "fr" : "en");
+    await interaction.update({
+      embeds: currentPrompt.embeds,
+      components: currentPrompt.components,
+    });
+    return;
+  }
   if (action === "yes") {
     await setConsent(interaction.user.id, "accepted");
     await interaction.update({

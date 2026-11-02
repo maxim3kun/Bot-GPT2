@@ -11,11 +11,11 @@ import { getConsent, requireConsent } from "./ai-consent.js";
 import { getPrefix } from "./prefix-store.js";
 import { USER_LANG_NAMES, type UserLang } from "./user-lang-store.js";
 
-const MAX_ANALYZED_MESSAGES = 50;
+const MAX_ANALYZED_MESSAGES = 100;
 const MAX_SERVER_MESSAGES_SCANNED = 5_000;
 const HISTORY_PAGE_SIZE = 100;
-const MAX_ANALYSIS_CHARS = 16_000;
-const MAX_MESSAGE_CHARS = 800;
+const MAX_ANALYSIS_CHARS = 50_000;
+const MAX_MESSAGE_CHARS = 500;
 const ANALYSIS_COOLDOWN_MS = 60_000;
 const analysisCooldowns = new Map<string, number>();
 
@@ -29,7 +29,7 @@ function isAnalysisRequest(text: string): boolean {
 
 function requestedMessageCount(text: string): number {
   const match = text.match(/\b(\d{1,3})\s+(?:derniers?\s+)?(?:messages?|msgs?)\b/i);
-  if (!match) return 30;
+  if (!match) return MAX_ANALYZED_MESSAGES;
   return Math.max(1, Math.min(MAX_ANALYZED_MESSAGES, Number(match[1])));
 }
 
