@@ -95,12 +95,12 @@ type ScanState = {
   done: boolean;
 };
 
-type CollectedMessage = {
+export type CollectedMessage = {
   channelName: string;
   message: Message;
 };
 
-type MessageScanResult = {
+export type MessageScanResult = {
   messages: CollectedMessage[];
   scannedMessages: number;
   accessibleChannels: number;
@@ -109,10 +109,11 @@ type MessageScanResult = {
   reachedScanLimit: boolean;
 };
 
-async function collectServerMessages(
+export async function collectServerMessages(
   message: Message,
   targetId: string,
   count: number,
+  excludeMessageIds: ReadonlySet<string> = new Set(),
 ): Promise<MessageScanResult> {
   const guild = message.guild!;
   const botMember = guild.members.me;
@@ -198,6 +199,7 @@ async function collectServerMessages(
           item.id !== message.id
           && item.author.id === targetId
           && !item.author.bot
+          && !excludeMessageIds.has(item.id)
           && isUsefulConversationMessage(item.content, prefix)
         ) {
           matches.push({ channelName: state.channel.name, message: item });

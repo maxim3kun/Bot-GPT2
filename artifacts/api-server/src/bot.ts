@@ -47,6 +47,7 @@ import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPe
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
+import { handleAiPersonaCommand } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
@@ -3343,6 +3344,11 @@ export function startBot(): void {
               activeBattles.delete(message.channelId);
               stoppedBattles.delete(message.channelId);
             });
+          break;
+        }
+
+        case "persona": {
+          await handleAiPersonaCommand(message, args, openai, responseLang);
           break;
         }
 

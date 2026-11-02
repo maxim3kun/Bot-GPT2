@@ -1,4 +1,4 @@
-import { MongoClient, type Db, type Collection } from "mongodb";
+import { MongoClient, type Db, type Collection, type Filter } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import { logger } from "./logger.js";
 
@@ -93,8 +93,37 @@ export interface AiMemoryEntry {
   createdAt: string;
 }
 
+export type AiPersonaVisibility = "public" | "private";
+
+export interface AiPersonaRecord {
+  id: string;
+  ownerId: string;
+  guildId: string | null;
+  name: string;
+  description: string;
+  profile: string;
+  visibility: AiPersonaVisibility;
+  avatarConsent: boolean;
+  generatedAvatarBase64?: string;
+  knowledgeSummaries: string[];
+  learnedMessageIds: string[];
+  messagesAnalyzedTotal: number;
+  learningConsent: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface AiMemoryDoc {
   _id: string;
+  encryptedData: string;
+  updatedAt: Date;
+}
+
+interface AiPersonaDoc {
+  _id: string;
+  ownerKey: string;
+  guildKey: string | null;
+  visibility: AiPersonaVisibility;
   encryptedData: string;
   updatedAt: Date;
 }
@@ -192,6 +221,7 @@ export let customStationsCol: Collection<CustomStationDoc> | null = null;
 export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
 export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
+export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
@@ -238,10 +268,13 @@ export async function connectDb(): Promise<void> {
     foodHistoryCol = db.collection<FoodHistoryDoc>("food_history");
     aiConsentCol = db.collection("ai_consent");
     aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
+    aiPersonasCol = db.collection<AiPersonaDoc>("ai_personas");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     await aiMemoryCol.createIndex({ updatedAt: -1 });
+    await aiPersonasCol.createIndex({ ownerKey: 1, updatedAt: -1 });
+    await aiPersonasCol.createIndex({ guildKey: 1, visibility: 1, updatedAt: -1 });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
     await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
@@ -393,6 +426,98 @@ export async function clearAiMemory(guildId: string, userId: string): Promise<bo
     logger.error({ err }, "clearAiMemory failed");
     return false;
   }
+}
+
+// ── AI personas ─────────────────────────────────────────────────────────────
+// Persona content and generated avatar bytes are encrypted; searchable scope
+// keys are one-way hashes so private records aren't indexed by Discord IDs.
+
+function decodeAiPersona(doc: AiPersonaDoc): AiPersonaRecord {
+  return JSON.parse(decrypt(doc.encryptedData)) as AiPersonaRecord;
+}
+
+function requireAiPersonaStorage(): Collection<AiPersonaDoc> {
+  if (!aiPersonasCol || !encKey) {
+    throw new Error("MongoDB and ENCRYPTION_KEY are required for persona storage");
+  }
+  return aiPersonasCol;
+}
+
+export async function listAiPersonasOwnedBy(ownerId: string): Promise<AiPersonaRecord[]> {
+  const collection = requireAiPersonaStorage();
+  const docs = await collection.find({ ownerKey: hashUserId(ownerId) })
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .toArray();
+  return docs.map(decodeAiPersona);
+}
+
+export async function listVisibleAiPersonas(
+  guildId: string | null,
+  userId: string,
+): Promise<AiPersonaRecord[]> {
+  const collection = requireAiPersonaStorage();
+  const filters: Filter<AiPersonaDoc>[] = [{ ownerKey: hashUserId(userId) }];
+  if (guildId) {
+    filters.push({ guildKey: hashUserId(guildId), visibility: "public" });
+  }
+  const docs = await collection.find({ $or: filters })
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .toArray();
+  return docs
+    .map(decodeAiPersona)
+    .filter((persona) =>
+      (persona.visibility === "private" && persona.ownerId === userId)
+      || (persona.visibility === "public" && Boolean(guildId) && persona.guildId === guildId),
+    );
+}
+
+export async function getAiPersona(id: string): Promise<AiPersonaRecord | null> {
+  const collection = requireAiPersonaStorage();
+  const doc = await collection.findOne({ _id: id });
+  return doc ? decodeAiPersona(doc) : null;
+}
+
+export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
+  const collection = requireAiPersonaStorage();
+  if (persona.visibility === "public" && !persona.guildId) {
+    throw new Error("A public persona must belong to a Discord server");
+  }
+  const bounded: AiPersonaRecord = {
+    ...persona,
+    name: persona.name.trim().slice(0, 50),
+    description: persona.description.trim().slice(0, 2_000),
+    profile: persona.profile.trim().slice(0, 2_000),
+    knowledgeSummaries: persona.knowledgeSummaries
+      .map((summary) => summary.trim().slice(0, 1_000))
+      .filter(Boolean)
+      .slice(-20),
+    learnedMessageIds: [...new Set(persona.learnedMessageIds)].slice(-2_000),
+    messagesAnalyzedTotal: Math.max(0, Math.min(2_000, Math.floor(persona.messagesAnalyzedTotal))),
+    generatedAvatarBase64: persona.generatedAvatarBase64?.slice(0, 6_000_000),
+  };
+  const updatedAt = new Date();
+  bounded.updatedAt = updatedAt.toISOString();
+  await collection.updateOne(
+    { _id: bounded.id },
+    {
+      $set: {
+        ownerKey: hashUserId(bounded.ownerId),
+        guildKey: bounded.guildId ? hashUserId(bounded.guildId) : null,
+        visibility: bounded.visibility,
+        encryptedData: encrypt(JSON.stringify(bounded)),
+        updatedAt,
+      },
+    },
+    { upsert: true },
+  );
+}
+
+export async function deleteAiPersona(id: string, ownerId: string): Promise<boolean> {
+  const collection = requireAiPersonaStorage();
+  const result = await collection.deleteOne({ _id: id, ownerKey: hashUserId(ownerId) });
+  return result.deletedCount > 0;
 }
 
 // ── User CRUD ──────────────────────────────────────────────────────────
