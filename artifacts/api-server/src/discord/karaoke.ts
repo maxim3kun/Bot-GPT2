@@ -734,6 +734,11 @@ async function processKaraokeQueue(guildId: string): Promise<void> {
 }
 
 async function startKaraokeFromQueue(message: Message, query: string, guildId: string): Promise<void> {
+  if (!message.channel.isSendable()) {
+    logger.warn({ channelId: message.channelId, guildId }, "Skipping queued karaoke track in a non-sendable channel");
+    await processKaraokeQueue(guildId);
+    return;
+  }
   const notifyMsg = await message.channel.send({ embeds: [buildWaitEmbed(`🎵 Up next — searching **${query}**…`)] }) as Message;
 
   const { synced: rawSynced } = await searchCandidates(query);

@@ -1008,7 +1008,10 @@ export async function playConnect4(message: Message, args: string[]): Promise<vo
       filter: (r: MessageReaction, u: User) => boolean;
       time: number;
     }) => {
-      on: (event: string, cb: (r: MessageReaction, u: User) => void) => void;
+      on: {
+        (event: "collect", cb: (r: MessageReaction, u: User) => void): void;
+        (event: "end", cb: (collected: unknown, reason: string) => void): void;
+      };
       stop: (reason?: string) => void;
     };
   }).createReactionCollector({
