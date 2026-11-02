@@ -47,7 +47,7 @@ import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPe
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
 import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
 import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
-import { handleAiPersonaCommand } from "./discord/ai-personas.js";
+import { handleAiPersonaCommand, handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
@@ -1497,8 +1497,19 @@ export function startBot(): void {
       return;
     }
 
-    // --- DM AI chat ---
     const isDm = message.channel.type === ChannelType.DM;
+    if (!content.startsWith(guildPrefix) && !content.startsWith("/")) {
+      const addressedToBot = isDm || (botId.length > 0 && isBotMentioned(message, botId));
+      if (await handleAiPersonaNaturalMessage(
+        message,
+        stripMentions(content),
+        openai,
+        responseLang,
+        addressedToBot,
+      )) return;
+    }
+
+    // --- DM AI chat ---
     if (isDm && !content.startsWith(guildPrefix)) {
       const userText = content.trim();
       if (!userText) { await message.reply("Hey! 👋 Send me a message and I'll do my best to help!"); return; }

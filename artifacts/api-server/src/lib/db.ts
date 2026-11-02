@@ -95,6 +95,13 @@ export interface AiMemoryEntry {
 
 export type AiPersonaVisibility = "public" | "private";
 
+export interface AiPersonaMemory {
+  messageId: string;
+  summary: string;
+  interestScore: number;
+  createdAt: string;
+}
+
 export interface AiPersonaRecord {
   id: string;
   ownerId: string;
@@ -106,11 +113,24 @@ export interface AiPersonaRecord {
   avatarConsent: boolean;
   generatedAvatarBase64?: string;
   knowledgeSummaries: string[];
+  knowledgeMemories?: AiPersonaMemory[];
   learnedMessageIds: string[];
+  processedMessageIds?: string[];
   messagesAnalyzedTotal: number;
   learningConsent: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AiPersonaSessionRecord {
+  userId: string;
+  guildId: string | null;
+  activePersonaId: string | null;
+  pendingDraft?: {
+    name: string;
+    description: string;
+    waitingFor: "name" | "description";
+  };
 }
 
 interface AiMemoryDoc {
@@ -124,6 +144,14 @@ interface AiPersonaDoc {
   ownerKey: string;
   guildKey: string | null;
   visibility: AiPersonaVisibility;
+  encryptedData: string;
+  updatedAt: Date;
+}
+
+interface AiPersonaSessionDoc {
+  _id: string;
+  ownerKey: string;
+  scopeKey: string;
   encryptedData: string;
   updatedAt: Date;
 }
@@ -222,6 +250,7 @@ export let foodHistoryCol: Collection<FoodHistoryDoc> | null = null;
 export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "declined" }> | null = null;
 export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
 export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
+export let aiPersonaSessionsCol: Collection<AiPersonaSessionDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
@@ -269,12 +298,14 @@ export async function connectDb(): Promise<void> {
     aiConsentCol = db.collection("ai_consent");
     aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
     aiPersonasCol = db.collection<AiPersonaDoc>("ai_personas");
+    aiPersonaSessionsCol = db.collection<AiPersonaSessionDoc>("ai_persona_sessions");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     await aiMemoryCol.createIndex({ updatedAt: -1 });
     await aiPersonasCol.createIndex({ ownerKey: 1, updatedAt: -1 });
     await aiPersonasCol.createIndex({ guildKey: 1, visibility: 1, updatedAt: -1 });
+    await aiPersonaSessionsCol.createIndex({ ownerKey: 1, scopeKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
     await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
@@ -493,8 +524,22 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
       .map((summary) => summary.trim().slice(0, 1_000))
       .filter(Boolean)
       .slice(-20),
+    knowledgeMemories: (persona.knowledgeMemories ?? [])
+      .map((memory) => ({
+        messageId: memory.messageId.trim().slice(0, 64),
+        summary: memory.summary.trim().slice(0, 300),
+        interestScore: Math.max(0, Math.min(10, Math.floor(memory.interestScore))),
+        createdAt: memory.createdAt,
+      }))
+      .filter((memory) => memory.messageId && memory.summary)
+      .sort((a, b) => b.interestScore - a.interestScore || a.createdAt.localeCompare(b.createdAt))
+      .slice(0, 2_000),
     learnedMessageIds: [...new Set(persona.learnedMessageIds)].slice(-2_000),
-    messagesAnalyzedTotal: Math.max(0, Math.min(2_000, Math.floor(persona.messagesAnalyzedTotal))),
+    processedMessageIds: [...new Set([
+      ...(persona.processedMessageIds ?? []),
+      ...persona.learnedMessageIds,
+    ])].slice(-5_000),
+    messagesAnalyzedTotal: Math.max(0, Math.min(1_000_000_000, Math.floor(persona.messagesAnalyzedTotal))),
     generatedAvatarBase64: persona.generatedAvatarBase64?.slice(0, 6_000_000),
   };
   const updatedAt = new Date();
@@ -508,6 +553,62 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
         visibility: bounded.visibility,
         encryptedData: encrypt(JSON.stringify(bounded)),
         updatedAt,
+      },
+    },
+    { upsert: true },
+  );
+}
+
+function aiPersonaSessionId(userId: string, guildId: string | null): string {
+  return hashUserId(`ai-persona-session:${guildId ?? "dm"}:${userId}`);
+}
+
+function requireAiPersonaSessionStorage(): Collection<AiPersonaSessionDoc> {
+  if (!aiPersonaSessionsCol || !encKey) {
+    throw new Error("MongoDB and ENCRYPTION_KEY are required for persona sessions");
+  }
+  return aiPersonaSessionsCol;
+}
+
+export async function getAiPersonaSession(
+  userId: string,
+  guildId: string | null,
+): Promise<AiPersonaSessionRecord | null> {
+  const collection = requireAiPersonaSessionStorage();
+  const doc = await collection.findOne({ _id: aiPersonaSessionId(userId, guildId) });
+  if (!doc) return null;
+  const session = JSON.parse(decrypt(doc.encryptedData)) as AiPersonaSessionRecord;
+  return session.userId === userId && session.guildId === guildId ? session : null;
+}
+
+export async function saveAiPersonaSession(session: AiPersonaSessionRecord): Promise<void> {
+  const collection = requireAiPersonaSessionStorage();
+  const id = aiPersonaSessionId(session.userId, session.guildId);
+  if (!session.activePersonaId && !session.pendingDraft) {
+    await collection.deleteOne({ _id: id, ownerKey: hashUserId(session.userId) });
+    return;
+  }
+  const bounded: AiPersonaSessionRecord = {
+    userId: session.userId,
+    guildId: session.guildId,
+    activePersonaId: session.activePersonaId?.slice(0, 64) ?? null,
+    ...(session.pendingDraft ? {
+      pendingDraft: {
+        name: session.pendingDraft.name.trim().slice(0, 50),
+        description: session.pendingDraft.description.trim().slice(0, 2_000),
+        waitingFor: session.pendingDraft.waitingFor,
+      },
+    } : {}),
+  };
+  const scopeKey = hashUserId(session.guildId ?? "dm");
+  await collection.updateOne(
+    { _id: id },
+    {
+      $set: {
+        ownerKey: hashUserId(session.userId),
+        scopeKey,
+        encryptedData: encrypt(JSON.stringify(bounded)),
+        updatedAt: new Date(),
       },
     },
     { upsert: true },

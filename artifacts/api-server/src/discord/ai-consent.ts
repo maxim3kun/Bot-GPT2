@@ -92,8 +92,8 @@ export function buildConsentPrompt(language: UserLang = "en"): { embeds: EmbedBu
     .setTitle(isFrench ? "🤖 Fonction IA — consentement" : "🤖 AI Feature — One-time Consent")
     .setDescription(
       isFrench
-        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Pour une analyse, cela peut inclure jusqu’à 100 messages récents de la personne ciblée dans les salons que toi et le bot pouvez lire ; le bot ne les conserve pas.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
-        : "The text needed for your request will be sent to **Groq**, the AI provider. An analysis may include up to 100 recent messages from the selected person in channels both you and the bot can read; the bot does not store them.\n\nDo you agree to use AI features?",
+        ? "Le texte nécessaire à ta demande sera transmis à **Groq**, le fournisseur IA. Une analyse peut inclure jusqu’à 100 messages récents accessibles à toi et au bot. Les messages bruts ne sont pas conservés. Si tu confirmes séparément l’apprentissage d’un persona, seuls des résumés chiffrés et classés seront gardés dans MongoDB.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
+        : "The text needed for your request will be sent to **Groq**, the AI provider. An analysis may include up to 100 recent messages accessible to you and the bot. Raw messages are not stored. If you separately confirm persona learning, only encrypted, ranked summaries are kept in MongoDB.\n\nDo you agree to use AI features?",
     )
     .setFooter({ text: isFrench ? "Ton choix est enregistré. Utilise !ai reset pour le modifier." : "Your choice is saved. Use !ai reset to change it later." });
 
