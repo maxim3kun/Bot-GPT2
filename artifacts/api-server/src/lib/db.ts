@@ -112,6 +112,11 @@ export interface AiPersonaRecord {
   visibility: AiPersonaVisibility;
   avatarConsent: boolean;
   generatedAvatarBase64?: string;
+  customAvatarBase64?: string;
+  avatarCdnUrl?: string;
+  avatarCdnUpdatedAt?: string;
+  avatarImageOptimized?: boolean;
+  recentReplyMessageIds?: string[];
   knowledgeSummaries: string[];
   knowledgeMemories?: AiPersonaMemory[];
   learnedMessageIds: string[];
@@ -541,6 +546,11 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
     ])].slice(-5_000),
     messagesAnalyzedTotal: Math.max(0, Math.min(1_000_000_000, Math.floor(persona.messagesAnalyzedTotal))),
     generatedAvatarBase64: persona.generatedAvatarBase64?.slice(0, 6_000_000),
+    customAvatarBase64: persona.customAvatarBase64?.slice(0, 400_000),
+    avatarCdnUrl: persona.avatarCdnUrl?.slice(0, 2_000),
+    avatarCdnUpdatedAt: persona.avatarCdnUpdatedAt?.slice(0, 40),
+    avatarImageOptimized: persona.avatarImageOptimized === true,
+    recentReplyMessageIds: [...new Set(persona.recentReplyMessageIds ?? [])].slice(-300),
   };
   const updatedAt = new Date();
   bounded.updatedAt = updatedAt.toISOString();
