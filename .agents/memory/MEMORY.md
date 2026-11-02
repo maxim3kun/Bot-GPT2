@@ -4,3 +4,4 @@
 - [Discord language precedence](language-precedence.md) — Server language is the default; an explicit personal language overrides it.
 - [Bot identity](bot-identity.md) — Maxime (Maxim3kun) created the bot; distinguish its creator from its AI provider.
 - [Research answer style](research-answer-style.md) — Keep answers fitted to the question; no fixed word cap or generic publisher presented as news.
+- [API workflow startup order](api-workflow-startup.md) — Start the API artifact before the wrapper; simultaneous startup can race for port 8080.
