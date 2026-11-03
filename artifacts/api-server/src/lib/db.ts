@@ -102,6 +102,26 @@ export interface AiPersonaMemory {
   createdAt: string;
 }
 
+export type AiPersonaStyleCategory = "brevity" | "warmth" | "humor" | "questions" | "formality";
+export type AiPersonaStyleValue =
+  | "concise" | "detailed"
+  | "warm" | "neutral"
+  | "playful" | "serious"
+  | "more" | "fewer"
+  | "informal" | "formal";
+
+export type AiPersonaStylePreferences = Partial<Record<AiPersonaStyleCategory, AiPersonaStyleValue>>;
+
+export interface AiPersonaUserLearning {
+  userId: string;
+  learningConsent: boolean;
+  knowledgeMemories: AiPersonaMemory[];
+  processedMessageIds: string[];
+  messagesAnalyzedTotal: number;
+  stylePreferences: AiPersonaStylePreferences;
+  updatedAt: string;
+}
+
 export interface AiPersonaRecord {
   id: string;
   ownerId: string;
@@ -121,6 +141,7 @@ export interface AiPersonaRecord {
   knowledgeMemories?: AiPersonaMemory[];
   learnedMessageIds: string[];
   processedMessageIds?: string[];
+  userLearning?: AiPersonaUserLearning[];
   messagesAnalyzedTotal: number;
   learningConsent: boolean;
   createdAt: string;
@@ -515,6 +536,29 @@ export async function getAiPersona(id: string): Promise<AiPersonaRecord | null> 
   return doc ? decodeAiPersona(doc) : null;
 }
 
+const AI_PERSONA_STYLE_OPTIONS: Record<AiPersonaStyleCategory, AiPersonaStyleValue[]> = {
+  brevity: ["concise", "detailed"],
+  warmth: ["warm", "neutral"],
+  humor: ["playful", "serious"],
+  questions: ["more", "fewer"],
+  formality: ["informal", "formal"],
+};
+
+function sanitizePersonaStylePreferences(
+  preferences: AiPersonaStylePreferences | undefined,
+): AiPersonaStylePreferences {
+  const sanitized: AiPersonaStylePreferences = {};
+  for (const [category, value] of Object.entries(preferences ?? {})) {
+    if (
+      category in AI_PERSONA_STYLE_OPTIONS
+      && AI_PERSONA_STYLE_OPTIONS[category as AiPersonaStyleCategory].includes(value as AiPersonaStyleValue)
+    ) {
+      sanitized[category as AiPersonaStyleCategory] = value as AiPersonaStyleValue;
+    }
+  }
+  return sanitized;
+}
+
 export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
   const collection = requireAiPersonaStorage();
   if (persona.visibility === "public" && !persona.guildId) {
@@ -544,6 +588,28 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
       ...(persona.processedMessageIds ?? []),
       ...persona.learnedMessageIds,
     ])].slice(-5_000),
+    userLearning: (persona.userLearning ?? [])
+      .filter((learning) => learning.userId && learning.learningConsent)
+      .map((learning) => ({
+        userId: learning.userId.slice(0, 64),
+        learningConsent: true,
+        knowledgeMemories: (learning.knowledgeMemories ?? [])
+          .map((memory) => ({
+            messageId: memory.messageId.trim().slice(0, 64),
+            summary: memory.summary.trim().slice(0, 300),
+            interestScore: Math.max(0, Math.min(10, Math.floor(memory.interestScore))),
+            createdAt: memory.createdAt,
+          }))
+          .filter((memory) => memory.messageId && memory.summary)
+          .sort((a, b) => b.interestScore - a.interestScore || a.createdAt.localeCompare(b.createdAt))
+          .slice(0, 40),
+        processedMessageIds: [...new Set(learning.processedMessageIds ?? [])].slice(-300),
+        messagesAnalyzedTotal: Math.max(0, Math.min(1_000_000_000, Math.floor(learning.messagesAnalyzedTotal))),
+        stylePreferences: sanitizePersonaStylePreferences(learning.stylePreferences),
+        updatedAt: learning.updatedAt.slice(0, 40),
+      }))
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+      .slice(-100),
     messagesAnalyzedTotal: Math.max(0, Math.min(1_000_000_000, Math.floor(persona.messagesAnalyzedTotal))),
     generatedAvatarBase64: persona.generatedAvatarBase64?.slice(0, 6_000_000),
     customAvatarBase64: persona.customAvatarBase64?.slice(0, 400_000),
