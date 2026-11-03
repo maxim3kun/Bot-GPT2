@@ -33,7 +33,7 @@ export function detectUserLanguage(text: string): UserLang | null {
     .toLowerCase();
   const strongPhrases: Partial<Record<UserLang, RegExp>> = {
     en: /\b(?:hello|hi|hey|thanks|thank you)\b/,
-    fr: /\b(?:bonjour|bonsoir|salut|coucou|merci|ça va|ca va)\b/,
+    fr: /\b(?:bonjour|bonsoir|salut|coucou|merci|ca va|comment ca va|qu en penses[- ]tu|tu en penses quoi|tu peux|est[- ]ce que|je suis|je veux|j ai|j aimerais|c est|s il te plait|bonne nuit|bonne journee)\b/,
     es: /\b(?:hola|gracias|buenos dias|buenas tardes)\b/,
     de: /\b(?:hallo|danke|guten tag)\b/,
     pt: /\b(?:oi|ola|obrigado|obrigada)\b/,

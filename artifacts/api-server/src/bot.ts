@@ -40,6 +40,8 @@ import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./discord/ai-language-guard.js";
+import { imageQuotaNotice, releaseGeneratedImage, reserveGeneratedImage } from "./discord/image-quota.js";
+import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./discord/persona-images.js";
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
@@ -868,18 +870,42 @@ export function startBot(): void {
           const desc = interaction.options.getString("description", true);
           const hfToken = process.env["HUGGINGFACE_TOKEN"];
           if (!hfToken) { await interaction.editReply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
+          const imageLanguage = getAiResponseLanguage(
+            interaction.user.id,
+            desc,
+            getEffectiveLanguage(interaction.guildId, interaction.user.id),
+          );
+          const reservation = await reserveGeneratedImage();
+          if (reservation.status !== "reserved") {
+            await interaction.editReply(imageQuotaNotice(reservation.status, imageLanguage));
+            break;
+          }
+          let imageSent = false;
           try {
+            await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
             const response = await fetch(
               "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
               { method: "POST", headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ inputs: desc }) },
             );
-            if (!response.ok) { logger.error({ status: response.status }, "HuggingFace image error"); await interaction.editReply("❌ Generation failed. Try again later!"); break; }
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!response.ok || !contentType.startsWith("image/")) {
+              logger.error({ status: response.status, contentType }, "HuggingFace image error");
+              await interaction.editReply("❌ Generation failed. Try again later!");
+              break;
+            }
             const buffer = Buffer.from(await response.arrayBuffer());
-            await interaction.editReply({ content: `🖼️ **${desc}**`, files: [{ attachment: buffer, name: "image.png" }] });
+            if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
+              await interaction.editReply("❌ The generated image had an invalid size.");
+              break;
+            }
+            const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
+            await interaction.editReply({ content: `🖼️ **${desc}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
+            imageSent = true;
           } catch (err) {
             logger.error({ err }, "/image error");
             await interaction.editReply("❌ Error during image generation. Try again!");
+          } finally {
+            if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
           }
           break;
         }
@@ -1470,6 +1496,13 @@ export function startBot(): void {
       if (!prompt) { await message.reply("🎨 Give me a description! e.g. `!image a sunset over Paris`"); return; }
       const hfToken = process.env["HUGGINGFACE_TOKEN"];
       if (!hfToken) { await message.reply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
+      const imageLanguage = getAiResponseLanguage(message.author.id, prompt, responseLang);
+      const reservation = await reserveGeneratedImage();
+      if (reservation.status !== "reserved") {
+        await message.reply(imageQuotaNotice(reservation.status, imageLanguage));
+        return;
+      }
+      let imageSent = false;
       try {
         const waitMsg = await message.reply("🎨 Generating your image, please wait a few seconds...");
         const response = await fetch(
@@ -1480,19 +1513,28 @@ export function startBot(): void {
             body: JSON.stringify({ inputs: prompt }),
           },
         );
-        if (!response.ok) {
-          logger.error({ status: response.status }, "HuggingFace image error");
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!response.ok || !contentType.startsWith("image/")) {
+          logger.error({ status: response.status, contentType }, "HuggingFace image error");
           await waitMsg.edit("❌ Generation failed. Try again later!");
           return;
         }
         const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
+          await waitMsg.edit("❌ The generated image had an invalid size.");
+          return;
+        }
         await waitMsg.delete();
         if (isSendable(message.channel)) {
-          await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: "image.png" }] });
+          const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
+          await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
+          imageSent = true;
         }
       } catch (err) {
         logger.error({ err }, "Image generation error");
         await message.reply("❌ Error during image generation. Try again!");
+      } finally {
+        if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
       }
       return;
     }
@@ -1500,13 +1542,26 @@ export function startBot(): void {
     const isDm = message.channel.type === ChannelType.DM;
     if (!content.startsWith(guildPrefix) && !content.startsWith("/")) {
       const addressedToBot = isDm || (botId.length > 0 && isBotMentioned(message, botId));
+      const cleanedContent = stripMentions(content);
       if (await handleAiPersonaNaturalMessage(
         message,
-        stripMentions(content),
+        cleanedContent,
         openai,
         responseLang,
         addressedToBot,
       )) return;
+      if (addressedToBot && isSelfPhotoRequest(cleanedContent)) {
+        const imageLanguage = getAiResponseLanguage(message.author.id, cleanedContent, responseLang);
+        await sendFictionalAssistantPhoto(
+          message,
+          {
+            name: "MaximeGPT3",
+            description: "A friendly fictional, gender-neutral AI assistant represented as an approachable adult character, with a warm expression, everyday clothing, and subtle digital details. Do not portray Maxime, the bot's creator, or any real person.",
+          },
+          imageLanguage,
+        );
+        return;
+      }
     }
 
     // --- DM AI chat ---

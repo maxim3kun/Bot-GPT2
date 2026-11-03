@@ -152,6 +152,7 @@ export interface AiPersonaSessionRecord {
   userId: string;
   guildId: string | null;
   activePersonaId: string | null;
+  lastPersonaId?: string;
   pendingDraft?: {
     name: string;
     description: string;
@@ -266,6 +267,12 @@ export const FOOD_HISTORY_MAX = 10;
 
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
+interface DailyImageQuotaDoc {
+  _id: string;
+  count: number;
+  updatedAt: Date;
+}
+
 export let usersCol: Collection<UserDoc> | null = null;
 export let guildsCol: Collection<GuildDoc> | null = null;
 export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
@@ -278,6 +285,7 @@ export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
 export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
 export let aiPersonaSessionsCol: Collection<AiPersonaSessionDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
+export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
   userId: string; guildId: string; username: string; avatarUrl?: string;
@@ -326,6 +334,7 @@ export async function connectDb(): Promise<void> {
     aiPersonasCol = db.collection<AiPersonaDoc>("ai_personas");
     aiPersonaSessionsCol = db.collection<AiPersonaSessionDoc>("ai_persona_sessions");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
+    dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
     await aiMemoryCol.createIndex({ updatedAt: -1 });
@@ -333,6 +342,7 @@ export async function connectDb(): Promise<void> {
     await aiPersonasCol.createIndex({ guildKey: 1, visibility: 1, updatedAt: -1 });
     await aiPersonaSessionsCol.createIndex({ ownerKey: 1, scopeKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
+    await dailyImageQuotaCol.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
     await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
     await mgLeaderboardCol.createIndex({ guildId: 1, bestScore: -1 });
@@ -348,6 +358,7 @@ export async function connectDb(): Promise<void> {
     db          = null;
     usersCol    = null;
     guildsCol   = null;
+    dailyImageQuotaCol = null;
     aiMemoryCol = null;
     betaTestersCol = null;
   }
@@ -660,7 +671,7 @@ export async function getAiPersonaSession(
 export async function saveAiPersonaSession(session: AiPersonaSessionRecord): Promise<void> {
   const collection = requireAiPersonaSessionStorage();
   const id = aiPersonaSessionId(session.userId, session.guildId);
-  if (!session.activePersonaId && !session.pendingDraft) {
+  if (!session.activePersonaId && !session.lastPersonaId && !session.pendingDraft) {
     await collection.deleteOne({ _id: id, ownerKey: hashUserId(session.userId) });
     return;
   }
@@ -668,6 +679,7 @@ export async function saveAiPersonaSession(session: AiPersonaSessionRecord): Pro
     userId: session.userId,
     guildId: session.guildId,
     activePersonaId: session.activePersonaId?.slice(0, 64) ?? null,
+    ...(session.lastPersonaId ? { lastPersonaId: session.lastPersonaId.slice(0, 64) } : {}),
     ...(session.pendingDraft ? {
       pendingDraft: {
         name: session.pendingDraft.name.trim().slice(0, 50),
@@ -689,6 +701,52 @@ export async function saveAiPersonaSession(session: AiPersonaSessionRecord): Pro
     },
     { upsert: true },
   );
+}
+
+export type DailyImageQuotaResult = "reserved" | "limit_reached" | "unavailable";
+
+export async function reserveDailyImageQuota(dayKey: string, limit: number): Promise<DailyImageQuotaResult> {
+  const collection = dailyImageQuotaCol;
+  if (!collection || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || !Number.isInteger(limit) || limit < 1) {
+    return "unavailable";
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await collection.updateOne(
+        { _id: dayKey, count: { $lt: limit } },
+        { $inc: { count: 1 }, $set: { updatedAt: new Date() } },
+        { upsert: true },
+      );
+      return "reserved";
+    } catch (error) {
+      const isDuplicateKey = typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === 11000;
+      if (isDuplicateKey) {
+        const current = await collection.findOne({ _id: dayKey }).catch(() => null);
+        if ((current?.count ?? 0) >= limit) return "limit_reached";
+        continue;
+      }
+      logger.error({ error }, "Could not reserve daily image quota");
+      return "unavailable";
+    }
+  }
+  return "unavailable";
+}
+
+export async function releaseDailyImageQuota(dayKey: string): Promise<void> {
+  const collection = dailyImageQuotaCol;
+  if (!collection || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return;
+  try {
+    await collection.updateOne(
+      { _id: dayKey, count: { $gt: 0 } },
+      { $inc: { count: -1 }, $set: { updatedAt: new Date() } },
+    );
+  } catch (error) {
+    logger.error({ error }, "Could not release daily image quota");
+  }
 }
 
 export async function deleteAiPersona(id: string, ownerId: string): Promise<boolean> {

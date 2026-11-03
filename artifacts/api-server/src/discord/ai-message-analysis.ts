@@ -226,6 +226,97 @@ export async function collectServerMessages(
   };
 }
 
+export async function collectOldestAccessibleUserMessage(
+  message: Message,
+  targetId: string,
+): Promise<{ oldest: CollectedMessage | null; scan: MessageScanResult }> {
+  const emptyScan: MessageScanResult = {
+    messages: [],
+    scannedMessages: 0,
+    accessibleChannels: 0,
+    scannedChannels: 0,
+    failedChannels: 0,
+    reachedScanLimit: false,
+  };
+  if (targetId !== message.author.id) return { oldest: null, scan: emptyScan };
+
+  if (!message.channel.isTextBased() || !("messages" in message.channel)) {
+    return { oldest: null, scan: emptyScan };
+  }
+
+  const historyChannel = message.channel as unknown as MessageHistoryChannel;
+  if (message.guild) {
+    const botPermissions = message.guild.members.me?.permissionsIn(historyChannel);
+    const requesterPermissions = message.member?.permissionsIn(historyChannel);
+    if (
+      !botPermissions?.has(PermissionFlagsBits.ViewChannel)
+      || !botPermissions.has(PermissionFlagsBits.ReadMessageHistory)
+      || !requesterPermissions?.has(PermissionFlagsBits.ViewChannel)
+      || !requesterPermissions.has(PermissionFlagsBits.ReadMessageHistory)
+    ) {
+      return {
+        oldest: null,
+        scan: { ...emptyScan, failedChannels: 1 },
+      };
+    }
+  }
+
+  const matches: CollectedMessage[] = [];
+  const prefix = message.guildId ? getPrefix(message.guildId) : "!";
+  const channelName = message.guild ? historyChannel.name : "DM";
+  let before: string | undefined;
+  let scannedMessages = 0;
+  let failedChannels = 0;
+  let reachedScanLimit = false;
+
+  while (scannedMessages < MAX_SERVER_MESSAGES_SCANNED) {
+    const pageLimit = Math.min(HISTORY_PAGE_SIZE, MAX_SERVER_MESSAGES_SCANNED - scannedMessages);
+    let page: { values(): IterableIterator<Message> };
+    try {
+      page = await historyChannel.messages.fetch({
+        limit: pageLimit,
+        ...(before ? { before } : {}),
+      });
+    } catch (error) {
+      failedChannels += 1;
+      logger.debug({ channelId: message.channelId, error }, "Could not read direct-message history for persona recall");
+      break;
+    }
+
+    const batch = [...page.values()];
+    if (batch.length === 0) break;
+    scannedMessages += batch.length;
+
+    let oldest = batch[0]!;
+    for (const item of batch) {
+      if (item.createdTimestamp < oldest.createdTimestamp) oldest = item;
+      if (
+        item.id !== message.id
+        && item.author.id === targetId
+        && !item.author.bot
+        && isUsefulConversationMessage(item.content, prefix)
+      ) {
+        matches.push({ channelName, message: item });
+      }
+    }
+
+    before = oldest.id;
+    if (batch.length < pageLimit) break;
+    if (scannedMessages >= MAX_SERVER_MESSAGES_SCANNED) reachedScanLimit = true;
+  }
+
+  const sortedMessages = matches.sort((a, b) => a.message.createdTimestamp - b.message.createdTimestamp);
+  const scan: MessageScanResult = {
+    messages: sortedMessages,
+    scannedMessages,
+    accessibleChannels: 1,
+    scannedChannels: scannedMessages > 0 ? 1 : 0,
+    failedChannels,
+    reachedScanLimit,
+  };
+  return { oldest: sortedMessages[0] ?? null, scan };
+}
+
 export async function handleAiMessageAnalysis(
   message: Message,
   text: string,
