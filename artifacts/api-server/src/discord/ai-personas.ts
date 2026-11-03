@@ -4,6 +4,7 @@ import type OpenAI from "openai";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
 import {
   deleteAiPersona,
+  getAiPersona,
   getAiPersonaSession as getAiPersonaSessionFromDb,
   isDbReady,
   listAiPersonasOwnedBy,
@@ -34,6 +35,25 @@ const personaSessionCache = new Map<string, {
   session: AiPersonaSessionRecord | null;
   expiresAt: number;
 }>();
+const personaMemoryQueues = new Map<string, Promise<void>>();
+
+async function withPersonaMemoryLock<T>(
+  personaId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = personaMemoryQueues.get(personaId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.catch(() => {}).then(() => gate);
+  personaMemoryQueues.set(personaId, queued);
+  await previous.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (personaMemoryQueues.get(personaId) === queued) personaMemoryQueues.delete(personaId);
+  }
+}
 
 function personaSessionCacheKey(userId: string, guildId: string | null): string {
   return `${guildId ?? "dm"}:${userId}`;
@@ -69,7 +89,7 @@ function localized(language: UserLang, french: string, english: string): string 
 
 function safeName(name: string): string {
   return name
-    .replace(/[\r\n@`<>]/g, "")
+    .replace(/[\r\n@`<>|\\]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 50);
@@ -119,11 +139,11 @@ function resolvePersona(
 ): AiPersonaRecord | null {
   const normalized = selector.trim().toLowerCase();
   if (!normalized) return null;
-  const exact = personas.find((persona) =>
-    persona.id.toLowerCase() === normalized
-    || persona.name.toLowerCase() === normalized,
-  );
-  if (exact) return exact;
+  const exactId = personas.find((persona) => persona.id.toLowerCase() === normalized);
+  if (exactId) return exactId;
+  const exactNames = personas.filter((persona) => persona.name.toLowerCase() === normalized);
+  if (exactNames.length === 1) return exactNames[0]!;
+  if (exactNames.length > 1) return null;
   const idMatches = personas.filter((persona) => persona.id.toLowerCase().startsWith(normalized));
   return idMatches.length === 1 ? idMatches[0]! : null;
 }
@@ -291,8 +311,8 @@ async function createPersona(
 
   const confirmation = localized(
     language,
-    `✅ Persona **${escapeMarkdown(persona.name)}** créé en privé. ID : \`${shortId(persona.id)}\`.${options.autoActivate ? " Il est activé pour toi ; dis « parle en langage naturel » ou « arrête ce persona » pour revenir à MaximeGPT." : ` Tu peux l’activer avec \`!persona activate ${shortId(persona.id)}\`.`} L’avatar sera généré au premier usage. Pour utiliser ton image, joins-la avec \`!persona avatar ${shortId(persona.id)}\`. Pour qu’il retienne tes réponses, autorise sa mémoire avec \`!persona learn ${shortId(persona.id)} confirm\`.`,
-    `✅ Private persona **${escapeMarkdown(persona.name)}** created. ID: \`${shortId(persona.id)}\`.${options.autoActivate ? " It is active for you; say “speak naturally” or “stop this persona” to return to MaximeGPT." : ` Activate it with \`!persona activate ${shortId(persona.id)}\`.`} Its avatar is generated on first use. Attach your image with \`!persona avatar ${shortId(persona.id)}\`. To let it remember your replies, enable memory with \`!persona learn ${shortId(persona.id)} confirm\`.`,
+    `✅ Persona **${escapeMarkdown(persona.name)}** créé en privé. ID : \`${shortId(persona.id)}\`.${options.autoActivate ? " Il est activé pour toi ; dis « parle en langage naturel » ou « arrête ce persona » pour revenir à MaximeGPT." : ` Tu peux l’activer avec \`!persona activate ${persona.name}\`.`} L’avatar sera généré au premier usage. Pour utiliser ton image, joins-la avec \`!persona avatar ${persona.name}\`. Pour qu’il retienne tes réponses, autorise sa mémoire avec \`!persona learn ${persona.name} confirm\`.`,
+    `✅ Private persona **${escapeMarkdown(persona.name)}** created. ID: \`${shortId(persona.id)}\`.${options.autoActivate ? " It is active for you; say “speak naturally” or “stop this persona” to return to MaximeGPT." : ` Activate it with \`!persona activate ${persona.name}\`.`} Its avatar is generated on first use. Attach your image with \`!persona avatar ${persona.name}\`. To let it remember your replies, enable memory with \`!persona learn ${persona.name} confirm\`.`,
   );
   if (persona.visibility === "private") {
     await safeReply(message, confirmation);
@@ -409,8 +429,8 @@ async function changeAvatarConsent(
     await saveAiPersona(persona);
     await safeReply(message, localized(
       language,
-      "✅ Tu autorises ce persona à utiliser ta photo de profil actuelle. Les réponses restent envoyées par le compte du bot.",
-      "✅ This persona may use your current profile photo. Replies still come from the bot account.",
+      "✅ Tu autorises ce persona à utiliser ta photo de profil si aucune image personnalisée n’est définie. Les réponses restent envoyées par le compte du bot.",
+      "✅ This persona may use your profile photo when no custom image is set. Replies still come from the bot account.",
     ));
     return;
   }
@@ -533,14 +553,15 @@ async function setPersonaAvatarFromAttachment(
     }
     const compressed = await compressPersonaAvatar(source);
     persona.customAvatarBase64 = compressed.toString("base64");
+    persona.generatedAvatarBase64 = undefined;
     persona.avatarImageOptimized = true;
     persona.avatarCdnUrl = undefined;
     persona.avatarCdnUpdatedAt = undefined;
     await saveAiPersona(persona);
     await safeReply(message, localized(
       language,
-      `✅ Image du persona **${escapeMarkdown(persona.name)}** mise à jour. Une version JPEG de 256 px est conservée ; elle sera réutilisée dans les réponses au lieu d’être renvoyée à chaque message.`,
-      `✅ Updated **${escapeMarkdown(persona.name)}**'s image. A 256 px JPEG is stored and reused in replies instead of being re-uploaded each time.`,
+      `✅ Image du persona **${escapeMarkdown(persona.name)}** mise à jour. Une version JPEG de 256 px est conservée ; son lien est réutilisé pendant environ 12 h puis renouvelé pour éviter un nouvel envoi à chaque réponse.`,
+      `✅ Updated **${escapeMarkdown(persona.name)}**'s image. A 256 px JPEG is stored; its link is reused for about 12 hours and renewed periodically instead of re-uploading it for every reply.`,
     ));
   } catch (error) {
     logger.warn({ error, personaId: persona.id }, "Could not process uploaded persona avatar");
@@ -689,7 +710,7 @@ async function respondWithPersona(
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setAuthor({
-      name: `🎭 ${safeName(persona.name)}`,
+      name: safeName(persona.name),
       ...(avatar.iconURL ? { iconURL: avatar.iconURL } : avatar.buffer ? { iconURL: "attachment://persona-avatar.jpg" } : {}),
     })
     .setDescription(answer.slice(0, 4_000));
@@ -824,30 +845,47 @@ async function saveRankedPersonaMemories(
   sample: PersonaMemorySample[],
   candidates: AiPersonaMemory[],
 ): Promise<{ rankedMemories: AiPersonaMemory[]; retainedNew: number; replaced: number }> {
-  const oldMemories = persona.knowledgeMemories ?? [];
-  const previousIds = new Set(oldMemories.map((memory) => memory.messageId));
-  const byMessageId = new Map<string, AiPersonaMemory>();
-  for (const memory of [...oldMemories, ...candidates]) byMessageId.set(memory.messageId, memory);
-  const rankedMemories = [...byMessageId.values()]
-    .sort((a, b) => b.interestScore - a.interestScore || a.createdAt.localeCompare(b.createdAt))
-    .slice(0, MAX_PERSONA_MEMORY_MESSAGES);
-  const retainedIds = new Set(rankedMemories.map((memory) => memory.messageId));
-  const newIds = sample.map((item) => item.messageId);
-  const processedIds = [...new Set([
-    ...(persona.processedMessageIds ?? persona.learnedMessageIds),
-    ...newIds,
-  ])].slice(-MAX_PROCESSED_MESSAGE_IDS);
-  persona.knowledgeMemories = rankedMemories;
-  persona.processedMessageIds = processedIds;
-  persona.learnedMessageIds = processedIds.slice(-2_000);
-  persona.messagesAnalyzedTotal = Math.min(1_000_000_000, persona.messagesAnalyzedTotal + newIds.length);
-  await saveAiPersona(persona);
+  return withPersonaMemoryLock(persona.id, async () => {
+    const current = await getAiPersona(persona.id);
+    if (!current || !current.learningConsent) {
+      return {
+        rankedMemories: current?.knowledgeMemories ?? [],
+        retainedNew: 0,
+        replaced: 0,
+      };
+    }
+    const alreadyProcessed = new Set(current.processedMessageIds ?? current.learnedMessageIds);
+    const newSample = sample.filter((item) => !alreadyProcessed.has(item.messageId));
+    if (newSample.length === 0) {
+      return { rankedMemories: current.knowledgeMemories ?? [], retainedNew: 0, replaced: 0 };
+    }
+    const newIds = newSample.map((item) => item.messageId);
+    const newIdSet = new Set(newIds);
+    const newCandidates = candidates.filter((memory) => newIdSet.has(memory.messageId));
+    const oldMemories = current.knowledgeMemories ?? [];
+    const previousIds = new Set(oldMemories.map((memory) => memory.messageId));
+    const byMessageId = new Map<string, AiPersonaMemory>();
+    for (const memory of [...oldMemories, ...newCandidates]) byMessageId.set(memory.messageId, memory);
+    const rankedMemories = [...byMessageId.values()]
+      .sort((a, b) => b.interestScore - a.interestScore || a.createdAt.localeCompare(b.createdAt))
+      .slice(0, MAX_PERSONA_MEMORY_MESSAGES);
+    const retainedIds = new Set(rankedMemories.map((memory) => memory.messageId));
+    const processedIds = [...new Set([
+      ...alreadyProcessed,
+      ...newIds,
+    ])].slice(-MAX_PROCESSED_MESSAGE_IDS);
+    current.knowledgeMemories = rankedMemories;
+    current.processedMessageIds = processedIds;
+    current.learnedMessageIds = processedIds.slice(-2_000);
+    current.messagesAnalyzedTotal = Math.min(1_000_000_000, current.messagesAnalyzedTotal + newIds.length);
+    await saveAiPersona(current);
 
-  return {
-    rankedMemories,
-    retainedNew: candidates.filter((memory) => retainedIds.has(memory.messageId)).length,
-    replaced: [...previousIds].filter((id) => !retainedIds.has(id)).length,
-  };
+    return {
+      rankedMemories,
+      retainedNew: newCandidates.filter((memory) => retainedIds.has(memory.messageId)).length,
+      replaced: [...previousIds].filter((id) => !retainedIds.has(id)).length,
+    };
+  });
 }
 
 async function rememberPersonaTurn(
@@ -937,16 +975,16 @@ async function learnPersona(
     }
     await sendPrivately(message, localized(
       language,
-      `🔒 Si tu confirmes, ce persona pourra retenir les faits utiles de tes futures conversations quand tu lui parles. Dans un serveur, il analysera aussi des lots de 100 messages que tu as écrits dans les salons lisibles par toi et le bot. MongoDB gardera jusqu’à ${MAX_PERSONA_MEMORY_MESSAGES} résumés chiffrés, classés par intérêt ; les moins utiles seront remplacés en premier. Les messages bruts ne sont pas conservés. Confirme avec \`!persona learn ${shortId(persona.id)} confirm\`. Pour arrêter et effacer les souvenirs : \`!persona learn ${shortId(persona.id)} revoke\`.`,
-      `🔒 If you confirm, this persona can remember useful details from future conversations with you. In a server, it will also analyze batches of 100 messages you wrote in channels both you and the bot can read. MongoDB will keep up to ${MAX_PERSONA_MEMORY_MESSAGES} encrypted summaries ranked by usefulness; lower-value notes are replaced first. Raw messages are not stored. Confirm with \`!persona learn ${shortId(persona.id)} confirm\`. To stop and erase memories: \`!persona learn ${shortId(persona.id)} revoke\`.`,
+      `🔒 Si tu confirmes, ce persona pourra retenir les faits utiles de tes futures conversations quand tu lui parles. Dans un serveur, il analysera aussi des lots de 100 messages que tu as écrits dans les salons lisibles par toi et le bot. MongoDB gardera jusqu’à ${MAX_PERSONA_MEMORY_MESSAGES} résumés chiffrés, classés par intérêt ; les moins utiles seront remplacés en premier. Les messages bruts ne sont pas conservés. Confirme avec \`!persona learn ${persona.name} confirm\`. Pour arrêter et effacer les souvenirs : \`!persona learn ${persona.name} revoke\`.`,
+      `🔒 If you confirm, this persona can remember useful details from future conversations with you. In a server, it will also analyze batches of 100 messages you wrote in channels both you and the bot can read. MongoDB will keep up to ${MAX_PERSONA_MEMORY_MESSAGES} encrypted summaries ranked by usefulness; lower-value notes are replaced first. Raw messages are not stored. Confirm with \`!persona learn ${persona.name} confirm\`. To stop and erase memories: \`!persona learn ${persona.name} revoke\`.`,
     ), language);
     return;
   }
   if (!message.guildId) {
     await safeReply(message, localized(
       language,
-      `✅ Le persona peut maintenant retenir tes réponses utiles en conversation. Pour analyser aussi l’historique d’un serveur, relance \`!persona learn ${shortId(persona.id)}\` dans ce serveur.`,
-      `✅ The persona can now remember useful details from your conversations. To also analyze a server's history, run \`!persona learn ${shortId(persona.id)}\` there.`,
+      `✅ Le persona peut maintenant retenir tes réponses utiles en conversation. Pour analyser aussi l’historique d’un serveur, relance \`!persona learn ${persona.name}\` dans ce serveur.`,
+      `✅ The persona can now remember useful details from your conversations. To also analyze a server's history, run \`!persona learn ${persona.name}\` there.`,
     ));
     return;
   }
@@ -1171,14 +1209,14 @@ async function activatePersona(
   });
   await safeReply(message, localized(
     language,
-    `✅ **${escapeMarkdown(persona.name)}** est actif pour toi dans ce contexte. Dis « parle en langage naturel » ou « arrête ce persona » pour revenir à MaximeGPT.${persona.ownerId === message.author.id && !persona.learningConsent ? ` Pour qu’il retienne tes réponses, active sa mémoire avec \`!persona learn ${shortId(persona.id)} confirm\`.` : ""}`,
-    `✅ **${escapeMarkdown(persona.name)}** is active for you in this context. Say “speak naturally” or “stop this persona” to return to MaximeGPT.${persona.ownerId === message.author.id && !persona.learningConsent ? ` To let it remember your replies, enable its memory with \`!persona learn ${shortId(persona.id)} confirm\`.` : ""}`,
+    `✅ **${escapeMarkdown(persona.name)}** est actif pour toi dans ce contexte. Dis « parle en langage naturel » ou « arrête ce persona » pour revenir à MaximeGPT.${persona.ownerId === message.author.id && !persona.learningConsent ? ` Pour qu’il retienne tes réponses, active sa mémoire avec \`!persona learn ${persona.name} confirm\`.` : ""}`,
+    `✅ **${escapeMarkdown(persona.name)}** is active for you in this context. Say “speak naturally” or “stop this persona” to return to MaximeGPT.${persona.ownerId === message.author.id && !persona.learningConsent ? ` To let it remember your replies, enable its memory with \`!persona learn ${persona.name} confirm\`.` : ""}`,
   ));
 }
 
 async function findPersonaForReply(message: Message): Promise<AiPersonaRecord | null> {
   if (!message.reference?.messageId) return null;
-  const referenced = message.referencedMessage ?? await message.fetchReference().catch(() => null);
+  const referenced = await message.fetchReference().catch(() => null);
   const botId = message.client.user?.id;
   if (!referenced || !botId || referenced.author.id !== botId) return null;
   const visiblePersonas = await listVisibleAiPersonas(message.guildId, message.author.id);
@@ -1249,6 +1287,13 @@ export async function handleAiPersonaNaturalMessage(
         ));
         return true;
       }
+      if (repliedPersona) {
+        await persistPersonaSession({
+          userId: message.author.id,
+          guildId: message.guildId,
+          activePersonaId: selectedPersona.id,
+        });
+      }
       await setPersonaAvatarFromAttachment(message, selectedPersona, language);
       return true;
     }
@@ -1268,6 +1313,11 @@ export async function handleAiPersonaNaturalMessage(
         return true;
       }
       if (!cleaned) return false;
+      await persistPersonaSession({
+        userId: message.author.id,
+        guildId: message.guildId,
+        activePersonaId: repliedPersona.id,
+      });
       await respondWithPersona(message, repliedPersona, cleaned, openai, language, true);
       return true;
     }
@@ -1314,7 +1364,7 @@ function helpText(language: UserLang): string {
       "`!persona <nom> | <message>` (ou `!persona use <nom> | <message>`) — le nom ou l’id fonctionne.",
       "`!persona activate <nom ou id>` · `!persona stop` — activer ou arrêter le persona pour toi.",
       "`!persona privacy <id> public|private`",
-      "`!persona avatar <nom> [allow|revoke|clear]` — joins une image pour la personnaliser.",
+      "`!persona avatar <nom> [allow|revoke|clear]` — joins une image pour la personnaliser ; tu peux aussi mentionner le bot avec une image quand le persona est actif.",
       "`!persona learn <nom> confirm` — autoriser l’apprentissage des conversations futures et de l’historique du serveur.",
       "`!persona learn <nom> revoke` — arrêter l’apprentissage et supprimer les souvenirs.",
       "`!persona delete <id>` — suppression avec confirmation.",
@@ -1329,7 +1379,7 @@ function helpText(language: UserLang): string {
       "`!persona <name> | <message>` (or `!persona use <name> | <message>`) — use a name or id.",
       "`!persona activate <name or id>` · `!persona stop` — activate or stop your persona.",
       "`!persona privacy <id> public|private`",
-      "`!persona avatar <name> [allow|revoke|clear]` — attach an image to customize it.",
+      "`!persona avatar <name> [allow|revoke|clear]` — attach an image, or mention the active persona with one.",
       "`!persona learn <name> confirm` — allow learning from future chats and server history.",
       "`!persona learn <name> revoke` — stop learning and delete stored memories.",
       "`!persona delete <id>` — delete with confirmation.",
