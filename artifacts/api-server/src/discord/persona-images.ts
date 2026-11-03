@@ -7,6 +7,22 @@ import type { UserLang } from "./user-lang-store.js";
 const IMAGE_MODEL_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell";
 const MAX_PERSONA_PHOTO_BYTES = 10 * 1024 * 1024;
 
+function getImageExtension(buffer: Buffer): string | null {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return "png";
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "jpg";
+  }
+  if (buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
+    return "webp";
+  }
+  if (buffer.length >= 6 && /^GIF8[79]a$/.test(buffer.toString("ascii", 0, 6))) {
+    return "gif";
+  }
+  return null;
+}
+
 export function isSelfPhotoRequest(text: string): boolean {
   const normalized = text
     .normalize("NFD")
@@ -47,23 +63,42 @@ export async function sendFictionalAssistantPhoto(
 
   let imageSent = false;
   try {
-    const response = await fetch(IMAGE_MODEL_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        inputs: `Create one high-quality, photorealistic, friendly portrait selfie of a fictional AI character called "${character.name}". Use the following character details only as visual reference: ${character.description.slice(0, 2_000)}. This is an imagined visual representation of an AI, not a real photograph or a depiction of its creator. Show one character, natural lighting, tasteful everyday clothing, no text, no letters, no logos, no watermark, no collage.`,
-      }),
-    });
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!response.ok || !contentType.startsWith("image/")) {
-      logger.warn({ status: response.status, contentType }, "Persona image generation failed");
-      await message.reply(isFrench
-        ? "Je n’ai pas réussi à générer l’image cette fois. La tentative ne compte pas dans la limite quotidienne."
-        : "I couldn't generate the image this time. This attempt won't count toward the daily limit.");
-      return;
-    }
+    const inputs = `Create one high-quality, photorealistic, friendly portrait selfie of a fictional AI character called "${character.name}". Use the following character details only as visual reference: ${character.description.slice(0, 2_000)}. This is an imagined visual representation of an AI, not a real photograph or a depiction of its creator. Show one character, natural lighting, tasteful everyday clothing, no text, no letters, no logos, no watermark, no collage.`;
+    let generated: { buffer: Buffer; extension: string } | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await fetch(IMAGE_MODEL_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs, options: { wait_for_model: true } }),
+      });
+      if (!response.ok) {
+        const status = response.status;
+        const contentType = response.headers.get("content-type") ?? "";
+        if ((status === 429 || status === 503) && attempt < 2) {
+          const retryAfterSeconds = Number(response.headers.get("retry-after"));
+          const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? Math.min(5_000, retryAfterSeconds * 1_000)
+            : (attempt + 1) * 1_500;
+          await response.body?.cancel().catch(() => {});
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        logger.warn({ status, contentType, attempt: attempt + 1 }, "Persona image provider returned an error");
+        throw new Error(`Image provider returned HTTP ${status}`);
+      }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+      const contentType = response.headers.get("content-type") ?? "";
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const extension = getImageExtension(buffer);
+      if (buffer.length === 0 || buffer.length > MAX_PERSONA_PHOTO_BYTES || !extension) {
+        logger.warn({ contentType, size: buffer.length }, "Persona image provider returned an invalid image payload");
+        throw new Error("Image provider returned an invalid image payload");
+      }
+      generated = { buffer, extension };
+      break;
+    }
+    if (!generated) throw new Error("Image provider did not return an image");
+    const { buffer, extension } = generated;
     if (buffer.length === 0 || buffer.length > MAX_PERSONA_PHOTO_BYTES) {
       logger.warn({ size: buffer.length }, "Generated persona image had an invalid size");
       await message.reply(isFrench
