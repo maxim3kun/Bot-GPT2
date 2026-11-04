@@ -129,6 +129,8 @@ export interface AiPersonaRecord {
   name: string;
   description: string;
   profile: string;
+  visualDescription?: string;
+  visualSeed?: number;
   visibility: AiPersonaVisibility;
   avatarConsent: boolean;
   generatedAvatarBase64?: string;
@@ -580,6 +582,12 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
     name: persona.name.trim().slice(0, 50),
     description: persona.description.trim().slice(0, 2_000),
     profile: persona.profile.trim().slice(0, 2_000),
+    visualDescription: persona.visualDescription?.trim().slice(0, 2_000),
+    visualSeed: Number.isInteger(persona.visualSeed)
+      && (persona.visualSeed ?? -1) >= 0
+      && (persona.visualSeed ?? 0) <= 0x7fffffff
+      ? persona.visualSeed
+      : undefined,
     knowledgeSummaries: persona.knowledgeSummaries
       .map((summary) => summary.trim().slice(0, 1_000))
       .filter(Boolean)
