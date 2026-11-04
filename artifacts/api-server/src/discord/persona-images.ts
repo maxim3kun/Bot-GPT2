@@ -99,15 +99,6 @@ export async function sendFictionalAssistantPhoto(
     }
     if (!generated) throw new Error("Image provider did not return an image");
     const { buffer, extension } = generated;
-    if (buffer.length === 0 || buffer.length > MAX_PERSONA_PHOTO_BYTES) {
-      logger.warn({ size: buffer.length }, "Generated persona image had an invalid size");
-      await message.reply(isFrench
-        ? "L’image générée n’avait pas un format valide. La tentative ne compte pas dans la limite quotidienne."
-        : "The generated image had an invalid format. This attempt won't count toward the daily limit.");
-      return;
-    }
-
-    const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
     const payload: MessageCreateOptions = {
       content: isFrench
         ? `Voici une représentation fictive de ${character.name}, générée par IA.`
