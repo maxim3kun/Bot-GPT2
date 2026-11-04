@@ -26,7 +26,8 @@ import { buildLanguageGuardPrompt, detectUserLanguage } from "./ai-language-guar
 import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
 import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./persona-images.js";
-import type { UserLang } from "./user-lang-store.js";
+import { speakPersonaReply } from "./voice.js";
+import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
 
 const MAX_PERSONAS_PER_USER = 10;
 const MAX_LEARN_MESSAGES_PER_RUN = 100;
@@ -836,7 +837,9 @@ async function respondWithPersona(
   activeSession: boolean,
 ): Promise<void> {
   persona = await getAiPersona(persona.id) ?? persona;
-  const responseLanguage = detectUserLanguage(prompt) ?? language;
+  const responseLanguage = detectUserLanguage(prompt)
+    ?? getUserLangOverride(message.author.id)
+    ?? (language === "en" ? "fr" : language);
   if (isOldestMessageRecallRequest(prompt)) {
     const recallCommand = `!persona recall ${safeName(persona.name)} confirm`;
     await sendPrivately(message, localized(
@@ -899,6 +902,15 @@ async function respondWithPersona(
   const answer = response.choices[0]?.message?.content?.trim();
   if (!answer || response.choices[0]?.finish_reason === "length") {
      await safeReply(message, localized(responseLanguage, "Je n’ai pas pu générer une réponse complète pour ce persona.", "I couldn't generate a complete response for this persona."));
+    return;
+  }
+
+  if (
+    (persona.visibility !== "private" || activeSession)
+    && await speakPersonaReply(message, answer, responseLanguage, safeName(persona.name))
+  ) {
+    rememberPersonaConversationTurn(historyKey, prompt, answer);
+    await rememberPersonaTurn(message, persona, prompt, openai);
     return;
   }
 

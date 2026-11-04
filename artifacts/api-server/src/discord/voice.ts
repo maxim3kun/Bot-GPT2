@@ -433,13 +433,14 @@ export async function speakText(
   text: string,
   lang = "en",
   senderName?: string,
+  includeSubtitle = true,
 ): Promise<boolean> {
   const state = guildStates.get(guildId);
   if (!state || !state.active) return false;
 
   try {
     // Post subtitle first so it appears as the audio starts
-    if (state.subtitles) {
+    if (state.subtitles && includeSubtitle) {
       const label = senderName ?? state.botName;
       await state.textChannel.send(`🤖 **${label}**: *${text}*`).catch(() => null);
     }
@@ -466,4 +467,17 @@ export async function speakText(
     state.botSpeakingUntil = Date.now() + 1000;
     return false;
   }
+}
+
+export async function speakPersonaReply(
+  message: Message,
+  text: string,
+  lang: string,
+  personaName: string,
+): Promise<boolean> {
+  const memberVoiceChannelId = message.member?.voice.channelId;
+  if (!message.guildId || !memberVoiceChannelId) return false;
+  const connection = getVoiceConnection(message.guildId);
+  if (!connection || connection.joinConfig.channelId !== memberVoiceChannelId) return false;
+  return speakText(message.guildId, text, lang, personaName, false);
 }

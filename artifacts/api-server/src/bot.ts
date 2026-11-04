@@ -114,7 +114,11 @@ function getAiResponseLanguage(
   text: string,
   fallback: ReturnType<typeof getEffectiveLanguage>,
 ): ReturnType<typeof getEffectiveLanguage> {
-  return getUserLangOverride(userId) ?? detectUserLanguage(text) ?? fallback;
+  const detected = detectUserLanguage(text);
+  if (detected) return detected;
+  const personalOverride = getUserLangOverride(userId);
+  if (personalOverride) return personalOverride;
+  return fallback === "en" ? "fr" : fallback;
 }
 
 function getAiHistory(channelId: string): ChatMessage[] {
