@@ -83,6 +83,7 @@ export async function sendFictionalAssistantPhoto(
 
   let imageSent = false;
   let failureStage = "image provider";
+  let providerStatus: number | undefined;
   try {
     const inputs = `Create one high-quality, photorealistic, friendly portrait selfie of a fictional AI character called "${character.name}". Use the following character details only as visual reference: ${character.description.slice(0, 2_000)}. This is an imagined visual representation of an AI, not a real photograph or a depiction of its creator. Show one character, natural lighting, tasteful everyday clothing, no text, no letters, no logos, no watermark, no collage.`;
     let generated: { buffer: Buffer; extension: string } | null = null;
@@ -94,6 +95,7 @@ export async function sendFictionalAssistantPhoto(
       });
       if (!response.ok) {
         const status = response.status;
+        providerStatus = status;
         const contentType = response.headers.get("content-type") ?? "";
         if ((status === 429 || status === 503) && attempt < 2) {
           const retryAfterSeconds = Number(response.headers.get("retry-after"));
@@ -158,9 +160,17 @@ export async function sendFictionalAssistantPhoto(
         : hasAttachmentPermissionError
           ? "The image was generated, but the bot lacks permission to attach files in this channel."
           : "The image was generated, but Discord refused the upload. This attempt won't count toward the daily limit."
-      : isFrench
-        ? "Le service d’image n’a pas pu fournir une image exploitable cette fois. La tentative ne compte pas dans la limite quotidienne."
-        : "The image service couldn't provide a usable image this time. This attempt won't count toward the daily limit.";
+      : failureStage === "image preparation"
+        ? isFrench
+          ? "L’image a été générée, mais le bot n’a pas pu la préparer pour Discord. La tentative ne compte pas dans la limite quotidienne."
+          : "The image was generated, but the bot couldn't prepare it for Discord. This attempt won't count toward the daily limit."
+        : (providerStatus === 401 || providerStatus === 403)
+          ? isFrench
+            ? "Le service d’images a refusé la requête. La configuration doit être vérifiée ; la tentative ne compte pas dans la limite quotidienne."
+            : "The image service rejected the request. Its configuration needs to be checked; this attempt won't count toward the daily limit."
+          : isFrench
+            ? "Le service d’image n’a pas pu fournir une image exploitable cette fois. La tentative ne compte pas dans la limite quotidienne."
+            : "The image service couldn't provide a usable image this time. This attempt won't count toward the daily limit.";
     await message.reply(notice).catch(() => null);
   } finally {
     if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
