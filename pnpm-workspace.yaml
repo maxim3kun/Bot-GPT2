@@ -70,6 +70,7 @@ autoInstallPeers: false
 
 onlyBuiltDependencies:
   - '@swc/core'
+  - canvas
   - esbuild
   - ffmpeg-static
   - msw
@@ -171,3 +172,4 @@ allowBuilds:
   msw: true
   unrs-resolver: true
   "@swc/core": true
+  canvas: true
