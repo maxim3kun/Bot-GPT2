@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
+    "@huggingface/inference": "^4.13.32",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "axios": "^1.21.0",
