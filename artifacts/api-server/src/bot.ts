@@ -58,6 +58,7 @@ import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from ".
 import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
 import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimationTest } from "./discord/shellgame.js";
 import { handleAiMessageAnalysis } from "./discord/ai-message-analysis.js";
+import { handlePollCommand } from "./discord/poll.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -3459,30 +3460,7 @@ export function startBot(): void {
         // ── Sondage ───────────────────────────────────────────────────────────────
         case "sondage":
         case "poll": {
-          const POLL_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣"];
-          const raw = args.join(" ");
-          const parts = raw.split("|").map(s => s.trim()).filter(Boolean);
-          if (parts.length < 3) {
-            await message.reply("❌ Format: `!poll <question> | <choice1> | <choice2> ...` *(minimum 2 choices)*");
-            break;
-          }
-          const question = parts[0]!;
-          const choices = parts.slice(1, 10);
-          const description = choices.map((c, i) => `${POLL_EMOJIS[i]} ${c}`).join("\n");
-          const embed = new EmbedBuilder()
-            .setTitle(`📊 ${question}`)
-            .setDescription(description)
-            .setColor(0x5865f2)
-            .setFooter({ text: `Poll by ${message.author.displayName ?? message.author.username}` });
-          if (!message.channel.isSendable()) {
-            await message.reply("❌ This channel does not support messages.");
-            break;
-          }
-          const pollMsg = await message.channel.send({ embeds: [embed] });
-          for (let i = 0; i < choices.length; i++) {
-            await pollMsg.react(POLL_EMOJIS[i]!).catch(() => null);
-          }
-          await message.delete().catch(() => null);
+          await handlePollCommand(message, args);
           break;
         }
 
