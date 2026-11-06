@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, onVoiceAloneChange, startVoteSkip, consumePendingVoiceCmd, consumePendingVoiceCmdByUser, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, loadCustomStations, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, loadCustomStations, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
@@ -43,7 +43,7 @@ import { buildLanguageGuardPrompt, detectUserLanguage } from "./discord/ai-langu
 import { imageQuotaNotice, releaseGeneratedImage, reserveGeneratedImage } from "./discord/image-quota.js";
 import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./discord/persona-images.js";
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
-import { handleMemberJoin, handleWelcomeCommand } from "./discord/welcome.js";
+import { handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
@@ -59,6 +59,8 @@ import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./disc
 import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimationTest } from "./discord/shellgame.js";
 import { handleAiMessageAnalysis } from "./discord/ai-message-analysis.js";
 import { handlePollCommand } from "./discord/poll.js";
+import { registerVoiceStateEvents } from "./discord/voice-events.js";
+import { registerGuildEvents } from "./discord/guild-events.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -656,34 +658,7 @@ export function startBot(): void {
 
   });
 
-  // ── Voice state — auto-disconnect when bot is alone ──────────────────────────
-
-  client.on("voiceStateUpdate", async (oldState, newState) => {
-    const guildId = oldState.guild.id;
-    const botId = client.user?.id;
-    if (!botId) return;
-
-    // ── Auto-run pending command when a user joins a voice channel ──────────────
-    const userId = newState.member?.user?.id;
-    const justJoined = !oldState.channelId && !!newState.channelId;
-    const switchedChannel = !!oldState.channelId && !!newState.channelId && oldState.channelId !== newState.channelId;
-    if (userId && userId !== botId && (justJoined || switchedChannel)) {
-      const fn = consumePendingVoiceCmdByUser(userId);
-      if (fn) {
-        await fn().catch((err) => logger.error({ err }, "voiceStateUpdate auto-run error"));
-      }
-    }
-
-    // ── Disconnect bot when left alone ─────────────────────────────────────────
-    const botVoiceState = oldState.guild.members.cache.get(botId)?.voice;
-    const botChannelId = botVoiceState?.channelId;
-    if (!botChannelId) return;
-    if (oldState.channelId !== botChannelId && newState.channelId !== botChannelId) return;
-    const botChannel = botVoiceState.channel;
-    if (!botChannel) return;
-    const humanCount = botChannel.members.filter((m) => !m.user.bot).size;
-    onVoiceAloneChange(guildId, humanCount === 0);
-  });
+  registerVoiceStateEvents(client);
 
   // ── Autocomplete handler ─────────────────────────────────────────────────────
   // Lazy play-dl loader (separate instance from radio's, used only for autocomplete)
@@ -4336,12 +4311,7 @@ export function startBot(): void {
     }
   });
 
-  // ── Welcome: greet new members ───────────────────────────────────────────
-  client.on("guildMemberAdd", async (member: GuildMember) => {
-    await handleMemberJoin(member, client).catch((err) =>
-      logger.error({ err }, "guildMemberAdd error"),
-    );
-  });
+  registerGuildEvents(client);
 
   client.once("clientReady", () => {
     loadCustomSounds().catch(() => null);
@@ -4375,9 +4345,6 @@ export function startBot(): void {
     if (isNaN(newIndex) || newIndex < 0 || newIndex >= WEBSITE_SECTIONS.length) return;
     await interaction.update(buildWebsiteMessage(newIndex));
   });
-
-  client.on("guildCreate", () => setBotStats({ guildCount: client.guilds.cache.size }));
-  client.on("guildDelete", () => setBotStats({ guildCount: client.guilds.cache.size }));
 
   client.login(token).catch((err) => {
     logger.error({ err }, "Failed to connect to Discord");

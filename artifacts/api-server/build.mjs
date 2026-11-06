@@ -33,7 +33,7 @@ async function ensureDjAssets() {
 
 /** Regenerate Shell Game assets only when they don't yet exist */
 async function ensureShellGameAssets() {
-  const outFile = path.resolve(artifactDir, "public/shellgame/easy/animation001/intro.gif");
+  const outFile = path.resolve(artifactDir, "public/shellgame/easy/animation001/animation.gif");
   const genScript = path.resolve(artifactDir, "scripts/generate-shellgame-assets.mjs");
   try {
     await access(outFile);
