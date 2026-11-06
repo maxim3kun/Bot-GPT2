@@ -1,31 +1,31 @@
-import { ChannelType, Client, ComponentType, GatewayIntentBits, Partials, Message, EmbedBuilder, MessageReaction, User, ActivityType, GuildMember, ChatInputCommandInteraction, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, ActivityType, GuildMember, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
-import { playMinesweeper, playGeoguessr, playTrivia, stopGeoguessr, isGeoActive, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
+import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
-import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, loadCustomStations, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
+import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
-import { startKaraoke, stopKaraoke, isKaraokeActive, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
+import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
-import { generateSong, pollSong, getCredits } from "./lib/suno-client";
+import { generateMusicTrack, handleSunoBalanceCommand } from "./discord/music-generation-commands.js";
+import { generateSong, pollSong, getCredits } from "./lib/suno-client.js";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
 import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
-import { getPrefix, setPrefix, resetPrefix } from "./discord/prefix-store";
-import { getLang, setLang, GuildLang } from "./discord/lang-store";
-import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS, USER_LANG_NAMES } from "./discord/user-lang-store";
+import { getPrefix } from "./discord/prefix-store";
+import { getLang, setLang } from "./discord/lang-store";
+import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS } from "./discord/user-lang-store";
 import { getEffectiveLanguage } from "./discord/effective-language.js";
 import { handleAdminUnlockTrigger, registerAdminUnlockInteractions } from "./discord/admin-unlock.js";
 import { botText } from "./discord/bot-i18n.js";
-import { commandSuggestStatus, commandSuggestText } from "./discord/command-suggest-i18n.js";
+import { commandSuggestText } from "./discord/command-suggest-i18n.js";
 import { extractRadioStationRequest } from "./discord/radio-intent.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
-import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage, unblockUser, getBanList, setAdminChannel, getAdminChannelId } from "./discord/command-suggest";
-import { getSuggestPref, setSuggestPref } from "./discord/suggest-prefs";
-import { getVoicePickerChannels, setVoicePickerChannels } from "./discord/voice-picker-channels";
+import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage } from "./discord/command-suggest";
+import { getSuggestPref } from "./discord/suggest-prefs";
 import { getAiTimezone, isMongoConnected, getDbStats, saveAiTimezone } from "./lib/db";
 import { setBotStats, incrementGroqCalls, getGroqCallCount } from "./lib/bot-stats";
 import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore } from "./discord/logo-brand-store";
@@ -33,8 +33,8 @@ import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
 import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, searchWeb, type WebSearchResult } from "./lib/web-search.js";
-import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage, type Language } from "./discord/responses.js";
-import { type HelpLanguage, buildHelpEmbed, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage } from "./discord/responses.js";
+import { type HelpLanguage, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
@@ -45,22 +45,26 @@ import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./discord/perso
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
-import { openDjConsole, handleDjButton, buildDjEmbed, buildDjButtonRows, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
-import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, BUILT_IN_PADS, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
-import { requireConsent, handleConsentButton, handleMemoryConsentButton, resetConsent } from "./discord/ai-consent.js";
-import { handleAiMemoryCommand, getAiPromptContext } from "./discord/ai-memory.js";
-import { handleAiPersonaCommand, handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
+import { openDjConsole, handleDjButton, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
+import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
+import { handleConsentButton, handleMemoryConsentButton } from "./discord/ai-consent.js";
+import { getAiPromptContext } from "./discord/ai-memory.js";
+import { handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
-import { startTierlist, handleTierlistButton } from "./discord/tierlist.js";
-import { startBlindtest, handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
-import { startMillionGame, handleMgButton, showMillionLeaderboard } from "./discord/milliongame.js";
+import { handleTierlistButton } from "./discord/tierlist.js";
+import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
+import { handleMgButton } from "./discord/milliongame.js";
 import { startShellGame, handleShellGameButton, showShellGameStats, handleAnimationTest } from "./discord/shellgame.js";
 import { handleAiMessageAnalysis } from "./discord/ai-message-analysis.js";
 import { handlePollCommand } from "./discord/poll.js";
 import { registerVoiceStateEvents } from "./discord/voice-events.js";
 import { registerGuildEvents } from "./discord/guild-events.js";
+import { handleGameMessageCommand } from "./discord/message-game-commands.js";
+import { isSendable } from "./discord/message-utils.js";
+import { handleMessageAiCommand } from "./discord/message-ai-commands.js";
+import { handleAdminMessageCommand } from "./discord/admin-message-commands.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -188,16 +192,6 @@ const PORNOGRAPHIC_SITE_REFUSAL =
   "Je ne peux pas fournir de liste, de classement, de noms ou de liens vers des sites pornographiques. " +
   "Je peux toutefois aider avec des informations générales sur la sexualité, le consentement, la sécurité en ligne ou la confidentialité.";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-type SendableChannel = { id: string; send: (...args: unknown[]) => Promise<unknown>; sendTyping: () => Promise<void> };
-
-function isSendable(channel: unknown): channel is SendableChannel {
-  return typeof channel === "object" && channel !== null && "send" in channel && "sendTyping" in channel;
-}
-
 const AI_IDENTITY_INSTRUCTIONS =
   "Your name is MaximeGPT, a Discord bot created and developed by Maxime, also known as Maxim3kun. " +
   "If asked who created or developed you, name Maxime (Maxim3kun). Never claim OpenAI created or developed this Discord bot; an AI model provider is not the bot's creator. " +
@@ -311,122 +305,6 @@ async function replyWithLatestNews(
   addToHistory(conversationKey(message), "assistant", answer);
   await replyWithAiAnswer(message, answer, webResults);
   return true;
-}
-
-// ── AI Battle ─────────────────────────────────────────────────────────────────
-
-const activeBattles = new Set<string>();
-const stoppedBattles = new Set<string>();
-
-async function runAiBattle(
-  topic: string,
-  channel: SendableChannel,
-  openai: OpenAI,
-  bot1Name: string,
-  bot2Client: Client,
-): Promise<void> {
-  const ROUNDS = 3;
-  const bot2Channel = await bot2Client.channels.fetch(channel.id).catch(() => null);
-
-  if (!bot2Channel || !isSendable(bot2Channel as Message["channel"])) {
-    await channel.send("❌ Bot 2 is not in this channel or not ready. Make sure to invite it to the server!");
-    return;
-  }
-
-  const bot2SendableChannel = bot2Channel as unknown as SendableChannel;
-  const bot2Name = bot2Client.user?.username ?? "Challenger";
-  const channelId = channel.id;
-
-  await channel.send(
-    `⚔️ **AI BATTLE** ⚔️\n\n**Topic:** ${topic}\n\n` +
-    `🔵 **${bot1Name}** argues **FOR**\n` +
-    `🔴 **${bot2Name}** argues **AGAINST**\n\n` +
-    `3 rounds — one message every ~40s. Type \`!ai stop\` to end. 🥊`,
-  );
-
-  await sleep(3000);
-
-  const battleHistory: { role: "user" | "assistant"; content: string }[] = [];
-
-  const systemFor = `You are ${bot1Name}, a passionate and eloquent AI debater. Argue STRONGLY FOR: "${topic}". Write 150-200 words. Use vivid language, concrete examples, end with a provocative question for your opponent. Respond in the same language as the topic.`;
-  const systemAgainst = `You are ${bot2Name}, a sharp and confident AI debater. Argue STRONGLY AGAINST: "${topic}". Write 150-200 words. Tear down your opponent's arguments with logic and wit, use real-world examples, end with a strong closing statement. Respond in the same language as the topic.`;
-
-  for (let round = 1; round <= ROUNDS; round++) {
-    if (stoppedBattles.has(channelId)) {
-      await channel.send(`🛑 **Battle stopped after round ${round - 1}.**`);
-      stoppedBattles.delete(channelId);
-      return;
-    }
-
-    await channel.sendTyping();
-    const forPrompt = round === 1
-      ? `Opening argument FOR: "${topic}". Write 150-200 words.`
-      : `Round ${round}: respond to your opponent and reinforce your position. Write 150-200 words.`;
-
-    battleHistory.push({ role: "user", content: forPrompt });
-
-    const forResponse = await openai.chat.completions.create({
-      model: "openai/gpt-oss-20b",
-      max_completion_tokens: 350,
-      messages: [{ role: "system", content: systemFor }, ...battleHistory],
-    });
-
-    incrementGroqCalls();
-    const forArg = forResponse.choices[0]?.message?.content ?? "...";
-    battleHistory.push({ role: "assistant", content: forArg });
-    await channel.send(`🔵 **${bot1Name}** — Round ${round}:\n\n${forArg}`);
-
-    await sleep(20000);
-    if (stoppedBattles.has(channelId)) {
-      await channel.send(`🛑 **Battle stopped mid-round ${round}.**`);
-      stoppedBattles.delete(channelId);
-      return;
-    }
-    await bot2SendableChannel.sendTyping();
-    await sleep(20000);
-
-    const againstPrompt = `Round ${round}: counter ${bot1Name}'s argument: "${forArg}". Write 150-200 words.`;
-    const againstHistory = [...battleHistory, { role: "user" as const, content: againstPrompt }];
-
-    const againstResponse = await openai.chat.completions.create({
-      model: "openai/gpt-oss-20b",
-      max_completion_tokens: 350,
-      messages: [{ role: "system", content: systemAgainst }, ...againstHistory],
-    });
-
-    incrementGroqCalls();
-    const againstArg = againstResponse.choices[0]?.message?.content ?? "...";
-    battleHistory.push({ role: "user", content: againstArg });
-    await bot2SendableChannel.send(`🔴 **${bot2Name}** — Round ${round}:\n\n${againstArg}`);
-
-    if (round < ROUNDS) {
-      await sleep(20000);
-      if (stoppedBattles.has(channelId)) {
-        await channel.send(`🛑 **Battle stopped after round ${round}.**`);
-        stoppedBattles.delete(channelId);
-        return;
-      }
-      await channel.sendTyping();
-      await sleep(20000);
-    }
-  }
-
-  const verdictResponse = await openai.chat.completions.create({
-    model: "openai/gpt-oss-20b",
-    max_completion_tokens: 200,
-    messages: [
-      {
-        role: "system",
-        content: `You are a dramatic debate judge. Declare a winner between ${bot1Name} (FOR) and ${bot2Name} (AGAINST) on the topic "${topic}". Be theatrical and funny. Max 100 words. Respond in the same language as the debate.`,
-      },
-      { role: "user", content: `The debate is over. Who won?\n\n${battleHistory.map((m) => m.content).join("\n\n")}` },
-    ],
-  });
-
-  incrementGroqCalls();
-  const verdict = verdictResponse.choices[0]?.message?.content ?? "It's a tie!";
-  await sleep(2000);
-  await channel.send(`🏆 **VERDICT** 🏆\n\n${verdict}`);
 }
 
 // ── Bot entry point ───────────────────────────────────────────────────────────
@@ -1812,6 +1690,20 @@ export function startBot(): void {
     }
 
     try {
+      if (await handleMessageAiCommand({
+        message,
+        command,
+        args,
+        responseLang,
+        guildPrefix,
+        openai,
+        client,
+        client2,
+        answerAiQuestion,
+      })) return;
+      if (await handleGameMessageCommand(message, command, args, openai)) return;
+      if (await handleAdminMessageCommand(message, command, args, guildPrefix, responseLang)) return;
+
       switch (command) {
 
         // ── General ─────────────────────────────────────────────────────────────
@@ -1887,102 +1779,6 @@ export function startBot(): void {
           break;
         }
 
-        case "conspiracy": {
-          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          if (!await requireConsent(message)) break;
-          try {
-            const topic = args.join(" ").trim();
-            if (isSendable(message.channel)) await message.channel.sendTyping();
-            const prompt = topic
-              ? `Generate a short, absurd and funny conspiracy theory about: "${topic}". Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`
-              : `Generate a short, absurd and funny random conspiracy theory. Under 200 words. Be creative, dramatic, ridiculous. Start directly with the theory.`;
-            const response = await openai.chat.completions.create({
-              model: "openai/gpt-oss-20b",
-              max_completion_tokens: 300,
-              messages: [
-                { role: "system", content: `You are a dramatic conspiracy theory generator. Always write in ${USER_LANG_NAMES[responseLang]}, regardless of the language of the input. Be creative, funny, absurd — never harmful.` },
-                { role: "user", content: prompt },
-              ],
-            });
-            incrementGroqCalls();
-            const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
-            await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
-          } catch (err) {
-            logger.error({ err }, "Conspiracy error");
-            await message.reply("❌ The government blocked this theory. Try again!");
-          }
-          break;
-        }
-
-        // ── Mini-games ───────────────────────────────────────────────────────────
-        case "minesweeper":
-        case "mine": {
-          const board = playMinesweeper(message, args[0]?.toLowerCase());
-          if (board) await message.reply(board);
-          break;
-        }
-
-        case "geo": {
-          const sub = args[0]?.toLowerCase();
-          if (sub === "stop") {
-            if (isGeoActive(message.channelId)) {
-              stopGeoguessr(message.channelId);
-              await message.reply("🏳️ GeoGuessr game abandoned!");
-            } else {
-              await message.reply("🤷 No game in progress.");
-            }
-            break;
-          }
-          const difficulty = sub || "easy";
-          if (!["easy", "medium", "hard"].includes(difficulty)) {
-            await message.reply("❓ Invalid mode. Use `!geo easy`, `!geo medium` or `!geo hard`.");
-            break;
-          }
-          playGeoguessr(message, difficulty as "easy" | "medium" | "hard").catch((err) => logger.error({ err }, "GeoGuessr error"));
-          break;
-        }
-
-        case "trivia": {
-          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          if (!await requireConsent(message)) break;
-          playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
-          break;
-        }
-
-        case "tierlist":
-        case "tier": {
-          await startTierlist(message, args).catch(err => { logger.error({ err }, "tierlist error"); message.reply("❌ Failed to start tier list.").catch(() => null); });
-          break;
-        }
-
-        case "blindtest":
-        case "musicquiz": {
-          await startBlindtest(message, args).catch(err => { logger.error({ err }, "blindtest error"); message.reply("❌ Failed to start blind test.").catch(() => null); });
-          break;
-        }
-
-        case "milliongame":
-        case "million": {
-          const sub = args[0]?.toLowerCase();
-          if (sub === "leaderboard" || sub === "top" || sub === "lb" || sub === "classement") {
-            await showMillionLeaderboard(message).catch(err => { logger.error({ err }, "million leaderboard error"); message.reply("❌ Failed to load leaderboard.").catch(() => null); });
-          } else {
-            await startMillionGame(message).catch(err => { logger.error({ err }, "milliongame error"); message.reply("❌ Failed to start Million Game.").catch(() => null); });
-          }
-          break;
-        }
-
-        case "guessnumber":
-        case "guess": {
-          playGuessNumber(message).catch((err) => logger.error({ err }, "GuessNumber error"));
-          break;
-        }
-
-        case "connect4": {
-          await playConnect4(message, args);
-          break;
-        }
-
         case "food":
         case "aliment":
         case "produit": {
@@ -1998,24 +1794,6 @@ export function startBot(): void {
           } else {
             await message.reply(`❓ Try \`${guildPrefix}rate food <product>\` to rate a food product!`);
           }
-          break;
-        }
-
-        case "guessthelogo":
-        case "guesslogo":
-        case "devinelelogo": {
-          const sub = args[0]?.toLowerCase();
-          if (sub === "stop") {
-            if (isLogoActive(message.channelId)) {
-              stopGuessLogo(message.channelId);
-              await message.reply("🏳️ Logo game abandoned!");
-            } else {
-              await message.reply("🤷 No logo game in progress.");
-            }
-            break;
-          }
-          const logoDiff = sub && ["easy", "medium", "hard"].includes(sub) ? sub : "easy";
-          playGuessLogo(message, logoDiff).catch((err) => logger.error({ err }, "GuessLogo error"));
           break;
         }
 
@@ -2233,52 +2011,7 @@ export function startBot(): void {
             const prompt = args.join(" ").trim();
             if (!prompt) { await message.reply("❌ Give me a prompt! e.g. `!music generator lo-fi hip hop beats chill`"); break; }
             if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-
-            const startEmbed = new EmbedBuilder()
-              .setColor(0x5865f2)
-              .setTitle("🎵 Generating your track…")
-              .setDescription(`**Prompt:** ${prompt}`)
-              .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
-            const reply = await message.reply({ embeds: [startEmbed] });
-
-            let taskId: string;
-            try {
-              taskId = await generateSong({ prompt });
-            } catch (err) {
-              logger.error({ err }, "Suno generate error");
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start generation: ${String(err)}`)] });
-              break;
-            }
-
-            const POLL_INTERVAL = 8000;
-            const POLL_MAX = 15;
-            for (let attempt = 1; attempt <= POLL_MAX; attempt++) {
-              await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-              let result;
-              try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
-
-              const st = result.status.toUpperCase();
-              if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
-                await reply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.").addFields({ name: "Task ID", value: taskId })] });
-                break;
-              }
-              if (result.done && result.clips.length > 0) {
-                const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
-                  const e = new EmbedBuilder()
-                    .setColor(0x57f287)
-                    .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
-                    .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
-                    .addFields({ name: "🎵 Listen", value: clip.audio_url! })
-                    .setFooter({ text: `Task ID: ${taskId}` });
-                  if (clip.image_url) e.setThumbnail(clip.image_url);
-                  if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
-                  if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
-                  return e;
-                });
-                if (embeds.length > 0) { await reply.edit({ embeds }); break; }
-              }
-              await reply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your track…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
-            }
+            await generateMusicTrack(message, prompt);
 
           } else if (sub === "prompt") {
             const embed = new EmbedBuilder()
@@ -2317,66 +2050,12 @@ export function startBot(): void {
             break;
           }
 
-          const genStartEmbed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle("🎵 Generating your track…")
-            .setDescription(`**Prompt:** ${genPrompt}`)
-            .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
-          const genReply = await message.reply({ embeds: [genStartEmbed] });
-
-          let genTaskId: string;
-          try {
-            genTaskId = await generateSong({ prompt: genPrompt });
-          } catch (err) {
-            logger.error({ err }, "Suno generate error (!generator music)");
-            await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start generation: ${String(err)}`)] });
-            break;
-          }
-
-          const GEN_POLL_INTERVAL = 8000;
-          const GEN_POLL_MAX = 15;
-          for (let attempt = 1; attempt <= GEN_POLL_MAX; attempt++) {
-            await new Promise((r) => setTimeout(r, GEN_POLL_INTERVAL));
-            let genResult;
-            try { genResult = await pollSong(genTaskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
-            const gst = genResult.status.toUpperCase();
-            if (gst === "ERROR" || gst === "FAILED" || gst === "FAILURE") {
-              await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.").addFields({ name: "Task ID", value: genTaskId })] });
-              break;
-            }
-            if (genResult.done && genResult.clips.length > 0) {
-              const genEmbeds = genResult.clips.filter((c) => c.audio_url).map((clip) => {
-                const e = new EmbedBuilder()
-                  .setColor(0x57f287)
-                  .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
-                  .setDescription(`**Prompt:** ${clip.prompt ?? genPrompt}`)
-                  .addFields({ name: "🎵 Listen", value: clip.audio_url! })
-                  .setFooter({ text: `Task ID: ${genTaskId}` });
-                if (clip.image_url) e.setThumbnail(clip.image_url);
-                if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
-                if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
-                return e;
-              });
-              if (genEmbeds.length > 0) { await genReply.edit({ embeds: genEmbeds }); break; }
-            }
-            await genReply.edit({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating your track…").setDescription(`**Prompt:** ${genPrompt}`).addFields({ name: "Status", value: genResult.status, inline: true }, { name: "Attempt", value: `${attempt}/${GEN_POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
-          }
+          await generateMusicTrack(message, genPrompt, "generator music");
           break;
         }
 
         case "balance": {
-          if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          try {
-            const credits = await getCredits();
-            const embed = new EmbedBuilder()
-              .setColor(credits > 10 ? 0x57f287 : credits > 0 ? 0xfee75c : 0xed4245)
-              .setTitle("💳 Suno Credits")
-              .addFields({ name: "Remaining credits", value: `${credits}`, inline: true })
-              .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
-            await message.reply({ embeds: [embed] });
-          } catch (err) {
-            await message.reply(`❌ Could not fetch credits: ${String(err)}`);
-          }
+          await handleSunoBalanceCommand(message);
           break;
         }
 
@@ -2602,120 +2281,6 @@ export function startBot(): void {
             await handleAnimationTest(message);
           } else {
             await message.reply(`🎩 Unknown sub-command. Usage: \`${guildPrefix}animation test\``);
-          }
-          break;
-        }
-
-        // ── Prefix ───────────────────────────────────────────────────────────────
-        case "prefix": {
-          const currentPfx = getPrefix(message.guildId);
-
-          if (!args[0]) {
-            await message.reply(
-              `📌 Current prefix: \`${currentPfx}\`\n` +
-              `➤ Change it: \`${currentPfx}prefix <new>\` *(admin only, max 3 chars)*\n` +
-              `➤ Reset: \`${currentPfx}prefix reset\``,
-            );
-            break;
-          }
-
-          const isPrefixAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator)
-            || message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-          if (!isPrefixAdmin) {
-            await message.reply("🔒 Only admins can change the prefix. (Requires **Manage Server** permission)");
-            break;
-          }
-
-          if (args[0].toLowerCase() === "reset") {
-            if (!message.guildId) break;
-            resetPrefix(message.guildId);
-            await message.reply("✅ Prefix reset to `!` (default).");
-            break;
-          }
-
-          const newPfx = args[0];
-          if (newPfx.length > 3) {
-            await message.reply("❌ Prefix must be 3 characters or less (e.g. `?`, `>>`, `$.`).");
-            break;
-          }
-          if (/\s/.test(newPfx)) {
-            await message.reply("❌ Prefix cannot contain spaces.");
-            break;
-          }
-
-          if (!message.guildId) break;
-          setPrefix(message.guildId, newPfx);
-          await message.reply(
-            `✅ Prefix changed to \`${newPfx}\`\n` +
-            `Example: \`${newPfx}help\`, \`${newPfx}radio nrj\`, \`${newPfx}music generator lo-fi\``,
-          );
-          break;
-        }
-
-        // ── Voice picker channels (admin) ────────────────────────────────────────
-        case "voicechannels":
-        case "voicesalons":
-        case "salonsvocaux": {
-          const isVCAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator)
-            || message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-          if (!isVCAdmin) {
-            await message.reply("🔒 Only admins can configure this. (**Manage Server** permission required)");
-            break;
-          }
-          if (!message.guildId) break;
-
-          if (args[0]?.toLowerCase() === "reset") {
-            await setVoicePickerChannels(message.guildId, []);
-            await message.reply("✅ Voice channel picker reset — the first 2 voice channels of the server will be shown.");
-            break;
-          }
-
-          const mentionedChannels = [...message.mentions.channels.values()]
-            .filter(c => c.type === ChannelType.GuildVoice)
-            .slice(0, 2);
-
-          if (mentionedChannels.length === 0) {
-            const current = getVoicePickerChannels(message.guildId);
-            const desc = current.length > 0
-              ? `Current channels: ${current.map(id => `<#${id}>`).join(", ")}`
-              : "Current channels: first 2 voice channels of the server";
-            await message.reply(
-              `🔊 **Voice channel picker**\n${desc}\n\n` +
-              `➤ Set channels: \`${guildPrefix}voicechannels #channel1 #channel2\`\n` +
-              `➤ Reset to default: \`${guildPrefix}voicechannels reset\``,
-            );
-            break;
-          }
-
-          const newIds = mentionedChannels.map(c => c.id);
-          await setVoicePickerChannels(message.guildId, newIds);
-          await message.reply(`✅ Voice picker updated! Channels shown: ${newIds.map(id => `<#${id}>`).join(", ")}`);
-          break;
-        }
-
-        // ── Suggest (on/off) ─────────────────────────────────────────────────────
-        case "suggest":
-        case "suggestion":
-        case "sugerencia": {
-          const sub = args[0]?.toLowerCase();
-          if (sub === "on" || sub === "off") {
-            const enabled = sub === "on";
-            setSuggestPref(message.author.id, enabled);
-            await message.reply(
-              enabled
-                ? commandSuggestText(responseLang, "enabled", guildPrefix)
-                : commandSuggestText(responseLang, "optedOut", guildPrefix),
-            );
-          } else {
-            const current = getSuggestPref(message.author.id);
-            await message.reply(
-              commandSuggestStatus(
-                responseLang,
-                current ?? null,
-                `${guildPrefix}suggest on`,
-                `${guildPrefix}suggest off`,
-              ),
-            );
           }
           break;
         }
@@ -3332,72 +2897,6 @@ export function startBot(): void {
           break;
         }
 
-        // ── AI Battle ────────────────────────────────────────────────────────────
-        case "ai": {
-          const memoryHandled = await handleAiMemoryCommand(message, args);
-          if (memoryHandled) break;
-          const subcommand = args.shift()?.toLowerCase();
-
-          if (subcommand === "stop") {
-            if (!activeBattles.has(message.channelId)) {
-              await message.reply("🤷 No battle running in this channel.");
-            } else {
-              stoppedBattles.add(message.channelId);
-              await message.reply("🛑 Stopping the battle after the current message...");
-            }
-            break;
-          }
-
-          if (subcommand === "reset") {
-            await resetConsent(message.author.id);
-            await message.reply(responseLang === "fr"
-              ? "♻️ Ton choix IA a été réinitialisé. La prochaine commande IA te redemandera ton accord."
-              : "♻️ Your AI preference has been reset. The next AI command will ask for consent again.");
-            break;
-          }
-
-          if (subcommand === "enable" || subcommand === "consent") {
-            if (await requireConsent(message, responseLang)) {
-              await message.reply(responseLang === "fr"
-                ? "✅ Les fonctions IA sont activées pour ton compte."
-                : "✅ AI features are enabled for your account.");
-            }
-            break;
-          }
-
-          if (subcommand !== "battle") break;
-          if (!openai) { await message.reply("❌ AI features are not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          if (!await requireConsent(message)) break;
-          if (!client2) { await message.reply("❌ The second bot is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-          if (!isSendable(message.channel)) break;
-
-          const topic = args.join(" ").trim() || "Is pineapple on pizza acceptable?";
-
-          if (activeBattles.has(message.channelId)) {
-            await message.reply("⚔️ A battle is already running! Type `!ai stop` to end it.");
-            break;
-          }
-
-          activeBattles.add(message.channelId);
-          const bot1Name = client.user?.username ?? "Defender";
-
-          runAiBattle(topic, message.channel, openai, bot1Name, client2)
-            .catch(async (err) => {
-              logger.error({ err }, "AI battle error");
-              await message.reply("❌ The battle crashed unexpectedly!");
-            })
-            .finally(() => {
-              activeBattles.delete(message.channelId);
-              stoppedBattles.delete(message.channelId);
-            });
-          break;
-        }
-
-        case "persona": {
-          await handleAiPersonaCommand(message, args, openai, responseLang);
-          break;
-        }
-
         // ── Credits ──────────────────────────────────────────────────────────────
         case "credits": {
           const embed = new EmbedBuilder()
@@ -3472,155 +2971,6 @@ export function startBot(): void {
             await negotiateQuests(message, openai);
           } else {
             await message.reply("❓ Commands: `!quest start` · `!quest add <goal>` · `!quest list` · `!quest done <n>` · `!quest profile` · `!quest negotiate` · `!quest reset`");
-          }
-          break;
-        }
-
-        // ── Unblock (admin only) ─────────────────────────────────────────────────
-        case "unblock": {
-          const isAdmin =
-            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
-            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-          if (!isAdmin) {
-            await message.reply("🔒 Only admins can use this command.");
-            break;
-          }
-          // Get mentioned user from args — accept <@id> or <@!id>
-          const mentionMatch = args[0]?.match(/^<@!?(\d+)>$/);
-          const targetId = mentionMatch?.[1];
-          if (!targetId) {
-            await message.reply(`❓ Usage: \`${guildPrefix}unblock @user\``);
-            break;
-          }
-          const wasBanned = unblockUser(targetId);
-          if (wasBanned) {
-            await message.reply(`✅ <@${targetId}> has been unblocked and can use bot commands again.`);
-          } else {
-            await message.reply(`ℹ️ <@${targetId}> isn't currently blocked.`);
-          }
-          break;
-        }
-
-        // ── Ban list (admin only) ─────────────────────────────────────────────────
-        case "banlist": {
-          const isAdmin =
-            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
-            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-          if (!isAdmin) {
-            await message.reply("🔒 Only admins can use this command.");
-            break;
-          }
-
-          const list = getBanList();
-          if (list.length === 0) {
-            await message.reply("✅ No users are currently flagged by the anti-troll system.");
-            break;
-          }
-
-          const LEVEL_LABELS: Record<number, string> = {
-            0: "⚠️ Warned",
-            1: "⏱️ 3-min block",
-            2: "🚫 12h block",
-            3: "🔒 2h full lock",
-            4: "⛔ Permanent ban",
-          };
-
-          function fmtRemaining(ms: number, permanent: boolean): string {
-            if (permanent) return "**Permanent**";
-            if (ms <= 0) return "Expired";
-            const totalMin = Math.ceil(ms / 60_000);
-            if (totalMin < 60) return `${totalMin} min left`;
-            const hr = Math.floor(totalMin / 60);
-            const min = totalMin % 60;
-            return min > 0 ? `${hr}h ${min}m left` : `${hr}h left`;
-          }
-
-          // Build a paginated embed — up to 15 users per page
-          const PAGE_SIZE = 15;
-          const pages = Math.ceil(list.length / PAGE_SIZE);
-          let page = 0;
-
-          function buildBanListEmbed(p: number): EmbedBuilder {
-            const slice = list.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
-            const lines = slice.map((e, idx) => {
-              const label = LEVEL_LABELS[e.level] ?? `Level ${e.level}`;
-              const timer = fmtRemaining(e.remainingMs, e.permanent);
-              return `${p * PAGE_SIZE + idx + 1}. <@${e.userId}> — ${label} · ${timer}`;
-            });
-            return new EmbedBuilder()
-              .setColor(0xe74c3c)
-              .setTitle(`🛡️ Anti-Troll Flagged Users (${list.length} total)`)
-              .setDescription(lines.join("\n"))
-              .setFooter({ text: `Page ${p + 1}/${pages} · Use ${guildPrefix}unblock @user to lift any restriction` });
-          }
-
-          if (pages === 1) {
-            await message.reply({ embeds: [buildBanListEmbed(0)] });
-            break;
-          }
-
-          // Multi-page with buttons
-          const prevId = `banlist_prev_${message.id}`;
-          const nextId = `banlist_next_${message.id}`;
-
-          function buildPageRow(p: number) {
-            return new ActionRowBuilder<ButtonBuilder>().addComponents(
-              new ButtonBuilder().setCustomId(prevId).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(p === 0),
-              new ButtonBuilder().setCustomId(nextId).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(p === pages - 1),
-            );
-          }
-
-          const blReply = await message.reply({ embeds: [buildBanListEmbed(page)], components: [buildPageRow(page)] });
-
-          const blCollector = blReply.createMessageComponentCollector({
-            componentType: ComponentType.Button,
-            filter: (i) => i.user.id === message.author.id,
-            time: 120_000,
-          });
-
-          blCollector.on("collect", async (i) => {
-            await i.deferUpdate();
-            if (i.customId === nextId) page = Math.min(page + 1, pages - 1);
-            else page = Math.max(page - 1, 0);
-            await blReply.edit({ embeds: [buildBanListEmbed(page)], components: [buildPageRow(page)] });
-          });
-
-          blCollector.on("end", async () => {
-            await blReply.edit({ components: [] }).catch(() => null);
-          });
-          break;
-        }
-
-        // ── Admin channel config ──────────────────────────────────────────────────
-        case "admin": {
-          const isAdmin =
-            message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
-            message.member?.permissions.has(PermissionFlagsBits.ManageGuild);
-          if (!isAdmin) {
-            await message.reply("🔒 Only admins can use this command.");
-            break;
-          }
-          const sub = (args[0] ?? "").toLowerCase();
-          if (sub === "channel") {
-            const guildId = message.guildId;
-            if (!guildId) break;
-            const reset = (args[1] ?? "").toLowerCase() === "reset";
-            if (reset) {
-              setAdminChannel(guildId, null);
-              await message.reply("✅ Admin channel removed. Alerts will be sent in the current channel if needed.");
-            } else {
-              const ch = message.mentions.channels.first() ?? message.channel;
-              setAdminChannel(guildId, ch.id);
-              await message.reply(`✅ Admin alert channel set to <#${ch.id}>. Anti-troll alerts will be sent there.`);
-            }
-          } else {
-            const chId = message.guildId ? getAdminChannelId(message.guildId) : null;
-            const current = chId ? `<#${chId}>` : "*(not configured)*";
-            await message.reply(
-              `⚙️ **Admin channel:** ${current}\n` +
-              `\`${guildPrefix}admin channel #channel\` — Set the alert channel\n` +
-              `\`${guildPrefix}admin channel reset\` — Remove it`
-            );
           }
           break;
         }
@@ -4235,11 +3585,6 @@ export function startBot(): void {
           });
           break;
         }
-
-        case "ask":
-        case "ia":
-          await answerAiQuestion(message, args.join(" "), responseLang, guildPrefix);
-          break;
 
         // ── New commands (beta) ───────────────────────────────────────────────
         case "new": {

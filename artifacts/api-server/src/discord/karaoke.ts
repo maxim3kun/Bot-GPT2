@@ -141,28 +141,6 @@ async function searchLrcLib(query: string): Promise<{ lines: LrcLine[]; title: s
 
 // ── Deduplication ─────────────────────────────────────────────────────────────
 
-function normalizeStr(str: string): string {
-  return str
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .trim();
-}
-
-function normalizeForDedup(str: string): string {
-  return str
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents (é→e, î→i …)
-    .toLowerCase()
-    .replace(/ma[i]?tre\s*/g, "")                     // maître/maitre → strip
-    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, "")            // remove (feat. ...) [feat. ...]
-    .replace(/\s*feat\.?\s+.*/i, "")                   // feat. at end
-    .replace(/\s*ft\.?\s+.*/i, "")                     // ft. at end
-    .replace(/\s*avec\s+.*/i, "")                      // French "avec" collaborator
-    .replace(/\s*[,;&×x]\s*.*/i, "")                   // strip after , ; & ×
-    .replace(/[^a-z0-9]/g, "")                         // only alphanumeric
-    .trim();
-}
-
 /**
  * Dedup key for lrclib results.
  * Strips ALL parentheticals and dash-suffixes from the title so variations like

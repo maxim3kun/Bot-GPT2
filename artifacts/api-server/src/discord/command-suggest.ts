@@ -280,18 +280,6 @@ function recordUnknown(userId: string): boolean {
   return false;
 }
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
-
-function fmtDuration(ms: number): string {
-  if (ms <= 0) return "a moment";
-  const totalSec = Math.ceil(ms / 1000);
-  if (totalSec < 60) return `${totalSec} second${totalSec !== 1 ? "s" : ""}`;
-  const totalMin = Math.ceil(totalSec / 60);
-  if (totalMin < 60) return `${totalMin} minute${totalMin !== 1 ? "s" : ""}`;
-  const totalHr = Math.ceil(totalMin / 60);
-  return `${totalHr} hour${totalHr !== 1 ? "s" : ""}`;
-}
-
 // ── Admin channel config (per guild, in-memory) ───────────────────────────────
 
 const adminChannelIds = new Map<string, string>(); // guildId → channelId

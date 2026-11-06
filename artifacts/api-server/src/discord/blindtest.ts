@@ -1,6 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Message, type ButtonInteraction, AttachmentBuilder, ChannelType } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Message, type ButtonInteraction, AttachmentBuilder } from "discord.js";
 import { spawn } from "child_process";
-import { PassThrough } from "stream";
 import { ytdlpSearch, cleanYouTubeTitle } from "../lib/ytdlp.js";
 import { logger } from "../lib/logger.js";
 
@@ -149,7 +148,6 @@ export async function startBlindtest(message: Message, args: string[]): Promise<
   };
   sessions.set(guildId, session);
 
-  const usedUrls = new Set<string>();
   await playNextRound(session, message.channel as Message["channel"], wait);
 }
 

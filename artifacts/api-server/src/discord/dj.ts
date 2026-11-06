@@ -1,22 +1,17 @@
 import {
   type Message,
-  type TextChannel,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   AttachmentBuilder,
 } from "discord.js";
-import { fileURLToPath } from "url";
-import path from "path";
 import { logger } from "../lib/logger.js";
 import {
   radioStates,
   pauseToggle,
   skipCurrentTrack,
   stopForGuild,
-  playYoutube,
-  searchAndQueue,
   RADIO_STATIONS,
   playRadio,
   getQueueEmbed,

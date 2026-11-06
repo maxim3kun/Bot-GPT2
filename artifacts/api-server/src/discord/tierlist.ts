@@ -29,7 +29,6 @@ const THEMES: Record<string, { name: string; emoji: string; items: string[] }> =
   },
 };
 
-const TIER_COLORS: Record<string, number> = { S: 0xff0000, A: 0xff7f00, B: 0xffff00, C: 0x00cc00, D: 0x0066ff };
 const TIERS = ["S","A","B","C","D"] as const;
 type Tier = typeof TIERS[number];
 

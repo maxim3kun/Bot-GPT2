@@ -86,10 +86,6 @@ function cookieArgs(): string[] {
 // No rotation: rotating to broken clients just delays failure.
 const ANDROID_ARGS = "--extractor-args=youtube:player_client=android;formats=missing_pot";
 
-function clientArgsForIdx(_idx: number): string {
-  return ANDROID_ARGS;
-}
-
 // SIGNIN_RE          → video requires authentication (age-restricted, bot-check)
 // COOKIES_INVALID_RE → cookies expired; yt-dlp warns but continues playing public videos
 const SIGNIN_RE         = /Sign in to confirm|bot.*check|cookies.*required/i;

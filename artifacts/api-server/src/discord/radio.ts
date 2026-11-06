@@ -1473,7 +1473,6 @@ export async function playYoutube(
   }
 }
 
-const SEARCH_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"] as const;
 const MAX_PAGES = 3;
 
 /**
@@ -1572,76 +1571,6 @@ function buildSearchPage(
     embed,
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)],
   };
-}
-
-const REMIX_PATTERN = /\b(remix|cover|karaoke|instrumental|slowed|reverb|mashup|nightcore|sped[\s-]up|pitch[\s-]up|lofi|lo[\s-]fi|8d\s*audio|bass[\s-]boosted|extended\s*mix|club\s*mix|vip\s*mix)\b/i;
-const OFFICIAL_PATTERN = /\b(official\s*(audio|video|music\s*video|lyric\s*video|clip)|vevo)\b/i;
-
-/**
- * Fuzzy word match against pre-normalised title word list.
- * titleWordsNorm: each token already has non-alphanumeric chars stripped ("S.O.S" → "sos")
- */
-function queryWordMatchesTitle(queryWord: string, titleWordsNorm: string[]): boolean {
-  for (const tw of titleWordsNorm) {
-    if (tw === queryWord) return true;
-    if (tw.length < 2 || queryWord.length < 2) continue;
-    // One is a substring of the other and within 1 char length diff  ("gims"⊂"guims")
-    if (queryWord.includes(tw) && tw.length >= queryWord.length - 1) return true;
-    if (tw.includes(queryWord) && queryWord.length >= tw.length - 1) return true;
-    // Levenshtein distance 1 via insertion/deletion walk
-    if (Math.abs(tw.length - queryWord.length) === 1) {
-      const [shorter, longer] = tw.length < queryWord.length ? [tw, queryWord] : [queryWord, tw];
-      let i = 0, j = 0, diffs = 0;
-      while (i < shorter.length && j < longer.length) {
-        if (shorter[i] !== longer[j]) { diffs++; j++; } else { i++; j++; }
-        if (diffs > 1) break;
-      }
-      if (diffs <= 1) return true;
-    }
-  }
-  return false;
-}
-
-function scoreYtResult(r: { title: string; channel: string | null; duration?: number }, query = ""): number {
-  let s = 0;
-  // Duration=0 means YouTube topic/channel/playlist, not a real video — strongly penalize
-  if (r.duration !== undefined && r.duration === 0) s -= 25;
-  if (REMIX_PATTERN.test(r.title)) s -= 5;
-  if (OFFICIAL_PATTERN.test(r.title)) s += 2;
-  if (r.channel && /official|vevo/i.test(r.channel)) s += 1;
-
-  if (query) {
-    // Normalise query: remove punctuation so "S.O.S" → "sos", keep spaces
-    const words = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 1);
-
-    // Split title on spaces/hyphens ONLY so "S.O.S" stays together,
-    // then strip non-alphanumeric per token → "S.O.S" → "sos", "1.9" → "19"
-    const titleWordsNorm = r.title.toLowerCase()
-      .split(/[\s\-&!?()\[\]]+/)
-      .map(w => w.replace(/[^a-z0-9]/g, ""))
-      .filter(w => w.length > 1);
-
-    // Also tokenise channel name — handles "NINAO" (title) + channel "Maître GIMS" → artist word found
-    const channelWordsNorm = r.channel
-      ? r.channel.toLowerCase()
-          .split(/[\s\-&!?()\[\]]+/)
-          .map(w => w.replace(/[^a-z0-9]/g, ""))
-          .filter(w => w.length > 1)
-      : [];
-
-    const titleMatchCount = words.filter(w => queryWordMatchesTitle(w, titleWordsNorm)).length;
-    // Combined = title + channel; catches when artist is only in channel name
-    const combinedMatchCount = words.filter(w =>
-      queryWordMatchesTitle(w, titleWordsNorm) || queryWordMatchesTitle(w, channelWordsNorm),
-    ).length;
-
-    s += titleMatchCount * 10;
-    if (words.length > 1 && combinedMatchCount === words.length) s += 20;   // all words matched (title+channel)
-    if (words.length > 1 && combinedMatchCount < Math.ceil(words.length / 2)) s -= 8; // < half match
-    if (combinedMatchCount === 0 && words.length > 0) s -= 20;               // nothing matched
-  }
-
-  return s;
 }
 
 // ── Search result picker ──────────────────────────────────────────────────────

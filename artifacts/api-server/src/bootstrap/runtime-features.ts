@@ -1,8 +1,7 @@
-import { feature, initializeFeatures, type RuntimeFeature } from "./feature-registry.js";
+import { feature, type RuntimeFeature } from "./feature-registry.js";
 import { isFeatureEnabled } from "./feature-flags.js";
 import { connectDb } from "../lib/db.js";
 import { runMigration } from "../lib/migrate.js";
-import { logger } from "../lib/logger.js";
 import { initQuestStore } from "../discord/quests.js";
 import { initBirthdayStore } from "../discord/birthdays.js";
 import { initSuggestPrefs } from "../discord/suggest-prefs.js";

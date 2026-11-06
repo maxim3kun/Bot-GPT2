@@ -1,4 +1,4 @@
-import { Client, TextChannel, EmbedBuilder, Message } from "discord.js";
+import { Client, TextChannel, Message } from "discord.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";

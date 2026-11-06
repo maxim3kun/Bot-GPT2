@@ -1,4 +1,4 @@
-import { EmbedBuilder, Message, ChatInputCommandInteraction } from "discord.js";
+import { EmbedBuilder } from "discord.js";
 import { logger } from "../lib/logger.js";
 
 const LOCALE_STRINGS: Record<string, {
