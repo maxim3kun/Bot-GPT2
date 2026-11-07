@@ -371,5 +371,10 @@ export function directCapabilitiesAnswer(language: UserLang = "en"): string {
     pl: "Jestem **MaximeGPT**, stworzonym przez **Maxime (Maxim3kun)**. Mogę rozmawiać, wyszukiwać w sieci ze źródłami, uruchamiać quizy i minigry, pomagać w zadaniach, obsługiwać rozmowy głosowe oraz odtwarzać radio lub dźwięk z YouTube. Po skonfigurowaniu Suno mogę też generować muzykę. Administratorzy mogą ustawiać prefiks, język, powitania i zaplanowane wiadomości. Nie mogę na żądanie nadawać ról ani banować, wyrzucać lub wyciszać członków. Niektóre funkcje wymagają uprawnień lub konfiguracji. Wpisz `help` z prefiksem serwera (domyślnie: `!help`), aby zobaczyć polecenia.",
     tr: "**MaximeGPT**, **Maxime (Maxim3kun)** tarafından oluşturuldu. Sohbet edebilir, kaynaklı web araması yapabilir, quiz ve mini oyunlar başlatabilir, görevlerde yardımcı olabilir, sesli sohbeti kullanabilir ve radyo ya da YouTube sesi oynatabilirim. Suno yapılandırılmışsa müzik de oluşturabilirim. Yöneticiler öneki, dili, karşılama mesajlarını ve zamanlanmış iletileri ayarlayabilir. İstek üzerine rol veremem; üyeleri banlayamam, atamam veya susturamam. Bazı özellikler izin ya da ek yapılandırma gerektirir. Komut listesini görmek için sunucu önekin ve `help` yaz (varsayılan: `!help`).",
   };
-  return answers[language];
+  const controlledActions = language === "fr"
+    ? "\n\nTu peux aussi me demander de lancer un démineur ou une radio : je te demanderai confirmation avant de les démarrer. Le diagnostic des modules reste réservé aux administrateurs."
+    : language === "en"
+      ? "\n\nYou can also ask me to start minesweeper or play a radio station: I will ask for confirmation before starting. Module diagnostics remain restricted to administrators."
+      : "";
+  return answers[language] + controlledActions;
 }

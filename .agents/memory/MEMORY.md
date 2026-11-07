@@ -8,3 +8,4 @@
 - [Persona reply labeling](persona-reply-labeling.md) — Do not add an AI-generated label; Discord already identifies the account as a bot.
 - [Module health and fallbacks](module-health-fallbacks.md) — Track runtime/dependency failures and use only real alternate paths; otherwise report degraded service honestly.
 - [Persona factual reliability](persona-factual-reliability.md) — Keep the configured role without inventing expertise or figures; use relevant evidence or admit uncertainty.
+- [Controlled AI actions](ai-action-authorization.md) — Typed allowlisted actions only; recheck permissions, consent and feature settings at execution, and confirm shared-state changes.

@@ -55,6 +55,7 @@ import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
+import { handleAiActionButton, handleAiActionRequest, requestAiAction } from "./discord/ai-actions.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -387,10 +388,11 @@ export function startBot(): void {
     }
     const requestedStation = extractRadioStationRequest(prompt, RADIO_STATIONS);
     if (requestedStation) {
-      await playRadio(message, requestedStation);
+      await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
       return;
     }
 
+    if (await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
     const route = classifyAiMessage(prompt);
     if (route.intent === "greeting") {
       await message.reply(directGreeting(message, aiResponseLang));
@@ -1075,6 +1077,17 @@ export function startBot(): void {
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
 
+    if (interaction.customId.startsWith("ai_action:")) {
+      try { await handleAiActionButton(interaction); }
+      catch (error) {
+        logger.error({ err: error }, "AI action confirmation failed");
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Impossible de traiter la confirmation. / Could not process confirmation.", ephemeral: true }).catch(() => null);
+        }
+      }
+      return;
+    }
+
     // ── AI research sources ────────────────────────────────────────────────
     if (interaction.customId.startsWith("ai_sources:")) {
       const key = interaction.customId.slice("ai_sources:".length);
@@ -1513,9 +1526,10 @@ export function startBot(): void {
       }
       const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
       if (requestedStation) {
-        await playRadio(message, requestedStation);
+        await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
         return;
       }
+      if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message, aiResponseLang));
@@ -1621,9 +1635,10 @@ export function startBot(): void {
       }
       const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
       if (requestedStation) {
-        await playRadio(message, requestedStation);
+        await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
         return;
       }
+      if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;
       const route = classifyAiMessage(userText);
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message, aiResponseLang));

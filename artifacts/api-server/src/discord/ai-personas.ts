@@ -30,6 +30,7 @@ import { splitAiAnswer } from "./ai-answer-format.js";
 import { createSearchSourceButton } from "./ai-research-sources.js";
 import { buildBotCommandContext } from "./ai-command-context.js";
 import { getPrefix } from "./prefix-store.js";
+import { handleAiActionRequest } from "./ai-actions.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./ai-language-guard.js";
 import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
@@ -953,6 +954,7 @@ async function respondWithPersona(
   }
   if (!await requireConsent(message, responseLanguage)) return;
 
+  if (await handleAiActionRequest(message, prompt, openai, responseLanguage)) return;
   if (message.channel.isSendable()) await message.channel.sendTyping();
   const knowledgeContext = personaKnowledgeContext(persona, message.author.id);
   const speakerName = (message.member?.displayName || message.author.globalName || message.author.username).slice(0, 80);

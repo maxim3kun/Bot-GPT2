@@ -63,14 +63,16 @@ export function getGlobalEnabledCount(): number {
 
 // ── Per-guild feature CRUD ────────────────────────────────────────────────────
 
-export async function getGuildFeatures(guildId: string): Promise<FeatureEntry[]> {
+export async function getGuildFeatures(guildId: string, strict = false): Promise<FeatureEntry[]> {
   let overrides: Record<string, boolean> = {};
+  if (strict && !guildsCol) throw new Error("Guild feature settings unavailable");
   if (guildsCol) {
     try {
       const doc = await guildsCol.findOne({ _id: guildId });
       overrides = (doc as any)?.features ?? {};
     } catch (err) {
       logger.warn({ err, guildId }, "getGuildFeatures: MongoDB error");
+      if (strict) throw err;
     }
   }
   return ALL_FEATURES.map((name) => ({
