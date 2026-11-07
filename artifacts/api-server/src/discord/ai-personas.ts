@@ -44,6 +44,7 @@ import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
 import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./persona-images.js";
 import { generatePersonaIllustration, stablePersonaImageSeed } from "./persona-image-provider.js";
+import { sendPersonaHelp } from "./persona-help.js";
 import { speakPersonaReply } from "./voice.js";
 import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
 
@@ -1986,48 +1987,6 @@ export async function handleAiPersonaNaturalMessage(
   }
 }
 
-function helpText(language: UserLang): string {
-  return localized(
-    language,
-    [
-      "🎭 **Personas IA**",
-      "Mentionne le bot avec « crée un persona… » pour le créer guidé et l’activer pour toi.",
-      "`!persona create <nom> | <description>` — crée un persona privé (en DM).",
-      "`!persona create public | <nom> | <description>` — crée un persona utilisable dans ce serveur.",
-      "Pour une image manga cohérente, précise le visage, les yeux, les cheveux, les signes distinctifs et les vêtements.",
-      "`!persona list` · `!persona show <id>`",
-      "`!persona Marilyn comment ça va ?` · `!persona use Marilyn comment ça va ?` — `|` reste facultatif.",
-      "`!persona <nom> | <message>` — nom complet ou id.",
-      "`!persona start [nom ou id]` · `!persona stop` — démarrer/reprendre ou arrêter le persona pour toi.",
-      "`!persona privacy <id> public|private`",
-      "`!persona avatar <nom> [allow|revoke|clear]` — joins une image pour la personnaliser ; tu peux aussi mentionner le bot avec une image quand le persona est actif.",
-      "`!persona learn <nom> confirm` — activer ta mémoire personnelle ; chaque utilisateur d’un persona public peut la gérer.",
-      "`!persona learn <nom> revoke` — supprimer ta mémoire personnelle.",
-      "`!persona recall <nom> confirm` — rechercher une seule fois ton message le plus ancien encore accessible ; le résultat est envoyé en privé et le texte n’est pas conservé.",
-      "`!persona delete <id>` — suppression avec confirmation.",
-      "Les souvenirs personnels sont privés et chiffrés. Le persona ne partage que des préférences de style confirmées par au moins deux utilisateurs.",
-    ].join("\n"),
-    [
-      "🎭 **AI personas**",
-      "Mention the bot with “create a persona…” to create one through questions and activate it for you.",
-      "`!persona create <name> | <description>` — create a private persona (in DM).",
-      "`!persona create public | <name> | <description>` — create a persona usable in this server.",
-      "For consistent manga portraits, describe the face, eyes, hair, distinctive features, and clothing.",
-      "`!persona list` · `!persona show <id>`",
-      "`!persona Marilyn how are you?` · `!persona use Marilyn how are you?` — `|` is optional.",
-      "`!persona <name> | <message>` — full name or id.",
-      "`!persona start [name or id]` · `!persona stop` — start/resume or stop your persona.",
-      "`!persona privacy <id> public|private`",
-      "`!persona avatar <name> [allow|revoke|clear]` — attach an image, or mention the active persona with one.",
-      "`!persona learn <name> confirm` — enable your personal memory; each user of a public persona controls their own.",
-      "`!persona learn <name> revoke` — delete your personal memory.",
-      "`!persona recall <name> confirm` — search once for your oldest accessible message; the result is sent privately and the text is not stored.",
-      "`!persona delete <id>` — delete with confirmation.",
-      "Personal memories are private and encrypted. Shared style changes require the same preference from at least two users.",
-    ].join("\n"),
-  );
-}
-
 export async function handleAiPersonaCommand(
   message: Message,
   args: string[],
@@ -2035,8 +1994,8 @@ export async function handleAiPersonaCommand(
   language: UserLang,
 ): Promise<boolean> {
   const action = args.shift()?.toLowerCase();
-  if (!action || action === "help") {
-    await sendPrivately(message, helpText(language), language);
+  if (!action || action === "help" || action === "aide") {
+    await sendPersonaHelp(message, language);
     return true;
   }
   if (!isDbReady()) {

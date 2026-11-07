@@ -15,6 +15,12 @@ Keep Discord IDs as internal identity metadata, not normal forms of address.
 
 **How to apply:** Preserve reliable ID-based identity and memory isolation, but use display names in conversation. Only reproduce an identifier when the current request actually calls for it.
 
+Persona help belongs directly in the conversation channel, not an unsolicited DM.
+
+**Why:** The user explicitly asked for a better-presented persona help guide in the channel where they request it.
+
+**How to apply:** Keep generic help public and readable. This does not authorize publishing private persona lists, profiles, memories or other personal results.
+
 Earlier memory permission explicitly promised manual-only storage. Do not silently expand that permission to automatic summaries. An explicit automatic-memory activation is sufficient: no repeated general-AI consent popup. Withdrawal and deletion must take precedence over queued or in-flight summary writes.
 
 Keep fictional persona events separate from a real user's general profile. General summaries may adapt communication preferences, but must not turn roleplay into real-world facts.

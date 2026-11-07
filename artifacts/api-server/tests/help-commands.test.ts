@@ -8,6 +8,7 @@ import { buildBotCommandContext } from "../src/discord/ai-command-context.js";
 import { moduleFallbackMessage } from "../src/discord/module-fallback.js";
 import { moduleForMessageCommand } from "../src/discord/module-technician.js";
 import { SLASH_COMMANDS } from "../src/discord/slash.js";
+import { buildPersonaHelp, PERSONA_HELP_PAGES, sendPersonaHelp } from "../src/discord/persona-help.js";
 
 const languages: HelpLanguage[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
 const topics: HelpTopic[] = ["language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist", "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr", "echo", "pokemon", "welcome", "schedule", "food", "tierlist", "blindtest", "milliongame", "persona", "memory", "diagnostics"];
@@ -169,4 +170,64 @@ test("Help failures are isolated and do not announce a fictitious fallback for a
   const failure = moduleFallbackMessage("help", "fr", "/help");
   assert.match(failure, /\/help/);
   assert.doesNotMatch(failure, /Autres commandes|mode dégradé est actif/);
+});
+
+test("Persona help has short themed pages, real examples and the current command prefix", () => {
+  for (const language of languages) {
+    const all: string[] = [];
+    for (let page = 0; page < PERSONA_HELP_PAGES; page++) {
+      const json = validateEmbed(buildPersonaHelp(language, page, "??"), `${language}/persona/${page}`);
+      const text = JSON.stringify(json);
+      assert.equal(text.includes("`!persona"), false);
+      assert.ok(json.fields?.length && json.fields.length <= 5);
+      assert.match(json.footer!.text, new RegExp(`${page + 1}/4`));
+      all.push(text);
+    }
+    for (const action of ["create", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "delete"]) {
+      assert.ok(all.join("\n").includes(`??persona ${action}`), `${language}/${action}`);
+    }
+  }
+});
+
+test("Persona help stays in the requesting channel, supports every tab and never sends a DM", async () => {
+  const handlers = new Map<string, (event?: any) => Promise<void>>();
+  const replies: any[] = [], edits: any[] = [];
+  let options: any;
+  const response = {
+    createMessageComponentCollector: (config: any) => {
+      options = config;
+      return { on: (event: string, handler: any) => handlers.set(event, handler) };
+    },
+    edit: async (payload: any) => { edits.push(payload); },
+  };
+  const message = {
+    id: "help-message", guildId: "fixture", author: {
+      id: "author", send: async () => { assert.fail("Public help must not send a DM"); },
+    },
+    reply: async (payload: any) => { replies.push(payload); return response; },
+  } as unknown as Message;
+  await sendPersonaHelp(message, "fr");
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].components[0].components.length, 4);
+  assert.deepEqual(replies[0].allowedMentions, { parse: [], repliedUser: false });
+  assert.equal(options.filter({ customId: "other" }), false);
+  const updates: any[] = [];
+  for (let page = 0; page < PERSONA_HELP_PAGES; page++) {
+    await handlers.get("collect")!({
+      customId: `persona_help:help-message:${page}`, user: { id: "author" },
+      update: async (payload: any) => { updates.push(payload); },
+    });
+    assert.match(updates.at(-1).embeds[0].toJSON().footer.text, new RegExp(`${page + 1}/4`));
+  }
+  let rejected = false;
+  await handlers.get("collect")!({
+    customId: "persona_help:help-message:0", user: { id: "other" },
+    reply: async (payload: any) => { rejected = payload.ephemeral; },
+  });
+  assert.equal(rejected, true);
+  assert.equal(updates.length, 4);
+  await handlers.get("end")!();
+  assert.equal(edits[0].components[0].components.every((button: any) => button.toJSON().disabled), true);
+  const source = readFileSync("src/discord/ai-personas.ts", "utf8");
+  assert.match(source, /if \(!action \|\| action === "help" \|\| action === "aide"\) \{\s*await sendPersonaHelp\(message, language\);/);
 });
