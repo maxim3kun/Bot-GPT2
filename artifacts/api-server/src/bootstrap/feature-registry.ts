@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.js";
+import { recordModuleFailureState, recordModuleSuccess } from "../discord/module-technician.js";
 
 export type RuntimeFeature = {
   name: string;
@@ -25,10 +26,11 @@ export async function initializeFeatures(features: RuntimeFeature[]): Promise<vo
     enabledFeatures.map(async (featureConfig) => {
       try {
         await featureConfig.init();
+        recordModuleSuccess(`feature:${featureConfig.name}`);
         logger.info({ feature: featureConfig.name }, "Feature initialized");
       } catch (error) {
+        recordModuleFailureState(`feature:${featureConfig.name}`, error);
         logger.error({ err: error, feature: featureConfig.name }, "Feature initialization failed");
-        throw error;
       }
     }),
   );

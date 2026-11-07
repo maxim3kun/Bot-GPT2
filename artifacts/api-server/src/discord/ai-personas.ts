@@ -22,6 +22,7 @@ import {
   type AiPersonaVisibility,
 } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
+import { reportModuleFailure } from "./module-technician.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./ai-language-guard.js";
 import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
@@ -2029,7 +2030,11 @@ export async function handleAiPersonaCommand(
         return true;
     }
   } catch (error) {
-    logger.error({ error, userId: message.author.id, action }, "AI persona command failed");
+    const dependency = ["create", "generate", "use", "talk", "learn"].includes(action)
+      && process.env["GROQ_API_KEY"]
+      ? "groq"
+      : undefined;
+    await reportModuleFailure(message, "ai", error, dependency);
     await safeReply(message, localized(
       language,
       "Une erreur a empêché cette opération. Aucune nouvelle donnée n’a été enregistrée.",

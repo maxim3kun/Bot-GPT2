@@ -18,7 +18,15 @@ import { commandSuggestStatus, commandSuggestText } from "./command-suggest-i18n
 import { getPrefix, resetPrefix, setPrefix } from "./prefix-store.js";
 import { getSuggestPref, setSuggestPref } from "./suggest-prefs.js";
 import { getVoicePickerChannels, setVoicePickerChannels } from "./voice-picker-channels.js";
+import { handleTechnicianCommand } from "./module-technician.js";
 import type { Language } from "./responses.js";
+
+export function isAdminMessageCommand(command: string | undefined): boolean {
+  return [
+    "prefix", "voicechannels", "voicesalons", "salonsvocaux", "suggest", "suggestion",
+    "sugerencia", "unblock", "banlist", "admin", "tech", "technician",
+  ].includes(command ?? "");
+}
 
 export async function handleAdminMessageCommand(
   message: Message,
@@ -28,6 +36,11 @@ export async function handleAdminMessageCommand(
   responseLang: Language,
 ): Promise<boolean> {
   switch (command) {
+    case "tech":
+    case "technician":
+      await handleTechnicianCommand(message, args);
+      return true;
+
     case "prefix": {
       const currentPrefix = getPrefix(message.guildId);
       if (!args[0]) {

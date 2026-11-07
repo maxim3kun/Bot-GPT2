@@ -1,6 +1,5 @@
 import type { Message } from "discord.js";
 import type OpenAI from "openai";
-import { logger } from "../lib/logger.js";
 import {
   isGeoActive,
   isLogoActive,
@@ -17,12 +16,24 @@ import { requireConsent } from "./ai-consent.js";
 import { startBlindtest } from "./blindtest.js";
 import { startMillionGame, showMillionLeaderboard } from "./milliongame.js";
 import { startTierlist } from "./tierlist.js";
+import type { Language } from "./responses.js";
+import { moduleFallbackMessage } from "./module-fallback.js";
+import { reportModuleFailure } from "./module-technician.js";
+
+export function isGameMessageCommand(command: string | undefined): boolean {
+  return [
+    "minesweeper", "mine", "geo", "trivia", "tierlist", "tier", "blindtest", "musicquiz",
+    "milliongame", "million", "guessnumber", "guess", "connect4", "guessthelogo",
+    "guesslogo", "devinelelogo",
+  ].includes(command ?? "");
+}
 
 export async function handleGameMessageCommand(
   message: Message,
   command: string | undefined,
   args: string[],
   openai: OpenAI | null,
+  responseLang: Language,
 ): Promise<boolean> {
   switch (command) {
     case "minesweeper":
@@ -49,7 +60,10 @@ export async function handleGameMessageCommand(
         return true;
       }
       playGeoguessr(message, difficulty as "easy" | "medium" | "hard")
-        .catch((err) => logger.error({ err }, "GeoGuessr error"));
+        .catch(async (err) => {
+          await reportModuleFailure(message, "games", err);
+          await message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null);
+        });
       return true;
     }
 
@@ -59,15 +73,18 @@ export async function handleGameMessageCommand(
         return true;
       }
       if (!await requireConsent(message)) return true;
-      playTrivia(message, openai).catch((err) => logger.error({ err }, "Trivia error"));
+      playTrivia(message, openai).catch(async (err) => {
+        await reportModuleFailure(message, "games", err, "groq");
+        await message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null);
+      });
       return true;
     }
 
     case "tierlist":
     case "tier": {
       await startTierlist(message, args).catch((err) => {
-        logger.error({ err }, "tierlist error");
-        message.reply("❌ Failed to start tier list.").catch(() => null);
+        return reportModuleFailure(message, "games", err)
+          .then(() => message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null));
       });
       return true;
     }
@@ -75,8 +92,8 @@ export async function handleGameMessageCommand(
     case "blindtest":
     case "musicquiz": {
       await startBlindtest(message, args).catch((err) => {
-        logger.error({ err }, "blindtest error");
-        message.reply("❌ Failed to start blind test.").catch(() => null);
+        return reportModuleFailure(message, "games", err)
+          .then(() => message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null));
       });
       return true;
     }
@@ -86,13 +103,13 @@ export async function handleGameMessageCommand(
       const sub = args[0]?.toLowerCase();
       if (sub === "leaderboard" || sub === "top" || sub === "lb" || sub === "classement") {
         await showMillionLeaderboard(message).catch((err) => {
-          logger.error({ err }, "million leaderboard error");
-          message.reply("❌ Failed to load leaderboard.").catch(() => null);
+          return reportModuleFailure(message, "games", err)
+            .then(() => message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null));
         });
       } else {
         await startMillionGame(message).catch((err) => {
-          logger.error({ err }, "milliongame error");
-          message.reply("❌ Failed to start Million Game.").catch(() => null);
+          return reportModuleFailure(message, "games", err)
+            .then(() => message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null));
         });
       }
       return true;
@@ -100,7 +117,10 @@ export async function handleGameMessageCommand(
 
     case "guessnumber":
     case "guess": {
-      playGuessNumber(message).catch((err) => logger.error({ err }, "GuessNumber error"));
+      playGuessNumber(message).catch(async (err) => {
+        await reportModuleFailure(message, "games", err);
+        await message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null);
+      });
       return true;
     }
 
@@ -123,7 +143,10 @@ export async function handleGameMessageCommand(
         return true;
       }
       const difficulty = sub && ["easy", "medium", "hard"].includes(sub) ? sub : "easy";
-      playGuessLogo(message, difficulty).catch((err) => logger.error({ err }, "GuessLogo error"));
+      playGuessLogo(message, difficulty).catch(async (err) => {
+        await reportModuleFailure(message, "games", err);
+        await message.reply(moduleFallbackMessage("games", responseLang)).catch(() => null);
+      });
       return true;
     }
 

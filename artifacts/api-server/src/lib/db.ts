@@ -269,6 +269,7 @@ export const FOOD_HISTORY_MAX = 10;
 
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
+let mongoHealthy = false;
 interface DailyImageQuotaDoc {
   _id: string;
   count: number;
@@ -312,8 +313,14 @@ export function isMongoConnected(): boolean {
   return db !== null;
 }
 
+/** Reports the latest known MongoDB heartbeat state without changing JSON fallback behavior. */
+export function isMongoAvailable(): boolean {
+  return db !== null && mongoHealthy;
+}
+
 export async function connectDb(): Promise<void> {
   if (!MONGODB_URI) {
+    mongoHealthy = false;
     logger.warn("MONGODB_URI not set — running without MongoDB (JSON fallback active)");
     return;
   }
@@ -321,9 +328,19 @@ export async function connectDb(): Promise<void> {
     logger.warn("ENCRYPTION_KEY not set — user-data encryption disabled; logo/guild data will still use MongoDB if MONGODB_URI is set");
   }
   try {
-    mongoClient = new MongoClient(MONGODB_URI);
+    mongoClient = new MongoClient(MONGODB_URI, {
+      connectTimeoutMS: 10_000,
+      serverSelectionTimeoutMS: 10_000,
+    });
+    mongoClient.on("serverHeartbeatSucceeded", () => {
+      mongoHealthy = true;
+    });
+    mongoClient.on("serverHeartbeatFailed", () => {
+      mongoHealthy = false;
+    });
     await mongoClient.connect();
     db = mongoClient.db();
+    mongoHealthy = true;
     usersCol  = db.collection<UserDoc>("users");
     guildsCol = db.collection<GuildDoc>("guilds");
     logoBrandsCacheCol = db.collection<LogoBrandCacheDoc>("logo_brands_cache");
@@ -356,6 +373,7 @@ export async function connectDb(): Promise<void> {
     logger.info("MongoDB connected");
   } catch (err) {
     logger.error({ err }, "MongoDB connection failed — running without MongoDB (JSON fallback active)");
+    mongoHealthy = false;
     mongoClient = null;
     db          = null;
     usersCol    = null;

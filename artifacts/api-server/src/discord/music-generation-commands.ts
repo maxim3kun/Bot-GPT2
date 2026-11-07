@@ -1,6 +1,7 @@
 import { EmbedBuilder, type Message } from "discord.js";
 import { getCredits, generateSong, pollSong } from "../lib/suno-client.js";
 import { logger } from "../lib/logger.js";
+import { reportModuleFailure } from "./module-technician.js";
 
 export async function generateMusicTrack(
   message: Message,
@@ -18,6 +19,7 @@ export async function generateMusicTrack(
   try {
     taskId = await generateSong({ prompt });
   } catch (err) {
+    await reportModuleFailure(message, "music", err, "suno");
     logger.error({ err }, `Suno generate error${source === "generator music" ? " (!generator music)" : ""}`);
     await reply.edit({
       embeds: [
@@ -32,18 +34,23 @@ export async function generateMusicTrack(
 
   const pollIntervalMs = 8000;
   const maxPollAttempts = 15;
+  let lastPollError: unknown = null;
+  let completed = false;
   for (let attempt = 1; attempt <= maxPollAttempts; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     let result;
     try {
       result = await pollSong(taskId);
     } catch (err) {
+      lastPollError = err;
       logger.warn({ err, attempt }, "Suno poll retry");
       continue;
     }
+    lastPollError = null;
 
     const status = result.status.toUpperCase();
     if (status === "ERROR" || status === "FAILED" || status === "FAILURE") {
+      await reportModuleFailure(message, "music", new Error(`Suno generation status: ${status}`), "suno");
       await reply.edit({
         embeds: [
           new EmbedBuilder()
@@ -53,6 +60,7 @@ export async function generateMusicTrack(
             .addFields({ name: "Task ID", value: taskId }),
         ],
       });
+      completed = true;
       break;
     }
 
@@ -71,6 +79,7 @@ export async function generateMusicTrack(
       });
       if (embeds.length > 0) {
         await reply.edit({ embeds });
+        completed = true;
         break;
       }
     }
@@ -89,6 +98,23 @@ export async function generateMusicTrack(
       ],
     });
   }
+
+  if (!completed) {
+    await reportModuleFailure(
+      message,
+      "music",
+      lastPollError ?? new Error("Suno generation timed out"),
+      "suno",
+    );
+    await reply.edit({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xed4245)
+          .setTitle("❌ Generation timed out")
+          .setDescription("Suno did not finish the track in time. Try again later."),
+      ],
+    }).catch(() => null);
+  }
 }
 
 export async function handleSunoBalanceCommand(message: Message): Promise<void> {
@@ -106,6 +132,7 @@ export async function handleSunoBalanceCommand(message: Message): Promise<void> 
       .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
     await message.reply({ embeds: [embed] });
   } catch (err) {
+    await reportModuleFailure(message, "music", err, "suno");
     await message.reply(`❌ Could not fetch credits: ${String(err)}`);
   }
 }

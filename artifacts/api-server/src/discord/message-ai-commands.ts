@@ -1,7 +1,6 @@
 import type { Client, Message } from "discord.js";
 import type OpenAI from "openai";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
-import { logger } from "../lib/logger.js";
 import { activeBattles, runAiBattle, stoppedBattles } from "./ai-battle.js";
 import { requireConsent, resetConsent } from "./ai-consent.js";
 import { handleAiMemoryCommand } from "./ai-memory.js";
@@ -9,6 +8,8 @@ import { handleAiPersonaCommand } from "./ai-personas.js";
 import { isSendable } from "./message-utils.js";
 import { USER_LANG_NAMES } from "./user-lang-store.js";
 import type { Language } from "./responses.js";
+import { moduleFallbackMessage } from "./module-fallback.js";
+import { reportModuleFailure } from "./module-technician.js";
 
 type AnswerAiQuestion = (
   message: Message,
@@ -27,6 +28,10 @@ interface MessageAiCommandContext {
   client: Client;
   client2: Client | null;
   answerAiQuestion: AnswerAiQuestion;
+}
+
+export function isMessageAiCommand(command: string | undefined): boolean {
+  return ["conspiracy", "ai", "persona", "ask", "ia"].includes(command ?? "");
 }
 
 export async function handleMessageAiCommand(context: MessageAiCommandContext): Promise<boolean> {
@@ -67,8 +72,8 @@ export async function handleMessageAiCommand(context: MessageAiCommandContext): 
         const theory = response.choices[0]?.message?.content ?? "The truth is too dangerous to reveal... 🤫";
         await message.reply(`🕵️ **CONSPIRACY UNLOCKED** 🕵️\n\n${theory}`);
       } catch (err) {
-        logger.error({ err }, "Conspiracy error");
-        await message.reply("❌ The government blocked this theory. Try again!");
+        await reportModuleFailure(message, "ai", err, "groq");
+        await message.reply(moduleFallbackMessage("ai", responseLang));
       }
       return true;
     }
@@ -127,8 +132,8 @@ export async function handleMessageAiCommand(context: MessageAiCommandContext): 
       const bot1Name = client.user?.username ?? "Defender";
       runAiBattle(topic, message.channel, openai, bot1Name, client2)
         .catch(async (err) => {
-          logger.error({ err }, "AI battle error");
-          await message.reply("❌ The battle crashed unexpectedly!");
+          await reportModuleFailure(message, "ai", err, "groq");
+          await message.reply(moduleFallbackMessage("ai", responseLang)).catch(() => null);
         })
         .finally(() => {
           activeBattles.delete(message.channelId);

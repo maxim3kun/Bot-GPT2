@@ -858,6 +858,11 @@ export async function sendAdminGuide(message: Message, prefix = "!", language: H
     .setTitle(copy.title)
     .setDescription(copy.description)
     .addFields(copy.names.map((name, index) => ({ name, value: snippets[index]!, inline: false })))
+    .addFields({
+      name: language === "fr" ? "🛠️ Technicien" : "🛠️ Technician",
+      value: `\`${p}tech status\` — ${language === "fr" ? "consulter l’état des modules et dépendances" : "check module and dependency health"}`,
+      inline: false,
+    })
     .setFooter({ text: copy.footer });
   await message.reply({ embeds: [embed] });
 }

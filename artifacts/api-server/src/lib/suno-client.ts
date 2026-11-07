@@ -1,4 +1,5 @@
 const SUNO_BASE_URL = "https://api.sunoapi.org";
+const SUNO_REQUEST_TIMEOUT_MS = 20_000;
 
 export interface SunoClip {
   id: string;
@@ -137,6 +138,7 @@ export async function generateSong(options: {
     method: "POST",
     headers: sunoHeaders(),
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(SUNO_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) throw new Error(`Suno generate failed: ${res.status} ${await res.text()}`);
@@ -151,7 +153,7 @@ export async function generateSong(options: {
 export async function pollSong(taskId: string): Promise<SunoTaskResult> {
   const res = await fetch(
     `${SUNO_BASE_URL}/api/v1/generate/record-info?taskId=${encodeURIComponent(taskId)}`,
-    { headers: sunoHeaders() },
+    { headers: sunoHeaders(), signal: AbortSignal.timeout(SUNO_REQUEST_TIMEOUT_MS) },
   );
 
   if (!res.ok) throw new Error(`Suno record-info failed: ${res.status} ${await res.text()}`);
@@ -164,6 +166,7 @@ export async function pollSong(taskId: string): Promise<SunoTaskResult> {
 export async function getCredits(): Promise<number> {
   const res = await fetch(`${SUNO_BASE_URL}/api/v1/generate/credit`, {
     headers: sunoHeaders(),
+    signal: AbortSignal.timeout(SUNO_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Suno credits failed: ${res.status}`);
   const raw: unknown = await res.json();

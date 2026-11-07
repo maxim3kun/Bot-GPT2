@@ -61,10 +61,17 @@ import { handleAiMessageAnalysis } from "./discord/ai-message-analysis.js";
 import { handlePollCommand } from "./discord/poll.js";
 import { registerVoiceStateEvents } from "./discord/voice-events.js";
 import { registerGuildEvents } from "./discord/guild-events.js";
-import { handleGameMessageCommand } from "./discord/message-game-commands.js";
+import { handleGameMessageCommand, isGameMessageCommand } from "./discord/message-game-commands.js";
 import { isSendable } from "./discord/message-utils.js";
-import { handleMessageAiCommand } from "./discord/message-ai-commands.js";
-import { handleAdminMessageCommand } from "./discord/admin-message-commands.js";
+import { handleMessageAiCommand, isMessageAiCommand } from "./discord/message-ai-commands.js";
+import { handleAdminMessageCommand, isAdminMessageCommand } from "./discord/admin-message-commands.js";
+import {
+  moduleForMessageCommand,
+  moduleDependencyForCommand,
+  recordModuleSuccess,
+  reportModuleFailure,
+} from "./discord/module-technician.js";
+import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-fallback.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -365,7 +372,12 @@ export function startBot(): void {
   }
 
   const openai = groqKey
-    ? new OpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" })
+    ? new OpenAI({
+        apiKey: groqKey,
+        baseURL: "https://api.groq.com/openai/v1",
+        timeout: 45_000,
+        maxRetries: 0,
+      })
     : null;
 
   if (!openai) logger.warn("GROQ_API_KEY not set — AI features disabled");
@@ -687,7 +699,8 @@ export function startBot(): void {
           let taskId: string;
           try {
             taskId = await generateSong({ prompt });
-          } catch (err) {
+            } catch (err) {
+              await reportModuleFailure(interaction, "music", err, "suno");
             logger.error({ err }, "Suno /music error");
             await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start: ${String(err)}`)] });
             break;
@@ -695,13 +708,26 @@ export function startBot(): void {
 
           const SL_POLL_INTERVAL = 8000;
           const SL_POLL_MAX = 15;
+          let generationFinished = false;
+          let lastPollError: unknown = null;
           for (let attempt = 1; attempt <= SL_POLL_MAX; attempt++) {
             await new Promise((r) => setTimeout(r, SL_POLL_INTERVAL));
             let result;
-            try { result = await pollSong(taskId); } catch (err) { logger.warn({ err, attempt }, "Suno poll retry"); continue; }
+            try {
+              result = await pollSong(taskId);
+              lastPollError = null;
+              recordModuleSuccess("music", "suno");
+            } catch (err) {
+              lastPollError = err;
+              await reportModuleFailure(interaction, "music", err, "suno");
+              logger.warn({ err, attempt }, "Suno poll retry");
+              continue;
+            }
             const st = result.status.toUpperCase();
             if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
+              await reportModuleFailure(interaction, "music", new Error(`Suno generation status: ${st}`), "suno");
               await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.")] });
+              generationFinished = true;
               break;
             }
             if (result.done && result.clips.length > 0) {
@@ -717,9 +743,29 @@ export function startBot(): void {
                 if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
                 return e;
               });
-              if (embeds.length > 0) { await interaction.editReply({ embeds }); break; }
+              if (embeds.length > 0) {
+                await interaction.editReply({ embeds });
+                generationFinished = true;
+                break;
+              }
             }
             await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${SL_POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
+          }
+          if (!generationFinished) {
+            await reportModuleFailure(
+              interaction,
+              "music",
+              lastPollError ?? new Error("Suno generation timed out"),
+              "suno",
+            );
+            await interaction.editReply({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(0xed4245)
+                  .setTitle("❌ Generation timed out")
+                  .setDescription("Suno did not finish the track in time. Try again later."),
+              ],
+            });
           }
           break;
         }
@@ -1007,9 +1053,21 @@ export function startBot(): void {
         }
       }
     } catch (err) {
+      const failedModule = moduleForMessageCommand(interaction.commandName);
+      await reportModuleFailure(
+        interaction,
+        failedModule,
+        err,
+        moduleDependencyForCommand(interaction.commandName, []),
+      );
       logger.error({ err, command: interaction.commandName }, "Slash command error");
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("❌ Something went wrong. Please try again!").catch(() => null);
+        await interaction.editReply(
+          moduleFallbackMessage(
+            failedModule,
+            getEffectiveLanguage(interaction.guildId, interaction.user.id),
+          ),
+        ).catch(() => null);
       }
     }
   });
@@ -1690,19 +1748,61 @@ export function startBot(): void {
     }
 
     try {
-      if (await handleMessageAiCommand({
-        message,
-        command,
-        args,
-        responseLang,
-        guildPrefix,
-        openai,
-        client,
-        client2,
-        answerAiQuestion,
-      })) return;
-      if (await handleGameMessageCommand(message, command, args, openai)) return;
-      if (await handleAdminMessageCommand(message, command, args, guildPrefix, responseLang)) return;
+      if (command === "tech" || command === "technician") {
+        await handleAdminMessageCommand(message, command, args, guildPrefix, responseLang);
+        return;
+      }
+
+      if (isMessageAiCommand(command)) {
+        const handled = await runModuleWithFallback(
+          message,
+          "ai",
+          () => handleMessageAiCommand({
+            message,
+            command,
+            args,
+            responseLang,
+            guildPrefix,
+            openai,
+            client,
+            client2,
+            answerAiQuestion,
+          }),
+          async () => {
+            await message.reply(moduleFallbackMessage("ai", responseLang));
+            return true;
+          },
+          moduleDependencyForCommand(command, args),
+        );
+        if (handled) return;
+      }
+
+      if (isGameMessageCommand(command)) {
+        const handled = await runModuleWithFallback(
+          message,
+          "games",
+          () => handleGameMessageCommand(message, command, args, openai, responseLang),
+          async () => {
+            await message.reply(moduleFallbackMessage("games", responseLang));
+            return true;
+          },
+          moduleDependencyForCommand(command, args),
+        );
+        if (handled) return;
+      }
+
+      if (isAdminMessageCommand(command)) {
+        const handled = await runModuleWithFallback(
+          message,
+          "admin",
+          () => handleAdminMessageCommand(message, command, args, guildPrefix, responseLang),
+          async () => {
+            await message.reply(moduleFallbackMessage("admin", responseLang));
+            return true;
+          },
+        );
+        if (handled) return;
+      }
 
       switch (command) {
 
@@ -2011,7 +2111,15 @@ export function startBot(): void {
             const prompt = args.join(" ").trim();
             if (!prompt) { await message.reply("❌ Give me a prompt! e.g. `!music generator lo-fi hip hop beats chill`"); break; }
             if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-            await generateMusicTrack(message, prompt);
+            await runModuleWithFallback(
+              message,
+              "music",
+              () => generateMusicTrack(message, prompt),
+              async () => {
+                await message.reply(moduleFallbackMessage("music", responseLang));
+              },
+              process.env["SUNO_API_KEY"] ? "suno" : undefined,
+            );
 
           } else if (sub === "prompt") {
             const embed = new EmbedBuilder()
@@ -2050,12 +2158,28 @@ export function startBot(): void {
             break;
           }
 
-          await generateMusicTrack(message, genPrompt, "generator music");
+          await runModuleWithFallback(
+            message,
+            "music",
+            () => generateMusicTrack(message, genPrompt, "generator music"),
+            async () => {
+              await message.reply(moduleFallbackMessage("music", responseLang));
+            },
+            process.env["SUNO_API_KEY"] ? "suno" : undefined,
+          );
           break;
         }
 
         case "balance": {
-          await handleSunoBalanceCommand(message);
+          await runModuleWithFallback(
+            message,
+            "music",
+            () => handleSunoBalanceCommand(message),
+            async () => {
+              await message.reply(moduleFallbackMessage("music", responseLang));
+            },
+            process.env["SUNO_API_KEY"] ? "suno" : undefined,
+          );
           break;
         }
 
@@ -3653,6 +3777,13 @@ export function startBot(): void {
       }
     } catch (err) {
       logger.error({ err, command }, "Command error");
+      await reportModuleFailure(
+        message,
+        moduleForMessageCommand(command),
+        err,
+        moduleDependencyForCommand(command, args),
+      );
+      await message.reply(moduleFallbackMessage(moduleForMessageCommand(command), responseLang)).catch(() => null);
     }
   });
 
