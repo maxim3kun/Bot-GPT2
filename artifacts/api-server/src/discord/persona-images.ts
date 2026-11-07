@@ -117,6 +117,10 @@ export async function sendFictionalAssistantPhoto(
         ? isFrench
           ? "L’image a été générée, mais le bot n’a pas pu la préparer pour Discord. La tentative ne compte pas dans la limite quotidienne."
           : "The image was generated, but the bot couldn't prepare it for Discord. This attempt won't count toward the daily limit."
+        : providerFailure?.status === 402
+          ? isFrench
+            ? "Le service d’images de secours est bloqué par un manque de crédits chez le fournisseur. La tentative ne compte pas dans la limite quotidienne."
+            : "The backup image service is blocked because provider credits are unavailable. This attempt won't count toward the daily limit."
         : providerFailure?.reason === "configuration"
           ? isFrench
             ? "Le service d’images a refusé la requête. La configuration doit être vérifiée ; la tentative ne compte pas dans la limite quotidienne."

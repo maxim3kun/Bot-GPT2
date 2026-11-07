@@ -74,15 +74,85 @@ test("Cloudflare uses its strict input schema even when a persona seed is suppli
 test("failed Cloudflare actually uses configured HF fallback, with separate health results", async () => {
   process.env.HUGGINGFACE_TOKEN = "test-hf";
   globalThis.fetch = (async (url, init) => {
-    calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
-    return String(url).includes("cloudflare")
-      ? new Response(null, { status: 503 })
-      : new Response(jpeg, { headers: { "content-type": "image/jpeg" } });
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (String(url).includes("cloudflare")) return new Response(null, { status: 503 });
+    if (init?.method === "POST") return Response.json({
+      status: "IN_QUEUE", response_url: "https://queue.fal.run/fal-ai/flux/requests/test-request",
+    });
+    if (String(url).includes("/status?")) return Response.json({ status: "COMPLETED" });
+    if (String(url).includes("/requests/")) return Response.json({ images: [{ url: "https://v3.fal.media/files/test.jpg" }] });
+    assert.equal(new Headers(init?.headers).has("authorization"), false);
+    return new Response(jpeg, { headers: { "content-type": "image/jpeg" } });
   }) as typeof fetch;
   assert.equal((await generateImage("A robot", 123)).provider, "huggingface");
-  assert.equal(calls[1].body.inputs, "A robot");
-  assert.equal(calls[1].body.parameters.seed, 123);
+  assert.equal(calls[1].url, "https://router.huggingface.co/fal-ai/fal-ai/flux/schnell?_subdomain=queue");
+  assert.deepEqual(calls[1].body, { prompt: "A robot", seed: 123, num_inference_steps: 4, num_images: 1 });
+  assert.equal(calls.filter(x => x.body).length, 2); // One generation per provider, no paid retries.
   assert.deepEqual(f.health.map((x: any) => [x[0], x.at(-1)]), [["failure", "cloudflare"], ["success", "huggingface"]]);
+});
+
+test("HF-only persona selfie follows the same provider contract and delivers privately", async () => {
+  delete process.env.TOKEN_API;
+  process.env.HUGGINGFACE_TOKEN = "test-hf";
+  globalThis.fetch = (async (url, init) => {
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      assert.match(body.prompt, /silver hair/);
+      assert.equal(body.seed, 123);
+      return Response.json({ images: [{ url: "https://v3b.fal.media/selfie.jpg" }] });
+    }
+    return new Response(jpeg, { headers: { "content-type": "image/jpeg" } });
+  }) as typeof fetch;
+  const m = message();
+  await sendFictionalAssistantPhoto(m.msg, {
+    name: "Azumi", description: "Adult fictional character", visualDescription: "silver hair", visualSeed: 123,
+  }, "fr", { privateInServer: true });
+  assert.equal(m.privateMessages.length, 1);
+  assert.equal(f.releases, 0);
+});
+
+test("HF credits exhaustion remains a sanitized failure and releases quota", async () => {
+  process.env.HUGGINGFACE_TOKEN = "test-hf";
+  let requests = 0;
+  globalThis.fetch = (async (url) => {
+    requests++;
+    return new Response("private billing details and token", { status: String(url).includes("cloudflare") ? 503 : 402 });
+  }) as typeof fetch;
+  const m = message();
+  await sendGeneratedImage(m.msg, "un chat", "fr");
+  assert.equal(requests, 2);
+  assert.equal(f.releases, 1);
+  assert.equal(m.edits.filter(x => x.files).length, 0);
+  assert.match(m.edits.at(-1), /crédits/);
+  assert.equal(f.health.some((x: any) => x[0] === "success"), false);
+});
+
+test("fallback rejects unsafe queue/download URLs without sending credentials", async () => {
+  delete process.env.TOKEN_API;
+  process.env.HUGGINGFACE_TOKEN = "test-hf";
+  for (const payload of [
+    { status: "COMPLETED", response_url: "https://attacker.example/fal-ai/flux/requests/test" },
+    { status: "COMPLETED", response_url: "https://queue.fal.run/other/requests/test" },
+    { images: [{ url: "http://127.0.0.1/image" }] },
+    { images: [{ url: "https://fal.media.attacker.example/image" }] },
+    { images: [{ url: "https://user:pass@v3.fal.media/image" }] },
+  ]) {
+    let requests = 0;
+    globalThis.fetch = (async () => { requests++; return Response.json(payload); }) as typeof fetch;
+    await assert.rejects(generateImage("robot"), (e: any) => e.reason === "invalid-image");
+    assert.equal(requests, 1);
+  }
+});
+
+test("Cloudflare timeout falls back once, and fallback timeout never triggers a new generation", async () => {
+  process.env.HUGGINGFACE_TOKEN = "test-hf";
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests++;
+    throw new DOMException("private URL", "TimeoutError");
+  }) as typeof fetch;
+  await assert.rejects(generateImage("robot"), (e: any) => e.reason === "timeout");
+  assert.equal(requests, 2);
 });
 
 test("missing credentials, invalid prompt and oversized prompt do not call a provider", async () => {

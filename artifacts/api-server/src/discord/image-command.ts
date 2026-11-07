@@ -35,7 +35,9 @@ export async function canGenerateImage(message: Message, language: UserLang): Pr
 export function imageFailureNotice(error: unknown, language: UserLang): string {
   const fr = language === "fr";
   const reason = error instanceof ImageProviderError ? error.reason : null;
-  const details = reason === "configuration"
+  const details = error instanceof ImageProviderError && error.status === 402
+    ? fr ? "Le service d’images de secours est bloqué par un manque de crédits chez le fournisseur." : "The backup image service is blocked because provider credits are unavailable."
+    : reason === "configuration"
     ? fr ? "Le service d’images a refusé la requête ; sa configuration doit être vérifiée." : "The image service rejected the request; its configuration needs checking."
     : reason === "busy"
       ? fr ? "Le service d’images est saturé ou sa limite a été atteinte." : "The image service is busy or its limit has been reached."
