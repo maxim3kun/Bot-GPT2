@@ -4,6 +4,7 @@
  */
 export type AiCommandAction =
   | { name: "show_help" }
+  | { name: "lookup_pokemon"; query: string }
   | { name: "start_minesweeper"; difficulty: "easy" | "medium" | "hard" }
   | { name: "start_connect4" }
   | { name: "play_radio"; station: string }

@@ -9,6 +9,31 @@ import { fixture, fakeMessage, fakeModel } from "./fixtures/ai-commands.js";
 // The test runner replaces only I/O boundaries (Discord/provider/domain
 // handlers). The real selector, parser, access policy, dispatcher and
 // confirmation lifecycle run together without a Discord token or API call.
+test("Persona action route uses the Pokémon domain handler directly, not model prose", async () => {
+  fixture.reset();
+  const handled = await handleAiActionRequest(fakeMessage() as unknown as Message,
+    "Okay je vais régler ça merci, et recherche le pokemon Flambusard il s’appelle Talonflame en anglais",
+    null, "fr");
+  assert.equal(handled, true);
+  assert.deepEqual(fixture.handlers, ["pokemon:Flambusard:fr"]);
+  assert.deepEqual(fixture.replies, ["real PokéAPI result"]);
+  assert.equal(fixture.modelCalls, 0);
+});
+
+test("Persona Pokémon lookup respects AI feature, consent, blocks and Embed Links permission", async () => {
+  for (const deny of [
+    () => { fixture.blocked = true; },
+    () => { fixture.features.ai_chat = false; },
+    () => { fixture.consent = "unknown"; },
+    () => { fixture.botDenied.add("EmbedLinks"); },
+    () => { fixture.featureReadFails = true; },
+  ]) {
+    fixture.reset(); deny();
+    await handleAiActionRequest(fakeMessage() as unknown as Message, "Recherche le pokemon Flambusard", null, "fr").catch(() => null);
+    assert.deepEqual(fixture.handlers, []);
+    assert.equal(fixture.modelCalls, 0);
+  }
+});
 test("Dispatcher shows the existing help handler's response, not model content", async () => {
   fixture.reset();
   await handleAiCommandRequest(fakeMessage() as unknown as Message, "Peux-tu afficher l’aide", fakeModel("show_help") as unknown as OpenAI, "fr");

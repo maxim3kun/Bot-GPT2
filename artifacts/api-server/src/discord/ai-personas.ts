@@ -27,6 +27,7 @@ import { recordModuleSuccess, reportModuleFailure } from "./module-technician.js
 import { classifyAiMessage } from "./ai-router.js";
 import { FACTUAL_ACCURACY_GUIDANCE, generateWithLengthRetry } from "./ai-completion-quality.js";
 import { splitAiAnswer } from "./ai-answer-format.js";
+import { formatPersonaAnswer, PERSONA_FORMAT_GUIDANCE } from "./persona-answer-format.js";
 import { createSearchSourceButton } from "./ai-research-sources.js";
 import { buildBotCommandContext } from "./ai-command-context.js";
 import { getPrefix } from "./prefix-store.js";
@@ -1004,6 +1005,7 @@ If the evidence does not support a requested figure or comparison, say you canno
           `Persona profile: ${persona.profile}`,
           `Creator's requested description: ${persona.description}`,
           FACTUAL_ACCURACY_GUIDANCE,
+          PERSONA_FORMAT_GUIDANCE,
           speakerContext,
           personalContext,
           researchGuidance,
@@ -1045,8 +1047,8 @@ If the evidence does not support a requested figure or comparison, say you canno
     ? await reviewResearchedAnswer(openai, "openai/gpt-oss-120b", research.correction?.question ?? prompt,
       generated.text, webResults, responseLanguage, research.correction, generated.verifiedCalculations)
     : null;
-  const answer = removeUnrequestedDiscordIds(reviewed?.text ?? generated.text,
-    [message.author.id, ...message.mentions.users.keys()], prompt) + (generated.finishReason === "length"
+  const answer = formatPersonaAnswer(removeUnrequestedDiscordIds(reviewed?.text ?? generated.text,
+    [message.author.id, ...message.mentions.users.keys()], prompt), prompt) + (generated.finishReason === "length"
     ? localized(responseLanguage, "\n\n_(Réponse interrompue par la limite du modèle.)_", "\n\n_(Response interrupted by the model's limit.)_")
     : "");
   const sourcesButton = (reviewed?.sources ?? webResults).length

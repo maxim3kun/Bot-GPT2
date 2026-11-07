@@ -26,3 +26,9 @@ Earlier memory permission explicitly promised manual-only storage. Do not silent
 Keep fictional persona events separate from a real user's general profile. General summaries may adapt communication preferences, but must not turn roleplay into real-world facts.
 
 Silence is a deliberate outcome, not a model failure. Do not turn useful criticism, ambiguity, greetings, or a substantive request containing profanity into silence. Clarification is a valid reply.
+
+Persona replies should default to paragraphs or short lists, not Markdown tables. A table is an exception only when explicitly requested in the current message.
+
+**Why:** The user reported that a persona resumed producing unreadable pipe-delimited tables several messages after being asked to stop. Relying on short-lived conversation context alone cannot enforce this presentation default.
+
+**How to apply:** Keep the default independent of conversation-history truncation and persistent-learning consent. Do not claim this presentation rule means arbitrary user instructions have been saved in MongoDB.

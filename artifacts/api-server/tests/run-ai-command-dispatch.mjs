@@ -33,6 +33,10 @@ const stubs = {
     export const sendBlockedMessage = async message => { await message.reply("blocked"); };`,
   "prefix-store.js": `export const getPrefix = () => "?";`,
   "help-builders.js": `export const sendHelpPaginator = message => handler("help", message);`,
+  "pokemon.js": `export const handlePokemon = (query, language, reply) => {
+    fixture.handlers.push("pokemon:" + query + ":" + language);
+    return reply("real PokéAPI result");
+  };`,
   "message-game-commands.js": `
     export const handleGameMessageCommand = (message, command, args) => handler(command + ":" + args.join(","), message);`,
   "module-technician.js": `export const handleTechnicianCommand = message => handler("diagnostic", message);`,

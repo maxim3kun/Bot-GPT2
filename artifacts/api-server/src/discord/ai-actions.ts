@@ -1,7 +1,7 @@
 import type { Message } from "discord.js";
 import type OpenAI from "openai";
 import { logger } from "../lib/logger.js";
-import { extractNaturalHelpCommand } from "../lib/ai-functions.js";
+import { extractNaturalHelpCommand, extractPokemonQuery } from "../lib/ai-functions.js";
 import { dispatchAiCommand, handleAiCommandRequest } from "./ai-command-dispatch.js";
 import { isAiCommandRequest } from "./ai-router.js";
 import { isAiActionCandidate, parseAiAction } from "./ai-action-policy.js";
@@ -40,6 +40,11 @@ export function handleAiActionRequest(
   if (previous) return previous;
   const request = (async () => {
     if (extractNaturalHelpCommand(text) === "help") return false;
+    const pokemon = extractPokemonQuery(text);
+    if (pokemon) {
+      await dispatchAiCommand(message, { name: "lookup_pokemon", query: pokemon }, language, openai);
+      return true;
+    }
     const station = extractRadioStationRequest(text, RADIO_STATIONS);
     if (!station && !isAiCommandRequest(text) && !isAiActionCandidate(text)) return false;
     if (!station) {

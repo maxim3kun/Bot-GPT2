@@ -20,6 +20,7 @@ import { handleTechnicianCommand } from "./module-technician.js";
 import { moduleFallbackMessage, runModuleWithFallback } from "./module-fallback.js";
 import { playRadio, RADIO_STATIONS } from "./radio.js";
 import { extractRadioStationRequest } from "./radio-intent.js";
+import { handlePokemon } from "./pokemon.js";
 import type { Language } from "./responses.js";
 
 const activeRequests = new Set<string>();
@@ -65,7 +66,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
         ])),
         botCanReply: !message.guild || Boolean(botPermissions?.has([
           PermissionFlagsBits.ViewChannel, send,
-          ...(["show_help", "play_radio", "start_connect4"].includes(action.name) ? [PermissionFlagsBits.EmbedLinks] : []),
+          ...(["show_help", "play_radio", "start_connect4", "lookup_pokemon"].includes(action.name) ? [PermissionFlagsBits.EmbedLinks] : []),
           ...(action.name === "start_connect4" ? [PermissionFlagsBits.AddReactions, PermissionFlagsBits.ReadMessageHistory] : []),
         ])),
         voiceAvailable: Boolean(voice && voice.type !== ChannelType.GuildStageVoice
@@ -91,10 +92,12 @@ export function commandExecutor(message: Message, language: Language, openai: Op
     execute: async (action) => {
       const module = action.name === "play_radio" ? "music"
         : action.name === "module_diagnostic" ? "admin"
-        : action.name === "show_help" ? "other" : "games";
+        : ["show_help", "lookup_pokemon"].includes(action.name) ? "other" : "games";
       await runModuleWithFallback(message, module, async () => {
         switch (action.name) {
           case "show_help": await sendHelpPaginator(message, language); break;
+          case "lookup_pokemon":
+            await handlePokemon(action.query, language, opts => message.reply(opts as Parameters<Message["reply"]>[0])); break;
           case "start_minesweeper":
             await handleGameMessageCommand(message, "minesweeper", [action.difficulty], openai, language); break;
           case "start_connect4":

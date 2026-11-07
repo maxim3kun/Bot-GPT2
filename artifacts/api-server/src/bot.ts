@@ -842,7 +842,7 @@ export function startBot(): void {
 
         case "pokemon": {
           const pokeName = interaction.options.getString("name", true);
-          await handlePokemon(pokeName, interaction.locale, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
+          await handlePokemon(pokeName, responseLang, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
           break;
         }
 
@@ -3698,8 +3698,7 @@ export function startBot(): void {
         case "pokedex":
         case "dex": {
           const pokeName = args.join(" ");
-          const locale = message.guild?.preferredLocale ?? "en-US";
-          await handlePokemon(pokeName, locale, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
+          await handlePokemon(pokeName, responseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
           break;
         }
 
