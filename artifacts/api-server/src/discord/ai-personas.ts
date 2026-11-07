@@ -34,6 +34,7 @@ import { handleAiActionRequest } from "./ai-actions.js";
 import { createReliableCompletion } from "./ai-reliable-completion.js";
 import { shouldSkipConversation } from "./ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
+import { removeUnrequestedDiscordIds } from "./ai-identity-output.js";
 import { getAiPromptContext } from "./ai-memory.js";
 import { rememberConversationTurn } from "./ai-conversation-memory.js";
 import { researchForTurn } from "./ai-research-service.js";
@@ -1043,7 +1044,8 @@ If the evidence does not support a requested figure or comparison, say you canno
     ? await reviewResearchedAnswer(openai, "openai/gpt-oss-120b", research.correction?.question ?? prompt,
       generated.text, webResults, responseLanguage, research.correction, generated.verifiedCalculations)
     : null;
-  const answer = (reviewed?.text ?? generated.text) + (generated.finishReason === "length"
+  const answer = removeUnrequestedDiscordIds(reviewed?.text ?? generated.text,
+    [message.author.id, ...message.mentions.users.keys()], prompt) + (generated.finishReason === "length"
     ? localized(responseLanguage, "\n\n_(Réponse interrompue par la limite du modèle.)_", "\n\n_(Response interrupted by the model's limit.)_")
     : "");
   const sourcesButton = (reviewed?.sources ?? webResults).length

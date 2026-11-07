@@ -4,6 +4,7 @@ import type OpenAI from "openai";
 import type { Message } from "discord.js";
 import { createReliableCompletion } from "../src/discord/ai-reliable-completion.js";
 import { buildSpeakerContext, currentUserTurn } from "../src/discord/ai-speaker-context.js";
+import { DISCORD_IDENTITY_GUIDANCE, removeUnrequestedDiscordIds } from "../src/discord/ai-identity-output.js";
 import { createFeedbackTracker } from "../src/discord/ai-feedback.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
 import { researchForTurn } from "../src/discord/ai-research-service.js";
@@ -66,6 +67,29 @@ function fakeMessage(canRead = false): Message {
     reference: { messageId: "quote", channelId: "channel" },
   } as unknown as Message;
 }
+
+test("Identity metadata remains available internally but must not become a salutation", async () => {
+  const message = fakeMessage();
+  const context = await buildSpeakerContext(message);
+  assert.ok(context.includes(DISCORD_IDENTITY_GUIDANCE));
+  assert.equal(JSON.parse(currentUserTurn(message, "coucou")).author.id, message.author.id);
+  const id = "111111111111111111";
+  for (const aside of [`(ID ${id})`, `[Discord ID: ${id}]`, `(identifiant Discord : ${id})`, `(ID \`${id}\`)`]) {
+    assert.equal(removeUnrequestedDiscordIds(`Bonjour, Alex ${aside}!`, [id], "coucou"), "Bonjour, Alex!");
+  }
+  assert.equal(removeUnrequestedDiscordIds(`Bonjour, Alex ID ${id}!`, [id], "coucou"), "Bonjour, Alex!");
+});
+
+test("Persona ID guard preserves requested identifiers and unrelated factual numbers", () => {
+  const id = "111111111111111111", other = "222222222222222222";
+  const reply = `Ton ID est ${id}.`;
+  for (const request of ["Quel est mon ID Discord ?", "Donne-moi mon identifiant", "What is my Discord ID?", `Explique cet identifiant ${id}`]) {
+    assert.equal(removeUnrequestedDiscordIds(reply, [id], request), reply);
+  }
+  const numbers = `En 2026, 1500 kg divisés par 0,0005 donnent 3000000. Référence ${other}.`;
+  assert.equal(removeUnrequestedDiscordIds(numbers, [id], "coucou"), numbers);
+  assert.equal(removeUnrequestedDiscordIds(`Salut (ID ${id}), bonjour (ID ${other})!`, [id, other], "coucou"), "Salut, bonjour!");
+});
 
 test("Identical nicknames never merge author, mention and quoted speaker identities", async () => {
   const message = fakeMessage(true);

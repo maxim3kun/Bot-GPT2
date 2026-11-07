@@ -9,6 +9,12 @@ The user wants the bot to retain more context per user through conversation summ
 
 **How to apply:** Keep persistent context encrypted and isolated by author and server, with a separate DM scope. Never fetch another person's private memory merely because they are mentioned. Discord IDs identify participants; display names are not unique.
 
+Keep Discord IDs as internal identity metadata, not normal forms of address.
+
+**Why:** The user reported that a persona greeted them with their numeric Discord ID. Participant disambiguation should not make conversational replies expose technical metadata.
+
+**How to apply:** Preserve reliable ID-based identity and memory isolation, but use display names in conversation. Only reproduce an identifier when the current request actually calls for it.
+
 Earlier memory permission explicitly promised manual-only storage. Do not silently expand that permission to automatic summaries. An explicit automatic-memory activation is sufficient: no repeated general-AI consent popup. Withdrawal and deletion must take precedence over queued or in-flight summary writes.
 
 Keep fictional persona events separate from a real user's general profile. General summaries may adapt communication preferences, but must not turn roleplay into real-world facts.
