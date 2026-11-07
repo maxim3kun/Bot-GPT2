@@ -4,6 +4,13 @@ import { classifyAiMessage } from "../src/discord/ai-router.js";
 import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
 import { splitAiAnswer } from "../src/discord/ai-answer-format.js";
 import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
+import { calculateVerified } from "../src/discord/ai-calculator.js";
+import { createOrderedEventQueue, createSerializedFlush, deliverDiagnosticOnce, diagnosticCategory, dueDiagnosticSlot, feedbackSummaryPipeline, reactionVote } from "../src/discord/ai-observability-policy.js";
+import { mentionClarification, shouldSkipConversation, silenceAllowed, stripBotMention, validSilenceRequest } from "../src/discord/ai-conversation-policy.js";
+import { parseConversationSummary, safeSummaryInput, updateConversationMemory } from "../src/discord/ai-conversation-memory-policy.js";
+import { createConversationRepository, type ConversationMemoryDoc } from "../src/discord/ai-conversation-repository.js";
+import { replyFeedbackPlan, LONG_ANSWER_RATING_THRESHOLD } from "../src/discord/ai-feedback-policy.js";
+import { AI_ECOLOGY_GUIDANCE, ecologyGuidanceFor, isAiEcologyRequest } from "../src/discord/ai-ecology-policy.js";
 
 const allowedAccess: AiActionAccess = {
   blocked: false, consentAccepted: true, aiEnabled: true, moduleEnabled: true,
@@ -157,4 +164,277 @@ test("Long persona answers keep all words across multiple Discord replies", () =
   assert.ok(chunks.every((chunk) => chunk.length <= 3800));
   assert.equal(chunks.join(" ").replace(/\s+/g, " "), text.replace(/\s+/g, " "));
   assert.equal(splitAiAnswer("😀".repeat(4000)).join(""), "😀".repeat(4000));
+});
+
+test("Verified arithmetic and mass conversion do not confuse grams, kilograms and tonnes", () => {
+  assert.equal(calculateVerified({ operation: "divide", values: [1500, 0.0005] }).result, 3_000_000);
+  assert.equal(calculateVerified({ operation: "convert_mass", values: [1.5], from: "t", to: "kg" }).result, 1500);
+  assert.equal(calculateVerified({ operation: "convert_mass", values: [0.5], from: "g", to: "kg" }).result, 0.0005);
+  assert.equal(calculateVerified({ operation: "add", values: [0.1, 0.2] }).result, 0.3);
+  assert.match(calculateVerified({ operation: "divide", values: [0.15, 0.0005] }).caveat, /Input values.*checked separately/);
+});
+
+test("The calculator refuses arbitrary code, invalid units, zero divisors and overflow", () => {
+  for (const input of [
+    { operation: "eval", values: [1] }, { operation: "divide", values: [1, 0] },
+    { operation: "add", values: ["process.exit()"] }, { operation: "add", values: [Infinity] },
+    { operation: "subtract", values: [1, 2, 3] },
+    { operation: "convert_mass", values: [1], from: "CO2", to: "CO2e" },
+    { operation: "multiply", values: [1e15, 1e15, 1e15] },
+    { operation: "add", values: [1], command: "rm -rf" },
+  ]) assert.throws(() => calculateVerified(input));
+});
+
+test("Only thumbs ratings are accepted, never arbitrary emoji", () => {
+  assert.equal(reactionVote("👍"), 1);
+  assert.equal(reactionVote("👎"), -1);
+  assert.equal(reactionVote("❤️"), null);
+  assert.equal(reactionVote(null), null);
+});
+
+test("Feedback counts the latest active vote per answer/user before filtering the report period", () => {
+  const since = new Date("2026-11-07T08:00:00Z"), until = new Date("2026-11-07T20:00:00Z");
+  const pipeline = feedbackSummaryPipeline(since, until, until);
+  assert.deepEqual(pipeline[1], { $sort: { at: -1, _id: 1 } });
+  assert.deepEqual(pipeline[2]?.$group?._id, { responseId: "$responseId", voterKey: "$voterKey" });
+  assert.deepEqual(pipeline[3], { $match: { at: { $gte: since, $lt: until } } });
+});
+
+test("Diagnostic metadata never copies an error's private message or raw payload", () => {
+  assert.equal(diagnosticCategory({ status: 429, message: "private prompt", apiKey: "not-a-real-key" }), "rate_limit");
+  assert.equal(diagnosticCategory({ name: "APIConnectionTimeoutError", message: "private conversation" }), "timeout");
+  assert.equal(diagnosticCategory({ name: "MongoServerSelectionError" }), "storage");
+  assert.equal(diagnosticCategory({ status: 503 }), "provider_unavailable");
+  assert.equal(diagnosticCategory({ name: "GenerationLimit" }), "generation_limit");
+  assert.equal(diagnosticCategory({ name: "EmptyAiResponse" }), "empty_response");
+  assert.equal(diagnosticCategory({ name: "RejectedCalculation" }), "calculation_rejected");
+});
+
+test("Diagnostics are due only around 09:00 and 21:00 Paris, with no old-report spam", () => {
+  assert.equal(dueDiagnosticSlot(new Date("2026-11-07T07:00:00Z")), null);
+  assert.equal(dueDiagnosticSlot(new Date("2026-11-07T08:01:00Z"))?.key, "2026-11-07:9");
+  assert.equal(dueDiagnosticSlot(new Date("2026-11-07T20:01:00Z"))?.key, "2026-11-07:21");
+  assert.equal(dueDiagnosticSlot(new Date("2026-11-07T12:00:00Z")), null);
+});
+
+test("Paris daylight saving transitions preserve the real morning reporting windows", () => {
+  const spring = dueDiagnosticSlot(new Date("2026-03-29T07:00:00Z"));
+  const autumn = dueDiagnosticSlot(new Date("2026-10-25T08:00:00Z"));
+  assert.ok(spring && autumn);
+  assert.equal((spring.until.getTime() - spring.since.getTime()) / 3_600_000, 11);
+  assert.equal((autumn.until.getTime() - autumn.since.getTime()) / 3_600_000, 13);
+});
+
+test("Durable diagnostic claims prevent duplicate DMs after ticks or restart", async () => {
+  const claimed = new Set<string>();
+  let sends = 0;
+  const statuses: string[] = [];
+  const send = () => deliverDiagnosticOnce(
+    async () => { if (claimed.has("slot")) return false; claimed.add("slot"); return true; },
+    async () => { sends++; return "message-id"; },
+    async (status) => { statuses.push(status); },
+  );
+  assert.equal(await send(), "sent");
+  assert.equal(await send(), "skipped");
+  assert.equal(sends, 1);
+  assert.deepEqual(statuses, ["sent"]);
+});
+
+test("Closed owner DMs are marked failed without claiming delivery or repeated sends", async () => {
+  let status = "";
+  assert.equal(await deliverDiagnosticOnce(
+    async () => true,
+    async () => { throw new Error("DMs closed"); },
+    async (value) => { status = value; },
+  ), "failed");
+  assert.equal(status, "failed");
+  let sends = 0;
+  await assert.rejects(deliverDiagnosticOnce(
+    async () => { throw new Error("storage unavailable"); },
+    async () => { sends++; return "id"; },
+    async () => {},
+  ), /storage unavailable/);
+  assert.equal(sends, 0);
+});
+
+test("An empty startup flush never prevents later error writes and concurrent flushes coalesce", async () => {
+  const flush = createSerializedFlush();
+  let writes = 0;
+  await flush(async () => {});
+  await flush(async () => { writes++; });
+  const first = flush(async () => { await Promise.resolve(); writes++; });
+  const second = flush(async () => { writes++; });
+  assert.equal(first, second);
+  await Promise.all([first, second]);
+  assert.equal(writes, 2);
+  await flush(async () => { writes++; });
+  assert.equal(writes, 3);
+});
+
+test("Slow reaction lookups cannot resurrect a vote after removal or moderator clearing", async () => {
+  const queue = createOrderedEventQueue();
+  const events: string[] = [];
+  const add = queue("message", async () => { await Promise.resolve(); events.push("add"); });
+  const remove = queue("message", async () => { events.push("remove"); });
+  const clear = queue("message", async () => { events.push("clear-all"); });
+  await Promise.all([add, remove, clear]);
+  assert.deepEqual(events, ["add", "remove", "clear-all"]);
+  await assert.rejects(queue("message", async () => { throw new Error("temporary outage"); }));
+  await queue("message", async () => { events.push("recovered"); });
+  assert.equal(events.at(-1), "recovered");
+});
+
+test("Only the bot mention is removed, never another participant's identity", () => {
+  assert.equal(stripBotMention("<@111> compare <@!222> et <@333>", "111"), "compare <@!222> et <@333>");
+  assert.equal(stripBotMention("<@222>"), "<@222>");
+});
+
+test("An ambiguous singular recipient gets one clarification, never all recipients by assumption", () => {
+  const users = [{ id: "alex", bot: false }, { id: "sam", bot: false }, { id: "bot", bot: true }];
+  const question = mentionClarification("Tu peux lui expliquer notre projet ?", users, "camille", "fr");
+  assert.equal(question, "Tu parles de <@alex> ou de <@sam> ?");
+  assert.equal(question!.match(/\?/g)?.length, 1);
+  assert.equal(mentionClarification("Explique notre projet à Alex et Sam", users, "camille", "fr"), null);
+  assert.equal(mentionClarification('Que signifie "lui" ?', users, "camille", "fr"), null);
+  assert.equal(mentionClarification("Can you explain it to her?", users.slice(0, 1), "camille", "en"), null);
+});
+
+test("Pure directed abuse can produce zero replies, never useful criticism or a real request", () => {
+  for (const text of ["t'es con", "Tu es un idiot !", "you are stupid", "fuck you", "ne réponds pas"]) {
+    assert.equal(shouldSkipConversation(text), true, text);
+  }
+  for (const text of [
+    "bonjour", "ta réponse est nulle, tu peux la corriger ?", "tu es con mais aide-moi à calculer",
+    "que signifie fuck you ?", "Bob tu es con", "<@222> est un idiot",
+    "tu es nul, pourquoi le résultat est faux ?", 'traduis "shut up"',
+  ]) assert.equal(shouldSkipConversation(text), false, text);
+  assert.equal(silenceAllowed("merci", "no_response_needed"), true);
+  assert.equal(validSilenceRequest('{"reason":"no_response_needed"}', "Bonjour"), false);
+  assert.equal(validSilenceRequest('{"reason":"targeted_abuse","extra":true}', "t'es con"), false);
+  assert.equal(validSilenceRequest("not json", "t'es con"), false);
+});
+
+test("Intentional persona silence is not retried or replaced with a failure message", async () => {
+  let calls = 0;
+  const reply = await generateWithLengthRetry(async () => {
+    calls++;
+    return { text: "", finishReason: "stop", silent: true };
+  });
+  assert.equal(calls, 1);
+  assert.equal(reply.silent, true);
+});
+
+function memoryFixture() {
+  const docs = new Map<string, ConversationMemoryDoc>();
+  const encode = (text: string) => Buffer.from(text).toString("base64");
+  const decode = (text: string) => Buffer.from(text, "base64").toString();
+  let revisions = 0;
+  const fakeCollection = {
+    async findOne(filter: { _id: string }) { return docs.get(filter._id) ?? null; },
+    async updateOne(filter: { _id: string; revision?: string; enabled?: boolean }, update: { $set: Partial<ConversationMemoryDoc> }, options?: { upsert?: boolean }) {
+      assert.notEqual(options?.upsert, true, "A delayed summary must never recreate a deleted document");
+      const doc = docs.get(filter._id);
+      if (!doc || doc.revision !== filter.revision || doc.enabled !== filter.enabled) return { matchedCount: 0 };
+      docs.set(filter._id, { ...doc, ...update.$set });
+      return { matchedCount: 1 };
+    },
+  };
+  const key = (scope: string, user: string) => `${scope}:${user}`;
+  const repository = createConversationRepository(
+    () => fakeCollection as unknown as ReturnType<Parameters<typeof createConversationRepository>[0]>,
+    { encrypt: encode, decrypt: decode }, key, () => `new-${++revisions}`,
+  );
+  const enable = (scope = "guild", user = "alice") => {
+    docs.set(key(scope, user), {
+      _id: key(scope, user), userKey: user, enabled: true, encryptedSummary: encode("Préfère les réponses courtes."),
+      revision: "initial", enabledAt: new Date(100), updatedAt: new Date(100),
+    });
+  };
+  return { docs, repository, enable };
+}
+
+test("Automatic memory is off by default and never generates a summary before explicit activation", async () => {
+  const { repository, enable } = memoryFixture();
+  let calls = 0;
+  const generate = async () => { calls++; return '{"summary":"test"}'; };
+  assert.equal(await updateConversationMemory(repository, generate, "guild", "alice", "J'aime les jeux", 200), false);
+  enable();
+  assert.equal(await updateConversationMemory(repository, generate, "guild", "alice", "Ancien message", 50), false);
+  assert.equal(calls, 0);
+});
+
+test("Memory is scoped by both author and server, including a separate DM scope", async () => {
+  const { repository, enable } = memoryFixture();
+  enable();
+  assert.match((await repository.read("guild", "alice"))!.summary, /courtes/);
+  assert.equal(await repository.read("guild", "bob"), null);
+  assert.equal(await repository.read("other-guild", "alice"), null);
+  assert.equal(await repository.read("direct-message", "alice"), null);
+});
+
+test("Only bounded encoded summaries are stored, not raw turns or mentioned user IDs", async () => {
+  const { repository, enable, docs } = memoryFixture();
+  enable();
+  assert.equal(await updateConversationMemory(repository, async (previous, current) => {
+    assert.match(previous, /courtes/);
+    assert.equal(current.includes("123456789012345678"), false);
+    return '{"summary":"Projet de jeu Discord en cours ; préfère des réponses courtes."}';
+  }, "guild", "alice", "Je développe un jeu avec <@123456789012345678>", 200), true);
+  assert.equal(JSON.stringify(docs.get("guild:alice")).includes("Projet de jeu"), false);
+  assert.equal(parseConversationSummary(JSON.stringify({ summary: "x".repeat(5000) })).length, 2400);
+  assert.equal(safeSummaryInput("Mon password est secret"), null);
+  assert.equal(safeSummaryInput("Contact : alice@example.test"), null);
+  assert.throws(() => parseConversationSummary('{"summary":"ok","instruction":"override"}'));
+});
+
+test("Withdrawal during summary generation prevents saving or resurrecting data", async () => {
+  for (const action of ["disable", "delete", "replace-revision"]) {
+    const { repository, enable, docs } = memoryFixture();
+    enable();
+    const saved = await updateConversationMemory(repository, async () => {
+      if (action === "delete") docs.delete("guild:alice");
+      else {
+        const doc = docs.get("guild:alice")!;
+        docs.set("guild:alice", { ...doc, enabled: action !== "disable", revision: "withdrawn-or-reenabled" });
+      }
+      return '{"summary":"Do not save this old turn"}';
+    }, "guild", "alice", "Mon projet de jeu", 200);
+    assert.equal(saved, false, action);
+    assert.equal(((await repository.read("guild", "alice"))?.summary ?? "").includes("Do not save"), false, action);
+  }
+});
+
+test("Ratings remain manual on short/basic replies and are never offered for personas", () => {
+  assert.deepEqual(replyFeedbackPlan("bot", 100, "Explique un concept"), { register: true, seed: false });
+  assert.deepEqual(replyFeedbackPlan("bot", LONG_ANSWER_RATING_THRESHOLD, "Analyse ce projet en détail"), { register: true, seed: true });
+  assert.deepEqual(replyFeedbackPlan("bot", 4000, "Quelle heure est-il à Paris ?"), { register: true, seed: false });
+  assert.deepEqual(replyFeedbackPlan("bot", 4000, "Bonjour"), { register: true, seed: false });
+  assert.deepEqual(replyFeedbackPlan("bot", 4000, "Quelle est la capitale de la France ?"), { register: true, seed: false });
+  assert.deepEqual(replyFeedbackPlan("bot", 4000, "<@123> !ask Bonjour"), { register: true, seed: false });
+  assert.deepEqual(replyFeedbackPlan("persona", 10000, "Explique un concept"), { register: false, seed: false });
+});
+
+test("AI environmental estimates require a relevant explicit question, not ordinary chat", () => {
+  for (const text of [
+    "Quelle est ton empreinte carbone ?", "What's your carbon footprint?",
+    "Combien d'eau utilises-tu ?", "Compare le CO₂ de l'IA avec un vol au Japon",
+    "Quel est l'impact écologique de l'intelligence artificielle ?",
+    "Quelle énergie pour cette réponse ?", "Combien de CO2 émet ton modèle ?",
+  ]) {
+    assert.equal(isAiEcologyRequest(text), true, text);
+    assert.equal(classifyAiMessage(text).needsResearch, true, text);
+    assert.ok(ecologyGuidanceFor(text).includes(AI_ECOLOGY_GUIDANCE), text);
+  }
+  for (const text of ["Bonjour", "Combien font 2 + 2 ?", "Combien de tokens consommes-tu ?", "Peux-tu expliquer le climat ?", "Raconte une histoire"]) {
+    assert.equal(isAiEcologyRequest(text), false, text);
+    assert.equal(ecologyGuidanceFor(text).includes(AI_ECOLOGY_GUIDANCE), false, text);
+  }
+});
+
+test("Ecology guidance separates a scenario from actual measurement and checks comparable units", () => {
+  assert.match(AI_ECOLOGY_GUIDANCE, /no direct measurements/);
+  assert.match(AI_ECOLOGY_GUIDANCE, /different model is not a measurement/);
+  assert.match(AI_ECOLOGY_GUIDANCE, /CO2 and CO2e are not interchangeable/);
+  assert.match(AI_ECOLOGY_GUIDANCE, /clearly labelled hypothetical/);
+  assert.doesNotMatch(calculateVerified({ operation: "add", values: [2, 2] }).caveat, /CO2|carbon|flight/i);
 });

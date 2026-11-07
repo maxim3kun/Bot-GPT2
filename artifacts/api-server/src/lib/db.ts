@@ -270,6 +270,15 @@ export const FOOD_HISTORY_MAX = 10;
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 let mongoHealthy = false;
+export function getConversationMemoryCollection<T extends import("mongodb").Document>(): Collection<T> | null {
+  return db?.collection<T>("ai_conversation_memory") ?? null;
+}
+/** Only dedicated, metadata-only bot telemetry collections are exposed here. */
+export function getBotTelemetryCollection<T extends import("mongodb").Document>(
+  name: "ai_response_feedback" | "ai_response_registry" | "bot_diagnostic_events" | "bot_diagnostic_deliveries",
+): Collection<T> | null {
+  return db?.collection<T>(name) ?? null;
+}
 interface DailyImageQuotaDoc {
   _id: string;
   count: number;

@@ -9,3 +9,6 @@
 - [Module health and fallbacks](module-health-fallbacks.md) — Track runtime/dependency failures and use only real alternate paths; otherwise report degraded service honestly.
 - [Persona factual reliability](persona-factual-reliability.md) — Keep the configured role without inventing expertise or figures; use relevant evidence or admit uncertainty.
 - [Controlled AI actions](ai-action-authorization.md) — Explicit ordinary requests run without extra confirmation; preserve permissions, feature settings and the existing general AI consent.
+- [AI feedback and diagnostics](ai-feedback-and-diagnostics.md) — Reaction ratings and twice-daily private owner summaries; metadata only, no automatic model retraining or repeated DMs.
+- [User conversation memory](user-conversation-memory.md) — Opt-in encrypted summaries, participant identity, clarification and intentional silence without ignoring useful criticism.
+- [Node test runner](node-test-runner.md) — Cached external-package node:test bundles need direct execution rather than CLI discovery inside node_modules.

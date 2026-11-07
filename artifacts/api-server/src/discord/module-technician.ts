@@ -7,6 +7,7 @@ import { isMongoAvailable, isMongoConnected } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { getAdminChannelId } from "./command-suggest.js";
 import { getPrefix } from "./prefix-store.js";
+import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 
 export type TechnicianModuleName = "ai" | "image" | "games" | "admin" | "music" | "other" | `feature:${string}`;
 export type TechnicianDependencyName = "groq" | "suno" | "huggingface";
@@ -174,6 +175,7 @@ export function recordModuleFailureState(
   dependency?: TechnicianDependencyName,
 ): FailureRecord {
   const record = recordFailure(moduleName, error, dependency);
+  recordDiagnosticMetadata(moduleName, error, dependency);
   logger.error({ err: error, module: moduleName, dependency }, "Module operation failed");
   return record;
 }

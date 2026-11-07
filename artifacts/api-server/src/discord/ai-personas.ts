@@ -31,6 +31,11 @@ import { createSearchSourceButton } from "./ai-research-sources.js";
 import { buildBotCommandContext } from "./ai-command-context.js";
 import { getPrefix } from "./prefix-store.js";
 import { handleAiActionRequest } from "./ai-actions.js";
+import { createReliableCompletion } from "./ai-reliable-completion.js";
+import { shouldSkipConversation } from "./ai-conversation-policy.js";
+import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
+import { getAiPromptContext } from "./ai-memory.js";
+import { rememberConversationTurn } from "./ai-conversation-memory.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./ai-language-guard.js";
 import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
@@ -919,10 +924,12 @@ async function respondWithPersona(
   language: UserLang,
   activeSession: boolean,
 ): Promise<void> {
+  if (shouldSkipConversation(prompt)) return;
   persona = await getAiPersona(persona.id) ?? persona;
   const responseLanguage = detectUserLanguage(prompt)
     ?? getUserLangOverride(message.author.id)
     ?? (language === "en" ? "fr" : language);
+  if (await clarifyMentionedRecipient(message, prompt, responseLanguage)) return;
   if (isOldestMessageRecallRequest(prompt)) {
     const recallCommand = `!persona recall ${safeName(persona.name)} confirm`;
     await sendPrivately(message, localized(
@@ -957,12 +964,14 @@ async function respondWithPersona(
   if (await handleAiActionRequest(message, prompt, openai, responseLanguage)) return;
   if (message.channel.isSendable()) await message.channel.sendTyping();
   const knowledgeContext = personaKnowledgeContext(persona, message.author.id);
+  const personalContext = await getAiPromptContext(message.guildId, message.author.id);
+  const speakerContext = await buildSpeakerContext(message);
   const speakerName = (message.member?.displayName || message.author.globalName || message.author.username).slice(0, 80);
   const historyKey = personaConversationKey(message, persona.id);
   const recentConversation = getPersonaConversationHistory(historyKey);
   const needsResearch = classifyAiMessage(prompt).needsResearch;
   // Only the current request is sent to search, never private learned memories.
-  const webResults = needsResearch ? await searchWeb(prompt) : [];
+  const webResults = needsResearch ? await searchWeb(prompt.replace(/<@!?\d+>/g, "[Discord member]")) : [];
   const hasResearchEvidence = webResults.some((result) => result.content?.trim());
   const researchGuidance = needsResearch
     ? hasResearchEvidence
@@ -985,6 +994,8 @@ If the evidence does not support a requested figure or comparison, say you canno
           `Persona profile: ${persona.profile}`,
           `Creator's requested description: ${persona.description}`,
           FACTUAL_ACCURACY_GUIDANCE,
+          speakerContext,
+          personalContext,
           researchGuidance,
           buildBotCommandContext(prompt, responseLanguage, getPrefix(message.guildId)),
           `The current speaker is the Discord user whose display name is ${JSON.stringify(speakerName)}. This person authored the current message; they are not the bot account MaximeGPT3. Address this speaker directly in second person when natural; never describe them in third person as someone you discovered. Do not confuse them with the creator, the bot, or another user; do not invent a romantic interest in someone else, mention MaximeGPT3 as another person, or create Discord @mentions.`,
@@ -998,19 +1009,20 @@ If the evidence does not support a requested figure or comparison, say you canno
         ].filter(Boolean).join("\n\n"),
       },
       ...recentConversation,
-      { role: "user", content: prompt },
+      { role: "user", content: currentUserTurn(message, prompt) },
     ];
   const generated = await generateWithLengthRetry(async (tokenBudget) => {
-    const response = await openai.chat.completions.create({
+    const response = await createReliableCompletion(openai, {
       model: "openai/gpt-oss-120b",
       max_completion_tokens: tokenBudget,
+      currentUserText: prompt,
       messages,
     });
-    incrementGroqCalls();
     const choice = response.choices[0];
     logger.debug({ finishReason: choice?.finish_reason, tokenBudget }, "Persona completion finished");
-    return { text: choice?.message?.content?.trim() ?? "", finishReason: choice?.finish_reason ?? null };
+    return { text: choice?.message?.content?.trim() ?? "", finishReason: choice?.finish_reason ?? null, silent: response.intentionallySilent };
   });
+  if (generated.silent) return;
   if (!generated.text.trim()) {
     await reportModuleFailure(message, "ai", new Error("Persona completion returned no text"), "groq");
     await safeReply(message, localized(responseLanguage, "Le modèle n’a renvoyé aucun texte exploitable. Réessaie dans un instant.", "The model returned no usable text. Please try again shortly."));
@@ -1034,6 +1046,7 @@ If the evidence does not support a requested figure or comparison, say you canno
     });
     recordModuleSuccess("ai", "groq");
     rememberPersonaConversationTurn(historyKey, prompt, answer);
+    rememberConversationTurn(message, prompt, openai, true);
     await rememberPersonaTurn(message, persona, prompt, openai);
     return;
   }
@@ -1087,6 +1100,7 @@ If the evidence does not support a requested figure or comparison, say you canno
     return current;
   });
   await rememberPersonaTurn(message, updatedPersona, prompt, openai);
+  rememberConversationTurn(message, prompt, openai, true);
 }
 
 async function usePersona(

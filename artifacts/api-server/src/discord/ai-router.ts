@@ -1,5 +1,6 @@
 import type { Message } from "discord.js";
 import type { UserLang } from "./user-lang-store.js";
+import { isAiEcologyRequest } from "./ai-ecology-policy.js";
 
 export type AiIntent =
   | "greeting"
@@ -152,7 +153,7 @@ export function classifyAiMessage(text: string): AiRoute {
     };
   }
 
-  if (includesAny(normalized, RESEARCH_TERMS)) {
+  if (includesAny(normalized, RESEARCH_TERMS) || isAiEcologyRequest(text)) {
     return { intent: "research", needsResearch: true, needsConfirmation: false };
   }
 
