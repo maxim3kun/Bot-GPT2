@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import { classifyAiMessage } from "../src/discord/ai-router.js";
 import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
 import { splitAiAnswer } from "../src/discord/ai-answer-format.js";
-import { actionAccessFailure, AiActionConfirmations, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
+import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
 
 const allowedAccess: AiActionAccess = {
   blocked: false, consentAccepted: true, aiEnabled: true, moduleEnabled: true,
   featuresEnabled: true, inGuild: true, canPost: true, admin: false, voiceReady: true,
 };
-const identity = { userId: "alice", guildId: "guild", channelId: "channel" };
 
 test("French and English action requests reach the planner, normal conversation does not", () => {
   for (const text of ["Peux-tu me lancer un démineur ?", "Lance un jeu", "Play a radio", "Quel module est en panne ?", "Afficher le diagnostic"]) {
@@ -53,25 +52,7 @@ test("Audio requires a guild and valid current voice permissions/channel", () =>
   assert.equal(actionAccessFailure(action, { ...allowedAccess, inGuild: false }), "guild");
 });
 
-test("Confirmation ownership and context cannot be hijacked and requests are single-use", () => {
-  const store = new AiActionConfirmations<string>();
-  store.put("key", { ...identity, value: "radio", expiresAt: 200 }, 100);
-  for (const context of [
-    { ...identity, userId: "mallory" }, { ...identity, guildId: "elsewhere" }, { ...identity, channelId: "elsewhere" },
-  ]) assert.equal(store.consume("key", context, 110), undefined);
-  assert.equal(store.consume("key", identity, 110)?.value, "radio");
-  assert.equal(store.consume("key", identity, 110), undefined);
-});
-
-test("Expired and replaced confirmations cannot execute", () => {
-  const store = new AiActionConfirmations<string>();
-  store.put("old", { ...identity, value: "old", expiresAt: 200 }, 100);
-  store.put("new", { ...identity, value: "new", expiresAt: 220 }, 110);
-  assert.equal(store.consume("old", identity, 120), undefined);
-  assert.equal(store.consume("new", identity, 220), undefined);
-});
-
-test("Permissions revoked after confirmation prevent the handler from running", async () => {
+test("Permissions are checked at execution and prevent unauthorized handlers from running", async () => {
   let calls = 0;
   const result = await executeAuthorizedAction(
     async () => actionAccessFailure({ action: "status" }, { ...allowedAccess, admin: false }),
@@ -81,16 +62,24 @@ test("Permissions revoked after confirmation prevent the handler from running", 
   assert.equal(calls, 0);
 });
 
-test("A confirmed successful action returns the real handler result once", async () => {
-  const store = new AiActionConfirmations<string>();
-  store.put("key", { ...identity, value: "help", expiresAt: 200 }, 100);
-  const confirmation = store.consume("key", identity, 110);
-  assert.ok(confirmation);
+test("An authorized explicit action returns the real handler result immediately", async () => {
   let calls = 0;
   const result = await executeAuthorizedAction(async () => null, async () => { calls++; return { messageId: "actual-reply" }; });
   assert.deepEqual(result, { ok: true, result: { messageId: "actual-reply" } });
   assert.equal(calls, 1);
-  assert.equal(store.consume("key", identity, 110), undefined);
+});
+
+test("Explicit game and radio requests execute using existing consent without an extra confirmation", async () => {
+  for (const input of [{ action: "minesweeper", difficulty: "easy" }, { action: "radio", station: "known" }]) {
+    const action = parseAiAction(input, ["known"]);
+    let calls = 0;
+    const result = await executeAuthorizedAction(
+      async () => actionAccessFailure(action, allowedAccess),
+      async () => { calls++; return "handler-result"; },
+    );
+    assert.deepEqual(result, { ok: true, result: "handler-result" });
+    assert.equal(calls, 1);
+  }
 });
 
 test("Authorization outages and handler failures never produce success", async () => {

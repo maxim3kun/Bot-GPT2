@@ -55,7 +55,7 @@ import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
-import { handleAiActionButton, handleAiActionRequest, requestAiAction } from "./discord/ai-actions.js";
+import { handleAiActionRequest, requestAiAction } from "./discord/ai-actions.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -1078,13 +1078,11 @@ export function startBot(): void {
     if (!interaction.isButton()) return;
 
     if (interaction.customId.startsWith("ai_action:")) {
-      try { await handleAiActionButton(interaction); }
-      catch (error) {
-        logger.error({ err: error }, "AI action confirmation failed");
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: "Impossible de traiter la confirmation. / Could not process confirmation.", ephemeral: true }).catch(() => null);
-        }
-      }
+      // Old confirmation buttons must not replay obsolete requests.
+      await interaction.reply({
+        content: "Ces anciennes confirmations ne sont plus utilisées. Relance simplement ta demande. / These old confirmations are no longer used. Just send your request again.",
+        ephemeral: true,
+      }).catch(() => null);
       return;
     }
 

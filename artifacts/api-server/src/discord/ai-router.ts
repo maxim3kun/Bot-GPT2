@@ -372,9 +372,9 @@ export function directCapabilitiesAnswer(language: UserLang = "en"): string {
     tr: "**MaximeGPT**, **Maxime (Maxim3kun)** tarafından oluşturuldu. Sohbet edebilir, kaynaklı web araması yapabilir, quiz ve mini oyunlar başlatabilir, görevlerde yardımcı olabilir, sesli sohbeti kullanabilir ve radyo ya da YouTube sesi oynatabilirim. Suno yapılandırılmışsa müzik de oluşturabilirim. Yöneticiler öneki, dili, karşılama mesajlarını ve zamanlanmış iletileri ayarlayabilir. İstek üzerine rol veremem; üyeleri banlayamam, atamam veya susturamam. Bazı özellikler izin ya da ek yapılandırma gerektirir. Komut listesini görmek için sunucu önekin ve `help` yaz (varsayılan: `!help`).",
   };
   const controlledActions = language === "fr"
-    ? "\n\nTu peux aussi me demander de lancer un démineur ou une radio : je te demanderai confirmation avant de les démarrer. Le diagnostic des modules reste réservé aux administrateurs."
+    ? "\n\nTu peux aussi me demander de lancer un démineur ou une radio : ta demande suffit, sans confirmation supplémentaire, avec tes permissions habituelles. Le diagnostic des modules reste réservé aux administrateurs."
     : language === "en"
-      ? "\n\nYou can also ask me to start minesweeper or play a radio station: I will ask for confirmation before starting. Module diagnostics remain restricted to administrators."
+      ? "\n\nYou can also ask me to start minesweeper or play a radio station: your request is sufficient, without another confirmation, subject to your usual permissions. Module diagnostics remain restricted to administrators."
       : "";
   return answers[language] + controlledActions;
 }

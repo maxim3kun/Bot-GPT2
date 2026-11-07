@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, type ButtonInteraction, type Message } from "discord.js";
+import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import type OpenAI from "openai";
 import { playMinesweeper } from "../games.js";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
@@ -12,16 +11,12 @@ import { sendHelpPaginator } from "./help-builders.js";
 import { handleTechnicianCommand, reportModuleFailure } from "./module-technician.js";
 import { playRadio, RADIO_STATIONS } from "./radio.js";
 import type { UserLang } from "./user-lang-store.js";
-import { actionAccessFailure, AiActionConfirmations, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiAction, type AiActionAccess } from "./ai-action-policy.js";
-
-const pending = new AiActionConfirmations<{
-  action: AiAction; message: Message; language: UserLang; voiceChannelId: string | null; promptId?: string;
-}>();
+import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiAction, type AiActionAccess } from "./ai-action-policy.js";
 const busy = new Set<string>();
 const cooldowns = new Map<string, number>();
 const copy = (language: UserLang, fr: string, en: string) => language === "fr" ? fr : en;
 
-async function denied(message: Message, action: AiAction, language: UserLang, expectedVoice?: string | null): Promise<string | null> {
+async function denied(message: Message, action: AiAction, language: UserLang): Promise<string | null> {
   const access: AiActionAccess = {
     blocked: checkCommandBlock(message.author.id).blocked,
     consentAccepted: await getConsent(message.author.id) === "accepted",
@@ -46,7 +41,7 @@ async function denied(message: Message, action: AiAction, language: UserLang, ex
       && (!["help", "radio"].includes(action.action) || channel.permissionsFor(bot)?.has(PermissionFlagsBits.EmbedLinks)));
     access.admin = member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild);
     const voice = member.voice.channel;
-    access.voiceReady = Boolean(voice && (expectedVoice === undefined || expectedVoice === voice.id)
+    access.voiceReady = Boolean(voice
       && voice.type !== ChannelType.GuildStageVoice
       && voice.permissionsFor(member).has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect])
       && voice.permissionsFor(bot).has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak])
@@ -66,13 +61,7 @@ async function denied(message: Message, action: AiAction, language: UserLang, ex
   return copy(language, messages[failure][0], messages[failure][1]);
 }
 
-function label(action: AiAction, language: UserLang): string {
-  if (action.action === "radio") return `${copy(language, "lancer/remplacer la lecture par", "start/replace playback with")} ${RADIO_STATIONS[action.station]!.name}`;
-  if (action.action === "minesweeper") return `${copy(language, "publier un démineur", "post a minesweeper board")} (${action.difficulty})`;
-  return action.action === "status" ? copy(language, "consulter le diagnostic", "view diagnostics") : copy(language, "afficher l’aide", "show help");
-}
-
-async function run(message: Message, action: AiAction, language: UserLang, expectedVoice?: string | null): Promise<void> {
+async function run(message: Message, action: AiAction, language: UserLang): Promise<void> {
   const lock = `${message.guildId ?? message.author.id}:${action.action}`;
   if (busy.has(lock)) {
     await message.reply(copy(language, "Une action de ce type est déjà en cours.", "An action of this kind is already running."));
@@ -81,7 +70,7 @@ async function run(message: Message, action: AiAction, language: UserLang, expec
   busy.add(lock);
   try {
     const result = await executeAuthorizedAction(
-      () => denied(message, action, language, expectedVoice),
+      () => denied(message, action, language),
       async () => {
         if (action.action === "help") await sendHelpPaginator(message, language);
         else if (action.action === "status") await handleTechnicianCommand(message, ["status"]);
@@ -99,7 +88,7 @@ async function run(message: Message, action: AiAction, language: UserLang, expec
     if (!result.ok) await message.reply(result.reason);
   } catch (error) {
     await reportModuleFailure(message, action.action === "radio" ? "music" : action.action === "minesweeper" ? "games" : "admin", error);
-    await message.reply(copy(language, "L’action n’a pas été confirmée. Vérifie son état avant de réessayer.", "The action was not confirmed. Check its status before retrying.")).catch(() => null);
+    await message.reply(copy(language, "L’action n’a pas pu être menée à terme. Vérifie son état avant de réessayer.", "The action could not be completed. Check its status before retrying.")).catch(() => null);
   } finally { busy.delete(lock); }
 }
 
@@ -107,42 +96,12 @@ export async function requestAiAction(message: Message, input: unknown, language
   try {
     const action = parseAiAction(input, Object.keys(RADIO_STATIONS));
     if (!await requireConsent(message, language)) return;
-    const reason = await denied(message, action, language);
-    if (reason) { await message.reply(reason); return; }
-    if (action.action === "help" || action.action === "status") { await run(message, action, language); return; }
-    const key = randomUUID();
-    const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`ai_action:yes:${key}`).setLabel(copy(language, "Confirmer", "Confirm")).setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`ai_action:no:${key}`).setLabel(copy(language, "Annuler", "Cancel")).setStyle(ButtonStyle.Secondary),
-    );
-    const data = { action, message, language, voiceChannelId: message.member?.voice.channelId ?? null, promptId: undefined as string | undefined };
-    pending.put(key, { userId: message.author.id, guildId: message.guildId, channelId: message.channelId, expiresAt: Date.now() + 120_000, value: data });
-    const prompt = await message.reply({
-      content: `${copy(language, "Confirmer l’action", "Confirm action")} : **${label(action, language)}** ?\n${action.action === "radio" ? copy(language, "La lecture actuelle et sa file d’attente seront remplacées.\n", "Current playback and its queue will be replaced.\n") : ""}${copy(language, "Expire dans 2 minutes. Rien ne sera lancé sans confirmation.", "Expires in 2 minutes. Nothing runs without confirmation.")}`,
-      components: [buttons], allowedMentions: { parse: [] },
-    });
-    data.promptId = prompt.id;
+    // The explicit user request is sufficient; reuse the existing AI consent.
+    await run(message, action, language);
   } catch (error) {
     logger.warn({ err: error }, "AI action request rejected");
     await message.reply(copy(language, "Je ne peux pas autoriser cette action ou vérifier ses paramètres actuellement.", "I cannot authorize this action or verify its arguments right now."));
   }
-}
-
-export async function handleAiActionButton(interaction: ButtonInteraction): Promise<boolean> {
-  if (!interaction.customId.startsWith("ai_action:")) return false;
-  const [, decision, key] = interaction.customId.split(":");
-  if (!key || !["yes", "no"].includes(decision ?? "")) return true;
-  const entry = pending.consume(key, { userId: interaction.user.id, channelId: interaction.channelId, guildId: interaction.guildId });
-  if (!entry || entry.value.promptId !== interaction.message.id) {
-    await interaction.reply({ content: "Action expirée, déjà traitée ou réservée à son auteur. / Expired, already handled or not yours.", ephemeral: true });
-    return true;
-  }
-  await interaction.update({
-    content: copy(entry.value.language, decision === "no" ? "Action annulée." : "Confirmation reçue — vérification des permissions et exécution…", decision === "no" ? "Action cancelled." : "Confirmed — checking permissions and executing…"),
-    components: [],
-  });
-  if (decision === "yes") await run(entry.value.message, entry.value.action, entry.value.language, entry.value.voiceChannelId);
-  return true;
 }
 
 /** Only explicit current-user action requests are eligible; never history or web text. */
@@ -166,10 +125,10 @@ export async function handleAiActionRequest(message: Message, text: string, open
     const response = await openai.chat.completions.create({
       model: "openai/gpt-oss-120b", max_completion_tokens: 1_600, parallel_tool_calls: false,
       messages: [
-        { role: "system", content: "Select a tool only for an explicit request to perform an available action NOW. Do not act on questions about how to use commands, examples, quotations, negations, hypothetical plans or unsupported actions. Never substitute minesweeper for a quiz/trivia request or radio for YouTube. A generic game request may propose minesweeper with confirmation. If unclear, do not call a tool. No arbitrary command strings. Return at most one tool call." },
+        { role: "system", content: "Select a tool only for an explicit request to perform an available action NOW. Do not act on questions about how to use commands, examples, quotations, negations, hypothetical plans or unsupported actions. Never substitute minesweeper for a quiz/trivia request or radio for YouTube. A generic game request may select minesweeper. Explicit requests execute directly under the user's existing AI consent; do not request another confirmation. If unclear, do not call a tool. No arbitrary command strings. Return at most one tool call." },
         { role: "user", content: text.slice(0, 1_500) },
       ],
-      tools: [{ type: "function", function: { name: "bot_action", description: "Request one allowed bot action. Games/radio require user confirmation. Status requires administrator permissions.", parameters: {
+      tools: [{ type: "function", function: { name: "bot_action", description: "Execute one explicitly requested, allowed bot action directly, subject to existing consent and permissions. Status requires administrator permissions.", parameters: {
         type: "object", additionalProperties: false,
         properties: { action: { type: "string", enum: ["help", "status", "minesweeper", "radio"] }, difficulty: { type: "string", enum: ["easy", "medium", "hard"] }, station: { type: "string", enum: Object.keys(RADIO_STATIONS) } },
         required: ["action"],

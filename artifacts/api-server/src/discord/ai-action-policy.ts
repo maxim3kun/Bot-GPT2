@@ -52,34 +52,6 @@ export function actionAccessFailure(action: AiAction, access: AiActionAccess) {
   return null;
 }
 
-export interface ActionIdentity { userId: string; channelId: string; guildId: string | null }
-export interface PendingAiAction<T> extends ActionIdentity {
-  value: T;
-  expiresAt: number;
-}
-
-/** Owner/context-bound, expiring, single-use confirmations. */
-export class AiActionConfirmations<T> {
-  private entries = new Map<string, PendingAiAction<T>>();
-  put(key: string, entry: PendingAiAction<T>, now = Date.now()): void {
-    for (const [id, item] of this.entries) {
-      if (item.expiresAt <= now || (item.userId === entry.userId
-        && item.channelId === entry.channelId && item.guildId === entry.guildId)) this.entries.delete(id);
-    }
-    if (this.entries.size >= 500) throw new Error("Too many pending actions");
-    this.entries.set(key, entry);
-  }
-  consume(key: string, identity: ActionIdentity, now = Date.now()): PendingAiAction<T> | undefined {
-    const entry = this.entries.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAt <= now) { this.entries.delete(key); return undefined; }
-    if (entry.userId !== identity.userId || entry.channelId !== identity.channelId
-      || entry.guildId !== identity.guildId) return undefined;
-    this.entries.delete(key);
-    return entry;
-  }
-}
-
 /** Permissions are re-evaluated immediately before the real handler runs. */
 export async function executeAuthorizedAction<T>(
   authorize: () => Promise<string | null>,
