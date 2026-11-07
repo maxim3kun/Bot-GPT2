@@ -13,3 +13,4 @@
 - [User conversation memory](user-conversation-memory.md) — Opt-in encrypted summaries, participant identity, clarification and intentional silence without ignoring useful criticism.
 - [Node test runner](node-test-runner.md) — Cached external-package node:test bundles need direct execution rather than CLI discovery inside node_modules.
 - [Research evidence review](research-evidence-review.md) — Prefer supported partial replies; recheck objections without automatic agreement, and keep private history out of public search.
+- [Image provider contracts](image-provider-contracts.md) — Trust strict model schemas over conflicting examples; a generic image test does not validate persona-specific requests.

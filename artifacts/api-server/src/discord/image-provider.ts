@@ -65,7 +65,9 @@ async function requestImage(provider: ImageProvider, prompt: string, seed?: numb
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(cloudflare
-        ? { prompt, steps: 4, ...(seed === undefined ? {} : { seed }) }
+        // This model's strict input schema accepts only prompt and steps.
+        // A persona seed is useful for HF but makes Cloudflare return HTTP 400.
+        ? { prompt, steps: 4 }
         : { inputs: prompt, parameters: seed === undefined ? undefined : { seed }, options: { wait_for_model: true } }),
       signal: AbortSignal.timeout(45_000),
       redirect: "error",
@@ -78,7 +80,7 @@ async function requestImage(provider: ImageProvider, prompt: string, seed?: numb
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
     throw new ImageProviderError(`Image service returned HTTP ${response.status}`,
-      [401, 403].includes(response.status) ? "configuration"
+      [400, 401, 403, 404, 410, 422].includes(response.status) ? "configuration"
         : [429, 503].includes(response.status) ? "busy" : "http", response.status);
   }
   const bytes = await readBounded(response);

@@ -129,6 +129,10 @@ export async function sendFictionalAssistantPhoto(
               ? isFrench
                 ? "Le service d’images n’a pas répondu à temps. Réessaie dans un instant ; cette tentative ne compte pas dans la limite quotidienne."
                 : "The image service did not respond in time. Please try again shortly; this attempt won't count toward the daily limit."
+              : providerFailure?.reason === "http"
+                ? isFrench
+                  ? "Le service d’images a refusé la génération. Réessaie plus tard ; cette tentative ne compte pas dans la limite quotidienne."
+                  : "The image service refused generation. Please try again later; this attempt won't count toward the daily limit."
               : isFrench
                 ? "Le service d’image n’a pas renvoyé un fichier image exploitable. La tentative ne compte pas dans la limite quotidienne."
                 : "The image service did not return a usable image file. This attempt won't count toward the daily limit.";

@@ -42,6 +42,6 @@ export async function generatePersonaIllustration(input: {
   visualDescription?: string;
   visualSeed?: number;
   purpose: PersonaImagePurpose;
-}): Promise<{ buffer: Buffer; extension: string }> {
+}): Promise<{ buffer: Buffer; extension: string; provider: "cloudflare" | "huggingface" }> {
   return generateImage(buildPrompt(input), Number.isInteger(input.visualSeed) ? input.visualSeed : undefined);
 }

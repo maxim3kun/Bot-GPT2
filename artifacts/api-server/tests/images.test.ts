@@ -20,6 +20,13 @@ beforeEach(() => {
   delete process.env.HUGGINGFACE_TOKEN;
   globalThis.fetch = (async (url, init) => {
     calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+    if (String(url).includes("cloudflare")) {
+      const body = calls.at(-1)!.body;
+      // Mirror the published schema, including additionalProperties:false.
+      if (Object.keys(body).some(key => !["prompt", "steps"].includes(key))) {
+        return Response.json({ success: false }, { status: 400 });
+      }
+    }
     return Response.json({ success: true, result: { image: jpeg.toString("base64") } });
   }) as typeof fetch;
 });
@@ -53,7 +60,7 @@ function message(options: { dm?: boolean; failUpload?: boolean } = {}) {
   return { msg, replies, edits, privateMessages };
 }
 
-test("Cloudflare uses documented JSON envelope, prompt and stable seed", async () => {
+test("Cloudflare uses its strict input schema even when a persona seed is supplied", async () => {
   process.env.HUGGINGFACE_TOKEN = "test-hf";
   assert.deepEqual(configuredImageProviders(), ["cloudflare", "huggingface"]);
   const result = await generateImage("A robot", 123);
@@ -61,7 +68,7 @@ test("Cloudflare uses documented JSON envelope, prompt and stable seed", async (
   assert.deepEqual(result.buffer, jpeg);
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /api\.cloudflare\.com.*flux-1-schnell/);
-  assert.deepEqual(calls[0].body, { prompt: "A robot", steps: 4, seed: 123 });
+  assert.deepEqual(calls[0].body, { prompt: "A robot", steps: 4 });
 });
 
 test("failed Cloudflare actually uses configured HF fallback, with separate health results", async () => {
@@ -72,8 +79,9 @@ test("failed Cloudflare actually uses configured HF fallback, with separate heal
       ? new Response(null, { status: 503 })
       : new Response(jpeg, { headers: { "content-type": "image/jpeg" } });
   }) as typeof fetch;
-  assert.equal((await generateImage("A robot")).provider, "huggingface");
+  assert.equal((await generateImage("A robot", 123)).provider, "huggingface");
   assert.equal(calls[1].body.inputs, "A robot");
+  assert.equal(calls[1].body.parameters.seed, 123);
   assert.deepEqual(f.health.map((x: any) => [x[0], x.at(-1)]), [["failure", "cloudflare"], ["success", "huggingface"]]);
 });
 
@@ -108,7 +116,7 @@ test("timeouts report timeout without leaking request details", async () => {
   await assert.rejects(generateImage("robot"), (e: any) => e.reason === "timeout" && !e.message.includes("private"));
 });
 
-test("persona avatar and selfie preserve reference, seed, illustration and prompt limit", async () => {
+test("persona avatar and selfie preserve reference and illustration without unsupported Cloudflare parameters", async () => {
   for (const purpose of ["avatar", "selfie"] as const) {
     await generatePersonaIllustration({
       name: "Azumi", description: "Friendly", visualDescription: "Blue eyes, silver hair. ".repeat(100),
@@ -118,7 +126,7 @@ test("persona avatar and selfie preserve reference, seed, illustration and promp
     assert.ok(body.prompt.length <= 2048);
     assert.match(body.prompt, /Blue eyes, silver hair/);
     assert.match(body.prompt, /anime and manga/);
-    assert.equal(body.seed, stablePersonaImageSeed("persona"));
+    assert.equal(Object.hasOwn(body, "seed"), false);
   }
   assert.ok(isSelfPhotoRequest("Envoie une photo de toi"));
   assert.ok(isSelfPhotoRequest("Send me your selfie"));
@@ -190,4 +198,16 @@ test("closed persona DMs never publish in the server and release quota", async (
   await sendFictionalAssistantPhoto(m.msg, { name: "Azumi", description: "Fictional" }, "fr", { privateInServer: true });
   assert.equal(m.replies.filter(x => x.files).length, 0);
   assert.equal(f.releases, 1);
+});
+
+test("HTTP request refusal and retired endpoint never masquerade as an invalid image", async () => {
+  process.env.HUGGINGFACE_TOKEN = "test-hf";
+  globalThis.fetch = (async (url) => new Response(null, {
+    status: String(url).includes("cloudflare") ? 400 : 410,
+  })) as typeof fetch;
+  const m = message({ dm: true });
+  await sendFictionalAssistantPhoto(m.msg, { name: "Azumi", description: "Adult fictional character", visualSeed: 123 }, "fr");
+  assert.equal(f.releases, 1);
+  assert.match(m.replies.at(-1), /configuration/i);
+  assert.doesNotMatch(m.replies.at(-1), /fichier.*exploitable/i);
 });
