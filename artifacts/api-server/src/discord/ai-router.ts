@@ -30,6 +30,9 @@ const RESEARCH_TERMS = [
   "version actuelle", "mise à jour", "mise a jour", "source", "cherche sur internet",
   "recherche sur internet", "regarde sur internet", "regarder sur internet",
   "sur internet", "sur le web", "vérifie en ligne", "verifie en ligne",
+  "estimation", "statistique", "empreinte carbone", "émission carbone",
+  "émissions carbone", "carbon footprint", "carbon emissions", "co2",
+  "consommation énergétique", "consommation d'énergie", "energy consumption",
 ];
 
 const TIME_TERMS = [
@@ -119,7 +122,7 @@ export function classifyAiMessage(text: string): AiRoute {
   }
 
   if (
-    /\b(?:qui (?:est|a cree|t a cree|t a developpe)|(?:ton|ta|votre) createur|who (?:created|made|developed) you|who is your creator)\b/.test(normalized) ||
+    /\b(?:qui (?:t['’ ]a|vous a) (?:cree|developpe|concu)|qui a (?:cree|developpe|concu) (?:ce bot|cette ia|maximegpt)|qui est (?:ton|votre) createur|(?:ton|votre) createur|who (?:created|made|developed) you|who is your creator)\b/.test(normalized) ||
     /\b(?:qui est derriere toi|qui t a concu|who built you)\b/.test(normalized)
   ) {
     return { intent: "creator", needsResearch: false, needsConfirmation: false };

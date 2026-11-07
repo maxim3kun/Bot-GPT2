@@ -52,6 +52,9 @@ import { getAiPromptContext } from "./discord/ai-memory.js";
 import { handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
+import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
+import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
+import { buildBotCommandContext } from "./discord/ai-command-context.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -228,6 +231,7 @@ function buildAiSystemPrompt(
   memoryContext = "",
   timeContext = "",
   language: "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr" = "en",
+  prefix = "!",
 ): string {
   const languageGuard = buildLanguageGuardPrompt(language);
   const research = webContext
@@ -238,6 +242,8 @@ function buildAiSystemPrompt(
     : "";
 
   return `${AI_IDENTITY_INSTRUCTIONS}${languageGuard}
+${FACTUAL_ACCURACY_GUIDANCE}
+${buildBotCommandContext(userText, language, prefix)}
 You are a friendly, helpful, and cheerful Discord bot. Keep answers concise and conversational. Warm, calm tone. Emojis sparingly. Prefer plain text or brief bullets; do not use Markdown tables unless the user explicitly asks for one. Respond to every part of the user's current message, including multiple questions joined by "and"/"et". The message route is "${routeIntent}".
 Be honest and grounded: never invent facts, actions, memories, sources, or observations. Never claim to have searched the Internet unless search results are explicitly provided. Never claim to have performed a Discord action unless the application confirms it succeeded. If you are unsure, say so clearly instead of guessing. Clearly distinguish facts, assumptions, and opinions. If web research is provided, use only that evidence and mention uncertainty when sources disagree. Do not create citations or links beyond the supplied results. ${memoryContext}${research}${time}`;
 }
@@ -245,37 +251,6 @@ Be honest and grounded: never invent facts, actions, memories, sources, or obser
 // Search results are kept briefly so the public AI answer stays compact. The
 // user can open them privately with the 🔎 button instead of filling the
 // channel with links on every researched answer.
-const SEARCH_SOURCE_TTL_MS = 10 * 60 * 1000;
-let searchSourceCounter = 0;
-const pendingSearchSources = new Map<string, {
-  userId: string;
-  results: WebSearchResult[];
-  expiresAt: number;
-}>();
-
-function createSearchSourceButton(results: WebSearchResult[], userId: string): ActionRowBuilder<ButtonBuilder> | null {
-  if (results.length === 0) return null;
-
-  const now = Date.now();
-  for (const [key, entry] of pendingSearchSources) {
-    if (entry.expiresAt <= now) pendingSearchSources.delete(key);
-  }
-
-  const key = `${now.toString(36)}_${(searchSourceCounter++).toString(36)}`;
-  pendingSearchSources.set(key, {
-    userId,
-    results,
-    expiresAt: now + SEARCH_SOURCE_TTL_MS,
-  });
-
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`ai_sources:${key}`)
-      .setLabel("🔎")
-      .setStyle(ButtonStyle.Secondary),
-  );
-}
-
 async function replyWithAiAnswer(
   message: Message,
   answer: string,
@@ -477,7 +452,7 @@ export function startBot(): void {
         model: "openai/gpt-oss-120b",
         max_completion_tokens: 2048,
         messages: [
-          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang) },
+          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
           ...getAiHistory(conversationKey(message)),
         ],
       });
@@ -1103,9 +1078,8 @@ export function startBot(): void {
     // ── AI research sources ────────────────────────────────────────────────
     if (interaction.customId.startsWith("ai_sources:")) {
       const key = interaction.customId.slice("ai_sources:".length);
-      const entry = pendingSearchSources.get(key);
-      if (!entry || entry.expiresAt <= Date.now()) {
-        pendingSearchSources.delete(key);
+      const entry = getSearchSources(key);
+      if (!entry) {
         await interaction.reply({
           content: "⏳ Ces sources ne sont plus disponibles. Relance la question pour effectuer une nouvelle recherche.",
           ephemeral: true,
@@ -1607,7 +1581,7 @@ export function startBot(): void {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang) },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
              ...getAiHistory(conversationKey(message)),
           ],
         });
@@ -1720,7 +1694,7 @@ export function startBot(): void {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang) },
+            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
              ...getAiHistory(conversationKey(message)),
           ],
         });

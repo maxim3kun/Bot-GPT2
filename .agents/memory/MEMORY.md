@@ -7,3 +7,4 @@
 - [API workflow startup order](api-workflow-startup.md) — Start the API artifact before the wrapper; simultaneous startup can race for port 8080.
 - [Persona reply labeling](persona-reply-labeling.md) — Do not add an AI-generated label; Discord already identifies the account as a bot.
 - [Module health and fallbacks](module-health-fallbacks.md) — Track runtime/dependency failures and use only real alternate paths; otherwise report degraded service honestly.
+- [Persona factual reliability](persona-factual-reliability.md) — Keep the configured role without inventing expertise or figures; use relevant evidence or admit uncertainty.

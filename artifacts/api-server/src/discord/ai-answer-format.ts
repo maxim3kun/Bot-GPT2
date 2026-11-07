@@ -1,3 +1,21 @@
+/** Discord limits descriptions to 4096 UTF-16 units; preserve all text across replies. */
+export function splitAiAnswer(text: string, limit = 3_800): string[] {
+  if (limit < 2) throw new Error("AI reply chunk limit must be at least 2");
+  const chunks: string[] = [];
+  let remaining = text.trim();
+  while (remaining.length > limit) {
+    let cut = remaining.lastIndexOf("\n", limit);
+    if (cut < limit / 2) cut = remaining.lastIndexOf(" ", limit);
+    if (cut < limit / 2) cut = limit;
+    const previous = remaining.charCodeAt(cut - 1);
+    if (previous >= 0xd800 && previous <= 0xdbff) cut--;
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 function parseTableCells(line: string): string[] {
   return line
     .trim()
