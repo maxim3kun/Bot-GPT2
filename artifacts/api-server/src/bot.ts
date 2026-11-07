@@ -489,9 +489,13 @@ export function startBot(): void {
       await replyWithAiAnswer(message, reply, webResults);
     } catch (err) {
       logger.error({ err }, "Prefixed AI question error");
-      await message.reply(aiResponseLang === "fr"
-        ? "Désolé, une erreur m’empêche de répondre. Réessaie dans un instant."
-        : "Sorry, something went wrong. Try again in a moment.");
+      await reportModuleFailure(
+        message,
+        "ai",
+        err,
+        process.env["GROQ_API_KEY"] ? "groq" : undefined,
+      );
+      await message.reply(moduleFallbackMessage("ai", aiResponseLang));
     }
   };
 
@@ -789,25 +793,44 @@ export function startBot(): void {
             await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
             const response = await fetch(
               "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
-              { method: "POST", headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ inputs: desc }) },
+              {
+                method: "POST",
+                headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ inputs: desc }),
+                signal: AbortSignal.timeout(45_000),
+              },
             );
             const contentType = response.headers.get("content-type") ?? "";
             if (!response.ok || !contentType.startsWith("image/")) {
               logger.error({ status: response.status, contentType }, "HuggingFace image error");
-              await interaction.editReply("❌ Generation failed. Try again later!");
+              await reportModuleFailure(
+                interaction,
+                "image",
+                new Error(`Hugging Face image request failed with HTTP ${response.status}`),
+                "huggingface",
+              );
+              await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
               break;
             }
             const buffer = Buffer.from(await response.arrayBuffer());
             if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
-              await interaction.editReply("❌ The generated image had an invalid size.");
+              await reportModuleFailure(
+                interaction,
+                "image",
+                new Error("Hugging Face returned an image with an invalid size"),
+                "huggingface",
+              );
+              await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
               break;
             }
             const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
             await interaction.editReply({ content: `🖼️ **${desc}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
             imageSent = true;
+            recordModuleSuccess("image", "huggingface");
           } catch (err) {
             logger.error({ err }, "/image error");
-            await interaction.editReply("❌ Error during image generation. Try again!");
+            await reportModuleFailure(interaction, "image", err, "huggingface");
+            await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
           } finally {
             if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
           }
@@ -1427,17 +1450,30 @@ export function startBot(): void {
             method: "POST",
             headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
             body: JSON.stringify({ inputs: prompt }),
+            signal: AbortSignal.timeout(45_000),
           },
         );
         const contentType = response.headers.get("content-type") ?? "";
         if (!response.ok || !contentType.startsWith("image/")) {
           logger.error({ status: response.status, contentType }, "HuggingFace image error");
-          await waitMsg.edit("❌ Generation failed. Try again later!");
+          await reportModuleFailure(
+            message,
+            "image",
+            new Error(`Hugging Face image request failed with HTTP ${response.status}`),
+            "huggingface",
+          );
+          await waitMsg.edit(moduleFallbackMessage("image", imageLanguage));
           return;
         }
         const buffer = Buffer.from(await response.arrayBuffer());
         if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
-          await waitMsg.edit("❌ The generated image had an invalid size.");
+          await reportModuleFailure(
+            message,
+            "image",
+            new Error("Hugging Face returned an image with an invalid size"),
+            "huggingface",
+          );
+          await waitMsg.edit(moduleFallbackMessage("image", imageLanguage));
           return;
         }
         await waitMsg.delete();
@@ -1445,10 +1481,12 @@ export function startBot(): void {
           const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
           await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
           imageSent = true;
+          recordModuleSuccess("image", "huggingface");
         }
       } catch (err) {
         logger.error({ err }, "Image generation error");
-        await message.reply("❌ Error during image generation. Try again!");
+        await reportModuleFailure(message, "image", err, "huggingface");
+        await message.reply(moduleFallbackMessage("image", imageLanguage));
       } finally {
         if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
       }

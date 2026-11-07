@@ -286,7 +286,9 @@ function technicianReport(client: Client): string {
     const state = getModuleState(name);
     const detail = state.status === "unknown"
       ? ""
-      : ` — ${state.consecutiveFailures} échec(s), dernier ${formatLastEvent(state.lastFailureAt)}`;
+      : state.status === "healthy"
+        ? ` — dernière réussite ${formatLastEvent(state.lastSuccessAt)}`
+        : ` — ${state.consecutiveFailures} échec(s), dernier ${formatLastEvent(state.lastFailureAt)}`;
     return `${statusSymbol(state.status)} **${moduleLabel(name)}** : ${statusText(state.status)}${detail}`;
   });
 
