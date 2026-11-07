@@ -21,7 +21,6 @@ import { getEffectiveLanguage } from "./discord/effective-language.js";
 import { handleAdminUnlockTrigger, registerAdminUnlockInteractions } from "./discord/admin-unlock.js";
 import { botText } from "./discord/bot-i18n.js";
 import { commandSuggestText } from "./discord/command-suggest-i18n.js";
-import { extractRadioStationRequest } from "./discord/radio-intent.js";
 import { handleNewCommand } from "./discord/new-commands";
 import { handleFood, handleFoodRate, handleFoodVisionButton } from "./discord/food";
 import { handleUnknownCommand, checkCommandBlock, sendBlockedMessage } from "./discord/command-suggest";
@@ -56,7 +55,7 @@ import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
-import { handleAiActionRequest, requestAiAction } from "./discord/ai-actions.js";
+import { handleAiActionRequest } from "./discord/ai-actions.js";
 import { createReliableCompletion } from "./discord/ai-reliable-completion.js";
 import { registerAiFeedback, trackAiReplies } from "./discord/ai-feedback.js";
 import { startTechnicianDigest } from "./discord/technician-digest.js";
@@ -396,11 +395,6 @@ export function startBot(): void {
     const pokemonQuery = extractPokemonQuery(prompt);
     if (pokemonQuery) {
       await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
-      return;
-    }
-    const requestedStation = extractRadioStationRequest(prompt, RADIO_STATIONS);
-    if (requestedStation) {
-      await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
       return;
     }
 
@@ -1494,6 +1488,10 @@ export function startBot(): void {
       if (addressedToBot && shouldSkipConversation(cleanedContent)) return;
       if (addressedToBot && await clarifyMentionedRecipient(message, cleanedContent,
         getAiResponseLanguage(message.author.id, cleanedContent, responseLang))) return;
+      if (addressedToBot && await handleAiActionRequest(
+        message, cleanedContent, openai,
+        getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
+      )) return;
       if (await handleAiPersonaNaturalMessage(
         message,
         cleanedContent,
@@ -1532,11 +1530,6 @@ export function startBot(): void {
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
-        return;
-      }
-      const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
-      if (requestedStation) {
-        await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
         return;
       }
       if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;
@@ -1653,11 +1646,6 @@ export function startBot(): void {
       const pokemonQuery = extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
-        return;
-      }
-      const requestedStation = extractRadioStationRequest(userText, RADIO_STATIONS);
-      if (requestedStation) {
-        await requestAiAction(message, { action: "radio", station: requestedStation }, aiResponseLang);
         return;
       }
       if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;

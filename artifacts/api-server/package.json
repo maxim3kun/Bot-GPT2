@@ -9,7 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:commands": "esbuild tests/help-commands.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/help-commands.test.mjs && node node_modules/.cache/help-commands.test.mjs",
-    "test:ai": "esbuild tests/ai-quality.test.ts --bundle --platform=node --format=esm --outfile=/tmp/maximegpt-ai-quality.test.mjs && node --test /tmp/maximegpt-ai-quality.test.mjs && esbuild tests/ai-conversation.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-conversation.test.mjs && node node_modules/.cache/ai-conversation.test.mjs"
+    "test:ai": "esbuild tests/ai-quality.test.ts --bundle --platform=node --format=esm --outfile=/tmp/maximegpt-ai-quality.test.mjs && node --test /tmp/maximegpt-ai-quality.test.mjs && node tests/run-ai-command-dispatch.mjs && esbuild tests/ai-conversation.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-conversation.test.mjs && node node_modules/.cache/ai-conversation.test.mjs"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",

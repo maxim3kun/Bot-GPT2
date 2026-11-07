@@ -1,4 +1,5 @@
 import test from "node:test";
+import "./ai-command-tools.test.js";
 import assert from "node:assert/strict";
 import { classifyAiMessage } from "../src/discord/ai-router.js";
 import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";

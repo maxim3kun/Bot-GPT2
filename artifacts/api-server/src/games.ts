@@ -966,7 +966,7 @@ export async function playConnect4(message: Message, args: string[]): Promise<vo
   }
 
   // ── Determine mode & players ──────────────────────────────────────────────
-  const mention = message.mentions.users.first();
+  const mention = keywords.includes("solo") ? undefined : message.mentions.users.first();
   let player2: { id: string; name: string } | null = null;
   let mode: "solo" | "pvp" = "solo";
 

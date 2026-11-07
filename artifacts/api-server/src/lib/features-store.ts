@@ -17,6 +17,10 @@ export type FeatureName = (typeof ALL_FEATURES)[number];
 
 export interface FeatureEntry { name: string; enabled: boolean }
 
+export interface FeatureEntry { name: string; enabled: boolean }
+
+export interface FeatureEntry { name: string; enabled: boolean }
+
 // ── JSON fallback for global features ────────────────────────────────────────
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
@@ -63,7 +67,8 @@ export function getGlobalEnabledCount(): number {
 
 // ── Per-guild feature CRUD ────────────────────────────────────────────────────
 
-export async function getGuildFeatures(guildId: string, strict = false): Promise<FeatureEntry[]> {
+export async function getGuildFeatures(guildId: string, options: boolean | { failClosed?: boolean } = false): Promise<FeatureEntry[]> {
+  const strict = typeof options === "boolean" ? options : options.failClosed === true;
   let overrides: Record<string, boolean> = {};
   if (strict && !guildsCol) throw new Error("Guild feature settings unavailable");
   if (guildsCol) {

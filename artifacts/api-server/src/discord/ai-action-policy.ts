@@ -19,7 +19,7 @@ export function parseAiAction(value: unknown, stations: readonly string[]): AiAc
     return { action: data.action };
   }
   if (data.action === "minesweeper" && keys.every((key) => ["action", "difficulty"].includes(key))
-    && (data.difficulty === undefined || ["easy", "medium", "hard"].includes(String(data.difficulty)))) {
+    && (data.difficulty === undefined || (typeof data.difficulty === "string" && ["easy", "medium", "hard"].includes(data.difficulty)))) {
     return { action: "minesweeper", difficulty: (data.difficulty ?? "medium") as "easy" | "medium" | "hard" };
   }
   if (data.action === "radio" && keys.length === 2

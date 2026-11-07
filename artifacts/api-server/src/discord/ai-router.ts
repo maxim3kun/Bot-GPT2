@@ -22,6 +22,14 @@ export interface AiRoute {
   needsConfirmation: boolean;
 }
 
+/** Narrow opt-in to tool selection; ordinary questions keep the existing routes. */
+export function isAiCommandRequest(text: string): boolean {
+  const normalized = normalize(text).replace(/[?!.,]+$/g, "").trim();
+  return /^(?:(?:stp|s'il te plait|s’il te plait|please)\s+)?(?:(?:peux[- ]tu|pourrais[- ]tu|est[- ]ce que tu peux|can you|could you)\s+)?(?:me\s+)?(?:afficher?|montrer?|ouvre|ouvrir|lancer?|demarrer?|jouer?|mets|mettre|fais|faire|show|open|start|launch|play|run)\b/.test(normalized)
+    && /\b(?:aide|help|demineur|minesweeper|puissance\s*4|connect\s*4|radio|diagnostic|diagnostics|modules|tech)\b/.test(normalized)
+    || /^(?:diagnostic(?: des modules)?|module diagnostics|tech status)$/.test(normalized);
+}
+
 const RESEARCH_TERMS = [
   "actualité", "actualites", "actualité", "aujourd'hui", "aujourd’hui", "maintenant",
   "dernier", "dernière", "dernieres", "récent", "recente", "en ce moment",
