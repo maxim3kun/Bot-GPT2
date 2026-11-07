@@ -8,3 +8,9 @@ Track both module runtime failures/timeouts and unavailable dependencies. Fallba
 **Why:** The user explicitly requested a technician module that identifies failed modules and an adaptive fallback.
 
 **How to apply:** Keep health reporting available when other modules fail, make degraded behavior explicit, and distinguish a genuine alternate implementation from an error message.
+
+Keep help failures distinct from unrelated command failures, and name the failed command rather than implying that every other command is down.
+
+**Why:** The user received an “Autres commandes” degraded-mode warning from `/help`, which hid a local response-handling bug and made the scope of the failure unclear.
+
+**How to apply:** Help and diagnostics must remain useful during unrelated outages. Documentation should distinguish registered slash commands from implemented prefix commands, and show short command lists with detailed instructions available separately.

@@ -55,6 +55,8 @@ function moduleLabel(moduleName: TechnicianModuleName): string {
     admin: "Administration",
     music: "Musique",
     other: "Autres commandes",
+    help: "Aide",
+    image: "Images",
   };
   return labels[moduleName] ?? moduleName.replace(/^feature:/, "Fonction : ");
 }
@@ -62,8 +64,12 @@ function moduleLabel(moduleName: TechnicianModuleName): string {
 export function moduleFallbackMessage(
   moduleName: TechnicianModuleName,
   language: string,
+  command?: string,
 ): string {
   const french = language.toLowerCase().startsWith("fr");
+  if (command) return french
+    ? `⚠️ La commande \`${command}\` n’a pas pu être terminée. L’erreur a été enregistrée pour le diagnostic.`
+    : `⚠️ The \`${command}\` command could not be completed. The error was recorded for diagnostics.`;
   if (moduleName === "music") {
     return french
       ? "⚠️ Le service musical demandé est indisponible. La demande n’a pas été confirmée ; réessaie plus tard."
@@ -76,7 +82,7 @@ export function moduleFallbackMessage(
   }
   const module = moduleLabel(moduleName);
   return french
-    ? `⚠️ Le module **${module}** est momentanément indisponible. Le mode dégradé est actif ; réessaie dans un instant.`
-    : `⚠️ The **${module}** module is temporarily unavailable. Degraded mode is active; please try again shortly.`;
+    ? `⚠️ **${module}** n’a pas pu terminer la demande. Réessaie plus tard ; l’erreur a été enregistrée pour le diagnostic.`
+    : `⚠️ **${module}** could not complete the request. Please try later; the error was recorded for diagnostics.`;
 }
 

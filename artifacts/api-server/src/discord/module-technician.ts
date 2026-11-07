@@ -9,7 +9,7 @@ import { getAdminChannelId } from "./command-suggest.js";
 import { getPrefix } from "./prefix-store.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 
-export type TechnicianModuleName = "ai" | "image" | "games" | "admin" | "music" | "other" | `feature:${string}`;
+export type TechnicianModuleName = "ai" | "image" | "games" | "admin" | "music" | "help" | "other" | `feature:${string}`;
 export type TechnicianDependencyName = "groq" | "suno" | "huggingface";
 export type ModuleHealthStatus = "unknown" | "healthy" | "degraded" | "down";
 export interface TechnicianContext {
@@ -44,7 +44,7 @@ interface FailureRecord {
 
 const FAILURE_THRESHOLD = 3;
 const CIRCUIT_COOLDOWN_MS = 60_000;
-const coreModules: TechnicianModuleName[] = ["ai", "image", "games", "music", "admin", "other"];
+const coreModules: TechnicianModuleName[] = ["ai", "image", "games", "music", "admin", "help", "other"];
 const moduleStates = new Map<TechnicianModuleName, ModuleState>();
 const dependencyStates = new Map<TechnicianDependencyName, DependencyState>();
 
@@ -198,12 +198,14 @@ function moduleLabel(name: TechnicianModuleName): string {
     music: "Musique",
     admin: "Administration",
     other: "Autres commandes",
+    help: "Aide",
   };
   return labels[name] ?? name.replace(/^feature:/, "Fonction : ");
 }
 
 export function moduleForMessageCommand(command: string | undefined): TechnicianModuleName {
   if (!command) return "other";
+  if (["help", "aide", "guide"].includes(command)) return "help";
   if (command === "image") return "image";
   if (["conspiracy", "ai", "persona", "ask", "ia"].includes(command)) return "ai";
   if ([

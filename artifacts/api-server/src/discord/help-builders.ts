@@ -1,5 +1,4 @@
 import {
-  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -7,13 +6,17 @@ import {
   type Message,
   type ChatInputCommandInteraction,
 } from "discord.js";
+import { HelpEmbedBuilder as EmbedBuilder, HELP_PREFIX_TOKEN } from "./help-embed.js";
 import { getPrefix } from "./prefix-store.js";
+import { replyToSlash } from "./slash-message-adapter.js";
+import { extraHelpPage } from "./help-extra-pages.js";
+import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
-export type HelpPage = 1 | 2 | 3 | 4 | 5;
-export const HELP_TOTAL_PAGES = 5;
+export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export const HELP_TOTAL_PAGES = 7;
 
 // Text languages with full translations — new langs fall back to "en"
 const FULL_TEXT_LANGS = ["en", "fr", "es", "de", "pt", "it"] as const;
@@ -71,12 +74,14 @@ function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): Acti
 // ── Page builder ──────────────────────────────────────────────────────────────
 
 export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
-  const p = prefix;
+  const p = HELP_PREFIX_TOKEN;
   const tl = textLang(lang);
   const embed = new EmbedBuilder()
+    .setCommandPrefix(prefix)
+    .setCompact()
     .setTitle(t("title", lang))
     .setColor(COLORS[lang])
-    .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES}  •  ${t("nav", lang)}` });
+    .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES} · ${t("nav", lang).split("•").at(-1)!.trim().replaceAll("!help", `${p}help`)}` });
 
   // ── Page 1 — General & Fun ─────────────────────────────────────────────────
   if (page === 1) {
@@ -86,7 +91,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
-          `\`${p}say\` · \`${p}hello\` · \`${p}poll\` · \`${p}profile\``,
+          `\`${p}say\` · \`${p}hello\` · \`${p}poll\` · \`${p}profile\` · \`${p}website\``,
           `\`@bot <msg>\` 🤖 · \`${p}ask <question>\` (\`${p}ia\`) · \`${p}image <desc>\` 🎨`,
           `\`${p}language [code]\` — ` + { en: "Change your language", fr: "Changer ta langue", es: "Cambiar idioma", de: "Sprache ändern", pt: "Mudar idioma", it: "Cambiare lingua" }[tl],
           `\`${p}suggest [on|off]\` — ` + { en: "Toggle command suggestions", fr: "Activer ou désactiver les suggestions de commandes", es: "Activar o desactivar sugerencias de comandos", de: "Befehlsvorschläge ein- oder ausschalten", pt: "Ativar ou desativar sugestões de comandos", it: "Attiva o disattiva i suggerimenti dei comandi" }[tl],
@@ -115,7 +120,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[tl] ?? "🎮 Games",
         value: [
           `\`${p}minesweeper\` 💣  \`${p}geo\` 🌍  \`${p}trivia\` 🧠  \`${p}guessnumber\` 🎯`,
-          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️  \`${p}shellgame\` 🥤`,
+          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️  \`/shellgame\` 🥤`,
           `> ` + { en: "All support `easy|medium|hard`  •  `!help games` for details", fr: "Tous supportent `easy|medium|hard`  •  `!help jeux` pour les détails", es: "Todos soportan `easy|medium|hard`  •  `!help juegos` para detalles", de: "Alle unterstützen `easy|medium|hard`  •  `!help spiele` für Details", pt: "Todos suportam `easy|medium|hard`  •  `!help jogos` para detalhes", it: "Tutti supportano `easy|medium|hard`  •  `!help giochi` per dettagli" }[tl],
         ].join("\n"),
       },
@@ -144,8 +149,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[tl] ?? "🎵 YouTube & Queue",
         value: [
-          `\`${p}y <query>\` · \`${p}play <url>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
-          `\`${p}like\` ❤️  \`${p}likes\` 📋  \`${p}playlist add|play|list\``,
+          `\`${p}y <query>\` · \`/play <query>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
+          `\`${p}likes\` 📋  \`${p}playlist add|play|list\``,
         ].join("\n"),
       },
       {
@@ -203,13 +208,10 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
         value: [
           `\`@bot <msg>\` — ` + { en: "Chat with AI (also in DMs)", fr: "Chat IA (aussi en DM)", es: "Chat IA (también en DM)", de: "KI-Chat (auch in DMs)", pt: "Chat com IA (também em DMs)", it: "Chat con IA (anche in DM)" }[tl],
-          `\`@bot analyse [@membre] [100 messages]\` — ` + { en: "Analyze up to 100 recent messages across channels you and the bot can read. Other members require moderator rights and consent; results go by DM.", fr: "Analyser jusqu’à 100 messages récents dans les salons lisibles par toi et le bot. Pour une autre personne, il faut les droits de modération et son accord ; résultat en DM.", es: "Analiza hasta 100 mensajes recientes en canales accesibles. Para otra persona se requieren permisos de moderación y consentimiento.", de: "Bis zu 100 aktuelle Nachrichten aus zugänglichen Kanälen analysieren. Für andere Mitglieder sind Moderationsrechte und Zustimmung nötig.", pt: "Analise até 100 mensagens recentes em canais acessíveis. Para outra pessoa, são necessárias permissões de moderação e consentimento.", it: "Analizza fino a 100 messaggi recenti nei canali accessibili. Per un'altra persona servono permessi di moderazione e consenso." }[tl],
+          `\`@bot analyse [@membre] [100 messages]\` — ` + { en: "Recent-message analysis (permissions and consent required)", fr: "Analyse des messages récents (droits et accord requis)", es: "Análisis de mensajes (permisos y consentimiento)", de: "Nachrichtenanalyse (Berechtigungen und Einwilligung)", pt: "Análise de mensagens (permissões e consentimento)", it: "Analisi messaggi (permessi e consenso)" }[tl],
           `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy [topic]\` 🕵️`,
-          `\`${p}persona help\` — ` + { en: "Create, save, share, and use AI personas.", fr: "Créer, enregistrer, partager et utiliser des personas IA.", es: "Crear, guardar, compartir y usar personas IA.", de: "KI-Personas erstellen, speichern, teilen und verwenden.", pt: "Criar, salvar, compartilhar e usar personas de IA.", it: "Creare, salvare, condividere e usare personas IA." }[tl],
           `\`${p}ai enable\` — ` + { en: "Enable AI features and give consent", fr: "Activer les fonctions IA et donner ton accord", es: "Activar las funciones IA y dar consentimiento", de: "KI-Funktionen aktivieren und zustimmen", pt: "Ativar recursos de IA e consentir", it: "Attivare le funzioni IA e dare il consenso" }[tl],
           `\`${p}ai reset\` — ` + { en: "Reset your AI consent preference", fr: "Réinitialise ton consentement IA", es: "Restablecer consentimiento IA", de: "KI-Einwilligung zurücksetzen", pt: "Redefinir consentimento IA", it: "Reimposta consenso IA" }[tl],
-          `\`${p}ai remember <info>\` · \`${p}ai memory\` · \`${p}ai forget <n|all>\` — ` + { en: "optional private memory", fr: "mémoire privée facultative", es: "memoria privada opcional", de: "optionaler privater Speicher", pt: "memória privada opcional", it: "memoria privata opzionale" }[tl],
-          `\`${p}ai server remember <info>\` — ` + { en: "admin-only shared server facts", fr: "fait commun réservé aux admins", es: "dato común solo para admins", de: "gemeinsame Admin-Fakten", pt: "facto comum para admins", it: "fato comum para admins" }[tl],
           `> 🔒 ` + { en: "AI commands ask for one-time consent before first use.", fr: "Les commandes IA demandent un consentement unique avant la 1ère utilisation.", es: "Los comandos IA piden consentimiento único antes del primer uso.", de: "KI-Befehle fragen einmalig nach Einwilligung.", pt: "Comandos IA pedem consentimento único antes do primeiro uso.", it: "I comandi IA chiedono il consenso una volta prima del primo utilizzo." }[tl],
         ].join("\n"),
       },
@@ -223,57 +225,10 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
     );
 
-  // ── Page 6 — New Games ─────────────────────────────────────────────────────
+  // ── Personas, private memory, administration and actual slash catalogue ────
   } else {
-    const desc = { en: "Tier list, blind test & million game.", fr: "Tier list, blind test & jeu du million.", es: "Tier list, blind test & juego del millón.", de: "Tier-Liste, Blindtest & Millionenspiel.", pt: "Tier list, blind test & jogo do milhão.", it: "Tier list, blind test & gioco del milione." };
-    embed.setDescription(desc[tl]);
-    embed.addFields(
-      {
-        name: "🏆 Tier List  —  `!tierlist [theme]`",
-        value: [
-          { en: "Sort 20 items into tiers S / A / B / C / D using buttons. The tier list updates live.",
-            fr: "Classe 20 éléments en tiers S / A / B / C / D avec des boutons. La tier list se met à jour en direct.",
-            es: "Clasifica 20 elementos en tiers S / A / B / C / D con botones. La tier list se actualiza en directo.",
-            de: "Sortiere 20 Elemente in S / A / B / C / D mit Buttons. Die Tier-Liste aktualisiert sich live.",
-            pt: "Classifica 20 itens em tiers S / A / B / C / D com botões. A tier list atualiza ao vivo.",
-            it: "Classifica 20 elementi in tier S / A / B / C / D con pulsanti. La tier list si aggiorna in tempo reale." }[tl] ?? "",
-          `> **` + { en: "Themes", fr: "Thèmes", es: "Temas", de: "Themen", pt: "Temas", it: "Temi" }[tl] + `:** \`pokemon\` · \`anime\` · \`marvel\` · \`food\` · \`games\` · \`movies\``,
-        ].join("\n"),
-      },
-      {
-        name: "🎵 Blind Test  —  `!blindtest [theme] [easy|hard]`",
-        value: [
-          { en: "10 rounds of music blind test. A 25s audio clip plays — guess the song!",
-            fr: "10 manches de blind test musical. Un clip audio de 25s est joué — devine la chanson !",
-            es: "10 rondas de blind test musical. Se reproduce un clip de 25s — ¡adivina la canción!",
-            de: "10 Runden Musik-Blindtest. Ein 25s-Audioclip wird gespielt — errate den Song!",
-            pt: "10 rodadas de blind test musical. Um clipe de 25s é tocado — adivinhe a música!",
-            it: "10 round di blind test musicale. Viene riprodotto un clip audio di 25s — indovina la canzone!" }[tl] ?? "",
-          `> **Easy:** ` + { en: "4 choice buttons (+1 pt) · **Hard:** type the answer (+2 pts, 15s timer)", fr: "4 boutons de choix (+1 pt) · **Hard:** tape la réponse (+2 pts, 15s)", es: "4 botones de elección (+1 pt) · **Hard:** escribe la respuesta (+2 pts, 15s)", de: "4 Auswahlknöpfe (+1 Pkt.) · **Hard:** Antwort eintippen (+2 Pkt., 15s)", pt: "4 botões de escolha (+1 pt) · **Hard:** digitar resposta (+2 pts, 15s)", it: "4 pulsanti di scelta (+1 pt) · **Hard:** scrivi la risposta (+2 pt, 15s)" }[tl],
-          `> **` + { en: "Themes", fr: "Thèmes", es: "Temas", de: "Themen", pt: "Temas", it: "Temi" }[tl] + `:** \`pop\` \`rock\` \`hiphop\` \`rnb\` \`electronic\` \`kpop\` \`french\` \`lofi\` \`gaming\` \`80s\` \`90s\` \`anime\``,
-        ].join("\n"),
-      },
-      {
-        name: "💰 Million Game  —  `!milliongame`  ·  `!million leaderboard`",
-        value: [
-          { en: "15 questions from €100 to €1,000,000. 3 lifelines: 50/50 · Phone a Friend · Ask the Audience. Safe checkpoints at Q5 & Q10.",
-            fr: "15 questions de 100€ à 1 000 000€. 3 jokers : 50/50 · Téléphone ami · Sondage public. Paliers de sécurité Q5 & Q10.",
-            es: "15 preguntas de €100 a €1.000.000. 3 comodines: 50/50 · Llamada amigo · Consulta público. Puntos de control en Q5 y Q10.",
-            de: "15 Fragen von 100€ bis 1.000.000€. 3 Joker: 50/50 · Telefonjoker · Publikumsjoker. Sicherheitsstufen bei F5 & F10.",
-            pt: "15 perguntas de €100 a €1.000.000. 3 salva-vidas: 50/50 · Ligar amigo · Placar do público. Checkpoints em Q5 & Q10.",
-            it: "15 domande da €100 a €1.000.000. 3 aiuti: 50/50 · Chiama amico · Sondaggio. Checkpoint sicuri a Q5 e Q10." }[tl] ?? "",
-          `> 📊 \`${p}million leaderboard\` · \`${p}million top\` — ` + { en: "Server leaderboard (best prize per player)", fr: "Classement du serveur (meilleur gain par joueur)", es: "Tabla del servidor (mejor premio por jugador)", de: "Server-Rangliste (bestes Ergebnis pro Spieler)", pt: "Placar do servidor (melhor prêmio por jogador)", it: "Classifica server (miglior premio per giocatore)" }[tl],
-        ].join("\n"),
-      },
-    );
-  }
-
-  // Replace prefix
-  if (prefix !== "!") {
-    for (const f of embed.data.fields ?? []) {
-      f.value = f.value.replaceAll("`!", `\`${prefix}`);
-    }
-    if (embed.data.description) embed.setDescription(embed.data.description.replaceAll("`!", `\`${prefix}`));
+    const extra = extraHelpPage(page, tl, p);
+    embed.setDescription(extra.title).addFields(extra.fields);
   }
 
   return embed;
@@ -287,24 +242,24 @@ export async function sendHelpPaginator(
   startPage: HelpPage = 1,
 ): Promise<void> {
   const isInteraction = !("author" in source);
-  const prefix = isInteraction
-    ? "!"
-    : await getPrefix((source as Message).guildId ?? "");
+  const prefix = await getPrefix(source.guildId ?? "");
 
   let page: HelpPage = startPage;
   const embed = buildHelpEmbed(lang, page, prefix);
   const row   = buildNavRow(page, lang);
 
   const reply = isInteraction
-    ? await (source as ChatInputCommandInteraction).reply({ embeds: [embed], components: [row], fetchReply: true })
+    ? await replyToSlash(source as ChatInputCommandInteraction, { embeds: [embed], components: [row] })
     : await (source as Message).reply({ embeds: [embed], components: [row] });
 
   const collector = reply.createMessageComponentCollector({
     componentType: ComponentType.Button,
     time: 120_000,
+    filter: (interaction) => ["help_prev", "help_next"].includes(interaction.customId),
   });
 
   collector.on("collect", async (i) => {
+    try {
     if (i.user.id !== (isInteraction ? (source as ChatInputCommandInteraction).user.id : (source as Message).author.id)) {
       await i.reply({ content: t("unauthorized", lang), ephemeral: true });
       return;
@@ -312,6 +267,12 @@ export async function sendHelpPaginator(
     if (i.customId === "help_prev") page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
     if (i.customId === "help_next") page = (page === HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
     await i.update({ embeds: [buildHelpEmbed(lang, page, prefix)], components: [buildNavRow(page, lang)] });
+    } catch (error) {
+      recordDiagnosticMetadata("help", error);
+      if (!i.replied && !i.deferred) {
+        await i.reply({ content: t("expired", lang).replaceAll("!help", `${prefix}help`), ephemeral: true }).catch(() => null);
+      }
+    }
   });
 
   collector.on("end", async () => {
@@ -327,11 +288,14 @@ export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
   | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "food"
-  | "tierlist" | "blindtest" | "milliongame";
+  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics";
 
 export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { topic: HelpTopic; lang: HelpLanguage } | null {
   const key = raw.toLowerCase().trim();
   const map: Record<string, { topic: HelpTopic; lang?: HelpLanguage }> = {
+    persona: { topic: "persona" }, personas: { topic: "persona" },
+    memory: { topic: "memory" }, mémoire: { topic: "memory", lang: "fr" }, memoire: { topic: "memory", lang: "fr" },
+    tech: { topic: "diagnostics" }, technician: { topic: "diagnostics" }, diagnostic: { topic: "diagnostics", lang: "fr" },
     language: { topic: "language" }, langue: { topic: "language", lang: "fr" }, idioma: { topic: "language", lang: "es" },
     general: { topic: "general" }, général: { topic: "general", lang: "fr" }, general_es: { topic: "general", lang: "es" },
     games: { topic: "games" }, jeux: { topic: "games", lang: "fr" }, juegos: { topic: "games", lang: "es" },
@@ -381,9 +345,11 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
 }
 
 export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
-  const p = prefix;
+  if (topic === "persona" || topic === "memory") return buildHelpEmbed(lang, 6, prefix);
+  if (topic === "diagnostics") return buildHelpEmbed(lang, 7, prefix);
+  const p = HELP_PREFIX_TOKEN;
   const tl = textLang(lang);
-  const embed = new EmbedBuilder().setColor(COLORS[lang]);
+  const embed = new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang]);
 
   switch (topic) {
     case "language":
@@ -456,10 +422,10 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "youtube":
       embed.setTitle("🎬 YouTube & Queue");
       embed.addFields(
-        { name: `\`${p}y <query>\`  ·  \`${p}play <url>\``, value: { en: "Search YouTube or play a direct URL.", fr: "Chercher sur YouTube ou jouer une URL directe.", es: "Buscar en YouTube o reproducir una URL directa.", de: "YouTube durchsuchen oder eine direkte URL abspielen.", pt: "Pesquisar no YouTube ou reproduzir uma URL direta.", it: "Cerca su YouTube o riproduci un URL diretto." }[tl] ?? "" },
+        { name: `\`${p}y <query>\`  ·  \`/play <query>\``, value: { en: "Search YouTube or play a direct URL.", fr: "Chercher sur YouTube ou jouer une URL directe.", es: "Buscar en YouTube o reproducir una URL directa.", de: "YouTube durchsuchen oder eine direkte URL abspielen.", pt: "Pesquisar no YouTube ou reproduzir uma URL direta.", it: "Cerca su YouTube o riproduci un URL diretto." }[tl] ?? "" },
         { name: `\`${p}np\``, value: { en: "Show what's currently playing.", fr: "Affiche ce qui joue actuellement.", es: "Muestra lo que está sonando.", de: "Zeigt was gerade spielt.", pt: "Mostra o que está tocando.", it: "Mostra cosa sta suonando." }[tl] ?? "" },
         { name: `\`${p}skip\`  \`${p}queue\`  \`${p}voteskip\``, value: { en: "Skip current track, view queue, or start a vote to skip.", fr: "Passer la piste, voir la file, ou voter pour passer.", es: "Saltar pista, ver cola, o votar para saltar.", de: "Track überspringen, Warteschlange anzeigen oder Abstimmung starten.", pt: "Pular faixa, ver fila ou votar para pular.", it: "Salta traccia, vedi coda o avvia votazione." }[tl] ?? "" },
-        { name: `\`${p}like\`  \`${p}likes\`  \`${p}likes play\``, value: { en: "Like the current track, list your liked tracks, or play them all.", fr: "Liker la piste actuelle, voir tes likes, ou les jouer tous.", es: "Dar like a la pista actual, ver tus likes o reproducirlos.", de: "Track liken, Likes anzeigen oder alle abspielen.", pt: "Curtir a faixa atual, ver curtidas ou reproduzir todas.", it: "Metti like alla traccia, vedi i like o riproducili tutti." }[tl] ?? "" },
+        { name: `\`${p}likes\`  \`${p}likes play\``, value: { en: "List or play saved tracks. Use the DJ console's heart to save a track.", fr: "Voir ou lire tes pistes sauvegardées. Le cœur de la console DJ ajoute un favori.", es: "Ver o reproducir favoritos. Usa el corazón de la consola DJ para guardar.", de: "Gespeicherte Tracks anzeigen oder abspielen. Mit dem Herz im DJ-Pult speichern.", pt: "Ver ou tocar favoritos. Use o coração do console DJ para salvar.", it: "Mostra o riproduci i preferiti. Usa il cuore della console DJ per salvare." }[tl] ?? "" },
       );
       break;
 

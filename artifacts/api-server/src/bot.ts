@@ -35,6 +35,7 @@ import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtist
 import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage } from "./discord/responses.js";
 import { type HelpLanguage, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { createSlashMessageAdapter, replyToSlash } from "./discord/slash-message-adapter.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
@@ -81,6 +82,7 @@ import {
   moduleForMessageCommand,
   moduleDependencyForCommand,
   recordModuleSuccess,
+  getModuleLastFailureAt,
   reportModuleFailure,
 } from "./discord/module-technician.js";
 import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-fallback.js";
@@ -634,6 +636,8 @@ export function startBot(): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+    const commandModule = moduleForMessageCommand(interaction.commandName);
+    const failureBefore = getModuleLastFailureAt(commandModule);
 
     try {
       await interaction.deferReply();
@@ -646,23 +650,7 @@ export function startBot(): void {
           ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
           : null;
 
-      // Minimal Message adapter so existing functions can be reused unchanged
-      const fakeMsg = {
-        guildId:   interaction.guildId,
-        channelId: interaction.channelId,
-        channel:   interaction.channel,
-        author: {
-          id:          interaction.user.id,
-          displayName: interaction.user.displayName,
-          username:    interaction.user.username,
-          bot:         false,
-        },
-        member,
-        content: "",
-        reply:   (content: unknown) => interaction.editReply(content as Parameters<typeof interaction.editReply>[0]),
-        delete:  () => Promise.resolve(),
-        react:   () => Promise.resolve(null),
-      } as unknown as Message;
+      const fakeMsg = createSlashMessageAdapter(interaction, member);
 
       switch (interaction.commandName) {
 
@@ -1075,6 +1063,9 @@ export function startBot(): void {
           break;
         }
       }
+      if (getModuleLastFailureAt(commandModule) === failureBefore) {
+        recordModuleSuccess(commandModule, moduleDependencyForCommand(interaction.commandName, []));
+      }
     } catch (err) {
       const failedModule = moduleForMessageCommand(interaction.commandName);
       await reportModuleFailure(
@@ -1084,14 +1075,9 @@ export function startBot(): void {
         moduleDependencyForCommand(interaction.commandName, []),
       );
       logger.error({ err, command: interaction.commandName }, "Slash command error");
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(
-          moduleFallbackMessage(
-            failedModule,
-            getEffectiveLanguage(interaction.guildId, interaction.user.id),
-          ),
-        ).catch(() => null);
-      }
+      await replyToSlash(interaction, moduleFallbackMessage(
+        failedModule, getEffectiveLanguage(interaction.guildId, interaction.user.id), `/${interaction.commandName}`,
+      )).catch(() => null);
     }
   });
 
@@ -3858,7 +3844,10 @@ export function startBot(): void {
         err,
         moduleDependencyForCommand(command, args),
       );
-      await message.reply(moduleFallbackMessage(moduleForMessageCommand(command), responseLang)).catch(() => null);
+      await message.reply({
+        content: moduleFallbackMessage(moduleForMessageCommand(command), responseLang, command),
+        allowedMentions: { parse: [], repliedUser: false },
+      }).catch(() => null);
     }
   });
 
