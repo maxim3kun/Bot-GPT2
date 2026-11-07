@@ -1,6 +1,7 @@
 import type { Message } from "discord.js";
 import type { UserLang } from "./user-lang-store.js";
 import { isAiEcologyRequest } from "./ai-ecology-policy.js";
+import { isFactualCorrection } from "./ai-correction-policy.js";
 
 export type AiIntent =
   | "greeting"
@@ -107,6 +108,7 @@ export function isLatestNewsRequest(text: string): boolean {
 
 export function classifyAiMessage(text: string): AiRoute {
   const normalized = normalize(text);
+  if (isFactualCorrection(text)) return { intent: "research", needsResearch: true, needsConfirmation: false };
 
   if (
     /^(bonjour|bonsoir|salut|coucou|hello|hi|hey|yo|hola|hallo|ciao)( bot| ia| toi| a toi)?[!?. ]*$/.test(normalized) ||

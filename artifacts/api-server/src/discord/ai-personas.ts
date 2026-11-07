@@ -22,7 +22,7 @@ import {
   type AiPersonaVisibility,
 } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
-import { formatSearchContext, searchWeb } from "../lib/web-search.js";
+import { formatSearchContext } from "../lib/web-search.js";
 import { recordModuleSuccess, reportModuleFailure } from "./module-technician.js";
 import { classifyAiMessage } from "./ai-router.js";
 import { FACTUAL_ACCURACY_GUIDANCE, generateWithLengthRetry } from "./ai-completion-quality.js";
@@ -36,6 +36,8 @@ import { shouldSkipConversation } from "./ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
 import { getAiPromptContext } from "./ai-memory.js";
 import { rememberConversationTurn } from "./ai-conversation-memory.js";
+import { researchForTurn } from "./ai-research-service.js";
+import { reviewResearchedAnswer } from "./ai-research-review.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./ai-language-guard.js";
 import { requireConsent } from "./ai-consent.js";
 import { collectOldestAccessibleUserMessage, collectServerMessages } from "./ai-message-analysis.js";
@@ -971,7 +973,13 @@ async function respondWithPersona(
   const recentConversation = getPersonaConversationHistory(historyKey);
   const needsResearch = classifyAiMessage(prompt).needsResearch;
   // Only the current request is sent to search, never private learned memories.
-  const webResults = needsResearch ? await searchWeb(prompt.replace(/<@!?\d+>/g, "[Discord member]")) : [];
+  const research = await researchForTurn(message, prompt, recentConversation, needsResearch, prompt, responseLanguage);
+  if (research.immediateReply) {
+    await safeReply(message, research.immediateReply);
+    rememberPersonaConversationTurn(historyKey, prompt, research.immediateReply);
+    return;
+  }
+  const webResults = research.results;
   const hasResearchEvidence = webResults.some((result) => result.content?.trim());
   const researchGuidance = needsResearch
     ? hasResearchEvidence
@@ -997,6 +1005,7 @@ If the evidence does not support a requested figure or comparison, say you canno
           speakerContext,
           personalContext,
           researchGuidance,
+          research.guidance,
           buildBotCommandContext(prompt, responseLanguage, getPrefix(message.guildId)),
           `The current speaker is the Discord user whose display name is ${JSON.stringify(speakerName)}. This person authored the current message; they are not the bot account MaximeGPT3. Address this speaker directly in second person when natural; never describe them in third person as someone you discovered. Do not confuse them with the creator, the bot, or another user; do not invent a romantic interest in someone else, mention MaximeGPT3 as another person, or create Discord @mentions.`,
           timeContext,
@@ -1016,11 +1025,13 @@ If the evidence does not support a requested figure or comparison, say you canno
       model: "openai/gpt-oss-120b",
       max_completion_tokens: tokenBudget,
       currentUserText: prompt,
+      correction: research.correction,
       messages,
     });
     const choice = response.choices[0];
     logger.debug({ finishReason: choice?.finish_reason, tokenBudget }, "Persona completion finished");
-    return { text: choice?.message?.content?.trim() ?? "", finishReason: choice?.finish_reason ?? null, silent: response.intentionallySilent };
+    return { text: choice?.message?.content?.trim() ?? "", finishReason: choice?.finish_reason ?? null,
+      silent: response.intentionallySilent, verifiedCalculations: response.verifiedCalculations };
   });
   if (generated.silent) return;
   if (!generated.text.trim()) {
@@ -1028,11 +1039,15 @@ If the evidence does not support a requested figure or comparison, say you canno
     await safeReply(message, localized(responseLanguage, "Le modèle n’a renvoyé aucun texte exploitable. Réessaie dans un instant.", "The model returned no usable text. Please try again shortly."));
     return;
   }
-  const answer = generated.text + (generated.finishReason === "length"
+  const reviewed = hasResearchEvidence
+    ? await reviewResearchedAnswer(openai, "openai/gpt-oss-120b", research.correction?.question ?? prompt,
+      generated.text, webResults, responseLanguage, research.correction, generated.verifiedCalculations)
+    : null;
+  const answer = (reviewed?.text ?? generated.text) + (generated.finishReason === "length"
     ? localized(responseLanguage, "\n\n_(Réponse interrompue par la limite du modèle.)_", "\n\n_(Response interrupted by the model's limit.)_")
     : "");
-  const sourcesButton = hasResearchEvidence
-    ? createSearchSourceButton(webResults, message.author.id)
+  const sourcesButton = (reviewed?.sources ?? webResults).length
+    ? createSearchSourceButton(reviewed?.sources ?? webResults, message.author.id)
     : null;
 
   if (

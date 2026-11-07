@@ -6,6 +6,7 @@ import { createReliableCompletion } from "../src/discord/ai-reliable-completion.
 import { buildSpeakerContext, currentUserTurn } from "../src/discord/ai-speaker-context.js";
 import { createFeedbackTracker } from "../src/discord/ai-feedback.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
+import { researchForTurn } from "../src/discord/ai-research-service.js";
 
 function completion(content: string | null, silence = false) {
   return {
@@ -123,4 +124,115 @@ test("The completion adapter includes detailed ecology instructions only on requ
     });
     assert.equal(JSON.stringify(requests[0]).includes(AI_ECOLOGY_GUIDANCE), expected);
   }
+});
+
+const evidenceQuote = "Paris est la capitale de la France.";
+const evidence = {
+  title: "Géographie", url: "https://example.org/geographie", snippet: "Résultat de recherche",
+  content: evidenceQuote + " Cette page décrit les villes françaises et leur situation administrative. Les données sont présentées dans le cadre de la géographie de la France.",
+};
+const reviewed = JSON.stringify({
+  status: "supported", previousError: "confirmed",
+  supported: [{ segment: 1, citations: [{ source: 1, quote: evidenceQuote }] }],
+});
+
+test("Researched answers get one bounded audit and internal options never leak into provider parameters", async () => {
+  const { client, requests } = provider([completion("Paris est la capitale de la France."), completion(reviewed)]);
+  const response = await createReliableCompletion(client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "C'est faux",
+    messages: [{ role: "user", content: "C'est faux" }], evidence: [evidence], responseLanguage: "fr",
+    correction: { question: "Capitale de la France ?", previousAnswer: "Madrid.", objection: "C'est faux" },
+  });
+  assert.equal(requests.length, 2);
+  assert.match(response.choices[0]!.message.content!, /Correction/);
+  assert.equal(response.reviewedSources?.[0]?.url, evidence.url);
+  for (const request of requests) {
+    for (const key of ["currentUserText", "evidence", "correction", "responseLanguage"]) assert.equal(Object.hasOwn(request, key), false);
+  }
+  assert.deepEqual(requests[1]!.response_format, { type: "json_object" });
+  assert.equal(Object.hasOwn(requests[1]!, "tools"), false);
+});
+
+test("Failed or malformed audits fail closed rather than exposing an unverified draft", async () => {
+  for (const audit of [undefined, completion("{invalid JSON"), completion('{"status":"supported","supported":[{"segment":1,"citations":[{"source":8,"quote":"invented quotation"}]}]}')]) {
+    const { client, requests } = provider([completion("Madrid est la capitale de la France."), ...(audit ? [audit] : [])]);
+    const response = await createReliableCompletion(client, {
+      model: "test", max_completion_tokens: 100, currentUserText: "Capitale de la France ?",
+      messages: [{ role: "user", content: "Capitale de la France ?" }], evidence: [evidence], responseLanguage: "fr",
+    });
+    assert.equal(requests.length, 2);
+    assert.doesNotMatch(response.choices[0]!.message.content!, /Madrid/);
+    assert.match(response.choices[0]!.message.content!, /ne suffisent pas/);
+    assert.deepEqual(response.reviewedSources, []);
+  }
+});
+
+test("Ordinary conversation, silence and provider safety refusals are not research-audited", async () => {
+  const { client, requests } = provider([completion("Bonjour !")]);
+  await createReliableCompletion(client, { model: "test", max_completion_tokens: 100, currentUserText: "Bonjour", messages: [{ role: "user", content: "Bonjour" }] });
+  assert.equal(requests.length, 1);
+  const silent = provider([completion(null, true)]);
+  assert.equal((await createReliableCompletion(silent.client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "t'es con", evidence: [evidence],
+    messages: [{ role: "user", content: "t'es con" }],
+  })).intentionallySilent, true);
+  assert.equal(silent.requests.length, 1);
+  const filtered = completion(null);
+  filtered.choices[0]!.finish_reason = "content_filter";
+  const refused = provider([filtered]);
+  await createReliableCompletion(refused.client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "x", evidence: [evidence], messages: [{ role: "user", content: "x" }],
+  });
+  assert.equal(refused.requests.length, 1);
+});
+
+test("A quoted older answer selects its own question, not the last unrelated conversation", async () => {
+  const message = Object.assign(fakeMessage(true), { client: { user: { id: "bot-id" } } });
+  let reads = 0;
+  const oldAnswer = "La capitale de la France est Madrid.";
+  message.fetchReference = async () => {
+    reads++;
+    return { ...fakeMessage(), author: { ...fakeMessage().author, id: "bot-id", bot: true }, content: oldAnswer, embeds: [] } as unknown as Message;
+  };
+  const history = [
+    { role: "user", content: JSON.stringify({ text: "Quelle est la capitale de la France ?" }) }, { role: "assistant", content: oldAnswer },
+    { role: "user", content: JSON.stringify({ text: "Quelle est la capitale de l'Italie ?" }) }, { role: "assistant", content: "Rome." },
+  ];
+  let searched = "";
+  const result = await researchForTurn(message, "Ta réponse est fausse", history, false, "incorrect", "fr", async (query, options) => {
+    searched = query; assert.equal(options?.verify, true); return [evidence];
+  });
+  assert.equal(searched, "Quelle est la capitale de la France ?");
+  assert.equal(result.correction?.previousAnswer, oldAnswer);
+  await buildSpeakerContext(message);
+  assert.equal(reads, 1);
+});
+
+test("Missing, inaccessible or another person's referenced answer triggers clarification without a public search", async () => {
+  const history = [{ role: "user", content: "Capitale de la France ?" }, { role: "assistant", content: "Paris." }];
+  const inaccessible = fakeMessage(false);
+  const human = Object.assign(fakeMessage(true), { client: { user: { id: "bot-id" } } });
+  human.fetchReference = async () => ({ ...fakeMessage(), content: "Un autre message.", embeds: [] }) as unknown as Message;
+  for (const message of [inaccessible, human]) {
+    const result = await researchForTurn(message, "C'est faux", history, true, "do not search", "fr", async () => {
+      assert.fail("Ambiguous reference must never search an unrelated old question");
+    });
+    assert.match(result.immediateReply!, /Quel point/);
+    assert.equal(result.correction, undefined);
+  }
+});
+
+test("Private historical questions are not sent to public search, simple calculations use verified local arithmetic", async () => {
+  const message = Object.assign(fakeMessage(false), { reference: undefined });
+  for (const question of ["Quelle est mon adresse ?", "Vérifie ce token : private-value", "Que signifie l'adresse contact@example.org ?"]) {
+    const result = await researchForTurn(message, "C'est faux", [
+      { role: "user", content: question }, { role: "assistant", content: "Ancienne réponse." },
+    ], true, "", "fr", async () => { assert.fail("Private question must not be searched"); });
+    assert.match(result.immediateReply!, /sans information privée/);
+  }
+  const result = await researchForTurn(message, "Ce calcul est faux", [
+    { role: "user", content: "Combien font 2 + 2 ?" }, { role: "assistant", content: "5" },
+  ], true, "", "fr", async () => { assert.fail("Pure arithmetic needs no public search"); });
+  assert.match(result.immediateReply!, /= 4/);
+  assert.doesNotMatch(result.immediateReply!, /raison|excuse/);
 });

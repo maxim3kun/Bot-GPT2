@@ -11,6 +11,8 @@ import { parseConversationSummary, safeSummaryInput, updateConversationMemory } 
 import { createConversationRepository, type ConversationMemoryDoc } from "../src/discord/ai-conversation-repository.js";
 import { replyFeedbackPlan, LONG_ANSWER_RATING_THRESHOLD } from "../src/discord/ai-feedback-policy.js";
 import { AI_ECOLOGY_GUIDANCE, ecologyGuidanceFor, isAiEcologyRequest } from "../src/discord/ai-ecology-policy.js";
+import { correctionContext, correctionSearchQuery, isFactualCorrection } from "../src/discord/ai-correction-policy.js";
+import { prepareEvidence, relevantPageText, validateEvidenceReview } from "../src/discord/ai-research-policy.js";
 
 const allowedAccess: AiActionAccess = {
   blocked: false, consentAccepted: true, aiEnabled: true, moduleEnabled: true,
@@ -437,4 +439,113 @@ test("Ecology guidance separates a scenario from actual measurement and checks c
   assert.match(AI_ECOLOGY_GUIDANCE, /CO2 and CO2e are not interchangeable/);
   assert.match(AI_ECOLOGY_GUIDANCE, /clearly labelled hypothetical/);
   assert.doesNotMatch(calculateVerified({ operation: "add", values: [2, 2] }).caveat, /CO2|carbon|flight/i);
+});
+
+const sourceQuote = "Paris est la capitale de la France.";
+const evidenceSource = {
+  title: "Géographie de la France", url: "https://example.org/france", snippet: "Extrait",
+  content: sourceQuote + " Cette page présente la géographie française, les villes et les données administratives utiles à cette question.",
+};
+
+test("A factual correction triggers rechecking, but style and personal corrections do not", () => {
+  for (const text of ["Tu t’es trompé sur ce chiffre", "Ce chiffre est faux", "C'est faux, vérifie", "Ta source ne dit pas ça", "Your answer is wrong"]) {
+    assert.equal(isFactualCorrection(text), true, text);
+    assert.equal(classifyAiMessage(text).needsResearch, true, text);
+  }
+  for (const text of ["Ta réponse est trop longue", "Tu t'es trompé de langue", "Non, mon prénom est Alex", "Je préfère une réponse en français", "Bonjour"]) {
+    assert.equal(isFactualCorrection(text), false, text);
+  }
+});
+
+test("Corrections recover the original question without trusting or searching the old answer", () => {
+  const history = [
+    { role: "user", content: JSON.stringify({ author: { id: "alice" }, text: "Quelle est la capitale de la France ?" }) },
+    { role: "assistant", content: "La capitale de la France est Madrid." },
+    { role: "user", content: "C'est faux" }, { role: "assistant", content: "Je vais vérifier." },
+    { role: "user", content: "C'est faux" },
+  ];
+  const context = correctionContext("C'est faux", history)!;
+  assert.equal(context.question, "Quelle est la capitale de la France ?");
+  assert.equal(correctionSearchQuery(context), "Quelle est la capitale de la France ?");
+  assert.equal(correctionContext("C'est faux", [], "Autre réponse"), undefined);
+  assert.equal(correctionSearchQuery({ question: "Mon password est secret", previousAnswer: "old" }), null);
+});
+
+test("Simple mathematical corrections are recomputed without external sources or eval", () => {
+  const context = correctionContext("Ce calcul est faux", [
+    { role: "user", content: "Combien font 2 + 2 ?" }, { role: "assistant", content: "5" },
+  ]);
+  assert.equal(context?.calculation?.result, 4);
+});
+
+test("Evidence requires fetched page text, excludes duplicate URLs/text and impossible future dates", () => {
+  const now = Date.parse("2026-11-07T12:00:00Z");
+  const sources = prepareEvidence([
+    evidenceSource,
+    { ...evidenceSource, url: "https://example.org/france?utm_source=tracking" },
+    { ...evidenceSource, url: "https://copied.example/article" },
+    { ...evidenceSource, url: "https://future.example/article", content: "Different future text ".repeat(20), publishedAt: "2099-01-01" },
+    { ...evidenceSource, url: "https://snippet.example/article", content: undefined },
+  ], now);
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0]?.url, evidenceSource.url);
+});
+
+test("Relevant article passages are retained instead of a long navigation prefix", () => {
+  const text = "Navigation et abonnements. ".repeat(250) + "La capitale de la France est Paris. ".repeat(60);
+  const selected = relevantPageText(text, "capitale France Paris", 1000);
+  assert.match(selected, /capitale de la France/);
+  assert.ok(selected.length <= 1000);
+});
+
+test("Reviewed claims require real source IDs and verbatim fetched quotations", () => {
+  const segment = "La capitale de la France est Paris.";
+  const valid = validateEvidenceReview(JSON.stringify({
+    status: "supported", supported: [{ segment: 1, citations: [{ source: 1, quote: sourceQuote }] }],
+  }), [segment], [evidenceSource], "fr");
+  assert.equal(valid.status, "supported");
+  assert.equal(valid.text, segment);
+  for (const citation of [{ source: 99, quote: sourceQuote }, { source: 1, quote: "Madrid est la capitale de la France." }, { source: 1, quote: "Paris" }]) {
+    const refused = validateEvidenceReview(JSON.stringify({
+      status: "supported", supported: [{ segment: 1, citations: [citation] }],
+    }), [segment], [evidenceSource], "fr");
+    assert.equal(refused.status, "insufficient");
+    assert.deepEqual(refused.sources, []);
+    assert.equal(refused.text.includes(segment), false);
+  }
+});
+
+test("An ungrounded part is removed, with uncertainty instead of an invented completed answer", () => {
+  const reviewed = validateEvidenceReview(JSON.stringify({
+    status: "supported", supported: [{ segment: 1, citations: [{ source: 1, quote: sourceQuote }] }],
+  }), ["Paris est la capitale de la France.", "Une requête vaut exactement 99 kg de CO2."], [evidenceSource], "fr");
+  assert.equal(reviewed.status, "partial");
+  assert.equal(reviewed.text.includes("99 kg"), false);
+  assert.match(reviewed.text, /partie/);
+});
+
+test("Disagreement needs two distinct source hosts and must retain an explicit uncertainty notice", () => {
+  const payload = { status: "conflicting", supported: [{ segment: 1, citations: [
+    { source: 1, quote: sourceQuote }, { source: 2, quote: "Les estimations ne portent pas sur le même périmètre." },
+  ] }] };
+  const other = { ...evidenceSource, url: "https://another.example/research", content: "Les estimations ne portent pas sur le même périmètre. " + "Explication de la méthode. ".repeat(10) };
+  const reviewed = validateEvidenceReview(JSON.stringify(payload), ["Les résultats ne permettent pas de trancher."], [evidenceSource, other], "fr");
+  assert.equal(reviewed.status, "conflicting");
+  assert.match(reviewed.text, /conclure/);
+  const sameHost = validateEvidenceReview(JSON.stringify(payload), ["Désaccord."], [evidenceSource, { ...other, url: "https://example.org/other" }], "fr");
+  assert.equal(sameHost.status, "insufficient");
+});
+
+test("A correction cannot automatically agree with the user without evidence of the previous error", () => {
+  const reviewed = validateEvidenceReview(JSON.stringify({
+    status: "supported", previousError: "not_confirmed",
+    supported: [{ segment: 1, citations: [{ source: 1, quote: sourceQuote }] }],
+  }), ["Tu as raison, je me suis trompé : Paris est la capitale de la France."], [evidenceSource], "fr", true);
+  assert.equal(reviewed.status, "insufficient");
+  assert.doesNotMatch(reviewed.text, /Tu as raison/);
+});
+
+test("Research fallback messages respect supported languages rather than forcing English", () => {
+  const reviewed = validateEvidenceReview('{"status":"insufficient","supported":[]}', ["x"], [evidenceSource], "es");
+  assert.match(reviewed.text, /información|verificar/);
 });

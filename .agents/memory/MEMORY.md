@@ -12,3 +12,4 @@
 - [AI feedback and diagnostics](ai-feedback-and-diagnostics.md) — Reaction ratings and twice-daily private owner summaries; metadata only, no automatic model retraining or repeated DMs.
 - [User conversation memory](user-conversation-memory.md) — Opt-in encrypted summaries, participant identity, clarification and intentional silence without ignoring useful criticism.
 - [Node test runner](node-test-runner.md) — Cached external-package node:test bundles need direct execution rather than CLI discovery inside node_modules.
+- [Research evidence review](research-evidence-review.md) — Prefer supported partial replies; recheck objections without automatic agreement, and keep private history out of public search.

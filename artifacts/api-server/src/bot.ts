@@ -32,7 +32,7 @@ import { getStoreStats, setBrandApproval, addBrandToStore, removeBrandFromStore 
 import { loadDynamicBrands } from "./discord/logo-brands";
 import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib/logo-tester";
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
-import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, searchWeb, type WebSearchResult } from "./lib/web-search.js";
+import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage } from "./discord/responses.js";
 import { type HelpLanguage, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { handleDefine } from "./discord/define.js";
@@ -62,6 +62,8 @@ import { startTechnicianDigest } from "./discord/technician-digest.js";
 import { shouldSkipConversation, stripBotMention } from "./discord/ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./discord/ai-speaker-context.js";
 import { rememberConversationTurn } from "./discord/ai-conversation-memory.js";
+import { researchForTurn } from "./discord/ai-research-service.js";
+import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -169,6 +171,7 @@ function addToHistory(channelId: string, role: "user" | "assistant", content: st
 }
 
 function buildMessageResearchQuery(message: Message, text: string): string {
+  if (isFactualCorrection(text)) return text;
   text = text.replace(/<@!?\d+>/g, "[Discord member]");
   const key = `${message.channelId}:${message.author.id}`;
   const previous = lastResearchQueries.get(key);
@@ -178,12 +181,6 @@ function buildMessageResearchQuery(message: Message, text: string): string {
   const query = buildResearchQuery(text, previousQuery);
   lastResearchQueries.set(key, { query, timestamp: Date.now() });
   return query;
-}
-
-function noResearchEvidenceReply(language: string): string {
-  return language === "fr"
-    ? "Je n’ai pas trouvé de source assez précise pour vérifier ça. Tu peux préciser le sujet ou réessayer."
-    : "I couldn't find a specific enough source to verify that. Please clarify the topic or try again.";
 }
 
 function isBotMentioned(message: Message, botId: string): boolean {
@@ -287,7 +284,8 @@ async function replyWithLatestNews(
 ): Promise<boolean> {
   if (!isLatestNewsRequest(prompt)) return false;
 
-  const answer = formatLatestNewsAnswer(webResults);
+  const citedSources = webResults.filter((result) => formatLatestNewsAnswer([result])).slice(0, 3);
+  const answer = formatLatestNewsAnswer(citedSources);
   if (!answer) {
     await message.reply(language === "fr"
       ? "Je n’ai pas trouvé d’articles récents, datés et suffisamment précis pour te présenter de vraies actualités. Essaie avec un sujet ou un pays."
@@ -296,7 +294,7 @@ async function replyWithLatestNews(
   }
 
   addToHistory(conversationKey(message), "assistant", answer);
-  await replyWithAiAnswer(message, answer, webResults);
+  await replyWithAiAnswer(message, answer, citedSources);
   return true;
 }
 
@@ -456,12 +454,14 @@ export function startBot(): void {
       const searchQuery = shouldSearch
         ? isLatestNewsRequest(prompt) ? prompt : buildMessageResearchQuery(message, prompt)
         : prompt;
-      const webResults = shouldSearch ? await searchWeb(searchQuery.replace(/<@!?\d+>/g, "[Discord member]")) : [];
-      if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-        await message.reply(noResearchEvidenceReply(aiResponseLang));
+      const research = await researchForTurn(message, prompt, getAiHistory(conversationKey(message)), shouldSearch, searchQuery, aiResponseLang);
+      const webResults = research.results;
+      if (research.immediateReply) {
+        addToHistory(conversationKey(message), "assistant", research.immediateReply);
+        await message.reply({ content: research.immediateReply, allowedMentions: { parse: [] } });
         return;
       }
-      if (await replyWithLatestNews(message, prompt, webResults, aiResponseLang)) {
+      if (!research.correction && await replyWithLatestNews(message, prompt, webResults, aiResponseLang)) {
         rememberConversationTurn(message, prompt, openai);
         return;
       }
@@ -469,18 +469,21 @@ export function startBot(): void {
         model: "openai/gpt-oss-120b",
         max_completion_tokens: 2048,
         currentUserText: stripMentions(prompt),
+        evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
         messages: [
           { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
           { role: "system", content: await buildSpeakerContext(message) },
+          { role: "system", content: research.guidance },
           ...getAiHistory(conversationKey(message)),
         ],
       });
       if (response.intentionallySilent) return;
+      const verifiedSources = response.reviewedSources ?? webResults;
       const rawReply = response.choices[0]?.message?.content
         ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
       const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
       addToHistory(conversationKey(message), "assistant", reply);
-      await replyWithAiAnswer(message, reply, webResults);
+      await replyWithAiAnswer(message, reply, verifiedSources);
       rememberConversationTurn(message, prompt, openai, false, reply);
     } catch (err) {
       logger.error({ err }, "Prefixed AI question error");
@@ -1605,12 +1608,14 @@ export function startBot(): void {
         const searchQuery = shouldSearch
           ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
           : userText;
-        const webResults = shouldSearch ? await searchWeb(searchQuery.replace(/<@!?\d+>/g, "[Discord member]")) : [];
-        if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-          await message.reply(noResearchEvidenceReply(aiResponseLang));
+        const research = await researchForTurn(message, userText, getAiHistory(conversationKey(message)), shouldSearch, searchQuery, aiResponseLang);
+        const webResults = research.results;
+        if (research.immediateReply) {
+          addToHistory(conversationKey(message), "assistant", research.immediateReply);
+          await message.reply({ content: research.immediateReply, allowedMentions: { parse: [] } });
           return;
         }
-        if (await replyWithLatestNews(message, userText, webResults, aiResponseLang)) {
+        if (!research.correction && await replyWithLatestNews(message, userText, webResults, aiResponseLang)) {
           rememberConversationTurn(message, userText, openai);
           return;
         }
@@ -1619,18 +1624,21 @@ export function startBot(): void {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           currentUserText: userText,
+          evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
           messages: [
             { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
             { role: "system", content: await buildSpeakerContext(message) },
+            { role: "system", content: research.guidance },
              ...getAiHistory(conversationKey(message)),
           ],
         });
         if (response.intentionallySilent) return;
+        const verifiedSources = response.reviewedSources ?? webResults;
         const rawReply = response.choices[0]?.message?.content
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, webResults);
+        await replyWithAiAnswer(message, reply, verifiedSources);
         rememberConversationTurn(message, userText, openai, false, reply);
       } catch (err) {
         logger.error({ err }, "DM AI error");
@@ -1726,12 +1734,14 @@ export function startBot(): void {
         const searchQuery = shouldSearch
           ? isLatestNewsRequest(userText) ? userText : buildMessageResearchQuery(message, userText)
           : userText;
-        const webResults = shouldSearch ? await searchWeb(searchQuery.replace(/<@!?\d+>/g, "[Discord member]")) : [];
-        if (shouldSearch && !webResults.some((result) => result.content?.trim())) {
-          await message.reply(noResearchEvidenceReply(aiResponseLang));
+        const research = await researchForTurn(message, userText, getAiHistory(conversationKey(message)), shouldSearch, searchQuery, aiResponseLang);
+        const webResults = research.results;
+        if (research.immediateReply) {
+          addToHistory(conversationKey(message), "assistant", research.immediateReply);
+          await message.reply({ content: research.immediateReply, allowedMentions: { parse: [] } });
           return;
         }
-        if (await replyWithLatestNews(message, userText, webResults, aiResponseLang)) {
+        if (!research.correction && await replyWithLatestNews(message, userText, webResults, aiResponseLang)) {
           rememberConversationTurn(message, userText, openai);
           return;
         }
@@ -1740,18 +1750,21 @@ export function startBot(): void {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           currentUserText: userText,
+          evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
           messages: [
             { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
             { role: "system", content: await buildSpeakerContext(message) },
+            { role: "system", content: research.guidance },
              ...getAiHistory(conversationKey(message)),
           ],
         });
         if (response.intentionallySilent) return;
+        const verifiedSources = response.reviewedSources ?? webResults;
         const rawReply = response.choices[0]?.message?.content
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, webResults);
+        await replyWithAiAnswer(message, reply, verifiedSources);
         rememberConversationTurn(message, userText, openai, false, reply);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {

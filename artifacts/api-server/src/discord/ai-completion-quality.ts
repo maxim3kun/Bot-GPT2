@@ -2,6 +2,7 @@ export interface GeneratedAiReply {
   text: string;
   finishReason: string | null;
   silent?: boolean;
+  verifiedCalculations?: unknown[];
 }
 
 /** Retry truncation once, not provider errors or safety refusals. */

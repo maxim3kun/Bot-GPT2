@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { relevantPageText } from "../discord/ai-research-policy.js";
 
 export interface WebSearchResult {
   title: string;
@@ -102,12 +103,14 @@ async function fetchText(url: string, timeoutMs: number): Promise<string> {
   return response.text();
 }
 
-async function readPage(result: WebSearchResult): Promise<boolean> {
+async function readPage(result: WebSearchResult, query: string): Promise<boolean> {
   try {
     const html = await fetchText(result.url, PAGE_TIMEOUT_MS);
-    const text = stripHtml(html);
+    const main = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1]
+      ?? html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+    const text = stripHtml(main);
     if (!text) return false;
-    result.content = text.slice(0, MAX_PAGE_CHARS);
+    result.content = relevantPageText(text, query, MAX_PAGE_CHARS);
     result.publishedAt = extractPublishedAt(html);
     return true;
   } catch (err) {
@@ -186,9 +189,11 @@ function sourceQualityScore(result: WebSearchResult, plan: ResearchPlan): number
   let score = 0;
 
   // Domain trust is a starting point, not the complete judgment.
-  const government = hostname.endsWith(".gouv.fr") || hostname.endsWith(".gov") || hostname.endsWith(".gov.uk") || hostname.includes("service-public");
+  const matchesDomain = (domain: string) => hostname === domain || hostname.endsWith(`.${domain}`);
+  const government = hostname.endsWith(".gouv.fr") || hostname.endsWith(".gov") || hostname.endsWith(".gov.uk") || matchesDomain("service-public.fr");
   const academic = hostname.endsWith(".edu") || hostname.endsWith(".ac.uk") || hostname.endsWith(".edu.au");
-  const official = /\b(?:who\.int|europa\.eu|un\.org|cdc\.gov|nih\.gov|docs?|developer|support|official)\b/.test(hostname);
+  const official = ["who.int", "europa.eu", "un.org", "cdc.gov", "nih.gov", "developer.mozilla.org",
+    "nodejs.org", "docs.python.org", "discord.com", "learn.microsoft.com"].some(matchesDomain);
   const specialist = hostname.endsWith(".org") || /\b(?:health|medical|science|journal|kitchen|recipe|tech)\b/.test(hostname);
   const lowTrust = /\b(?:forum|pinterest|facebook|instagram|tiktok|quora)\b/.test(hostname);
 
@@ -198,7 +203,7 @@ function sourceQualityScore(result: WebSearchResult, plan: ResearchPlan): number
   else if (specialist) score += 3;
   if (lowTrust) score -= 3;
 
-  if (plan.topic === "health" && (government || hostname.includes("who.int") || academic)) score += 5;
+  if (plan.topic === "health" && (government || matchesDomain("who.int") || academic)) score += 5;
   if (plan.topic === "legal" && government) score += 5;
   if (plan.topic === "technology" && (official || hostname.includes("github.com"))) score += 5;
   if (plan.topic === "science" && academic) score += 4;
@@ -496,7 +501,7 @@ function rankResults(results: WebSearchResult[], plan: ResearchPlan): WebSearchR
   return [...results].sort((a, b) => (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
 }
 
-export async function searchWeb(query: string): Promise<WebSearchResult[]> {
+export async function searchWeb(query: string, options: { verify?: boolean } = {}): Promise<WebSearchResult[]> {
   const trimmed = query
     .trim()
     .replace(/^(?:recherche|cherche)\s+(?:sur\s+internet|sur\s+le\s+net|en\s+ligne)\s*/i, "")
@@ -507,6 +512,7 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
 
   try {
     const plan = getResearchPlan(trimmed);
+    if (options.verify) { plan.initialPages = Math.max(3, plan.initialPages); plan.maxPages = 6; }
     let results = await fetchSearchResults(trimmed, plan.topic === "current" ? "w" : undefined);
     if (plan.topic === "current") {
       results = results.filter((result) => !isGenericNewsLandingPage(result));
@@ -531,7 +537,7 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
       await Promise.all(
         candidates.map(async (result) => {
           consulted.add(result);
-          await readPage(result);
+          await readPage(result, trimmed);
         }),
       );
     }
@@ -577,7 +583,7 @@ export async function searchWeb(query: string): Promise<WebSearchResult[]> {
     }
     return visibleResults;
   } catch (err) {
-    logger.warn({ err, query: trimmed }, "Web search failed");
+    logger.warn({ err, queryLength: trimmed.length }, "Web search failed");
     if (getResearchPlan(trimmed).topic === "current") {
       return fetchLatestNewsFromFeeds(trimmed);
     }
@@ -595,7 +601,7 @@ export function formatSearchContext(results: WebSearchResult[]): string {
     .sort((a, b) => (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
 
   sections.push(
-    `Research confidence: ${confidence.level}. ${confidence.reason}`,
+    `Retrieval coverage (heuristics, NOT claim verification): ${confidence.level}. ${confidence.reason}`,
   );
 
   for (const [index, result] of orderedResults.entries()) {

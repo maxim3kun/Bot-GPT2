@@ -4,16 +4,23 @@ import { calculateVerified, CALCULATION_INSTRUCTIONS } from "./ai-calculator.js"
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 import { CONVERSATION_GUIDANCE, validSilenceRequest } from "./ai-conversation-policy.js";
 import { ecologyGuidanceFor } from "./ai-ecology-policy.js";
+import type { WebSearchResult } from "../lib/web-search.js";
+import type { CorrectionContext } from "./ai-correction-policy.js";
+import { reviewResearchedAnswer } from "./ai-research-review.js";
 
-type Params = { model: string; max_completion_tokens: number; messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]; currentUserText?: string };
-type ReliableCompletion = OpenAI.Chat.Completions.ChatCompletion & { intentionallySilent?: boolean };
+type Params = { model: string; max_completion_tokens: number; messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  currentUserText?: string; evidence?: WebSearchResult[]; correction?: CorrectionContext; responseLanguage?: string };
+type ReliableCompletion = OpenAI.Chat.Completions.ChatCompletion & {
+  intentionallySilent?: boolean; reviewedSources?: WebSearchResult[]; verifiedCalculations?: unknown[];
+};
 
 /** The model gets a bounded calculator, never command execution or arbitrary code. */
 export async function createReliableCompletion(openai: OpenAI, params: Params): Promise<ReliableCompletion> {
-  const { currentUserText, ...request } = params;
+  const { currentUserText, evidence, correction, responseLanguage, ...request } = params;
+  const verifiedCalculations: unknown[] = [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: CALCULATION_INSTRUCTIONS + "\n" + CONVERSATION_GUIDANCE + "\n" +
-      ecologyGuidanceFor(currentUserText ?? "") }, ...params.messages,
+      ecologyGuidanceFor(correction?.question ?? currentUserText ?? "") }, ...params.messages,
   ];
   for (let round = 0; round < 3; round++) {
     const completion = await openai.chat.completions.create({
@@ -52,7 +59,13 @@ export async function createReliableCompletion(openai: OpenAI, params: Params): 
       else if (!choice?.message.content?.trim() && choice?.finish_reason !== "content_filter") {
         recordDiagnosticMetadata("ai", { name: "EmptyAiResponse" }, "groq");
       }
-      return completion;
+      if (choice?.message.content?.trim() && evidence?.length && choice.finish_reason !== "content_filter") {
+        const reviewed = await reviewResearchedAnswer(openai, params.model, correction?.question ?? currentUserText ?? "",
+          choice.message.content, evidence, responseLanguage ?? "en", correction, verifiedCalculations);
+        return { ...completion, reviewedSources: reviewed.sources, verifiedCalculations,
+          choices: completion.choices.map((item) => ({ ...item, message: { ...item.message, content: reviewed.text } })) };
+      }
+      return { ...completion, verifiedCalculations };
     }
     if (round === 2 || choice.message.tool_calls.length > 4) throw new Error("Calculation tool budget exceeded");
     messages.push({ role: "assistant", content: choice.message.content, tool_calls: choice.message.tool_calls });
@@ -70,6 +83,7 @@ export async function createReliableCompletion(openai: OpenAI, params: Params): 
         }
         if (call.type !== "function" || call.function.name !== "verified_calculation") throw new Error("Unknown tool");
         result = calculateVerified(JSON.parse(call.function.arguments));
+        verifiedCalculations.push(result);
       } catch {
         recordDiagnosticMetadata("ai", { name: "RejectedCalculation" });
         result = { error: "Invalid calculation. Use finite numeric operands and supported operations/units; never guess a result." };
