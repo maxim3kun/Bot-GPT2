@@ -10,7 +10,7 @@ import { getPrefix } from "./prefix-store.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 
 export type TechnicianModuleName = "ai" | "image" | "games" | "admin" | "music" | "help" | "other" | `feature:${string}`;
-export type TechnicianDependencyName = "groq" | "suno" | "huggingface";
+export type TechnicianDependencyName = "groq" | "suno" | "huggingface" | "cloudflare";
 export type ModuleHealthStatus = "unknown" | "healthy" | "degraded" | "down";
 export interface TechnicianContext {
   guildId: string | null;
@@ -242,6 +242,7 @@ export function moduleDependencyForCommand(
   }
   if (command === "trivia" && process.env["GROQ_API_KEY"]) return "groq";
   if (["music", "generator", "balance"].includes(command) && process.env["SUNO_API_KEY"]) return "suno";
+  if (command === "image" && process.env["ACCOUNT_ID"] && process.env["TOKEN_API"]) return "cloudflare";
   if (command === "image" && process.env["HUGGINGFACE_TOKEN"]) return "huggingface";
   return undefined;
 }
@@ -320,6 +321,7 @@ function technicianReport(client: Client): string {
     dependencyLine("Groq", Boolean(process.env["GROQ_API_KEY"]), dependencyStates.get("groq")),
     dependencyLine("Suno", Boolean(process.env["SUNO_API_KEY"]), dependencyStates.get("suno")),
     dependencyLine("Hugging Face", Boolean(process.env["HUGGINGFACE_TOKEN"]), dependencyStates.get("huggingface")),
+    dependencyLine("Cloudflare Images", Boolean(process.env["ACCOUNT_ID"] && process.env["TOKEN_API"]), dependencyStates.get("cloudflare")),
   ];
 
   const activeFailures = [...moduleStates.values()].filter((state) => state.status === "degraded" || state.status === "down").length;

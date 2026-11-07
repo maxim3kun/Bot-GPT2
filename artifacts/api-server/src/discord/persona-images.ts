@@ -7,6 +7,8 @@ import {
   PersonaImageProviderError,
 } from "./persona-image-provider.js";
 import type { UserLang } from "./user-lang-store.js";
+import { canGenerateImage } from "./image-command.js";
+import { recordModuleFailureState } from "./module-technician.js";
 
 const MAX_DISCORD_PHOTO_BYTES = 7 * 1024 * 1024;
 
@@ -46,13 +48,7 @@ export async function sendFictionalAssistantPhoto(
   options: { privateInServer?: boolean } = {},
 ): Promise<void> {
   const isFrench = language === "fr";
-  const hfToken = process.env["HUGGINGFACE_TOKEN"];
-  if (!hfToken) {
-    await message.reply(isFrench
-      ? "La génération d’images n’est pas configurée pour le moment."
-      : "Image generation is not configured right now.");
-    return;
-  }
+  if (!await canGenerateImage(message, language)) return;
   if (!await requireConsent(message, language)) return;
   if (!options.privateInServer && !message.channel.isSendable()) {
     await message.reply(isFrench
@@ -102,6 +98,9 @@ export async function sendFictionalAssistantPhoto(
     await message.reply(payload);
     imageSent = true;
   } catch (error) {
+    if (failureStage !== "image provider") {
+      recordModuleFailureState("image", new Error(`Persona ${failureStage} failed`));
+    }
     const errorText = error instanceof Error ? error.message : String(error);
     const hasAttachmentPermissionError = /50013|missing permissions|attach files/i.test(errorText);
     logger.warn({ stage: failureStage, error }, "Could not generate or send persona image");

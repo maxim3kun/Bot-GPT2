@@ -169,10 +169,10 @@ export const SLASH_COMMANDS = [
     )
     .toJSON(),
 
-  // ── Image (HuggingFace) ───────────────────────────────────────────────────
+  // ── Image (Cloudflare, optional Hugging Face fallback) ────────────────────
   new SlashCommandBuilder()
     .setName("image")
-    .setDescription("Generate an image with AI (requires HuggingFace token)")
+    .setDescription("Generate an image with AI")
     .addStringOption(opt =>
       opt.setName("description")
         .setDescription("Describe the image (e.g. a sunset over Paris at golden hour)")

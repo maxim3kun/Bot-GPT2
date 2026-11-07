@@ -40,7 +40,8 @@ import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
 import { startEcho, stopEcho, toggleEcho, processEchoMessage } from "./discord/echo.js";
 import { handlePokemon } from "./discord/pokemon.js";
 import { buildLanguageGuardPrompt, detectUserLanguage } from "./discord/ai-language-guard.js";
-import { imageQuotaNotice, releaseGeneratedImage, reserveGeneratedImage } from "./discord/image-quota.js";
+import { sendGeneratedImage } from "./discord/image-command.js";
+import { configuredImageProviders } from "./discord/image-provider.js";
 import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./discord/persona-images.js";
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleWelcomeCommand } from "./discord/welcome.js";
@@ -758,64 +759,12 @@ export function startBot(): void {
 
         case "image": {
           const desc = interaction.options.getString("description", true);
-          const hfToken = process.env["HUGGINGFACE_TOKEN"];
-          if (!hfToken) { await interaction.editReply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
           const imageLanguage = getAiResponseLanguage(
             interaction.user.id,
             desc,
             getEffectiveLanguage(interaction.guildId, interaction.user.id),
           );
-          const reservation = await reserveGeneratedImage();
-          if (reservation.status !== "reserved") {
-            await interaction.editReply(imageQuotaNotice(reservation.status, imageLanguage));
-            break;
-          }
-          let imageSent = false;
-          try {
-            await interaction.editReply("🎨 Generating your image, please wait a few seconds...");
-            const response = await fetch(
-              "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
-              {
-                method: "POST",
-                headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ inputs: desc }),
-                signal: AbortSignal.timeout(45_000),
-              },
-            );
-            const contentType = response.headers.get("content-type") ?? "";
-            if (!response.ok || !contentType.startsWith("image/")) {
-              logger.error({ status: response.status, contentType }, "HuggingFace image error");
-              await reportModuleFailure(
-                interaction,
-                "image",
-                new Error(`Hugging Face image request failed with HTTP ${response.status}`),
-                "huggingface",
-              );
-              await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
-              break;
-            }
-            const buffer = Buffer.from(await response.arrayBuffer());
-            if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
-              await reportModuleFailure(
-                interaction,
-                "image",
-                new Error("Hugging Face returned an image with an invalid size"),
-                "huggingface",
-              );
-              await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
-              break;
-            }
-            const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
-            await interaction.editReply({ content: `🖼️ **${desc}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
-            imageSent = true;
-            recordModuleSuccess("image", "huggingface");
-          } catch (err) {
-            logger.error({ err }, "/image error");
-            await reportModuleFailure(interaction, "image", err, "huggingface");
-            await interaction.editReply(moduleFallbackMessage("image", imageLanguage));
-          } finally {
-            if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
-          }
+          await sendGeneratedImage(fakeMsg, desc, imageLanguage);
           break;
         }
 
@@ -1418,66 +1367,10 @@ export function startBot(): void {
     }
 
     // --- Image generation ---
-    if (content.startsWith("/image ") || content.startsWith(`${guildPrefix}image `)) {
-      const prompt = content.slice(content.indexOf(" ") + 1).trim();
-      if (!prompt) { await message.reply("🎨 Give me a description! e.g. `!image a sunset over Paris`"); return; }
-      const hfToken = process.env["HUGGINGFACE_TOKEN"];
-      if (!hfToken) { await message.reply("❌ Image generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); return; }
+    if (content === "/image" || content.startsWith("/image ") || content === `${guildPrefix}image` || content.startsWith(`${guildPrefix}image `)) {
+      const prompt = content.includes(" ") ? content.slice(content.indexOf(" ") + 1).trim() : "";
       const imageLanguage = getAiResponseLanguage(message.author.id, prompt, responseLang);
-      const reservation = await reserveGeneratedImage();
-      if (reservation.status !== "reserved") {
-        await message.reply(imageQuotaNotice(reservation.status, imageLanguage));
-        return;
-      }
-      let imageSent = false;
-      try {
-        const waitMsg = await message.reply("🎨 Generating your image, please wait a few seconds...");
-        const response = await fetch(
-          "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${hfToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ inputs: prompt }),
-            signal: AbortSignal.timeout(45_000),
-          },
-        );
-        const contentType = response.headers.get("content-type") ?? "";
-        if (!response.ok || !contentType.startsWith("image/")) {
-          logger.error({ status: response.status, contentType }, "HuggingFace image error");
-          await reportModuleFailure(
-            message,
-            "image",
-            new Error(`Hugging Face image request failed with HTTP ${response.status}`),
-            "huggingface",
-          );
-          await waitMsg.edit(moduleFallbackMessage("image", imageLanguage));
-          return;
-        }
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) {
-          await reportModuleFailure(
-            message,
-            "image",
-            new Error("Hugging Face returned an image with an invalid size"),
-            "huggingface",
-          );
-          await waitMsg.edit(moduleFallbackMessage("image", imageLanguage));
-          return;
-        }
-        await waitMsg.delete();
-        if (isSendable(message.channel)) {
-          const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
-          await message.channel.send({ content: `🖼️ **${prompt}**`, files: [{ attachment: buffer, name: `image.${extension}` }] });
-          imageSent = true;
-          recordModuleSuccess("image", "huggingface");
-        }
-      } catch (err) {
-        logger.error({ err }, "Image generation error");
-        await reportModuleFailure(message, "image", err, "huggingface");
-        await message.reply(moduleFallbackMessage("image", imageLanguage));
-      } finally {
-        if (!imageSent) await releaseGeneratedImage(reservation.dayKey);
-      }
+      await sendGeneratedImage(message, prompt, imageLanguage);
       return;
     }
 
@@ -2262,7 +2155,7 @@ export function startBot(): void {
           const mongoOk  = isMongoConnected();
           const groqOk   = !!process.env["GROQ_API_KEY"];
           const sunoOk   = !!process.env["SUNO_API_KEY"];
-          const hfOk     = !!process.env["HUGGINGFACE_TOKEN"];
+          const imageProviders = configuredImageProviders();
           const token2Ok = !!process.env["DISCORD_TOKEN_2"];
           const guilds   = client.guilds.cache.size;
           const users    = client.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
@@ -2313,7 +2206,7 @@ export function startBot(): void {
               { name: "🧠 Groq IA",        value: groqValue,                                   inline: true },
               SP,
               { name: "🎵 Suno",           value: sunoOk   ? "✅ Active" : "❌ Désactivée",   inline: true },
-              { name: "🖼️ HuggingFace",   value: hfOk     ? "✅ Active" : "❌ Désactivée",   inline: true },
+              { name: "🖼️ Images", value: imageProviders.length ? `✅ ${imageProviders.join(" → ")}` : "❌ Désactivée", inline: true },
               SP,
               { name: "⚔️ AI Battle",      value: token2Ok ? "✅ Active" : "❌ Désactivée",   inline: true },
               { name: "🏠 Serveurs",        value: `**${guilds}** serveur${guilds !== 1 ? "s" : ""}\n${users} membres`,  inline: true },

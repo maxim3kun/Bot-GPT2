@@ -14,3 +14,9 @@ Keep help failures distinct from unrelated command failures, and name the failed
 **Why:** The user received an “Autres commandes” degraded-mode warning from `/help`, which hid a local response-handling bug and made the scope of the failure unclear.
 
 **How to apply:** Help and diagnostics must remain useful during unrelated outages. Documentation should distinguish registered slash commands from implemented prefix commands, and show short command lists with detailed instructions available separately.
+
+For image generation, do not blindly retry the same paid provider after a timeout; use a configured alternate provider at most once per request.
+
+**Why:** A timeout does not prove the remote generation was cancelled. Repeated requests can multiply provider usage even when the user receives no image.
+
+**How to apply:** Keep provider attempts bounded and distinguish the bot's delivery-based daily quota from provider billing, which can include unsuccessful or timed-out attempts.
