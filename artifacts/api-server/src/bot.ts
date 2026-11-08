@@ -53,7 +53,7 @@ import { handleConsentButton, handleMemoryConsentButton } from "./discord/ai-con
 import { getAiPromptContext } from "./discord/ai-memory.js";
 import { handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
-import { directPancakeRecipe, normalizeResearchAnswer } from "./discord/ai-answer-format.js";
+import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
@@ -279,21 +279,6 @@ async function replyWithAiAnswer(
   await trackAiReplies(replies, "bot", message.content);
 }
 
-async function replyWithKnownRecipe(
-  message: Message,
-  userText: string,
-  language: ReturnType<typeof getEffectiveLanguage>,
-): Promise<boolean> {
-  const answer = directPancakeRecipe(userText, language);
-  if (!answer) return false;
-
-  const key = conversationKey(message);
-  addToHistory(key, "user", currentUserTurn(message, userText));
-  addToHistory(key, "assistant", answer);
-  await replyWithAiAnswer(message, answer, []);
-  return true;
-}
-
 async function replyWithLatestNews(
   message: Message,
   prompt: string,
@@ -402,7 +387,6 @@ export function startBot(): void {
 
     if (await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
     const route = classifyAiMessage(prompt);
-    if (await replyWithKnownRecipe(message, prompt, aiResponseLang)) return;
     if (route.intent === "greeting") {
       await message.reply(directGreeting(message, aiResponseLang));
       return;
@@ -1434,7 +1418,6 @@ export function startBot(): void {
       }
       if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;
       const route = classifyAiMessage(userText);
-      if (await replyWithKnownRecipe(message, userText, aiResponseLang)) return;
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message, aiResponseLang));
         return;
@@ -1551,7 +1534,6 @@ export function startBot(): void {
       }
       if (await handleAiActionRequest(message, userText, openai, aiResponseLang)) return;
       const route = classifyAiMessage(userText);
-      if (await replyWithKnownRecipe(message, userText, aiResponseLang)) return;
       if (route.intent === "greeting") {
         await message.reply(directGreeting(message, aiResponseLang));
         return;

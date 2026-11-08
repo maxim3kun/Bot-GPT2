@@ -15,3 +15,4 @@
 - [Research evidence review](research-evidence-review.md) — Prefer supported partial replies; recheck objections without automatic agreement, and keep private history out of public search.
 - [Image provider contracts](image-provider-contracts.md) — Trust strict model schemas over conflicting examples; a generic image test does not validate persona-specific requests.
 - [Bot experience](bot-experience-requirements.md) — Separate image quotas, concise help, self-declared birthdays only, and no paid voice service.
+- [Repository context boundaries](repository-context-boundaries.md) — When the user says a repository changed, do not carry over prior project requests they identify as unrelated.
