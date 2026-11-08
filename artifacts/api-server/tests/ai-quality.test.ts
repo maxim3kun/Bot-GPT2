@@ -3,7 +3,7 @@ import "./ai-command-tools.test.js";
 import assert from "node:assert/strict";
 import { classifyAiMessage } from "../src/discord/ai-router.js";
 import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
-import { splitAiAnswer } from "../src/discord/ai-answer-format.js";
+import { directPancakeRecipe, splitAiAnswer } from "../src/discord/ai-answer-format.js";
 import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
 import { calculateVerified } from "../src/discord/ai-calculator.js";
 import { createOrderedEventQueue, createSerializedFlush, deliverDiagnosticOnce, diagnosticCategory, dueDiagnosticSlot, feedbackSummaryPipeline, reactionVote } from "../src/discord/ai-observability-policy.js";
@@ -118,6 +118,25 @@ test("Carbon comparisons and estimates need evidence, casual chat does not", () 
     "Compare the carbon footprint of AI and a flight",
   ]) assert.equal(classifyAiMessage(prompt).needsResearch, true, prompt);
   assert.equal(classifyAiMessage("Comment tu vas ?").needsResearch, false);
+});
+
+test("Pancake how-to requests get one practical recipe without listing websites", () => {
+  for (const prompt of [
+    "Recherche sur Internet comment faire des pancakes",
+    "Comment on fait des pancakes ?",
+    "Donne-moi une recette de pancakes",
+  ]) {
+    const answer = directPancakeRecipe(prompt, "fr");
+    assert.ok(answer, prompt);
+    assert.match(answer, /250 g de farine/);
+    assert.match(answer, /2 œufs/);
+    assert.match(answer, /1 sachet de levure/);
+    assert.match(answer, /repose.*10 minutes/i);
+    assert.doesNotMatch(answer, /Marmiton|Mapatisserie|sites? (?:web|internet)/i);
+  }
+  assert.equal(directPancakeRecipe("Recette de pancakes vegan", "fr"), null);
+  assert.equal(directPancakeRecipe("How do I make pancakes?", "en")?.includes("Ingredients"), true);
+  assert.equal(directPancakeRecipe("How many calories are in pancakes?", "en"), null);
 });
 
 test("Persona truncation is retried exactly once with a larger budget", async () => {
