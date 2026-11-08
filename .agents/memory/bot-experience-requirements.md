@@ -32,3 +32,9 @@ Do not enable a paid voice service for this bot.
 **Why:** The user said they want a better voice and voice conversation but do not want to pay.
 
 **How to apply:** Distinguish local open-source voice processing from free API quotas; never promise unlimited free service or automatic paid fallback.
+
+The user runs the bot on Railway.
+
+**Why:** The user explicitly said they run the code via Railway.
+
+**How to apply:** Prepare runtime dependencies and voice models for Railway rather than assuming that a successful local Replit experiment is installed on the deployed bot.
