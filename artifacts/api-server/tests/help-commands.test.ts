@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import type { ChatInputCommandInteraction, Message } from "discord.js";
-import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, resolveTopicKey, sendHelpPaginator, type HelpLanguage, type HelpPage, type HelpTopic } from "../src/discord/help-builders.js";
+import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, resolveTopicKey, sendHelpPaginator, sendAdminGuide, sendSetupGuide, type HelpLanguage, type HelpPage, type HelpTopic } from "../src/discord/help-builders.js";
+import { ADMIN_SLASH_COMMANDS } from "../src/discord/help-extra-pages.js";
 import { createSlashMessageAdapter, replyToSlash } from "../src/discord/slash-message-adapter.js";
 import { buildBotCommandContext } from "../src/discord/ai-command-context.js";
 import { moduleFallbackMessage } from "../src/discord/module-fallback.js";
@@ -41,8 +42,9 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   for (const hidden of ["!hello", "!ask", "!suggest", "!language"]) assert.equal(overview.includes(hidden), false);
   assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
-  for (const command of SLASH_COMMANDS) assert.ok(all.includes(`/${command.name}`), command.name);
-  for (const command of ["persona create", "persona avatar", "ai memory auto on", "ai memory auto off", "ai forget", "tech", "tierlist", "blindtest", "milliongame", "qr", "echo", "pokemon", "food", "schedule", "welcome"]) assert.ok(all.includes(command), command);
+  for (const command of SLASH_COMMANDS.filter(command => !ADMIN_SLASH_COMMANDS.has(command.name))) assert.ok(all.includes(`/${command.name}`), command.name);
+  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "qr", "echo", "pokemon", "food"]) assert.ok(all.includes(command), command);
+  for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
   assert.equal(all.includes("Sort 20 items"), false);
   assert.equal(all.includes("Tous supportent"), false);
   assert.equal(resolveTopicKey("persona")?.topic, "persona");
@@ -66,6 +68,24 @@ test("Every help page uses the server prefix in fields and footer and the AI see
     assert.ok(json.footer!.text.includes(`${prefix}help`), prefix);
     assert.equal(JSON.stringify(json).includes("{{command-prefix}}"), false);
   }
+});
+
+test("Server settings stay in admin help; setup documents only DATABASE_URL", async () => {
+  const replies: any[] = [];
+  const message = { reply: async (payload: unknown) => { replies.push(payload); } } as unknown as Message;
+  await sendAdminGuide(message, "??", "fr");
+  const admin = JSON.stringify(replies.pop().embeds[0].toJSON());
+  for (const command of ["??server language", "??prefix", "??welcome", "??schedule", "??tech", "??ai server"]) {
+    assert.ok(admin.includes(command), command);
+  }
+  for (const language of languages) {
+    await sendSetupGuide(message, language);
+    const setup = JSON.stringify(replies.pop().embeds[0].toJSON());
+    assert.ok(setup.includes("DATABASE_URL"));
+    assert.equal(setup.includes("MONGODB_URI"), false);
+  }
+  const botSource = readFileSync("src/bot.ts", "utf8");
+  assert.match(botSource, /const WEBSITE_URL = "https:\/\/www\.maximegpt\.com\/"/);
 });
 
 test("The public command overview never advertises a slash-only command with a fake message prefix", () => {
@@ -126,11 +146,11 @@ test("Help navigation reaches all pages, wraps, protects the author and disables
   const updates: any[] = [];
   const button = { customId: "help_next", user: { id: "author" }, update: async (payload: unknown) => { updates.push(payload); } };
   for (let i = 1; i < HELP_TOTAL_PAGES; i++) await fixture.handlers.get("collect")!(button);
-  assert.match(updates.at(-1).embeds[0].toJSON().description, /Administration/);
+  assert.match(updates.at(-1).embeds[0].toJSON().description, /Mémoire/);
   await fixture.handlers.get("collect")!(button);
-  assert.match(updates.at(-1).embeds[0].toJSON().footer.text, /1\/7/);
+  assert.match(updates.at(-1).embeds[0].toJSON().footer.text, new RegExp(`1/${HELP_TOTAL_PAGES}`));
   await fixture.handlers.get("collect")!({ ...button, customId: "help_prev" });
-  assert.match(updates.at(-1).embeds[0].toJSON().footer.text, /7\/7/);
+  assert.match(updates.at(-1).embeds[0].toJSON().footer.text, new RegExp(`${HELP_TOTAL_PAGES}/${HELP_TOTAL_PAGES}`));
   let rejected = false;
   await fixture.handlers.get("collect")!({ ...button, user: { id: "other" }, reply: async () => { rejected = true; } });
   assert.equal(rejected, true);

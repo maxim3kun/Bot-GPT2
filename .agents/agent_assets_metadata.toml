@@ -6,3 +6,18 @@ id = "mrhE4PIX9sRZ_p7_B4dXE"
 uri = "file://README.md"
 type = "text"
 title = "README — Bot Discord"
+logical_id = "a5f5cd91-9431-431f-b7e6-142a3b60237e"
+
+[[outputs]]
+id = "OTqni00oK_HANiHStADOt"
+uri = "file://generated-artifacts/piper/voix-francaise-piper.wav"
+type = "audio"
+title = "Essai de voix française — Piper"
+description = "Voix fr_FR-siwis-medium générée localement, sans API de synthèse vocale. Extrait de 12 secondes. Modèle SIWIS : https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/siwis/medium/MODEL_CARD ; données SIWIS sous CC-BY 4.0."
+logical_id = "c3b612a8-c71f-4543-b6ba-83d0f0fd9658"
+content_hash = "sha256:1c4833a32d3f114675849f2edafc17a8632539ab5ba82a2363d73120dc57c1db"
+size = 535084
+mtime_ms = 1794137817544
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:dd07494f-f428-4bfa-a395-a0f83f7aa2d5/c3b612a8-c71f-4543-b6ba-83d0f0fd9658/40f38c62-5399-4f7c-aab4-eb1d85a7c510"
+storage_version_token = "1794137843765401"
+content_type = "audio/wav"

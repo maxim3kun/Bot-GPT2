@@ -304,7 +304,7 @@ async function replyWithLatestNews(
 
 // ── Website viewer helpers ────────────────────────────────────────────────────
 
-const WEBSITE_URL = "https://stable-flow-7r48.pagedrop.io/";
+const WEBSITE_URL = "https://www.maximegpt.com/";
 const WEBSITE_SECTIONS = [
   { label: "Top",    emoji: "🔝", scrollTo: 0    },
 ];

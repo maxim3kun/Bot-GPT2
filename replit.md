@@ -17,11 +17,13 @@ Bot Discord complet avec commandes fun, mini-jeux, IA, génération musicale Sun
 - `HUGGINGFACE_TOKEN` — fournisseur d’images de secours facultatif
 - `SUNO_API_KEY` — active `!music generator` et `!credits`
 - `LOGO_DEV_PUBLIC_KEY` — active `!guessthelogo` (clé publique logo.dev)
-- `MONGODB_URI` — active la mémoire persistante et chiffrée de l’IA
+- `DATABASE_URL` — adresse MongoDB ; active la mémoire persistante et chiffrée de l’IA
 - `ENCRYPTION_KEY` — clé hexadécimale de 64 caractères pour chiffrer les souvenirs
-- Le fuseau horaire utilisé pour les demandes d’heure est mémorisé dans MongoDB (`ai_timezones`) après que l’utilisateur a indiqué une ville ou un pays. Sans `MONGODB_URI`, ce réglage ne peut pas survivre à un redémarrage.
+- Le fuseau horaire utilisé pour les demandes d’heure est mémorisé dans MongoDB (`ai_timezones`) après que l’utilisateur a indiqué une ville ou un pays. Sans `DATABASE_URL`, ce réglage ne peut pas survivre à un redémarrage.
 
 ## Stack
+
+Le site officiel du bot est https://www.maximegpt.com/ ; `!website` doit utiliser cette adresse.
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5

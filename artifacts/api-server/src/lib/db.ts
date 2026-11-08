@@ -4,13 +4,10 @@ import { logger } from "./logger.js";
 
 // ── Config ────────────────────────────────────────────────────────────
 
-// Prefer MONGODB_URI; fall back to DATABASE_URL only when it looks like a
-// MongoDB connection string (starts with "mongodb"), so we never mistake a
-// Postgres DATABASE_URL for a MongoDB URI.
+// DATABASE_URL is the sole project database secret. Never interpret a
+// PostgreSQL connection string as a MongoDB address.
 const _dbUrl = process.env["DATABASE_URL"] ?? "";
-const MONGODB_URI =
-  process.env["MONGODB_URI"] ??
-  (_dbUrl.startsWith("mongodb") ? _dbUrl : "");
+const mongoUrl = /^mongodb(?:\+srv)?:\/\//.test(_dbUrl) ? _dbUrl : "";
 const ENCRYPTION_KEY_HEX = process.env["ENCRYPTION_KEY"] ?? "";
 
 let encKey: Buffer | null = null;
@@ -328,16 +325,16 @@ export function isMongoAvailable(): boolean {
 }
 
 export async function connectDb(): Promise<void> {
-  if (!MONGODB_URI) {
+  if (!mongoUrl) {
     mongoHealthy = false;
-    logger.warn("MONGODB_URI not set — running without MongoDB (JSON fallback active)");
+    logger.warn("DATABASE_URL is missing or is not a MongoDB URL — running without MongoDB (JSON fallback active)");
     return;
   }
   if (!encKey) {
-    logger.warn("ENCRYPTION_KEY not set — user-data encryption disabled; logo/guild data will still use MongoDB if MONGODB_URI is set");
+    logger.warn("ENCRYPTION_KEY not set — user-data encryption disabled; logo/guild data will still use MongoDB if DATABASE_URL is configured");
   }
   try {
-    mongoClient = new MongoClient(MONGODB_URI, {
+    mongoClient = new MongoClient(mongoUrl, {
       connectTimeoutMS: 10_000,
       serverSelectionTimeoutMS: 10_000,
     });

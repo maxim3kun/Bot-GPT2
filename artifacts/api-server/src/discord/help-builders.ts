@@ -9,14 +9,15 @@ import {
 import { HelpEmbedBuilder as EmbedBuilder, HELP_PREFIX_TOKEN } from "./help-embed.js";
 import { getPrefix } from "./prefix-store.js";
 import { replyToSlash } from "./slash-message-adapter.js";
-import { extraHelpPage } from "./help-extra-pages.js";
+import { extraHelpPage, ADMIN_SLASH_COMMANDS } from "./help-extra-pages.js";
+import { SLASH_COMMANDS } from "./slash.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
-export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-export const HELP_TOTAL_PAGES = 7;
+export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
+export const HELP_TOTAL_PAGES = 6;
 
 // Text languages with full translations — new langs fall back to "en"
 const FULL_TEXT_LANGS = ["en", "fr", "es", "de", "pt", "it"] as const;
@@ -174,7 +175,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
 
   // ── Page 4 — Voice & Server ────────────────────────────────────────────────
   } else if (page === 4) {
-    const desc = { en: "Voice, welcome & scheduling.", fr: "Vocal, bienvenue & planification.", es: "Voz, bienvenida & programación.", de: "Sprache, Willkommen & Planung.", pt: "Voz, boas-vindas & agendamento.", it: "Voce, benvenuto & pianificazione." };
+    const desc = { en: "Voice.", fr: "Vocal.", es: "Voz.", de: "Sprache.", pt: "Voz.", it: "Voce." };
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
@@ -183,17 +184,6 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           `\`${p}join\` 🔊 · \`${p}leave\` 👋 · \`${p}subtitles\` 📝`,
           `\`${p}voice say <text>\` 🗣️ · \`${p}voice stop\` · \`${p}voice resume\``,
         ].join("\n"),
-      },
-      {
-        name: { en: "👋 Welcome", fr: "👋 Bienvenue", es: "👋 Bienvenida", de: "👋 Willkommen", pt: "👋 Boas-vindas", it: "👋 Benvenuto" }[tl] ?? "👋 Welcome",
-        value: [
-          `\`${p}welcome set #channel\` · \`${p}welcome msg <text>\` · \`${p}welcome status\``,
-          `> ` + { en: "Variables: `{user}` `{server}` `{count}`", fr: "Variables : `{user}` `{server}` `{count}`", es: "Variables: `{user}` `{server}` `{count}`", de: "Variablen: `{user}` `{server}` `{count}`", pt: "Variáveis: `{user}` `{server}` `{count}`", it: "Variabili: `{user}` `{server}` `{count}`" }[tl],
-        ].join("\n"),
-      },
-      {
-        name: { en: "⏰ Schedule", fr: "⏰ Planification", es: "⏰ Programación", de: "⏰ Planung", pt: "⏰ Agendamento", it: "⏰ Pianificazione" }[tl] ?? "⏰ Schedule",
-        value: `\`${p}schedule set HH:MM #ch <msg>\` · \`${p}schedule daily HH:MM #ch <msg>\`\n\`${p}schedule list\` · \`${p}schedule cancel <ID>\``,
       },
     );
 
@@ -343,8 +333,10 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
 }
 
 export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
-  if (topic === "persona" || topic === "memory") return buildHelpEmbed(lang, 6, prefix);
-  if (topic === "diagnostics") return buildHelpEmbed(lang, 7, prefix);
+  if (topic === "memory") return buildHelpEmbed(lang, 6, prefix);
+  if (topic === "persona") return new EmbedBuilder().setTitle("Persona").setDescription(`\`${prefix}persona help\``);
+  if (topic === "diagnostics") return new EmbedBuilder().setTitle(lang === "fr" ? "Diagnostic" : "Diagnostics")
+    .setDescription(`\`${prefix}tech status\` — ${lang === "fr" ? "Diagnostic des modules réservé aux administrateurs." : "Module diagnostics for administrators only."}`);
   const p = HELP_PREFIX_TOKEN;
   const tl = textLang(lang);
   const embed = new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang]);
@@ -627,7 +619,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 AI features (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — free at console.groq.com"],
       ["🎵 Music generation (`!music generator`)", "`SUNO_API_KEY` — from sunoapi.org"],
       ["🖼️ Image generation (`!image`, `/image`, persona photos)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Optional fallback: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Persistent data (quests, likes, playlists, logos)", "`MONGODB_URI` — free tier at mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-char hex (run the project's key-generation command)"],
+      ["🗄️ Persistent data (quests, likes, playlists, logos)", "`DATABASE_URL` — MongoDB connection URL\n`ENCRYPTION_KEY` — 64-char hex (run the project's key-generation command)"],
       ["🏷️ Guess The Logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — from logo.dev"],
       ["🎵 Song recognition (`!shazam`)", "`AUDD_API_KEY` — from audd.io"],
       ["⚔️ AI Battle (`!ai battle`)", "`DISCORD_TOKEN_2` — second bot token"],
@@ -641,7 +633,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Fonctions IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratuit sur console.groq.com"],
       ["🎵 Génération musicale (`!music generator`)", "`SUNO_API_KEY` — disponible sur sunoapi.org"],
       ["🖼️ Génération d’images (`!image`, `/image`, photos des personas)", "Cloudflare : `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Secours facultatif : `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Données persistantes (quêtes, likes, playlists, logos)", "`MONGODB_URI` — offre gratuite sur mongodb.com/atlas\n`ENCRYPTION_KEY` — clé hexadécimale de 64 caractères, générée avec la commande prévue dans le projet"],
+      ["🗄️ Données persistantes (quêtes, likes, playlists, logos)", "`DATABASE_URL` — adresse de connexion MongoDB\n`ENCRYPTION_KEY` — clé hexadécimale de 64 caractères, générée avec la commande prévue dans le projet"],
       ["🏷️ Devine le logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — disponible sur logo.dev"],
       ["🎵 Reconnaissance musicale (`!shazam`)", "`AUDD_API_KEY` — disponible sur audd.io"],
       ["⚔️ Combat IA (`!ai battle`)", "`DISCORD_TOKEN_2` — jeton du deuxième bot"],
@@ -655,7 +647,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Funciones de IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratis en console.groq.com"],
       ["🎵 Generación de música (`!music generator`)", "`SUNO_API_KEY` — en sunoapi.org"],
       ["🖼️ Generación de imágenes (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternativa: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Datos persistentes (misiones, likes, listas, logos)", "`MONGODB_URI` — plan gratuito en mongodb.com/atlas\n`ENCRYPTION_KEY` — clave hexadecimal de 64 caracteres, generada con el comando del proyecto"],
+      ["🗄️ Datos persistentes (misiones, likes, listas, logos)", "`DATABASE_URL` — URL de MongoDB\n`ENCRYPTION_KEY` — clave hexadecimal de 64 caracteres, generada con el comando del proyecto"],
       ["🏷️ Adivina el logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — en logo.dev"],
       ["🎵 Reconocimiento de canciones (`!shazam`)", "`AUDD_API_KEY` — en audd.io"],
       ["⚔️ Combate de IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token del segundo bot"],
@@ -669,7 +661,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 KI-Funktionen (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — kostenlos auf console.groq.com"],
       ["🎵 Musikerstellung (`!music generator`)", "`SUNO_API_KEY` — auf sunoapi.org"],
       ["🖼️ Bilderstellung (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternative: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Dauerhafte Daten (Quests, Likes, Playlists, Logos)", "`MONGODB_URI` — kostenloser Tarif auf mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-stelliger Hex-Schlüssel, mit dem Projektbefehl erstellt"],
+      ["🗄️ Dauerhafte Daten (Quests, Likes, Playlists, Logos)", "`DATABASE_URL` — MongoDB-Verbindungsadresse\n`ENCRYPTION_KEY` — 64-stelliger Hex-Schlüssel, mit dem Projektbefehl erstellt"],
       ["🏷️ Logo erraten (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — auf logo.dev"],
       ["🎵 Musikerkennung (`!shazam`)", "`AUDD_API_KEY` — auf audd.io"],
       ["⚔️ KI-Kampf (`!ai battle`)", "`DISCORD_TOKEN_2` — Token des zweiten Bots"],
@@ -683,7 +675,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Recursos de IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — grátis em console.groq.com"],
       ["🎵 Geração de música (`!music generator`)", "`SUNO_API_KEY` — em sunoapi.org"],
       ["🖼️ Geração de imagens (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternativa: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Dados persistentes (missões, curtidas, playlists, logos)", "`MONGODB_URI` — plano gratuito em mongodb.com/atlas\n`ENCRYPTION_KEY` — chave hexadecimal de 64 caracteres, gerada pelo comando do projeto"],
+      ["🗄️ Dados persistentes (missões, curtidas, playlists, logos)", "`DATABASE_URL` — URL do MongoDB\n`ENCRYPTION_KEY` — chave hexadecimal de 64 caracteres, gerada pelo comando do projeto"],
       ["🏷️ Adivinhe o logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — em logo.dev"],
       ["🎵 Reconhecimento de música (`!shazam`)", "`AUDD_API_KEY` — em audd.io"],
       ["⚔️ Batalha de IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token do segundo bot"],
@@ -697,7 +689,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Funzioni IA (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratuito su console.groq.com"],
       ["🎵 Generazione musicale (`!music generator`)", "`SUNO_API_KEY` — su sunoapi.org"],
       ["🖼️ Generazione immagini (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternativa: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Dati persistenti (missioni, like, playlist, loghi)", "`MONGODB_URI` — piano gratuito su mongodb.com/atlas\n`ENCRYPTION_KEY` — chiave esadecimale di 64 caratteri, generata dal comando del progetto"],
+      ["🗄️ Dati persistenti (missioni, like, playlist, loghi)", "`DATABASE_URL` — URL di MongoDB\n`ENCRYPTION_KEY` — chiave esadecimale di 64 caratteri, generata dal comando del progetto"],
       ["🏷️ Indovina il logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — su logo.dev"],
       ["🎵 Riconoscimento musicale (`!shazam`)", "`AUDD_API_KEY` — su audd.io"],
       ["⚔️ Sfida IA (`!ai battle`)", "`DISCORD_TOKEN_2` — token del secondo bot"],
@@ -711,7 +703,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 AI機能 (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — console.groq.comで無料取得"],
       ["🎵 音楽生成 (`!music generator`)", "`SUNO_API_KEY` — sunoapi.orgで取得"],
       ["🖼️ 画像生成 (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI)。代替: `HUGGINGFACE_TOKEN`。"],
-      ["🗄️ 永続データ（クエスト、いいね、プレイリスト、ロゴ）", "`MONGODB_URI` — mongodb.com/atlasの無料プラン\n`ENCRYPTION_KEY` — プロジェクトのコマンドで生成する64文字の16進数キー"],
+      ["🗄️ 永続データ（クエスト、いいね、プレイリスト、ロゴ）", "`DATABASE_URL` — MongoDB接続URL\n`ENCRYPTION_KEY` — プロジェクトのコマンドで生成する64文字の16進数キー"],
       ["🏷️ ロゴ当て (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — logo.devで取得"],
       ["🎵 曲の認識 (`!shazam`)", "`AUDD_API_KEY` — audd.ioで取得"],
       ["⚔️ AIバトル (`!ai battle`)", "`DISCORD_TOKEN_2` — 2つ目のボットのトークン"],
@@ -725,7 +717,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 AI-functies (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — gratis via console.groq.com"],
       ["🎵 Muziek maken (`!music generator`)", "`SUNO_API_KEY` — via sunoapi.org"],
       ["🖼️ Afbeeldingen maken (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternatief: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Blijvende gegevens (quests, likes, playlists, logo's)", "`MONGODB_URI` — gratis pakket via mongodb.com/atlas\n`ENCRYPTION_KEY` — 64 tekens lange hexsleutel, gemaakt met het projectcommando"],
+      ["🗄️ Blijvende gegevens (quests, likes, playlists, logo's)", "`DATABASE_URL` — MongoDB-verbindingsadres\n`ENCRYPTION_KEY` — 64 tekens lange hexsleutel, gemaakt met het projectcommando"],
       ["🏷️ Logo raden (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — via logo.dev"],
       ["🎵 Nummers herkennen (`!shazam`)", "`AUDD_API_KEY` — via audd.io"],
       ["⚔️ AI-gevecht (`!ai battle`)", "`DISCORD_TOKEN_2` — token van de tweede bot"],
@@ -739,7 +731,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Функции ИИ (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — бесплатно на console.groq.com"],
       ["🎵 Создание музыки (`!music generator`)", "`SUNO_API_KEY` — на sunoapi.org"],
       ["🖼️ Создание изображений (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Резерв: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Постоянные данные (задания, лайки, плейлисты, логотипы)", "`MONGODB_URI` — бесплатный тариф на mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-символьный hex-ключ, созданный командой проекта"],
+      ["🗄️ Постоянные данные (задания, лайки, плейлисты, логотипы)", "`DATABASE_URL` — адрес MongoDB\n`ENCRYPTION_KEY` — 64-символьный hex-ключ, созданный командой проекта"],
       ["🏷️ Угадай логотип (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — на logo.dev"],
       ["🎵 Распознавание музыки (`!shazam`)", "`AUDD_API_KEY` — на audd.io"],
       ["⚔️ Битва ИИ (`!ai battle`)", "`DISCORD_TOKEN_2` — токен второго бота"],
@@ -753,7 +745,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Funkcje AI (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — bezpłatnie na console.groq.com"],
       ["🎵 Generowanie muzyki (`!music generator`)", "`SUNO_API_KEY` — na sunoapi.org"],
       ["🖼️ Generowanie obrazów (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternatywa: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Dane trwałe (zadania, polubienia, playlisty, logotypy)", "`MONGODB_URI` — bezpłatny plan na mongodb.com/atlas\n`ENCRYPTION_KEY` — 64-znakowy klucz szesnastkowy wygenerowany poleceniem projektu"],
+      ["🗄️ Dane trwałe (zadania, polubienia, playlisty, logotypy)", "`DATABASE_URL` — adres MongoDB\n`ENCRYPTION_KEY` — 64-znakowy klucz szesnastkowy wygenerowany poleceniem projektu"],
       ["🏷️ Zgadnij logo (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — z logo.dev"],
       ["🎵 Rozpoznawanie utworów (`!shazam`)", "`AUDD_API_KEY` — z audd.io"],
       ["⚔️ Bitwa AI (`!ai battle`)", "`DISCORD_TOKEN_2` — token drugiego bota"],
@@ -767,7 +759,7 @@ const SETUP_GUIDE_COPY: Record<HelpLanguage, {
       ["🤖 Yapay zekâ özellikleri (`@bot`, `!trivia`, `!conspiracy`, `!voice`)", "`GROQ_API_KEY` — console.groq.com adresinde ücretsiz"],
       ["🎵 Müzik oluşturma (`!music generator`)", "`SUNO_API_KEY` — sunoapi.org adresinden"],
       ["🖼️ Görsel oluşturma (`!image`, `/image`)", "Cloudflare: `ACCOUNT_ID` + `TOKEN_API` (Workers AI). Alternatif: `HUGGINGFACE_TOKEN`."],
-      ["🗄️ Kalıcı veriler (görevler, beğeniler, çalma listeleri, logolar)", "`MONGODB_URI` — mongodb.com/atlas ücretsiz planı\n`ENCRYPTION_KEY` — proje komutuyla oluşturulan 64 karakterlik onaltılık anahtar"],
+      ["🗄️ Kalıcı veriler (görevler, beğeniler, çalma listeleri, logolar)", "`DATABASE_URL` — MongoDB bağlantı adresi\n`ENCRYPTION_KEY` — proje komutuyla oluşturulan 64 karakterlik onaltılık anahtar"],
       ["🏷️ Logoyu tahmin et (`!guessthelogo`)", "`LOGO_DEV_PUBLIC_KEY` — logo.dev adresinden"],
       ["🎵 Şarkı tanıma (`!shazam`)", "`AUDD_API_KEY` — audd.io adresinden"],
       ["⚔️ Yapay zekâ savaşı (`!ai battle`)", "`DISCORD_TOKEN_2` — ikinci botun belirteci"],
@@ -826,6 +818,13 @@ export async function sendAdminGuide(message: Message, prefix = "!", language: H
       name: language === "fr" ? "🛠️ Technicien" : "🛠️ Technician",
       value: `\`${p}tech status\` — ${language === "fr" ? "consulter l’état des modules et dépendances" : "check module and dependency health"}`,
       inline: false,
+    })
+    .addFields({
+      name: language === "fr" ? "Mémoire commune du serveur" : "Shared server memory",
+      value: `\`${p}ai server remember <information>\` · \`${p}ai server forget\``,
+    }, {
+      name: "Slash",
+      value: SLASH_COMMANDS.filter(command => ADMIN_SLASH_COMMANDS.has(command.name)).map(command => `\`/${command.name}\``).join(" · ") || "—",
     })
     .setFooter({ text: copy.footer });
   await message.reply({ embeds: [embed] });

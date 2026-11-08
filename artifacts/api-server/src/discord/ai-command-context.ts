@@ -1,4 +1,5 @@
-import { buildHelpEmbed, HELP_TOTAL_PAGES, type HelpLanguage, type HelpPage } from "./help-builders.js";
+import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, type HelpLanguage, type HelpPage } from "./help-builders.js";
+import { buildPersonaHelp, PERSONA_HELP_PAGES } from "./persona-help.js";
 
 const COMMAND_EXECUTION_BOUNDARY =
   "Executable bot tools are handled by a separate application-controlled router, not by this chat completion. " +
@@ -13,6 +14,13 @@ export function buildBotCommandContext(text: string, language: HelpLanguage, pre
     return [page.description, ...(page.fields ?? []).map((field) => `${field.name}: ${field.value}`)]
       .filter(Boolean).join("\n");
   });
+  // These domain guides remain available to the AI even though their duplicate
+  // pages were removed from the public paginator.
+  for (let index = 0; index < PERSONA_HELP_PAGES; index++) {
+    const guide = buildPersonaHelp(language, index, prefix).toJSON();
+    pages.push([guide.description, ...(guide.fields ?? []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join("\n"));
+  }
+  pages.push(buildTopicEmbed("diagnostics", language, prefix).toJSON().description ?? "");
   return `${COMMAND_EXECUTION_BOUNDARY}
 Read-only bot command catalogue from the application's help, using this server's prefix "${prefix}":
 ${pages.join("\n\n").slice(0, 12_000)}

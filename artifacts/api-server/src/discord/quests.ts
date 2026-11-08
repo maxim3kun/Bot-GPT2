@@ -5,7 +5,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { isDbReady, patchUserData, getAllUserDocs } from "../lib/db.js";
-import { getUserLang, USER_LANG_NAMES } from "./user-lang-store.js";
+import { USER_LANG_NAMES } from "./user-lang-store.js";
+import { getEffectiveLanguage } from "./effective-language.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "../../data");
@@ -39,6 +40,16 @@ export interface UserProfile {
 }
 
 type QuestStore = Record<string, UserProfile>;
+type QuestLanguageContext = Message | UserProfile;
+function questLanguage(context: QuestLanguageContext) {
+  return "author" in context
+    ? getEffectiveLanguage(context.guildId, context.author.id)
+    : getEffectiveLanguage(context.notifyGuildId ?? null, context.userId);
+}
+function qt(context: QuestLanguageContext, english: string, french: string): string {
+  return questLanguage(context) === "fr" ? french : english;
+}
+const FRENCH_LEVELS = ["🌱 Novice", "⚡ Apprenti", "🔥 Aventurier", "⚔️ Guerrier", "🏆 Champion", "💎 Maître", "🌟 Expert", "👑 Légende", "🌌 Transcendant"];
 
 // ── Level system ──────────────────────────────────────────────────────────────
 
@@ -54,14 +65,17 @@ const LEVELS = [
   { level: 9, threshold: 10000, title: "🌌 Transcendent" },
 ];
 
-function getLevelInfo(points: number) {
+function getLevelInfo(points: number, language = "en") {
   let current = LEVELS[0]!;
   for (const lvl of LEVELS) {
     if (points >= lvl.threshold) current = lvl;
   }
   const nextIdx = LEVELS.findIndex(l => l.level === current.level) + 1;
   const next = LEVELS[nextIdx] ?? null;
-  return { ...current, next };
+  return {
+    ...current, title: language === "fr" ? FRENCH_LEVELS[current.level - 1]! : current.title,
+    next: next ? { ...next, title: language === "fr" ? FRENCH_LEVELS[next.level - 1]! : next.title } : null,
+  };
 }
 
 // ── In-memory store ───────────────────────────────────────────────────────────
@@ -158,22 +172,29 @@ const BULLY_REMINDERS = [
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
+function reminderFallback(profile: UserProfile, count: number): string {
+  if (questLanguage(profile) === "fr") return profile.bullying
+    ? `Il reste **${count} quête(s)** à terminer. Tu as choisi ces objectifs : passe à l’action, un pas à la fois !`
+    : `Petit rappel : **${count} quête(s)** t’attendent. Chaque petit progrès compte ! 🌟`;
+  return pickRandom(profile.bullying ? BULLY_REMINDERS : NORMAL_REMINDERS)(profile.username, count);
+}
 
 // ── Embed builder ─────────────────────────────────────────────────────────────
 
 const DIFF_EMOJI: Record<string, string> = { easy: "🟢", medium: "🟡", hard: "🔴" };
 const QUEST_NUMS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
 
-function buildQuestEmbed(profile: UserProfile): EmbedBuilder {
-  const lvl = getLevelInfo(profile.totalPoints);
+export function buildQuestEmbed(profile: UserProfile, language = questLanguage(profile)): EmbedBuilder {
+  const fr = language === "fr";
+  const lvl = getLevelInfo(profile.totalPoints, language);
   const done = profile.quests.filter(q => q.completed).length;
 
   const embed = new EmbedBuilder()
-    .setTitle(`🗺️ ${profile.username}'s Quests`)
+    .setTitle(fr ? `🗺️ Quêtes de ${profile.username}` : `🗺️ ${profile.username}'s Quests`)
     .setColor(0xf1c40f);
 
   if (profile.quests.length === 0) {
-    embed.setDescription("No quests yet! Use `!quest start` to set your goals. 🚀");
+    embed.setDescription(fr ? "Aucune quête pour le moment ! Utilise `!quest start` pour définir tes objectifs. 🚀" : "No quests yet! Use `!quest start` to set your goals. 🚀");
   } else {
     const lines = profile.quests.map((q, i) => {
       const num = q.completed ? "✅" : (QUEST_NUMS[i] ?? `${i + 1}.`);
@@ -182,24 +203,24 @@ function buildQuestEmbed(profile: UserProfile): EmbedBuilder {
     });
     embed.setDescription(lines.join("\n"));
     if (profile.quests.some(q => !q.completed)) {
-      embed.addFields({ name: "\u200b", value: "💡 React with the number to mark a quest as done!", inline: false });
+      embed.addFields({ name: "\u200b", value: fr ? "💡 Réagis avec le numéro pour terminer une quête !" : "💡 React with the number to mark a quest as done!", inline: false });
     }
   }
 
   embed.addFields(
-    { name: "Level", value: `${lvl.title} (Lv. ${lvl.level})`, inline: true },
+    { name: fr ? "Niveau" : "Level", value: `${lvl.title} (${fr ? "Niv." : "Lv."} ${lvl.level})`, inline: true },
     { name: "Total XP", value: `${profile.totalPoints} pts`, inline: true },
-    { name: "Done", value: `${done}/${profile.quests.length}`, inline: true },
+    { name: fr ? "Terminées" : "Done", value: `${done}/${profile.quests.length}`, inline: true },
   );
 
-  const bullyStatus = profile.bullying ? "🔥 Bully mode ON" : "💬 Normal reminders";
+  const bullyStatus = profile.bullying ? (fr ? "🔥 Mode exigeant activé" : "🔥 Bully mode ON") : (fr ? "💬 Rappels bienveillants" : "💬 Normal reminders");
   if (lvl.next) {
     const range = lvl.next.threshold - lvl.threshold;
     const progress = Math.min(10, Math.round(((profile.totalPoints - lvl.threshold) / range) * 10));
     const bar = "█".repeat(progress) + "░".repeat(10 - progress);
     embed.setFooter({ text: `[${bar}] ${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title} · ${bullyStatus}` });
   } else {
-    embed.setFooter({ text: `🌌 Max level reached! · ${bullyStatus}` });
+    embed.setFooter({ text: `${fr ? "🌌 Niveau maximum atteint !" : "🌌 Max level reached!"} · ${bullyStatus}` });
   }
 
   return embed;
@@ -207,20 +228,20 @@ function buildQuestEmbed(profile: UserProfile): EmbedBuilder {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-function awardQuest(profile: UserProfile, idx: number): { leveledUp: boolean; newLevel: ReturnType<typeof getLevelInfo> } {
+function awardQuest(profile: UserProfile, idx: number, language = questLanguage(profile)): { leveledUp: boolean; newLevel: ReturnType<typeof getLevelInfo> } {
   const quest = profile.quests[idx]!;
-  const prevLevel = getLevelInfo(profile.totalPoints).level;
+  const prevLevel = getLevelInfo(profile.totalPoints, language).level;
   quest.completed = true;
   quest.completedAt = new Date().toISOString();
   profile.totalPoints += quest.points;
   profile.completedCount += 1;
-  const newLevel = getLevelInfo(profile.totalPoints);
+  const newLevel = getLevelInfo(profile.totalPoints, language);
   return { leveledUp: newLevel.level > prevLevel, newLevel };
 }
 
 function attachReactionCollector(questMsg: Message, profile: UserProfile, channel: TextChannel) {
   const collector = questMsg.createReactionCollector({
-    filter: (r, u) => !u.bot && QUEST_NUMS.includes(r.emoji.name ?? ""),
+    filter: (r, u) => !u.bot && u.id === profile.userId && QUEST_NUMS.includes(r.emoji.name ?? ""),
     idle: 30 * 60 * 1000,
   });
 
@@ -232,19 +253,19 @@ function attachReactionCollector(questMsg: Message, profile: UserProfile, channe
       return;
     }
 
-    const { leveledUp, newLevel } = awardQuest(profile, idx);
+    const { leveledUp, newLevel } = awardQuest(profile, idx, getEffectiveLanguage(channel.guildId, profile.userId));
     persistUser(profile.userId);
 
     const quest = profile.quests[idx]!;
     await reaction.users.remove(user.id).catch(() => null);
-    await questMsg.edit({ embeds: [buildQuestEmbed(profile)] }).catch(() => null);
+    await questMsg.edit({ embeds: [buildQuestEmbed(profile, getEffectiveLanguage(channel.guildId, profile.userId))] }).catch(() => null);
 
     const notify = new EmbedBuilder()
-      .setDescription(`✅ <@${user.id}> completed **${quest.title}** — +${quest.points} XP!`)
+      .setDescription(qt(profile, `✅ <@${user.id}> completed **${quest.title}** — +${quest.points} XP!`, `✅ <@${user.id}> a terminé **${quest.title}** — +${quest.points} XP !`))
       .setColor(0x2ecc71);
 
     if (leveledUp) {
-      notify.setTitle(`🎊 Level Up! → ${newLevel.title} (Lv. ${newLevel.level})`);
+      notify.setTitle(qt(profile, `🎊 Level Up! → ${newLevel.title} (Lv. ${newLevel.level})`, `🎊 Nouveau niveau ! → ${newLevel.title} (Niv. ${newLevel.level})`));
     }
 
     await channel.send({ embeds: [notify] }).catch(() => null);
@@ -283,7 +304,7 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
 
         if (profile.bullying && openai) {
           const questTitles = pending.map(q => q.title).join(", ");
-          const reminderLang = USER_LANG_NAMES[getUserLang(profile.userId)] ?? "English";
+          const reminderLang = USER_LANG_NAMES[questLanguage(profile)] ?? "English";
           try {
             const res = await openai.chat.completions.create({
               model: "openai/gpt-oss-120b",
@@ -304,14 +325,14 @@ export function startQuestReminders(client: Client, openai: OpenAI | null): void
               temperature: 0.9,
               max_tokens: 120,
             });
-            text = `<@${profile.userId}> ${res.choices[0]?.message?.content?.trim() ?? pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+            text = `<@${profile.userId}> ${res.choices[0]?.message?.content?.trim() || reminderFallback(profile, pending.length)}`;
           } catch {
-            text = `<@${profile.userId}> ${pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+            text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
           }
         } else if (profile.bullying) {
-          text = `<@${profile.userId}> ${pickRandom(BULLY_REMINDERS)(profile.username, pending.length)}`;
+          text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
         } else {
-          text = `<@${profile.userId}> ${pickRandom(NORMAL_REMINDERS)(profile.username, pending.length)}`;
+          text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
         }
 
         await (channel as TextChannel).send(text).catch(() => null);
@@ -334,9 +355,9 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
   if (!message.channel.isTextBased() || !message.channel.isSendable()) return;
   if (!openai) {
     await message.reply(
-      "❌ The AI quest creator isn't available right now.\n" +
+      qt(message, "❌ The AI quest creator isn't available right now.\n" +
       "You can still add quests manually with `!quest add <goal>` ➕\n" +
-      "Or view your existing quests with `!quest list` 📋",
+      "Or view your existing quests with `!quest list` 📋", "❌ La création de quêtes par IA est indisponible.\nAjoute une quête avec `!quest add <objectif>` ou consulte `!quest list`."),
     );
     return;
   }
@@ -347,9 +368,9 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
   // If the user already has quests, show them instead of re-running setup
   if (profile.quests.length > 0) {
-    const embed = buildQuestEmbed(profile);
+    const embed = buildQuestEmbed(profile, questLanguage(message));
     const questMsg = await message.reply({
-      content: "✅ You already have quests set up! Here's your current list:",
+      content: qt(message, "✅ You already have quests set up! Here's your current list:", "✅ Tu as déjà des quêtes ! Voici ta liste actuelle :"),
       embeds: [embed],
     });
     const activeIndices = profile.quests
@@ -365,14 +386,14 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     return;
   }
 
-  const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+  const userLang = USER_LANG_NAMES[questLanguage(message)] ?? "English";
 
   const promptEmbed = new EmbedBuilder()
-    .setTitle("🎯 Quest Setup")
+    .setTitle(qt(message, "🎯 Quest Setup", "🎯 Création des quêtes"))
     .setDescription(
-      "Tell me your goals and I'll turn them into epic quests!\n\n" +
+      qt(message, "Tell me your goals and I'll turn them into epic quests!\n\n" +
       "What do you want to accomplish? *(work, fitness, projects, habits, learning...)*\n\n" +
-      "You have **5 minutes** to reply. 📝",
+      "You have **5 minutes** to reply. 📝", "Décris tes objectifs et je les transformerai en quêtes !\n\nQue veux-tu accomplir ? Travail, sport, projets, habitudes, apprentissage…\n\nTu as **5 minutes** pour répondre. 📝"),
     )
     .setColor(0x3498db);
 
@@ -386,17 +407,17 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
       time: 300_000,
     });
   } catch {
-    await message.channel.send("⏰ No response received. Use `!quest start` when you're ready!");
+    await message.channel.send(qt(message, "⏰ No response received. Use `!quest start` when you're ready!", "⏰ Aucune réponse reçue. Relance `!quest start` quand tu veux !"));
     return;
   }
 
   if (collected.size === 0) {
-    await message.channel.send("⏰ No response received. Use `!quest start` when you're ready!");
+    await message.channel.send(qt(message, "⏰ No response received. Use `!quest start` when you're ready!", "⏰ Aucune réponse reçue. Relance `!quest start` quand tu veux !"));
     return;
   }
 
   const userInput = collected.first()!.content;
-  const waitMsg = await message.channel.send("⚙️ Creating your quests...");
+  const waitMsg = await message.channel.send(qt(message, "⚙️ Creating your quests...", "⚙️ Création de tes quêtes…"));
 
   try {
     const response = await openai.chat.completions.create({
@@ -430,7 +451,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
     profile.quests = parsed.slice(0, 9).map((q, i) => ({
       id: i + 1,
-      title: q.title ?? "Quest",
+      title: q.title ?? qt(message, "Quest", "Quête"),
       description: q.description ?? "",
       difficulty: (["easy", "medium", "hard"].includes(q.difficulty) ? q.difficulty : "medium") as "easy" | "medium" | "hard",
       points: typeof q.points === "number" ? q.points : 25,
@@ -439,7 +460,7 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
     persistUser(profile.userId);
 
-    const questEmbed = buildQuestEmbed(profile);
+    const questEmbed = buildQuestEmbed(profile, questLanguage(message));
     const questMsg = await waitMsg.edit({ content: "", embeds: [questEmbed] });
 
     for (let i = 0; i < profile.quests.length; i++) {
@@ -449,9 +470,9 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     attachReactionCollector(questMsg, profile, message.channel as TextChannel);
 
     const modeMsg = await message.channel.send(
-      "⚡ Last step — how do you want your daily reminders (10h · 15h · 18h UTC)?\n" +
+      qt(message, "⚡ Last step — how do you want your daily reminders (10h · 15h · 18h UTC)?\n" +
       "🔥 **Brutal accountability** — no excuses, no mercy, straight talk\n" +
-      "💬 **Friendly nudges** — supportive and encouraging",
+      "💬 **Friendly nudges** — supportive and encouraging", "⚡ Dernière étape — quel style de rappel préfères-tu (10 h · 15 h · 18 h UTC) ?\n🔥 **Mode exigeant** — direct, sans excuses\n💬 **Mode bienveillant** — encourageant et positif"),
     );
     await modeMsg.react("🔥").catch(() => null);
     await modeMsg.react("💬").catch(() => null);
@@ -468,19 +489,19 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
 
     await modeMsg.edit(
       profile.bullying
-        ? "🔥 **Brutal mode set.** Expect zero sugar-coating when you're slacking."
-        : "💬 **Friendly mode set.** I'll keep it supportive.",
+        ? qt(message, "🔥 **Brutal mode set.** Expect zero sugar-coating when you're slacking.", "🔥 **Mode exigeant activé.** Les rappels seront directs.")
+        : qt(message, "💬 **Friendly mode set.** I'll keep it supportive.", "💬 **Mode bienveillant activé.** Je resterai encourageant."),
     ).catch(() => null);
 
   } catch (err) {
     logger.error({ err }, "Quest setup error");
-    await waitMsg.edit("❌ Failed to create quests. Try again with `!quest start`.");
+    await waitMsg.edit(qt(message, "❌ Failed to create quests. Try again with `!quest start`.", "❌ Impossible de créer les quêtes. Réessaie avec `!quest start`."));
   }
 }
 
 export async function setReminderChannel(message: Message): Promise<void> {
   if (!message.guildId) {
-    await message.reply("❌ This command must be used in a server channel, not in DMs.");
+    await message.reply(qt(message, "❌ This command must be used in a server channel, not in DMs.", "❌ Cette commande doit être utilisée dans un salon de serveur, pas en privé."));
     return;
   }
 
@@ -492,13 +513,13 @@ export async function setReminderChannel(message: Message): Promise<void> {
   const pending = profile.quests.filter(q => !q.completed).length;
   const hours = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
   const tip = profile.quests.length === 0
-    ? "\n💡 No quests yet — use `!quest start` to set your goals."
+    ? qt(message, "\n💡 No quests yet — use `!quest start` to set your goals.", "\n💡 Aucune quête : utilise `!quest start` pour définir tes objectifs.")
     : "";
 
   await message.reply(
-    `✅ Reminders will be sent here → <#${message.channelId}>\n` +
+    qt(message, `✅ Reminders will be sent here → <#${message.channelId}>\n` +
     `⏰ **Schedule:** ${hours} UTC\n` +
-    `📋 **Pending:** ${pending} quest${pending !== 1 ? "s" : ""}${tip}`,
+    `📋 **Pending:** ${pending} quest${pending !== 1 ? "s" : ""}${tip}`, `✅ Les rappels seront envoyés ici → <#${message.channelId}>\n⏰ **Horaires :** ${hours} UTC\n📋 **À terminer :** ${pending} quête(s)${tip}`),
   );
 }
 
@@ -507,12 +528,12 @@ export async function markAllQuestsDone(message: Message): Promise<void> {
   const pending = profile.quests.filter(q => !q.completed);
 
   if (pending.length === 0) {
-    await message.reply("✅ All quests are already completed!");
+    await message.reply(qt(message, "✅ All quests are already completed!", "✅ Toutes les quêtes sont déjà terminées !"));
     return;
   }
 
   const confirmMsg = await message.reply(
-    `⚡ Mark all **${pending.length} remaining quest${pending.length > 1 ? "s" : ""}** as done? React ✅ to confirm (10s).`,
+    qt(message, `⚡ Mark all **${pending.length} remaining quest${pending.length > 1 ? "s" : ""}** as done? React ✅ to confirm (10s).`, `⚡ Terminer les **${pending.length} quête(s) restante(s)** ? Réagis ✅ pour confirmer (10 s).`),
   );
   await confirmMsg.react("✅").catch(() => null);
 
@@ -523,7 +544,7 @@ export async function markAllQuestsDone(message: Message): Promise<void> {
   }).catch(() => null);
 
   if (!collected || collected.size === 0) {
-    await confirmMsg.edit("❌ Cancelled.");
+    await confirmMsg.edit(qt(message, "❌ Cancelled.", "❌ Annulé."));
     return;
   }
 
@@ -534,21 +555,21 @@ export async function markAllQuestsDone(message: Message): Promise<void> {
   for (let i = 0; i < profile.quests.length; i++) {
     if (!profile.quests[i]!.completed) {
       totalGained += profile.quests[i]!.points;
-      const result = awardQuest(profile, i);
+      const result = awardQuest(profile, i, questLanguage(message));
       if (result.leveledUp) { leveledUp = true; finalLevel = result.newLevel; }
     }
   }
 
   persistUser(profile.userId);
 
-  const lvl = getLevelInfo(profile.totalPoints);
+  const lvl = getLevelInfo(profile.totalPoints, questLanguage(message));
   const embed = new EmbedBuilder()
     .setColor(0x2ecc71)
-    .setTitle(leveledUp && finalLevel ? `🎊 Level Up! → ${finalLevel.title} (Lv. ${finalLevel.level})` : "✅ All Quests Completed!")
-    .setDescription(`**${pending.length} quest${pending.length > 1 ? "s" : ""}** marked done — **+${totalGained} XP**`)
+    .setTitle(leveledUp && finalLevel ? qt(message, `🎊 Level Up! → ${finalLevel.title} (Lv. ${finalLevel.level})`, `🎊 Nouveau niveau ! → ${finalLevel.title} (Niv. ${finalLevel.level})`) : qt(message, "✅ All Quests Completed!", "✅ Toutes les quêtes sont terminées !"))
+    .setDescription(qt(message, `**${pending.length} quest${pending.length > 1 ? "s" : ""}** marked done — **+${totalGained} XP**`, `**${pending.length} quête(s)** terminée(s) — **+${totalGained} XP**`))
     .addFields(
       { name: "Total XP", value: `${profile.totalPoints} pts`, inline: true },
-      { name: "Level", value: lvl.title, inline: true },
+      { name: qt(message, "Level", "Niveau"), value: lvl.title, inline: true },
     );
 
   await confirmMsg.edit({ content: "", embeds: [embed] });
@@ -566,7 +587,7 @@ export async function showQuestStats(message: Message): Promise<void> {
     const d = new Date(today);
     d.setUTCDate(today.getUTCDate() - i);
     const dateStr = d.toISOString().split("T")[0]!;
-    const label = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+    const label = d.toLocaleDateString(questLanguage(message), { weekday: "short", timeZone: "UTC" });
     days.push({ label, dateStr });
   }
 
@@ -603,19 +624,19 @@ export async function showQuestStats(message: Message): Promise<void> {
     else break;
   }
 
-  const lvl = getLevelInfo(profile.totalPoints);
-  const nextXp = lvl.next ? `${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title}` : "Max level!";
+  const lvl = getLevelInfo(profile.totalPoints, questLanguage(message));
+  const nextXp = lvl.next ? `${lvl.next.threshold - profile.totalPoints} XP → ${lvl.next.title}` : qt(message, "Max level!", "Niveau maximum !");
 
   const embed = new EmbedBuilder()
     .setColor(0x3498db)
-    .setTitle(`📊 Weekly Stats — ${profile.username}`)
+    .setTitle(qt(message, `📊 Weekly Stats — ${profile.username}`, `📊 Statistiques de la semaine — ${profile.username}`))
     .setDescription(chart)
     .addFields(
-      { name: "This week", value: `${weekCount} quest${weekCount !== 1 ? "s" : ""} · ${weekXp} XP`, inline: true },
-      { name: "Streak", value: streak > 0 ? `🔥 ${streak} day${streak > 1 ? "s" : ""}` : "—", inline: true },
-      { name: "All time", value: `${profile.completedCount} quests · ${profile.totalPoints} XP`, inline: true },
+      { name: qt(message, "This week", "Cette semaine"), value: qt(message, `${weekCount} quest${weekCount !== 1 ? "s" : ""} · ${weekXp} XP`, `${weekCount} quête(s) · ${weekXp} XP`), inline: true },
+      { name: qt(message, "Streak", "Série"), value: streak > 0 ? qt(message, `🔥 ${streak} day${streak > 1 ? "s" : ""}`, `🔥 ${streak} jour(s)`) : "—", inline: true },
+      { name: qt(message, "All time", "Au total"), value: qt(message, `${profile.completedCount} quests · ${profile.totalPoints} XP`, `${profile.completedCount} quêtes · ${profile.totalPoints} XP`), inline: true },
     )
-    .setFooter({ text: `Lv.${lvl.level} ${lvl.title} — ${nextXp}` });
+    .setFooter({ text: `${qt(message, "Lv.", "Niv.")}${lvl.level} ${lvl.title} — ${nextXp}` });
 
   await message.reply({ embeds: [embed] });
 }
@@ -626,9 +647,9 @@ export async function setSchedule(message: Message, input: string): Promise<void
   if (!input.trim()) {
     const current = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
     await message.reply(
-      `⏰ Your current schedule: **${current} UTC**\n` +
+      qt(message, `⏰ Your current schedule: **${current} UTC**\n` +
       `To change: \`!quest schedule 8 13 21\` *(up to 5 times, 0–23 UTC)*\n` +
-      `To reset to default: \`!quest schedule reset\``,
+      `To reset to default: \`!quest schedule reset\``, `⏰ Tes horaires : **${current} UTC**\nModifier : \`!quest schedule 8 13 21\` (5 horaires maximum, de 0 à 23 h UTC)\nRéinitialiser : \`!quest schedule reset\``),
     );
     return;
   }
@@ -636,7 +657,7 @@ export async function setSchedule(message: Message, input: string): Promise<void
   if (input.trim().toLowerCase() === "reset") {
     delete profile.reminderHours;
     persistUser(profile.userId);
-    await message.reply("✅ Schedule reset to default: **10:00 · 15:00 · 18:00 UTC**");
+    await message.reply(qt(message, "✅ Schedule reset to default: **10:00 · 15:00 · 18:00 UTC**", "✅ Horaires réinitialisés : **10:00 · 15:00 · 18:00 UTC**"));
     return;
   }
 
@@ -646,11 +667,11 @@ export async function setSchedule(message: Message, input: string): Promise<void
     .filter(h => !isNaN(h) && h >= 0 && h <= 23);
 
   if (parsed.length === 0) {
-    await message.reply("❌ Invalid times. Use hours 0–23 — e.g. `!quest schedule 8 13 21`");
+    await message.reply(qt(message, "❌ Invalid times. Use hours 0–23 — e.g. `!quest schedule 8 13 21`", "❌ Horaires invalides. Indique des heures de 0 à 23, par exemple `!quest schedule 8 13 21`."));
     return;
   }
   if (parsed.length > 5) {
-    await message.reply("❌ Max 5 reminder times.");
+    await message.reply(qt(message, "❌ Max 5 reminder times.", "❌ Maximum 5 horaires de rappel."));
     return;
   }
 
@@ -659,12 +680,12 @@ export async function setSchedule(message: Message, input: string): Promise<void
   persistUser(profile.userId);
 
   const display = unique.map(h => `${h}:00`).join(" · ");
-  await message.reply(`⏰ Schedule updated: **${display} UTC**`);
+  await message.reply(qt(message, `⏰ Schedule updated: **${display} UTC**`, `⏰ Horaires mis à jour : **${display} UTC**`));
 }
 
 export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {
   if (!objective.trim()) {
-    await message.reply("❓ Usage: `!quest add <your goal>` — e.g. `!quest add Run 5km three times a week`");
+    await message.reply(qt(message, "❓ Usage: `!quest add <your goal>` — e.g. `!quest add Run 5km three times a week`", "❓ Utilisation : `!quest add <objectif>` — par exemple `!quest add Courir 5 km trois fois par semaine`"));
     return;
   }
 
@@ -673,7 +694,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
   recordChannel(profile, message);
 
   if (profile.quests.length >= 9) {
-    await message.reply("❌ You already have 9 quests (max). Complete or reset some before adding more.");
+    await message.reply(qt(message, "❌ You already have 9 quests (max). Complete or reset some before adding more.", "❌ Tu as déjà 9 quêtes (maximum). Termine ou réinitialise des quêtes avant d’en ajouter."));
     return;
   }
 
@@ -688,13 +709,13 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     };
     profile.quests.push(quest);
     persistUser(profile.userId);
-    const embed = buildQuestEmbed(profile);
-    await message.reply({ content: `✅ Quest added: **${quest.title}** (+${quest.points} XP)`, embeds: [embed] });
+    const embed = buildQuestEmbed(profile, questLanguage(message));
+    await message.reply({ content: qt(message, `✅ Quest added: **${quest.title}** (+${quest.points} XP)`, `✅ Quête ajoutée : **${quest.title}** (+${quest.points} XP)`), embeds: [embed] });
     return;
   }
 
-  const thinkMsg = await message.channel.send("🤔 One question before I add this...");
-  const userLangAdd = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+  const thinkMsg = await message.channel.send(qt(message, "🤔 One question before I add this...", "🤔 Une question avant d’ajouter cette quête…"));
+  const userLangAdd = USER_LANG_NAMES[questLanguage(message)] ?? "English";
 
   try {
     const qRes = await openai.chat.completions.create({
@@ -714,8 +735,8 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
       max_tokens: 80,
     });
 
-    const question = qRes.choices[0]?.message?.content?.trim() ?? "What's your target timeline for this?";
-    await thinkMsg.edit(`💬 **${question}** *(5 minutes to answer — or ignore and I'll use the goal as-is)*`);
+    const question = qRes.choices[0]?.message?.content?.trim() ?? qt(message, "What's your target timeline for this?", "Dans quel délai souhaites-tu atteindre cet objectif ?");
+    await thinkMsg.edit(qt(message, `💬 **${question}** *(5 minutes to answer — or ignore and I'll use the goal as-is)*`, `💬 **${question}** *(5 minutes pour répondre — sinon je garde l’objectif tel quel)*`));
 
     const answered = await message.channel.awaitMessages({
       filter: m => m.author.id === message.author.id,
@@ -764,10 +785,10 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     persistUser(profile.userId);
 
     await thinkMsg.edit(
-      `✅ Quest added: **${quest.title}** — ${DIFF_EMOJI[quest.difficulty] ?? "⬜"} ${quest.difficulty}, +${quest.points} XP`,
+      qt(message, `✅ Quest added: **${quest.title}** — ${DIFF_EMOJI[quest.difficulty] ?? "⬜"} ${quest.difficulty}, +${quest.points} XP`, `✅ Quête ajoutée : **${quest.title}** — ${DIFF_EMOJI[quest.difficulty] ?? "⬜"} ${{ easy: "facile", medium: "moyenne", hard: "difficile" }[quest.difficulty]}, +${quest.points} XP`),
     ).catch(() => null);
 
-    const listEmbed = buildQuestEmbed(profile);
+    const listEmbed = buildQuestEmbed(profile, questLanguage(message));
     const questMsg = await message.channel.send({ embeds: [listEmbed] });
     const newIdx = profile.quests.findIndex(q => q.id === quest.id);
     if (newIdx >= 0 && QUEST_NUMS[newIdx]) {
@@ -777,7 +798,7 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
 
   } catch (err) {
     logger.error({ err }, "Quest add error");
-    await thinkMsg.edit("❌ Failed to add quest. Try again.").catch(() => null);
+    await thinkMsg.edit(qt(message, "❌ Failed to add quest. Try again.", "❌ Impossible d’ajouter la quête. Réessaie.")).catch(() => null);
   }
 }
 
@@ -786,7 +807,7 @@ export async function showQuestList(message: Message): Promise<void> {
   recordChannel(profile, message);
   persistUser(profile.userId);
 
-  const embed = buildQuestEmbed(profile);
+  const embed = buildQuestEmbed(profile, questLanguage(message));
   const questMsg = await message.reply({ embeds: [embed] });
 
   const activeIndices = profile.quests
@@ -809,28 +830,28 @@ export async function markQuestDone(message: Message, indexStr: string): Promise
   const idx = parseInt(indexStr, 10) - 1;
 
   if (isNaN(idx) || idx < 0 || idx >= profile.quests.length) {
-    await message.reply(`❌ Invalid number. Use \`!quest done <1-${profile.quests.length}>\`.`);
+    await message.reply(qt(message, `❌ Invalid number. Use \`!quest done <1-${profile.quests.length}>\`.`, `❌ Numéro invalide. Utilise \`!quest done <1-${profile.quests.length}>\`.`));
     return;
   }
 
   const quest = profile.quests[idx]!;
   if (quest.completed) {
-    await message.reply(`✅ **${quest.title}** is already completed!`);
+    await message.reply(qt(message, `✅ **${quest.title}** is already completed!`, `✅ **${quest.title}** est déjà terminée !`));
     return;
   }
 
-  const { leveledUp, newLevel } = awardQuest(profile, idx);
+  const { leveledUp, newLevel } = awardQuest(profile, idx, questLanguage(message));
   persistUser(profile.userId);
 
   const embed = new EmbedBuilder()
     .setColor(0x2ecc71)
-    .setDescription(`✅ **${quest.title}** completed! +${quest.points} XP`)
+    .setDescription(qt(message, `✅ **${quest.title}** completed! +${quest.points} XP`, `✅ **${quest.title}** terminée ! +${quest.points} XP`))
     .addFields(
-      { name: "Level", value: newLevel.title, inline: true },
+      { name: qt(message, "Level", "Niveau"), value: newLevel.title, inline: true },
       { name: "Total XP", value: `${profile.totalPoints} pts`, inline: true },
     );
 
-  if (leveledUp) embed.setTitle(`🎊 Level Up! → ${newLevel.title} (Lv. ${newLevel.level})`);
+  if (leveledUp) embed.setTitle(qt(message, `🎊 Level Up! → ${newLevel.title} (Lv. ${newLevel.level})`, `🎊 Nouveau niveau ! → ${newLevel.title} (Niv. ${newLevel.level})`));
 
   await message.reply({ embeds: [embed] });
 }
@@ -840,20 +861,20 @@ export async function showQuestProfile(message: Message): Promise<void> {
   recordChannel(profile, message);
   persistUser(profile.userId);
 
-  const lvl = getLevelInfo(profile.totalPoints);
+  const lvl = getLevelInfo(profile.totalPoints, questLanguage(message));
   const active = profile.quests.filter(q => !q.completed).length;
 
   const embed = new EmbedBuilder()
-    .setTitle(`👤 ${profile.username}'s Profile`)
+    .setTitle(qt(message, `👤 ${profile.username}'s Profile`, `👤 Profil de ${profile.username}`))
     .setColor(0x9b59b6)
     .addFields(
-      { name: "🏅 Level", value: `${lvl.title} (Lv. ${lvl.level})`, inline: true },
+      { name: qt(message, "🏅 Level", "🏅 Niveau"), value: `${lvl.title} (${qt(message, "Lv.", "Niv.")} ${lvl.level})`, inline: true },
       { name: "⚡ Total XP", value: `${profile.totalPoints} pts`, inline: true },
-      { name: "✅ Completed", value: `${profile.completedCount} quests`, inline: true },
-      { name: "📋 Active", value: `${active} quests`, inline: true },
-      { name: "📅 Since", value: new Date(profile.createdAt).toLocaleDateString(), inline: true },
-      { name: "🔔 Reminders", value: profile.notifyChannelId ? "Active (10h / 15h / 18h UTC)" : "Not set — use any `!quest` command in a server channel", inline: false },
-      { name: "Mode", value: profile.bullying ? "🔥 Bully mode — ON" : "💬 Normal mode", inline: true },
+      { name: qt(message, "✅ Completed", "✅ Terminées"), value: qt(message, `${profile.completedCount} quests`, `${profile.completedCount} quêtes`), inline: true },
+      { name: qt(message, "📋 Active", "📋 Actives"), value: qt(message, `${active} quests`, `${active} quêtes`), inline: true },
+      { name: qt(message, "📅 Since", "📅 Depuis"), value: new Date(profile.createdAt).toLocaleDateString(questLanguage(message)), inline: true },
+      { name: qt(message, "🔔 Reminders", "🔔 Rappels"), value: profile.notifyChannelId ? qt(message, `Active (${(profile.reminderHours ?? REMINDER_HOURS).join("h / ")}h UTC)`, `Actifs (${(profile.reminderHours ?? REMINDER_HOURS).join(" h / ")} h UTC)`) : qt(message, "Not set — use any `!quest` command in a server channel", "Non configurés — utilise une commande `!quest` dans un salon du serveur"), inline: false },
+      { name: "Mode", value: profile.bullying ? qt(message, "🔥 Bully mode — ON", "🔥 Mode exigeant activé") : qt(message, "💬 Normal mode", "💬 Mode bienveillant"), inline: true },
     );
 
   if (lvl.next) {
@@ -862,7 +883,7 @@ export async function showQuestProfile(message: Message): Promise<void> {
     const bar = "█".repeat(progress) + "░".repeat(10 - progress);
     embed.setDescription(`\`[${bar}]\` ${profile.totalPoints} / ${lvl.next.threshold} XP → ${lvl.next.title}`);
   } else {
-    embed.setDescription("🌌 **Max level reached! You are Transcendent!**");
+    embed.setDescription(qt(message, "🌌 **Max level reached! You are Transcendent!**", "🌌 **Niveau maximum atteint ! Tu es Transcendant !**"));
   }
 
   await message.reply({ embeds: [embed] });
@@ -884,7 +905,7 @@ export function getUserQuestData(userId: string): {
 } | null {
   const profile = store[userId];
   if (!profile) return null;
-  const lvl = getLevelInfo(profile.totalPoints);
+  const lvl = getLevelInfo(profile.totalPoints, questLanguage(profile));
   const active = profile.quests.filter(q => !q.completed).length;
   let bar = "";
   if (lvl.next) {
@@ -910,7 +931,7 @@ export function getUserQuestData(userId: string): {
 export async function negotiateQuests(message: Message, openai: OpenAI | null): Promise<void> {
   if (!message.channel.isTextBased() || !message.channel.isSendable()) return;
   if (!openai) {
-    await message.reply("❌ AI features aren't available right now. GROQ_API_KEY is required for negotiation.");
+    await message.reply(qt(message, "❌ AI features aren't available right now. GROQ_API_KEY is required for negotiation.", "❌ La négociation par IA est indisponible. GROQ_API_KEY doit être configuré."));
     return;
   }
 
@@ -918,17 +939,17 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
   recordChannel(profile, message);
 
   if (profile.quests.length === 0) {
-    await message.reply("❌ You don't have any quests yet. Use `!quest start` to create some first.");
+    await message.reply(qt(message, "❌ You don't have any quests yet. Use `!quest start` to create some first.", "❌ Tu n’as pas encore de quêtes. Utilise `!quest start` pour en créer."));
     return;
   }
 
   const pending = profile.quests.filter(q => !q.completed);
   if (pending.length === 0) {
-    await message.reply("✅ All your quests are completed! Use `!quest start` or `!quest add` to create new ones.");
+    await message.reply(qt(message, "✅ All your quests are completed! Use `!quest start` or `!quest add` to create new ones.", "✅ Toutes tes quêtes sont terminées ! Utilise `!quest start` ou `!quest add` pour en créer."));
     return;
   }
 
-  const userLang = USER_LANG_NAMES[getUserLang(message.author.id)] ?? "English";
+  const userLang = USER_LANG_NAMES[questLanguage(message)] ?? "English";
   const userId = message.author.id;
 
   const questList = pending
@@ -937,12 +958,12 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
 
   // ── Round 1: show quests and open the negotiation ────────────────────────────
   const introEmbed = new EmbedBuilder()
-    .setTitle("⚔️ Quest Negotiation — Round 1/2")
+    .setTitle(qt(message, "⚔️ Quest Negotiation — Round 1/2", "⚔️ Négociation des quêtes — Tour 1/2"))
     .setColor(0xe67e22)
     .setDescription(
-      `Here are your active quests:\n\n${questList}\n\n` +
+      qt(message, `Here are your active quests:\n\n${questList}\n\n` +
       "Tell me what you'd like to change and **why**. Be specific — which quest(s), what's the problem?\n" +
-      "*(You have 5 minutes to reply)*",
+      "*(You have 5 minutes to reply)*", `Voici tes quêtes actives :\n\n${questList}\n\nExplique ce que tu veux changer et **pourquoi**. Quelle quête et quel problème ?\n*(Tu as 5 minutes pour répondre)*`),
     );
   await message.reply({ embeds: [introEmbed] });
 
@@ -953,17 +974,17 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
   try {
     collected1 = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
   } catch {
-    await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
+    await message.channel.send(qt(message, "⏰ Negotiation timed out. Your quests remain unchanged.", "⏰ Négociation expirée. Tes quêtes restent inchangées."));
     return;
   }
   if (collected1.size === 0) {
-    await message.channel.send("⏰ No response. Your quests remain unchanged.");
+    await message.channel.send(qt(message, "⏰ No response. Your quests remain unchanged.", "⏰ Aucune réponse. Tes quêtes restent inchangées."));
     return;
   }
   const firstAnswer = collected1.first()!.content;
 
   // ── Conversation loop — AI decides when it has enough info ──────────────────
-  const thinkingMsg = await message.channel.send("💭 Thinking...");
+  const thinkingMsg = await message.channel.send(qt(message, "💭 Thinking...", "💭 Réflexion en cours…"));
 
   const currentQuestsJson = JSON.stringify(pending.map(q => ({
     id: q.id,
@@ -1019,14 +1040,14 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       aiRaw = aiRes.choices[0]?.message?.content?.trim() ?? "{}";
     } catch (err) {
       logger.error({ err }, "Quest negotiation AI error");
-      await statusMsg.edit("❌ AI error. Try again with `!quest negotiate`.");
+      await statusMsg.edit(qt(message, "❌ AI error. Try again with `!quest negotiate`.", "❌ Erreur de l’IA. Réessaie avec `!quest negotiate`."));
       return;
     }
 
     const jsonMatch = aiRaw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       logger.warn({ aiRaw }, "Quest negotiation: no JSON in AI response");
-      await statusMsg.edit("❌ Unexpected AI response. Try again with `!quest negotiate`.");
+      await statusMsg.edit(qt(message, "❌ Unexpected AI response. Try again with `!quest negotiate`.", "❌ Réponse inattendue de l’IA. Réessaie avec `!quest negotiate`."));
       return;
     }
 
@@ -1034,7 +1055,7 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      await statusMsg.edit("❌ Unexpected AI response. Try again with `!quest negotiate`.");
+      await statusMsg.edit(qt(message, "❌ Unexpected AI response. Try again with `!quest negotiate`.", "❌ Réponse inattendue de l’IA. Réessaie avec `!quest negotiate`."));
       return;
     }
 
@@ -1044,27 +1065,27 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       conversationMessages.push({ role: "assistant", content: question });
 
       const followUpEmbed = new EmbedBuilder()
-        .setTitle(`⚔️ Quest Negotiation — Round ${roundNum + 1}`)
+        .setTitle(qt(message, `⚔️ Quest Negotiation — Round ${roundNum + 1}`, `⚔️ Négociation des quêtes — Tour ${roundNum + 1}`))
         .setColor(0xe67e22)
-        .setDescription(question + "\n\n*(You have 5 minutes to reply)*");
+        .setDescription(question + qt(message, "\n\n*(You have 5 minutes to reply)*", "\n\n*(Tu as 5 minutes pour répondre)*"));
       await statusMsg.edit({ content: "", embeds: [followUpEmbed] });
 
       let nextCollected;
       try {
         nextCollected = await message.channel.awaitMessages({ filter: waitFilter, max: 1, time: 300_000 });
       } catch {
-        await message.channel.send("⏰ Negotiation timed out. Your quests remain unchanged.");
+        await message.channel.send(qt(message, "⏰ Negotiation timed out. Your quests remain unchanged.", "⏰ Négociation expirée. Tes quêtes restent inchangées."));
         return;
       }
       if (nextCollected.size === 0) {
-        await message.channel.send("⏰ No response. Your quests remain unchanged.");
+        await message.channel.send(qt(message, "⏰ No response. Your quests remain unchanged.", "⏰ Aucune réponse. Tes quêtes restent inchangées."));
         return;
       }
 
       const userAnswer = nextCollected.first()!.content;
       conversationMessages.push({ role: "user", content: userAnswer });
 
-      statusMsg = await message.channel.send("💭 Thinking...");
+      statusMsg = await message.channel.send(qt(message, "💭 Thinking...", "💭 Réflexion en cours…"));
       roundNum++;
       continue;
     }
@@ -1077,13 +1098,13 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       updatedQuests: Array<{ id: number; title: string; description: string; difficulty: string; points: number }>;
     };
 
-    await statusMsg.edit("⚖️ Evaluating your case...");
+    await statusMsg.edit(qt(message, "⚖️ Evaluating your case...", "⚖️ Évaluation de ta demande…"));
 
     if (result.verdict === "reject") {
       const embed = new EmbedBuilder()
         .setColor(0xe74c3c)
-        .setTitle("⚔️ Negotiation Rejected")
-        .setDescription(`**${result.message}**\n\nYour quests remain unchanged.`);
+        .setTitle(qt(message, "⚔️ Negotiation Rejected", "⚔️ Négociation refusée"))
+        .setDescription(`**${result.message}**\n\n${qt(message, "Your quests remain unchanged.", "Tes quêtes restent inchangées.")}`);
       await statusMsg.edit({ content: "", embeds: [embed] });
       return;
     }
@@ -1100,10 +1121,10 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
       persistUser(profile.userId);
     }
 
-    const verdictLabel = result.verdict === "accept" ? "✅ Negotiation Accepted" : "🔶 Partial Renegotiation";
+    const verdictLabel = result.verdict === "accept" ? qt(message, "✅ Negotiation Accepted", "✅ Négociation acceptée") : qt(message, "🔶 Partial Renegotiation", "🔶 Renégociation partielle");
     const color = result.verdict === "accept" ? 0x2ecc71 : 0xe67e22;
 
-    const updatedEmbed = buildQuestEmbed(profile);
+    const updatedEmbed = buildQuestEmbed(profile, questLanguage(message));
     const embed = new EmbedBuilder()
       .setColor(color)
       .setTitle(`⚔️ ${verdictLabel}`)
@@ -1115,8 +1136,8 @@ export async function negotiateQuests(message: Message, openai: OpenAI | null): 
   }
 
   // Safety: max rounds reached — force verdict
-  await statusMsg.edit("⚖️ Max rounds reached — rendering final verdict...");
-  await message.channel.send("⏰ Max negotiation rounds reached. The negotiator will now make a final decision based on everything you've shared.");
+  await statusMsg.edit(qt(message, "⚖️ Max rounds reached — rendering final verdict...", "⚖️ Nombre maximal de tours atteint — décision finale en cours…"));
+  await message.channel.send(qt(message, "⏰ Max negotiation rounds reached. The negotiator will now make a final decision based on everything you've shared.", "⏰ Nombre maximal de tours atteint. Une décision finale va être prise avec les informations données."));
 }
 
 export async function setBullyMode(message: Message, enable: boolean): Promise<void> {
@@ -1127,16 +1148,16 @@ export async function setBullyMode(message: Message, enable: boolean): Promise<v
 
   if (enable) {
     await message.reply(
-      "🔥 **Bully mode activated.** No more gentle nudges — expect straight talk when you're slacking.\n" +
-      "*You asked for this. Own it.*",
+      qt(message, "🔥 **Bully mode activated.** No more gentle nudges — expect straight talk when you're slacking.\n" +
+      "*You asked for this. Own it.*", "🔥 **Mode exigeant activé.** Les rappels seront directs.\n*Tu peux revenir au mode bienveillant quand tu veux.*"),
     );
   } else {
-    await message.reply("💬 **Normal mode restored.** Reminders will be friendly from now on.");
+    await message.reply(qt(message, "💬 **Normal mode restored.** Reminders will be friendly from now on.", "💬 **Mode bienveillant rétabli.** Les rappels seront encourageants."));
   }
 }
 
 export async function resetQuests(message: Message): Promise<void> {
-  const confirmMsg = await message.reply("⚠️ Reset ALL your quests and XP? React ✅ to confirm (10s).");
+  const confirmMsg = await message.reply(qt(message, "⚠️ Reset ALL your quests and XP? React ✅ to confirm (10s).", "⚠️ Réinitialiser TOUTES tes quêtes et ton XP ? Réagis ✅ pour confirmer (10 s)."));
   await confirmMsg.react("✅").catch(() => null);
 
   let collected;
@@ -1147,12 +1168,12 @@ export async function resetQuests(message: Message): Promise<void> {
       time: 10_000,
     });
   } catch {
-    await confirmMsg.edit("❌ Reset cancelled.").catch(() => null);
+    await confirmMsg.edit(qt(message, "❌ Reset cancelled.", "❌ Réinitialisation annulée.")).catch(() => null);
     return;
   }
 
   if (collected.size === 0) {
-    await confirmMsg.edit("❌ Reset cancelled.");
+    await confirmMsg.edit(qt(message, "❌ Reset cancelled.", "❌ Réinitialisation annulée."));
     return;
   }
 
@@ -1162,5 +1183,5 @@ export async function resetQuests(message: Message): Promise<void> {
   profile.completedCount = 0;
   persistUser(profile.userId);
 
-  await confirmMsg.edit("✅ All quests and XP reset. Use `!quest start` to begin fresh!");
+  await confirmMsg.edit(qt(message, "✅ All quests and XP reset. Use `!quest start` to begin fresh!", "✅ Quêtes et XP réinitialisés. Utilise `!quest start` pour repartir de zéro !"));
 }
