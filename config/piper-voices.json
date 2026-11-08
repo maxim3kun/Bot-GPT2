@@ -1,0 +1,25 @@
+{
+  "default": "siwis",
+  "voices": [
+    {
+      "id": "siwis",
+      "name": "SIWIS",
+      "description": "Français · voix par défaut",
+      "model": "fr_FR-siwis-medium",
+      "path": "fr/fr_FR/siwis/medium",
+      "md5": "20e876e8c839e9b11a26085858f2300c",
+      "license": "Dataset CC-BY-4.0",
+      "source": "https://datashare.is.ed.ac.uk/handle/10283/2353"
+    },
+    {
+      "id": "gilles",
+      "name": "Gilles",
+      "description": "Français · modèle léger",
+      "model": "fr_FR-gilles-low",
+      "path": "fr/fr_FR/gilles/low",
+      "md5": "f984386d1f0927597f09a3ec10b11b5d",
+      "license": "Dataset CC0",
+      "source": "https://www.kaggle.com/datasets/bryanpark/french-single-speaker-speech-dataset"
+    }
+  ]
+}

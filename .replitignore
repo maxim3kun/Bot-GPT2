@@ -7,3 +7,4 @@
 # Voice experiments are not part of the Discord app deployment
 generated-artifacts
 .pythonlibs
+.piper

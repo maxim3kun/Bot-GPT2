@@ -61,6 +61,7 @@ export interface UserDoc {
 
 export interface GuildDoc {
   _id: string;
+  ttsVoiceId?: string;
   prefix?: string;
   lang?: string;
   birthdayChannelId?: string | null;
@@ -121,6 +122,7 @@ export interface AiPersonaUserLearning {
 
 export interface AiPersonaRecord {
   id: string;
+  ttsVoiceId?: string;
   ownerId: string;
   guildId: string | null;
   name: string;
@@ -916,6 +918,18 @@ export async function upsertGuildDoc(
   } catch (err) {
     logger.error({ err }, "upsertGuildDoc failed");
   }
+}
+
+/** Voice settings must not report success after a swallowed database error. */
+export async function setGuildTtsVoice(guildId: string, voiceId: string | null): Promise<void> {
+  if (!guildsCol) throw new Error("MongoDB is unavailable");
+  await guildsCol.updateOne(
+    { _id: guildId },
+    voiceId === null
+      ? { $unset: { ttsVoiceId: "" }, $set: { updatedAt: new Date() } }
+      : { $set: { ttsVoiceId: voiceId, updatedAt: new Date() } },
+    { upsert: true },
+  );
 }
 
 export async function getAllGuildDocs(): Promise<GuildDoc[]> {

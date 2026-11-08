@@ -1,0 +1,2 @@
+# Runtime-only dependency set used by Railway's Nixpacks build.
+piper-tts==1.8.0

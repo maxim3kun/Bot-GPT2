@@ -43,13 +43,13 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
     },
     {
       title: "Tu gardes le contrôle",
-      description: "La mémoire est facultative. Tes souvenirs personnels restent privés et chiffrés.",
+      description: "La mémoire est facultative. Tes souvenirs personnels restent privés et chiffrés. Cette aide publique ne révèle ni profils ni souvenirs personnels.",
       fields: [
         { name: "Activer ou effacer ta mémoire", value: `${cmd("learn Azumi confirm")} — autoriser ton apprentissage personnel.\n${cmd("learn Azumi revoke")} — retirer l’autorisation et supprimer ta mémoire personnelle.\nChaque utilisateur d’un persona public contrôle sa propre mémoire.` },
         { name: "Retrouver un ancien message", value: `${cmd("recall Azumi confirm")}\nRecherche ponctuellement ton plus ancien message encore accessible dans cette conversation. Résultat en privé ; le texte n’est pas conservé.` },
+        { name: "Choisir sa voix", value: `${cmd("voice Azumi")} — ouvre la sélection SIWIS / Gilles.\n${cmd("voice Azumi default")} — reprend la voix du bot. Réservé au créateur ; les autres personas ne changent pas.` },
         { name: "Changer la visibilité", value: `${cmd("privacy <id> public")} ou ${cmd("privacy <id> private")}.\nRéservé au créateur. \`public\` rend le persona utilisable dans le serveur, pas ses souvenirs personnels.` },
         { name: "Supprimer un persona", value: `${cmd("delete <id>")}\nRéservé au créateur, avec confirmation avant suppression.` },
-        { name: "Ce qui reste privé", value: "Cette aide ne montre aucune donnée personnelle. Les listes, fiches, souvenirs et résultats privés ne deviennent pas publics parce que l’aide est affichée ici." },
       ],
     },
   ] : [
@@ -90,9 +90,9 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       fields: [
         { name: "Enable or erase your memory", value: `${cmd("learn Azumi confirm")} — allow your personal learning.\n${cmd("learn Azumi revoke")} — withdraw permission and delete your personal memory.\nEach public-persona user controls their own memory.` },
         { name: "Find an older message", value: `${cmd("recall Azumi confirm")}\nOne-time search for your oldest accessible message in this conversation. Results stay private; the text is not stored.` },
+        { name: "Choose a voice", value: `${cmd("voice Azumi")} — choose SIWIS / Gilles.\n${cmd("voice Azumi default")} — inherit the bot voice. Creator only; other personas are unchanged.` },
         { name: "Change visibility", value: `${cmd("privacy <id> public")} or ${cmd("privacy <id> private")}.\nCreator only. Public visibility shares the persona in the server, not personal memories.` },
         { name: "Delete a persona", value: `${cmd("delete <id>")}\nCreator only, with confirmation before deletion.` },
-        { name: "What stays private", value: "This guide contains no personal data. Lists, profiles, memories and private results do not become public just because help appears here." },
       ],
     },
   ];

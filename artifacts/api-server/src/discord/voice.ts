@@ -15,6 +15,9 @@ import { replyNotInVoice, setVoiceCleanupHook, stopForGuild } from "./radio.js";
 import { Readable } from "stream";
 import prism from "prism-media";
 import { logger } from "../lib/logger";
+import { piper, DEFAULT_VOICE, isVoiceId } from "./piper-tts.js";
+import { getBotVoice } from "./voice-settings.js";
+import { recordModuleSuccess, recordModuleFailureState } from "./module-technician.js";
 
 // ── Google Translate TTS ──────────────────────────────────────────────────────
 
@@ -49,6 +52,23 @@ export async function textToSpeech(text: string, lang = "en"): Promise<Buffer> {
   }
   const buffers = await Promise.all(chunks.map((c) => fetchTtsChunk(c, lang)));
   return Buffer.concat(buffers);
+}
+
+const fallbackNotices = new Map<string, number>();
+const speakingGuilds = new Set<string>();
+async function speechAudio(text: string, lang: string, voice: string): Promise<{ audio: Buffer; degraded: boolean }> {
+  // The curated local models are French. Preserve existing multilingual speech.
+  if (!/^fr(?:[-_]|$)/i.test(lang)) return { audio: await textToSpeech(text, lang), degraded: false };
+  try {
+    const audio = await piper.synthesize(text, voice);
+    recordModuleSuccess("feature:piper");
+    return { audio, degraded: false };
+  }
+  catch (error) {
+    recordModuleFailureState("feature:piper", new Error("Local Piper synthesis failed"));
+    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Local voice unavailable; trying existing Google TTS");
+    return { audio: await textToSpeech(text, lang), degraded: true };
+  }
 }
 
 // ── PCM → WAV helper ──────────────────────────────────────────────────────────
@@ -434,9 +454,11 @@ export async function speakText(
   lang = "en",
   senderName?: string,
   includeSubtitle = true,
+  voiceId?: string,
 ): Promise<boolean> {
   const state = guildStates.get(guildId);
-  if (!state || !state.active) return false;
+  if (!state || !state.active || speakingGuilds.has(guildId)) return false;
+  speakingGuilds.add(guildId);
 
   try {
     // Post subtitle first so it appears as the audio starts
@@ -445,15 +467,25 @@ export async function speakText(
       await state.textChannel.send(`🤖 **${label}**: *${text}*`).catch(() => null);
     }
 
-    const mp3 = await textToSpeech(text, lang);
-    const resource = createAudioResource(Readable.from(mp3), { inputType: StreamType.Arbitrary });
+    const selected = isVoiceId(voiceId) ? voiceId : await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
+    const { audio, degraded } = await speechAudio(text, lang, selected);
+    if (degraded && Date.now() - (fallbackNotices.get(guildId) ?? 0) > 300_000) {
+      fallbackNotices.set(guildId, Date.now());
+      await state.textChannel.send("⚠️ La voix locale est indisponible. J’utilise temporairement la voix Google de secours, sans API payante.").catch(() => null);
+    }
+    const resource = createAudioResource(Readable.from(audio), { inputType: StreamType.Arbitrary });
 
     // Mark bot as speaking so the receiver ignores its own audio output
     state.botSpeaking = true;
     state.player.play(resource);
 
-    await new Promise<void>((resolve) => {
-      state.player.once(AudioPlayerStatus.Idle, resolve);
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => { clearTimeout(timer); state.player.off(AudioPlayerStatus.Idle, done); state.player.off("error", fail); };
+      const done = () => { cleanup(); resolve(); };
+      const fail = () => { cleanup(); reject(new Error("Voice playback failed")); };
+      const timer = setTimeout(() => { fail(); state.player.stop(); }, 240_000);
+      state.player.once(AudioPlayerStatus.Idle, done);
+      state.player.once("error", fail);
     });
 
     // 1 s cooldown after speaking so reverb/echo doesn't get transcribed
@@ -466,6 +498,8 @@ export async function speakText(
     state.botSpeaking = false;
     state.botSpeakingUntil = Date.now() + 1000;
     return false;
+  } finally {
+    speakingGuilds.delete(guildId);
   }
 }
 
@@ -474,10 +508,11 @@ export async function speakPersonaReply(
   text: string,
   lang: string,
   personaName: string,
+  voiceId?: string,
 ): Promise<boolean> {
   const memberVoiceChannelId = message.member?.voice.channelId;
   if (!message.guildId || !memberVoiceChannelId) return false;
   const connection = getVoiceConnection(message.guildId);
   if (!connection || connection.joinConfig.channelId !== memberVoiceChannelId) return false;
-  return speakText(message.guildId, text, lang, personaName, false);
+  return speakText(message.guildId, text, lang, personaName, false, voiceId);
 }

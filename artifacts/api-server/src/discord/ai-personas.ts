@@ -47,6 +47,8 @@ import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./persona-image
 import { generatePersonaIllustration, stablePersonaImageSeed } from "./persona-image-provider.js";
 import { sendPersonaHelp } from "./persona-help.js";
 import { speakPersonaReply } from "./voice.js";
+import { selectVoice, personaVoiceSelection } from "./voice-settings.js";
+import { isVoiceId } from "./piper-tts.js";
 import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
 
 const MAX_PERSONAS_PER_USER = 10;
@@ -1057,7 +1059,7 @@ If the evidence does not support a requested figure or comparison, say you canno
 
   if (
     (persona.visibility !== "private" || activeSession)
-    && await speakPersonaReply(message, answer, responseLanguage, safeName(persona.name))
+    && await speakPersonaReply(message, answer, responseLanguage, safeName(persona.name), persona.ttsVoiceId)
   ) {
     if (sourcesButton) await message.reply({
       content: localized(responseLanguage, "Sources de cette réponse :", "Sources for this response:"),
@@ -2028,6 +2030,18 @@ export async function handleAiPersonaCommand(
       case "avatar":
         await handlePersonaAvatarCommand(message, args, language);
         return true;
+      case "voice":
+      case "voix": {
+        const last = args.at(-1)?.toLowerCase();
+        const requested = args.length > 1 && (isVoiceId(last) || last === "default" || last === "list") ? args.pop()?.toLowerCase() : undefined;
+        const persona = await findOwnedPersona(message, args.join(" "));
+        if (!persona) {
+          await safeReply(message, localized(language, "Persona introuvable ou tu n’en es pas le créateur. Utilise `!persona voice <nom> [siwis|gilles|default]`.", "Persona not found or you are not its creator. Use `!persona voice <name> [siwis|gilles|default]`."));
+          return true;
+        }
+        await selectVoice(message, personaVoiceSelection(message, persona), requested);
+        return true;
+      }
       case "use":
       case "talk":
         await usePersona(message, args, openai, language);

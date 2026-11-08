@@ -38,3 +38,9 @@ The user runs the bot on Railway.
 **Why:** The user explicitly said they run the code via Railway.
 
 **How to apply:** Prepare runtime dependencies and voice models for Railway rather than assuming that a successful local Replit experiment is installed on the deployed bot.
+
+The user likes SIWIS and wants a default voice plus a selection for the bot and each persona.
+
+**Why:** The user explicitly approved the SIWIS sample and requested independent voice choices.
+
+**How to apply:** Keep SIWIS as the base choice and allow creator-controlled persona overrides. Use the bot's server voice when a persona has no override; keep model weights out of MongoDB.

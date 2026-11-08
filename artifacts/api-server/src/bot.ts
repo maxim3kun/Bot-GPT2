@@ -3,7 +3,7 @@ import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
-import { joinVoice, leaveVoice, voiceStop, voiceResume, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
+import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
@@ -18,6 +18,7 @@ import { getPrefix } from "./discord/prefix-store";
 import { getLang, setLang } from "./discord/lang-store";
 import { getUserLangOverride, setUserLang, clearUserLang, isValidUserLang, USER_LANG_LABELS } from "./discord/user-lang-store";
 import { getEffectiveLanguage } from "./discord/effective-language.js";
+import { handleVoiceCommand } from "./discord/voice-commands.js";
 import { handleAdminUnlockTrigger, registerAdminUnlockInteractions } from "./discord/admin-unlock.js";
 import { botText } from "./discord/bot-i18n.js";
 import { commandSuggestText } from "./discord/command-suggest-i18n.js";
@@ -2353,24 +2354,7 @@ export function startBot(): void {
         }
 
         case "voice": {
-          const voiceSub = args[0]?.toLowerCase();
-          if (voiceSub === "stop") {
-            await voiceStop(message);
-          } else if (voiceSub === "resume") {
-            await voiceResume(message);
-          } else if (voiceSub === "say") {
-            const text = args.slice(1).join(" ").trim();
-            if (!text) { await message.reply("❓ Give me some text! e.g. `!voice say Hello everyone`"); break; }
-            if (!message.guildId || !isInVoice(message.guildId)) {
-              await message.reply("❌ I'm not in a voice channel. Use `!join` first.");
-              break;
-            }
-            const botName = client.user?.username;
-            const ok = await speakText(message.guildId, text, "en", botName);
-            if (!ok) await message.reply("❌ Can't speak right now (muted mode?)");
-          } else {
-            await message.reply("❓ Use `!voice say <text>`, `!voice stop` or `!voice resume`.");
-          }
+          await handleVoiceCommand(message, args);
           break;
         }
 
@@ -3581,7 +3565,7 @@ export function startBot(): void {
                 await leaveVoice(message);
                 break;
               case "voice":
-                await message.reply(`❓ Use \`${guildPrefix}voice say <text>\`, \`${guildPrefix}voice stop\` or \`${guildPrefix}voice resume\`.`);
+                await handleVoiceCommand(message, args);
                 break;
               case "subtitles":
                 await toggleSubtitles(message);

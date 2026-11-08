@@ -820,6 +820,9 @@ export async function sendAdminGuide(message: Message, prefix = "!", language: H
       inline: false,
     })
     .addFields({
+      name: language === "fr" ? "Voix du bot" : "Bot voice",
+      value: `\`${p}voice list\` · \`${p}voice siwis\` · \`${p}voice gilles\` · \`${p}voice default\`\n${language === "fr" ? "Choix réservé à Gérer le serveur. SIWIS par défaut ; les personas peuvent avoir leur propre voix." : "Manage Server required. SIWIS by default; personas can override it."}`,
+    }, {
       name: language === "fr" ? "Mémoire commune du serveur" : "Shared server memory",
       value: `\`${p}ai server remember <information>\` · \`${p}ai server forget\``,
     }, {

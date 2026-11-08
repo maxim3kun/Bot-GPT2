@@ -51,4 +51,5 @@ Thumbs.db
 # Local voice experiments and generated samples (not source files)
 /generated-artifacts/
 /.pythonlibs/
+/.piper/
 __pycache__/

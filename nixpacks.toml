@@ -6,14 +6,16 @@
 #   - yt-dlp: base install (ensure-ytdlp.sh upgrades to latest at start)
 
 [phases.setup]
-nixPkgs = ["python3", "libopus", "pkg-config", "ffmpeg", "yt-dlp", "curl"]
+nixPkgs = ["python3", "python3Packages.pip", "stdenv.cc.cc.lib", "libopus", "pkg-config", "ffmpeg", "yt-dlp", "curl"]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile"]
+cmds = ["pnpm install --frozen-lockfile", "python3 -m pip install --target .piper/python --only-binary=:all: --no-compile -r requirements-voice.txt"]
 
 [phases.build]
 cmds = [
   "bash scripts/ensure-ytdlp.sh",
+  "python3 scripts/setup-piper.py",
+  "python3 scripts/check-piper-runtime.py",
   "pnpm --filter @workspace/api-server run build"
 ]
 
