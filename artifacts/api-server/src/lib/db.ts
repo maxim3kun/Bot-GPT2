@@ -742,7 +742,7 @@ export type DailyImageQuotaResult = "reserved" | "limit_reached" | "unavailable"
 
 export async function reserveDailyImageQuota(dayKey: string, limit: number): Promise<DailyImageQuotaResult> {
   const collection = dailyImageQuotaCol;
-  if (!collection || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || !Number.isInteger(limit) || limit < 1) {
+  if (!collection || !/^\d{4}-\d{2}-\d{2}(?::image)?$/.test(dayKey) || !Number.isInteger(limit) || limit < 1) {
     return "unavailable";
   }
 
@@ -773,7 +773,7 @@ export async function reserveDailyImageQuota(dayKey: string, limit: number): Pro
 
 export async function releaseDailyImageQuota(dayKey: string): Promise<void> {
   const collection = dailyImageQuotaCol;
-  if (!collection || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return;
+  if (!collection || !/^\d{4}-\d{2}-\d{2}(?::image)?$/.test(dayKey)) return;
   try {
     await collection.updateOne(
       { _id: dayKey, count: { $gt: 0 } },

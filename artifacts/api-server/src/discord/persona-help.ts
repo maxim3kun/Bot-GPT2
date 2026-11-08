@@ -38,7 +38,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
         { name: "Garder une apparence cohérente", value: "Précise le visage, les yeux, les cheveux, les signes distinctifs et les vêtements à la création. La référence visuelle aide à garder les mêmes traits, sans garantir des images identiques." },
         { name: "Utiliser ton image", value: `Joins un fichier à ${cmd("avatar Azumi")}.\nTu peux aussi mentionner le bot avec une image lorsque ton persona est actif.` },
         { name: "Gérer l’avatar", value: `${cmd("avatar Azumi allow")} — autoriser ta photo de profil en secours.\n${cmd("avatar Azumi revoke")} — retirer cette autorisation.\n${cmd("avatar Azumi clear")} — retirer l’image personnalisée.` },
-        { name: "Limite de génération", value: "4 images par jour pour le bot, partagées entre les commandes d’images et les selfies. Une tentative non livrée ne compte pas dans cette limite." },
+        { name: "Limite de génération", value: "4 images de personas par jour pour le bot. Les commandes d’images ont une limite séparée de 10 par jour. Une tentative non livrée ne compte pas dans ces limites." },
       ],
     },
     {
@@ -81,7 +81,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
         { name: "A consistent appearance", value: "Describe the face, eyes, hair, distinctive features and clothing when creating the character. The visual reference helps preserve their features, but cannot guarantee identical images." },
         { name: "Use your own image", value: `Attach a file to ${cmd("avatar Azumi")}.\nYou can also mention the bot with an image while your persona is active.` },
         { name: "Manage the avatar", value: `${cmd("avatar Azumi allow")} — allow your profile photo as a fallback.\n${cmd("avatar Azumi revoke")} — withdraw permission.\n${cmd("avatar Azumi clear")} — remove the custom image.` },
-        { name: "Generation limit", value: "4 images per day for the bot, shared by image commands and selfies. Undelivered attempts do not count against this limit." },
+        { name: "Generation limit", value: "4 persona images per day for the bot. Image commands have a separate limit of 10 per day. Undelivered attempts do not count against these limits." },
       ],
     },
     {

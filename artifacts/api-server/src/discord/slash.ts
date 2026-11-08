@@ -2,6 +2,12 @@ import { REST, Routes, SlashCommandBuilder } from "discord.js";
 import { logger } from "../lib/logger";
 
 export const SLASH_COMMANDS = [
+  new SlashCommandBuilder()
+    .setName("poll")
+    .setDescription("Créer un sondage / Create a poll")
+    .addStringOption(opt => opt.setName("question").setDescription("Question du sondage").setMaxLength(250).setRequired(true))
+    .addStringOption(opt => opt.setName("choices").setDescription("Choix séparés par | (2 à 9)").setMaxLength(1800).setRequired(true))
+    .toJSON(),
   // ── Help ──────────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("help")

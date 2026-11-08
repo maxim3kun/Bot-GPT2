@@ -1,3 +1,4 @@
+import { chooseBotColumn } from "./discord/connect4-ai.js";
 import { Message, EmbedBuilder, MessageReaction, User, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
@@ -870,29 +871,6 @@ function checkConnect4(board: number[][], token: number): boolean {
     }
   }
   return false;
-}
-
-function findWinningColumn(board: number[][], token: number): number | null {
-  for (let col = 0; col < CONNECT4_COLS; col++) {
-    const row = getDropRow(board, col);
-    if (row === -1) continue;
-    board[row][col] = token;
-    const won = checkConnect4(board, token);
-    board[row][col] = 0;
-    if (won) return col;
-  }
-  return null;
-}
-
-function chooseBotColumn(board: number[][]): number {
-  const win = findWinningColumn(board, 2);
-  if (win !== null) return win;
-  const block = findWinningColumn(board, 1);
-  if (block !== null) return block;
-  for (const col of [3, 2, 4, 1, 5, 0, 6]) {
-    if (getDropRow(board, col) !== -1) return col;
-  }
-  return -1;
 }
 
 function buildConnect4Embed(game: Connect4Game, status?: string): EmbedBuilder {

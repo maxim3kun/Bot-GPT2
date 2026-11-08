@@ -91,10 +91,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
-          `\`${p}say\` · \`${p}hello\` · \`${p}poll\` · \`${p}profile\` · \`${p}website\``,
-          `\`@bot <msg>\` 🤖 · \`${p}ask <question>\` (\`${p}ia\`) · \`${p}image <desc>\` 🎨`,
-          `\`${p}language [code]\` — ` + { en: "Change your language", fr: "Changer ta langue", es: "Cambiar idioma", de: "Sprache ändern", pt: "Mudar idioma", it: "Cambiare lingua" }[tl],
-          `\`${p}suggest [on|off]\` — ` + { en: "Toggle command suggestions", fr: "Activer ou désactiver les suggestions de commandes", es: "Activar o desactivar sugerencias de comandos", de: "Befehlsvorschläge ein- oder ausschalten", pt: "Ativar ou desativar sugestões de comandos", it: "Attiva o disattiva i suggerimenti dei comandi" }[tl],
+          `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\``,
+          `\`@bot <msg>\` 🤖 · \`${p}image <desc>\` 🎨`,
         ].join("\n"),
       },
       {

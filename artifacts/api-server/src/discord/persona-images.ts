@@ -57,9 +57,9 @@ export async function sendFictionalAssistantPhoto(
     return;
   }
 
-  const reservation = await reserveGeneratedImage();
+  const reservation = await reserveGeneratedImage("persona");
   if (reservation.status !== "reserved") {
-    await message.reply(imageQuotaNotice(reservation.status, language));
+    await message.reply(imageQuotaNotice(reservation.status, language, "persona"));
     return;
   }
 

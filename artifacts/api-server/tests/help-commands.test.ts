@@ -37,6 +37,9 @@ test("Every help page and topic serializes within Discord limits in every suppor
 });
 
 test("Help includes actual slash commands, personas, memory controls and diagnostics without duplicate game essays", () => {
+  const overview = JSON.stringify(buildHelpEmbed("fr", 1).toJSON());
+  for (const hidden of ["!hello", "!ask", "!suggest", "!language"]) assert.equal(overview.includes(hidden), false);
+  assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   for (const command of SLASH_COMMANDS) assert.ok(all.includes(`/${command.name}`), command.name);
   for (const command of ["persona create", "persona avatar", "ai memory auto on", "ai memory auto off", "ai forget", "tech", "tierlist", "blindtest", "milliongame", "qr", "echo", "pokemon", "food", "schedule", "welcome"]) assert.ok(all.includes(command), command);

@@ -6,10 +6,12 @@ import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 import { conversationMemoryRepository } from "./ai-conversation-store.js";
 import { safeSummaryInput, updateConversationMemory } from "./ai-conversation-memory-policy.js";
 import { getMemoryConsent } from "./ai-consent.js";
+import { extractOwnBirthday, applyBirthdayToSummary } from "./ai-birthday-policy.js";
 
 const enqueue = createOrderedEventQueue();
 
 export async function generateConversationSummary(openai: OpenAI, previous: string, current: string, persona = false, answer = ""): Promise<string> {
+      const ownBirthday = extractOwnBirthday(current, persona);
       const response = await openai.chat.completions.create({
         model: "openai/gpt-oss-20b", max_completion_tokens: 1_000, temperature: 0,
         response_format: { type: "json_object" },
@@ -22,17 +24,27 @@ export async function generateConversationSummary(openai: OpenAI, previous: stri
             "Assistant output is unverified context only: it may explain the discussion state, a suggestion or an outstanding question, never establish a fact about the author or the world. " +
             "Do not store credentials, contact details, financial accounts, health, sexuality, political/religious views, precise locations, insults or facts about mentioned people. " +
             "Do not infer identity from mentions. Distinguish a question from an established fact. Don't invent answers or retain raw quotations. " +
+            "Never extract birth dates, birthdays or ages from arbitrary discussion. Only the structured currentAuthorBirthday field is an authenticated self-declaration; never save birth years or birthdays of other people, historical figures or fictional characters. " +
             "Keep relevant prior information, replace corrected/outdated details, and omit stale or irrelevant detail. Preserve the author's language. " +
             (persona ? "This turn is fictional roleplay: retain only explicit communication preferences, never fictional events, relationships or persona attributes. Do not remove pre-existing real-world notes merely because this turn is roleplay." : ""),
           },
           { role: "user", content: JSON.stringify({
             previousSummary: previous, currentAuthorMessage: current,
+            currentAuthorBirthday: ownBirthday,
             assistantMessageUnverified: persona ? "" : (safeSummaryInput(answer)?.slice(0, 2_000) ?? ""),
           }) },
         ],
       });
       incrementGroqCalls();
-      return response.choices[0]?.message.content ?? "";
+      const result = response.choices[0]?.message.content ?? "";
+      if (!ownBirthday) return result;
+      // Existing repository validation still applies; never persist malformed
+      // model output simply because a birthday was detected.
+      try {
+        const parsed = JSON.parse(result);
+        if (typeof parsed.summary !== "string") return result;
+        return JSON.stringify({ summary: applyBirthdayToSummary(parsed.summary, ownBirthday) });
+      } catch { return result; }
 }
 
 export function rememberConversationTurn(message: Message, text: string, openai: OpenAI, persona = false, answer = ""): void {

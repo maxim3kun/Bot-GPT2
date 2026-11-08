@@ -24,7 +24,8 @@ export function extraHelpPage(page: number, language: string, prefix: string): {
   return {
     title: l[4]!,
     fields: [
-      { name: l[5]!, value: commands("prefix <préfixe>", "server language <code>", "voicechannels <id1> <id2>", "suggest on|off", "artist list", "help admin", "help setup") },
+      { name: language === "fr" ? "Réglages personnels" : "Personal settings", value: commands("language <code>", "suggest on|off") },
+      { name: l[5]!, value: commands("prefix <préfixe>", "server language <code>", "voicechannels <id1> <id2>", "artist list", "help admin", "help setup") },
       { name: l[6]!, value: commands("tech", "technician", "animation test") },
       { name: l[7]!, value: commands("ai server remember <information>", "ai server forget") },
       { name: "Slash", value: SLASH_COMMANDS.map((command) => `\`/${command.name}\``).join(" · ") },

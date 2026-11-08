@@ -307,38 +307,23 @@ async function replyWithLatestNews(
 const WEBSITE_URL = "https://stable-flow-7r48.pagedrop.io/";
 const WEBSITE_SECTIONS = [
   { label: "Top",    emoji: "🔝", scrollTo: 0    },
-  { label: "Middle", emoji: "📄", scrollTo: 700  },
-  { label: "Bottom", emoji: "⬇️", scrollTo: 1400 },
 ];
 
 function buildWebsiteMessage(sectionIndex: number) {
   const section = WEBSITE_SECTIONS[sectionIndex]!;
-  const scrollParam = section.scrollTo > 0 ? `&screenshot.scrollTo=${section.scrollTo}` : "";
-  const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(WEBSITE_URL)}&screenshot=true&meta=false${scrollParam}&embed=screenshot.url`;
 
   const embed = new EmbedBuilder()
-    .setTitle(`🌐 MaximeGPT.com — ${section.emoji} ${section.label}`)
+    .setTitle(`🌐 MaximeGPT.com ${section.emoji}`)
     .setURL(WEBSITE_URL)
-    .setDescription(`Page ${sectionIndex + 1} / ${WEBSITE_SECTIONS.length} — Use the buttons below to scroll.`)
-    .setImage(screenshotUrl)
+    .setDescription("Ouvrir le site avec le bouton ci-dessous. L’aperçu automatique n’est pas affiché : la protection du site peut présenter une vérification de navigateur au lieu de la page.")
     .setColor(0x5865f2)
     .setFooter({ text: "Made with ❤️ by Maxime • www.maximeGPT.com" });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`website_goto_${sectionIndex - 1}`)
-      .setLabel("↑ Scroll Up")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(sectionIndex === 0),
-    new ButtonBuilder()
       .setLabel("🌐 Open Site")
       .setStyle(ButtonStyle.Link)
       .setURL(WEBSITE_URL),
-    new ButtonBuilder()
-      .setCustomId(`website_goto_${sectionIndex + 1}`)
-      .setLabel("↓ Scroll Down")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(sectionIndex === WEBSITE_SECTIONS.length - 1),
   );
 
   return { embeds: [embed], components: [row] };
@@ -648,6 +633,11 @@ export function startBot(): void {
       const fakeMsg = createSlashMessageAdapter(interaction, member);
 
       switch (interaction.commandName) {
+        case "poll":
+          await handlePollCommand(fakeMsg, [
+            interaction.options.getString("question", true), "|", interaction.options.getString("choices", true),
+          ], responseLang);
+          break;
 
         case "help": {
           const lang = (interaction.options.getString("lang") ?? responseLang) as HelpLanguage;
@@ -3000,7 +2990,7 @@ export function startBot(): void {
         // ── Sondage ───────────────────────────────────────────────────────────────
         case "sondage":
         case "poll": {
-          await handlePollCommand(message, args);
+          await handlePollCommand(message, args, responseLang);
           break;
         }
 
