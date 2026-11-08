@@ -16,3 +16,4 @@
 - [Image provider contracts](image-provider-contracts.md) — Trust strict model schemas over conflicting examples; a generic image test does not validate persona-specific requests.
 - [Bot experience](bot-experience-requirements.md) — Separate image quotas, concise help, self-declared birthdays only, and no paid voice service.
 - [Repository context boundaries](repository-context-boundaries.md) — When the user says a repository changed, do not carry over prior project requests they identify as unrelated.
+- [Transport in the Discord bot](transport-bot-scope.md) — Transport questions are answered in Discord from French network data, with real-time access when available.
