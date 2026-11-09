@@ -1,6 +1,18 @@
-import type { Message } from "discord.js";
+import {
+  ActionRowBuilder,
+  ComponentType,
+  StringSelectMenuBuilder,
+  type Message,
+} from "discord.js";
 import { logger } from "../lib/logger.js";
-import { decodeGtfsRealtime, parseGtfsStaticMetadata, type GtfsStaticMetadata, type RealtimeDeparture } from "./gtfs-realtime.js";
+import {
+  decodeGtfsRealtime,
+  decodeGtfsScheduledDepartures,
+  parseGtfsStaticMetadata,
+  type GtfsStaticMetadata,
+  type RealtimeDeparture,
+  type ScheduledDepartures,
+} from "./gtfs-realtime.js";
 import { normalizeTransitText, parsePublicTransportQuery, type PublicTransportQuery, type TransitMode } from "./transport-query.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
@@ -73,11 +85,33 @@ interface FeedResult {
   stale: boolean;
 }
 
+interface ScheduleResult extends ScheduledDepartures {
+  sourceName: string;
+  sourceUrl: string;
+  stopName: string;
+}
+
+interface SearchCandidate {
+  group: ResolvedStopGroup;
+  resources: CatalogResource[];
+  staticResource?: CatalogResource;
+}
+
+export interface TransportStopChoice {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export type TransportSearchResult =
+  | { kind: "answer"; content: string }
+  | { kind: "choose-stop"; content: string; choices: TransportStopChoice[] };
+
 type CacheEntry = { expiresAt: number; value: unknown };
 
 function safeHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  return host === "gouv.fr" || host.endsWith(".gouv.fr");
+  return host === "gouv.fr" || host.endsWith(".gouv.fr") || host === "api.oisemob.cityway.fr";
 }
 
 function safeUrl(value: string): URL {
@@ -207,6 +241,33 @@ function makeReply(results: FeedResult[], query: PublicTransportQuery, language:
   return `${french ? "Prochains passages" : "Next departures"} à **${stopLine}**\n${lines.join("\n")}\n\n${french ? "Temps réel · " : "Real time · "}${updatedNote}\n${sourcesLine}`;
 }
 
+function makeScheduledReply(results: ScheduleResult[], query: PublicTransportQuery, language: string, nowSeconds: number): string {
+  const french = language === "fr";
+  const departures = results.flatMap((result) => result.departures.map((departure) => ({ result, departure })))
+    .sort((a, b) => a.departure.departureAt - b.departure.departureAt)
+    .slice(0, 8);
+  const stopNames = [...new Set(results.map((result) => result.stopName))];
+  const stopLine = stopNames.length ? stopNames.join(" / ") : query.place;
+  if (!departures.length) {
+    return french
+      ? `Je n’ai pas trouvé de passage programmé dans les trois prochaines heures à **${stopLine}**. Les horaires disponibles sont théoriques, pas en temps réel.`
+      : `I found no scheduled departure in the next three hours at **${stopLine}**. Available timetable data is scheduled, not real time.`;
+  }
+
+  const lines = departures.map(({ departure, result }) => {
+    const minutes = Math.max(0, Math.round((departure.departureAt - nowSeconds) / 60));
+    const time = formatClock(departure.departureAt, result.timezone, language);
+    const wait = minutes <= 1
+      ? (french ? "à l’instant" : "now")
+      : (french ? `dans ${minutes} min` : `in ${minutes} min`);
+    const destination = departure.destination ? ` → ${departure.destination}` : "";
+    return `• **${departure.line}**${destination} — ${wait} (${time})`;
+  });
+  const sources = [...new Map(results.map((result) => [result.sourceUrl, result.sourceName])).entries()].slice(0, 3);
+  const sourcesLine = sources.map(([url, name]) => `[${name}](${url})`).join(" · ");
+  return `${french ? "Horaires théoriques (non temps réel)" : "Scheduled times (not real time)"} à **${stopLine}**\n${lines.join("\n")}\n\n${sourcesLine}`;
+}
+
 export class FranceTransportClient {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly pending = new Map<string, Promise<unknown>>();
@@ -316,6 +377,14 @@ export class FranceTransportClient {
     );
   }
 
+  private scheduledDepartures(resource: CatalogResource, stopIds: ReadonlySet<string>, nowSeconds: number): Promise<ScheduledDepartures> {
+    const stopKey = [...stopIds].sort().join(",");
+    return this.cached(`gtfs-schedule:${resource.id}:${stopKey}`, 60_000, async () => {
+      const bytes = await this.fetchBytes(resource.url, MAX_STATIC_FEED_BYTES);
+      return decodeGtfsScheduledDepartures(bytes, stopIds, nowSeconds);
+    });
+  }
+
   private resolveGroups(
     features: CatalogStop[],
     catalog: CatalogDataset[],
@@ -359,19 +428,25 @@ export class FranceTransportClient {
     return [...groups.values()].sort((a, b) => b.score - a.score).slice(0, 8);
   }
 
-  async search(query: PublicTransportQuery, language: string): Promise<string> {
+  async search(query: PublicTransportQuery, language: string, selectedChoice?: string): Promise<TransportSearchResult> {
     if (query.place.length < 2) {
-      return language === "fr"
-        ? "Indique l’arrêt ou la gare recherché, avec sa ville (par exemple : « métro à Châtelet, Paris »)."
-        : "Please include a stop or station and its city (for example: “metro at Châtelet, Paris”).";
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? "Indique l’arrêt ou la gare recherché, avec sa ville (par exemple : « métro à Châtelet, Paris »)."
+          : "Please include a stop or station and its city (for example: “metro at Châtelet, Paris”).",
+      };
     }
 
     const [catalog, geocoded] = await Promise.all([this.getCatalog(), this.geocode(query.place)]);
     const coordinates = geocoded?.geometry?.coordinates;
     if (!coordinates || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) {
-      return language === "fr"
-        ? `Je ne trouve pas « ${query.place} » en France. Essaie avec le nom exact de l’arrêt et sa ville.`
-        : `I couldn't locate “${query.place}” in France. Try the exact stop name and city.`;
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? `Je ne trouve pas « ${query.place} » en France. Essaie avec le nom exact de l’arrêt et sa ville.`
+          : `I couldn't locate “${query.place}” in France. Try the exact stop name and city.`,
+      };
     }
     const latitude = coordinates[1];
     const longitude = coordinates[0];
@@ -381,35 +456,82 @@ export class FranceTransportClient {
     const cityTokens = normalizeTransitText(geocoded.properties?.city ?? "").split(/[^a-z0-9]+/).filter(Boolean);
     const hasSpecificPlace = placeTokens.some((token) => !cityTokens.includes(token) && token !== "france");
     if (geocodeType === "municipality" && !includesStopHint && !hasSpecificPlace) {
-      return language === "fr"
-        ? `Dans quelle gare ou à quel arrêt de ${geocoded.properties?.city ?? query.place} veux-tu les prochains passages ?`
-        : `Which station or stop in ${geocoded.properties?.city ?? query.place} do you want departures for?`;
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? `Dans quelle gare ou à quel arrêt de ${geocoded.properties?.city ?? query.place} veux-tu les prochains passages ?`
+          : `Which station or stop in ${geocoded.properties?.city ?? query.place} do you want departures for?`,
+      };
     }
 
     const stopData = await this.nearbyStops(latitude, longitude);
     const groups = this.resolveGroups(stopData.features ?? [], catalog, query);
     if (!groups.length) {
-      return language === "fr"
-        ? `Je ne trouve pas d’arrêt correspondant à « ${query.place} » dans les données nationales référencées. Précise le nom exact de l’arrêt et la ville.`
-        : `I couldn't find a matching stop for “${query.place}” in the national transport catalogue. Please give the exact stop name and city.`;
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? `Je ne trouve pas d’arrêt correspondant à « ${query.place} » dans les données nationales référencées. Précise le nom exact de l’arrêt et la ville.`
+          : `I couldn't find a matching stop for “${query.place}” in the national transport catalogue. Please give the exact stop name and city.`,
+      };
     }
 
-    const candidates = groups.map((group) => ({
+    const allCandidates: SearchCandidate[] = groups.map((group) => ({
       group,
       resources: group.dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
       staticResource: group.dataset.resources.find((resource) =>
         resource.is_available && normalizeMode(resource.format) === "gtfs",
       ) ?? (normalizeMode(group.staticResource.format) === "gtfs" ? group.staticResource : undefined),
-    })).filter((candidate) => candidate.resources.length > 0);
+    })).filter((candidate) => candidate.resources.length > 0 || candidate.staticResource != null);
+
+    if (selectedChoice !== undefined) {
+      const selectedIndex = Number(selectedChoice);
+      if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= allCandidates.length) {
+        return {
+          kind: "answer",
+          content: language === "fr" ? "Ce choix d’arrêt n’est plus disponible. Relance ta demande." : "That stop choice is no longer available. Please ask again.",
+        };
+      }
+    } else {
+      const topScore = allCandidates[0]?.group.score ?? 0;
+      const likelyCandidates = allCandidates.filter((candidate) => candidate.group.score >= topScore - 0.16);
+      const distinctStops = new Set(likelyCandidates.map((candidate) => normalizeTransitText(candidate.group.stopName)));
+      if (distinctStops.size > 1) {
+        const choices: TransportStopChoice[] = allCandidates.slice(0, 25).map((candidate, index) => ({
+          value: String(index),
+          label: candidate.group.stopName.slice(0, 100),
+          description: candidate.group.dataset.title.slice(0, 100),
+        }));
+        return {
+          kind: "choose-stop",
+          content: language === "fr"
+            ? "Plusieurs arrêts proches correspondent. Choisis celui que tu veux :"
+            : "Several nearby stops match. Choose the one you mean:",
+          choices,
+        };
+      }
+    }
+
+    const candidates = selectedChoice === undefined
+      ? allCandidates
+      : [allCandidates[Number(selectedChoice)]!];
 
     if (!candidates.length) {
-      return language === "fr"
-        ? `J’ai trouvé **${groups[0]?.stopName ?? query.place}**, mais aucun flux GTFS-RT ouvert n’est référencé pour ce réseau. Je ne peux pas confirmer ses prochains passages en temps réel.`
-        : `I found **${groups[0]?.stopName ?? query.place}**, but no open GTFS-RT feed is listed for this network. I can't confirm its next departures in real time.`;
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? `Je n’ai trouvé aucun flux ni horaire GTFS ouvert pour **${groups[0]?.stopName ?? query.place}**.`
+          : `I found no open real-time feed or GTFS timetable for **${groups[0]?.stopName ?? query.place}**.`,
+      };
     }
 
     const nowSeconds = Math.floor(this.now() / 1000);
-    const results = await Promise.all(candidates.flatMap(({ group, resources, staticResource }) =>
+    const realtimeCandidates = candidates.filter((candidate) => candidate.resources.length > 0);
+    if (!realtimeCandidates.length) {
+      const schedules = await this.loadSchedules(candidates, query, nowSeconds);
+      return { kind: "answer", content: makeScheduledReply(schedules, query, language, nowSeconds) };
+    }
+
+    const results = await Promise.all(realtimeCandidates.flatMap(({ group, resources, staticResource }) =>
       resources.map(async (resource): Promise<FeedResult | null> => {
         try {
           const [bytes, metadata] = await Promise.all([
@@ -440,11 +562,38 @@ export class FranceTransportClient {
 
     const validResults = results.filter((result): result is FeedResult => result !== null);
     if (!validResults.length) {
-      return language === "fr"
-        ? "Les flux de ce réseau sont momentanément indisponibles. Réessaie dans quelques instants."
-        : "This network's feeds are temporarily unavailable. Please try again shortly.";
+      const schedules = await this.loadSchedules(candidates, query, nowSeconds);
+      if (schedules.some((result) => result.departures.length)) {
+        return { kind: "answer", content: makeScheduledReply(schedules, query, language, nowSeconds) };
+      }
+      return {
+        kind: "answer",
+        content: language === "fr"
+          ? "Les flux de ce réseau sont momentanément indisponibles et aucun horaire programmé exploitable n’a été trouvé. Réessaie dans quelques instants."
+          : "This network's live feeds are temporarily unavailable, and no usable scheduled timetable was found. Please try again shortly.",
+      };
     }
-    return makeReply(validResults, query, language, nowSeconds);
+    return { kind: "answer", content: makeReply(validResults, query, language, nowSeconds) };
+  }
+
+  private async loadSchedules(candidates: SearchCandidate[], query: PublicTransportQuery, nowSeconds: number): Promise<ScheduleResult[]> {
+    return (await Promise.all(candidates
+      .filter((candidate): candidate is SearchCandidate & { staticResource: CatalogResource } => candidate.staticResource != null)
+      .map(async ({ group, staticResource }) => {
+        try {
+          const decoded = await this.scheduledDepartures(staticResource, group.stopIds, nowSeconds);
+          return {
+            ...decoded,
+            departures: filterDepartures(decoded.departures, query, group.staticResource.modes),
+            sourceName: group.dataset.title,
+            sourceUrl: group.dataset.page_url,
+            stopName: group.stopName,
+          };
+        } catch (error) {
+          logger.debug({ resourceId: staticResource.id, err: error }, "GTFS scheduled timetable unavailable");
+          return null;
+        }
+      }))).filter((result): result is ScheduleResult => result !== null);
   }
 }
 
@@ -456,8 +605,61 @@ export async function handlePublicTransportRequest(message: Message, text: strin
 
   try {
     if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
-    const answer = await franceTransport.search(query, language);
-    await message.reply({ content: answer, allowedMentions: { parse: [] } });
+    const result = await franceTransport.search(query, language);
+    if (result.kind === "answer") {
+      await message.reply({ content: result.content, allowedMentions: { parse: [] } });
+    } else {
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId("public_transport_stop_choice")
+        .setPlaceholder(language === "fr" ? "Choisir un arrêt" : "Choose a stop")
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(result.choices.map((choice) => ({
+          label: choice.label,
+          value: choice.value,
+          description: choice.description,
+        })));
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+      const prompt = await message.reply({
+        content: result.content,
+        components: [row],
+        allowedMentions: { parse: [] },
+      });
+      const collector = prompt.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 60_000,
+      });
+      collector.on("collect", async (interaction) => {
+        if (interaction.user.id !== message.author.id) {
+          await interaction.reply({
+            content: language === "fr" ? "Seule la personne qui a demandé les horaires peut choisir l’arrêt." : "Only the person who requested the departures can choose the stop.",
+            ephemeral: true,
+          }).catch(() => undefined);
+          return;
+        }
+        collector.stop("selected");
+        await interaction.deferUpdate().catch(() => undefined);
+        try {
+          const selected = await franceTransport.search(query, language, interaction.values[0]);
+          await prompt.edit({
+            content: selected.kind === "answer" ? selected.content : result.content,
+            components: [],
+            allowedMentions: { parse: [] },
+          });
+        } catch (error) {
+          logger.warn({ err: error }, "Selected public transport lookup failed");
+          await prompt.edit({
+            content: language === "fr"
+              ? "Je n’arrive pas à récupérer les données de transport pour le moment. Réessaie dans quelques instants."
+              : "I can't retrieve transport data right now. Please try again shortly.",
+            components: [],
+          }).catch(() => undefined);
+        }
+      });
+      collector.on("end", (_collected, reason) => {
+        if (reason !== "selected") void prompt.edit({ components: [] }).catch(() => undefined);
+      });
+    }
   } catch (error) {
     logger.warn({ err: error }, "Public transport lookup failed");
     await message.reply(language === "fr"
