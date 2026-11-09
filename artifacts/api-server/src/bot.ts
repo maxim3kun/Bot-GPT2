@@ -67,6 +67,7 @@ import { rememberConversationTurn } from "./discord/ai-conversation-memory.js";
 import { researchForTurn } from "./discord/ai-research-service.js";
 import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
+import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { handleMgButton } from "./discord/milliongame.js";
@@ -423,6 +424,7 @@ export function startBot(): void {
 
     try {
       if (await moderateMentionedMessage(message, openai)) return;
+      if (await handlePublicTransportRequest(message, prompt, aiResponseLang)) return;
       if (isSendable(message.channel)) await message.channel.sendTyping();
       addToHistory(conversationKey(message), "user", currentUserTurn(message, prompt));
       const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
@@ -1459,6 +1461,7 @@ export function startBot(): void {
         return;
       }
       try {
+        if (await handlePublicTransportRequest(message, userText, aiResponseLang)) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(conversationKey(message), "user", currentUserTurn(message, userText));
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);
@@ -1580,6 +1583,7 @@ export function startBot(): void {
         // classifier call.
         const wasModerated = await moderateMentionedMessage(message, openai, aiResponseLang);
         if (wasModerated) return;
+        if (await handlePublicTransportRequest(message, userText, aiResponseLang)) return;
         if (isSendable(message.channel)) await message.channel.sendTyping();
         addToHistory(conversationKey(message), "user", currentUserTurn(message, userText));
         const memoryContext = await getAiPromptContext(message.guildId, message.author.id);

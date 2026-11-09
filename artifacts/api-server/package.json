@@ -14,7 +14,8 @@
     "test:quests": "node tests/run-quests-language.mjs",
     "test:voices": "node tests/run-voice-settings.mjs",
     "test:persona-pokemon": "esbuild tests/persona-pokemon.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/persona-pokemon.test.mjs && node node_modules/.cache/persona-pokemon.test.mjs",
-    "test:ai": "esbuild tests/ai-quality.test.ts --bundle --platform=node --format=esm --outfile=/tmp/maximegpt-ai-quality.test.mjs && node --test /tmp/maximegpt-ai-quality.test.mjs && node tests/run-ai-command-dispatch.mjs && esbuild tests/ai-conversation.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-conversation.test.mjs && node node_modules/.cache/ai-conversation.test.mjs"
+    "test:ai": "esbuild tests/ai-quality.test.ts --bundle --platform=node --format=esm --outfile=/tmp/maximegpt-ai-quality.test.mjs && node --test /tmp/maximegpt-ai-quality.test.mjs && node tests/run-ai-command-dispatch.mjs && esbuild tests/ai-conversation.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-conversation.test.mjs && node node_modules/.cache/ai-conversation.test.mjs",
+    "test:transport": "esbuild tests/public-transport.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/public-transport.test.mjs && node ./node_modules/.cache/public-transport.test.mjs"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
@@ -27,11 +28,14 @@
     "commander": "^15.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "csv-parse": "^7.0.3",
     "discord.js": "^14.26.4",
     "drizzle-orm": "catalog:",
     "express": "^5.3.0",
+    "fflate": "^0.8.3",
     "ffmpeg-static": "^5.3.0",
     "gif-encoder-2": "^1.0.5",
+    "gtfs-realtime-bindings": "^2.2.0",
     "jsdom": "^29.1.1",
     "jsqr": "^1.4.0",
     "mongodb": "^7.3.0",

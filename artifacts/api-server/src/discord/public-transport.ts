@@ -1,0 +1,468 @@
+import type { Message } from "discord.js";
+import { logger } from "../lib/logger.js";
+import { decodeGtfsRealtime, parseGtfsStaticMetadata, type GtfsStaticMetadata, type RealtimeDeparture } from "./gtfs-realtime.js";
+import { normalizeTransitText, parsePublicTransportQuery, type PublicTransportQuery, type TransitMode } from "./transport-query.js";
+
+const PAN_API = "https://transport.data.gouv.fr/api";
+const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
+const MAX_JSON_BYTES = 25 * 1024 * 1024;
+const MAX_STATIC_FEED_BYTES = 80 * 1024 * 1024;
+const MAX_REALTIME_FEED_BYTES = 12 * 1024 * 1024;
+const MAX_FEED_AGE_SECONDS = 8 * 60;
+
+interface CatalogResource {
+  id: number;
+  title: string;
+  format: string;
+  type?: string;
+  url: string;
+  is_available: boolean;
+  modes?: string[];
+  updated?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface CatalogDataset {
+  id: string;
+  title: string;
+  slug: string;
+  page_url: string;
+  type: string;
+  licence: string;
+  resources: CatalogResource[];
+}
+
+interface CatalogStop {
+  properties?: {
+    resource_id?: number;
+    stop_id?: string;
+    stop_name?: string;
+    location_type?: number;
+    dataset_title?: string;
+  };
+}
+
+interface StopCollection {
+  features?: CatalogStop[];
+}
+
+interface GeocodeFeature {
+  geometry?: { coordinates?: [number, number] };
+  properties?: { type?: string; city?: string; label?: string; name?: string };
+}
+
+interface GeocodeResponse {
+  features?: GeocodeFeature[];
+}
+
+interface ResolvedStopGroup {
+  dataset: CatalogDataset;
+  staticResource: CatalogResource;
+  stopIds: Set<string>;
+  stopName: string;
+  score: number;
+}
+
+interface FeedResult {
+  departures: RealtimeDeparture[];
+  updatedAt: number | null;
+  timezone: string;
+  sourceName: string;
+  sourceUrl: string;
+  stopName: string;
+  stale: boolean;
+}
+
+type CacheEntry = { expiresAt: number; value: unknown };
+
+function safeHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "gouv.fr" || host.endsWith(".gouv.fr");
+}
+
+function safeUrl(value: string): URL {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || !safeHostname(url.hostname) || url.username || url.password) {
+    throw new Error("Transport provider returned an unsupported resource URL");
+  }
+  return url;
+}
+
+function maxBytesExceeded(response: Response, maxBytes: number): boolean {
+  const headerLength = Number(response.headers.get("content-length"));
+  return Number.isFinite(headerLength) && headerLength > maxBytes;
+}
+
+function normalizeMode(value: string): string {
+  return normalizeTransitText(value).replace(/[^a-z0-9]+/g, "");
+}
+
+function modeMatches(mode: TransitMode | null, values: string[] | undefined): boolean {
+  if (!mode || !values?.length) return true;
+  const normalized = values.map(normalizeMode);
+  const accepted: Record<TransitMode, string[]> = {
+    bus: ["bus"],
+    metro: ["metro", "subway", "underground"],
+    rail: ["rail", "train", "rer", "ter", "transilien", "longdistance", "regionalrail"],
+    tram: ["tram", "tramway", "streetcar"],
+  };
+  return normalized.some((value) => accepted[mode].some((candidate) => value.includes(candidate)));
+}
+
+function stopScore(query: string, stopName: string): number {
+  const ignored = new Set(["de", "du", "des", "la", "le", "les", "l", "a", "au", "aux", "et", "en", "france"]);
+  const queryTokens = [...new Set(normalizeTransitText(query).split(/[^a-z0-9]+/).filter((token) => token && !ignored.has(token)))];
+  if (!queryTokens.length) return 0;
+  const stopTokens = normalizeTransitText(stopName).split(/[^a-z0-9]+/).filter(Boolean);
+  if (normalizeTransitText(query) === normalizeTransitText(stopName)) return 1;
+  const matches = queryTokens.filter((token) => stopTokens.some((candidate) =>
+    candidate === token || candidate.startsWith(token) || token.startsWith(candidate),
+  )).length;
+  return matches / queryTokens.length;
+}
+
+function isGtfsRealtimeResource(resource: CatalogResource): boolean {
+  if (!resource.is_available || !normalizeMode(resource.format).includes("gtfsrt")) return false;
+  const descriptor = normalizeTransitText(`${resource.title} ${resource.url}`);
+  return !/(service alerts?|situation exchange|alertes?)/.test(descriptor);
+}
+
+function formatClock(epochSeconds: number, timezone: string, language: string): string {
+  const locale = language === "fr" ? "fr-FR" : language === "es" ? "es-ES" : "en-GB";
+  try {
+    return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(epochSeconds * 1000));
+  } catch {
+    return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }).format(new Date(epochSeconds * 1000));
+  }
+}
+
+function filterDepartures(
+  departures: RealtimeDeparture[],
+  query: PublicTransportQuery,
+  datasetModes: string[] | undefined,
+): RealtimeDeparture[] {
+  return departures.filter((departure) => {
+    if (query.mode && departure.mode && departure.mode !== query.mode) return false;
+    if (query.mode && !departure.mode && !modeMatches(query.mode, datasetModes)) return false;
+    if (query.line) {
+      const line = normalizeTransitText(query.line);
+      if (![departure.line, departure.routeId].some((value) => normalizeTransitText(value).includes(line))) return false;
+    }
+    if (query.direction && !normalizeTransitText(departure.destination).includes(normalizeTransitText(query.direction))) return false;
+    return true;
+  });
+}
+
+function makeReply(results: FeedResult[], query: PublicTransportQuery, language: string, nowSeconds: number): string {
+  const french = language === "fr";
+  const usable = results.filter((result) => !result.stale);
+  if (!usable.length) {
+    const latest = results
+      .filter((result) => result.updatedAt != null)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+    if (latest?.updatedAt != null) {
+      const age = Math.max(1, Math.round((nowSeconds - latest.updatedAt) / 60));
+      return french
+        ? `Le flux de ${latest.sourceName} n’a pas été actualisé depuis ${age} min. Je ne peux pas présenter ses horaires comme du temps réel fiable.`
+        : `${latest.sourceName}'s feed has not updated for ${age} minutes. I can't present its times as reliable real-time data.`;
+    }
+    return french
+      ? "Le flux de ce réseau ne fournit pas d’horodatage fiable. Je préfère ne pas annoncer un temps d’attente comme s’il était à jour."
+      : "This network feed does not provide a reliable update timestamp, so I won't present its wait times as current.";
+  }
+
+  const departures = usable.flatMap((result) => result.departures.map((departure) => ({ result, departure })))
+    .sort((a, b) => a.departure.departureAt - b.departure.departureAt)
+    .slice(0, 8);
+  if (!departures.length) {
+    const stopName = usable[0]?.stopName ?? query.place;
+    return french
+      ? `Je n’ai trouvé aucun passage correspondant à ta demande à **${stopName}** dans les flux temps réel disponibles.`
+      : `I found no matching real-time departures at **${stopName}** in the available feeds.`;
+  }
+
+  const lines = departures.map(({ departure, result }) => {
+    const minutes = Math.max(0, Math.round((departure.departureAt - nowSeconds) / 60));
+    const time = formatClock(departure.departureAt, result.timezone, language);
+    const wait = minutes <= 1
+      ? (french ? "à l’instant" : "now")
+      : (french ? `dans ${minutes} min` : `in ${minutes} min`);
+    const destination = departure.destination ? ` → ${departure.destination}` : "";
+    const delay = departure.delaySeconds == null || Math.abs(departure.delaySeconds) < 60
+      ? ""
+      : departure.delaySeconds > 0
+        ? (french ? ` · retard ${Math.round(departure.delaySeconds / 60)} min` : ` · ${Math.round(departure.delaySeconds / 60)} min late`)
+        : (french ? ` · ${Math.round(Math.abs(departure.delaySeconds) / 60)} min d’avance` : ` · ${Math.round(Math.abs(departure.delaySeconds) / 60)} min early`);
+    return `• **${departure.line}**${destination} — ${wait} (${time})${delay}`;
+  });
+
+  const stopNames = [...new Set(usable.map((result) => result.stopName))];
+  const sources = [...new Map(usable.map((result) => [result.sourceUrl, result.sourceName])).entries()].slice(0, 3);
+  const latestUpdated = Math.max(...usable.map((result) => result.updatedAt ?? 0));
+  const updatedNote = latestUpdated
+    ? (french ? `Flux actualisé à ${formatClock(latestUpdated, usable[0]?.timezone ?? "Europe/Paris", language)}.` : `Feed updated at ${formatClock(latestUpdated, usable[0]?.timezone ?? "Europe/Paris", language)}.`)
+    : (french ? "Horodatage du flux indisponible." : "Feed timestamp unavailable.");
+  const stopLine = stopNames.length === 1 ? stopNames[0]! : stopNames.join(" / ");
+  const sourcesLine = sources.map(([url, name]) => `[${name}](${url})`).join(" · ");
+  return `${french ? "Prochains passages" : "Next departures"} à **${stopLine}**\n${lines.join("\n")}\n\n${french ? "Temps réel · " : "Real time · "}${updatedNote}\n${sourcesLine}`;
+}
+
+export class FranceTransportClient {
+  private readonly cache = new Map<string, CacheEntry>();
+  private readonly pending = new Map<string, Promise<unknown>>();
+
+  constructor(
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  private async cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+    const currentTime = this.now();
+    for (const [cacheKey, entry] of this.cache) {
+      if (entry.expiresAt <= currentTime) this.cache.delete(cacheKey);
+    }
+    const existing = this.cache.get(key);
+    if (existing && existing.expiresAt > currentTime) return existing.value as T;
+    const inFlight = this.pending.get(key);
+    if (inFlight) return inFlight as Promise<T>;
+
+    const request = load().then((value) => {
+      if (this.cache.size >= 500) this.cache.delete(this.cache.keys().next().value as string);
+      this.cache.set(key, { value, expiresAt: this.now() + ttlMs });
+      return value;
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, request);
+    return request;
+  }
+
+  private async fetchPublic(url: string, accept: string): Promise<Response> {
+    let current = safeUrl(url);
+    for (let redirect = 0; redirect <= 3; redirect++) {
+      const response = await this.fetcher(current.href, {
+        headers: { accept, "user-agent": "MaximeGPT public-transport lookup" },
+        signal: AbortSignal.timeout(9_000),
+        redirect: "manual",
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => undefined);
+      if (!location) throw new Error("Transport resource redirect is missing its target");
+      current = safeUrl(new URL(location, current).href);
+    }
+    throw new Error("Transport resource exceeded the redirect limit");
+  }
+
+  private async fetchJson<T>(url: string, maxBytes = MAX_JSON_BYTES): Promise<T> {
+    const response = await this.fetchPublic(url, "application/json");
+    if (!response.ok) throw new Error(`Transport data request returned ${response.status}`);
+    if (maxBytesExceeded(response, maxBytes)) throw new Error("Transport JSON response exceeds its size limit");
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("Transport JSON response exceeds its size limit");
+    return JSON.parse(text) as T;
+  }
+
+  private async fetchBytes(url: string, maxBytes: number): Promise<Uint8Array> {
+    const response = await this.fetchPublic(url, "application/octet-stream, application/zip, application/x-protobuf, */*");
+    if (!response.ok) throw new Error(`Transport feed request returned ${response.status}`);
+    if (maxBytesExceeded(response, maxBytes)) throw new Error("Transport feed exceeds its size limit");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw new Error("Transport feed exceeds its size limit");
+    return bytes;
+  }
+
+  private getCatalog(): Promise<CatalogDataset[]> {
+    return this.cached("pan-catalog", 15 * 60_000, () => this.fetchJson<CatalogDataset[]>(`${PAN_API}/datasets`));
+  }
+
+  private geocode(place: string): Promise<GeocodeFeature | null> {
+    const url = new URL(GEOCODER_API);
+    url.searchParams.set("q", place);
+    url.searchParams.set("limit", "1");
+    return this.cached(`geocode:${normalizeTransitText(place)}`, 6 * 60 * 60_000, async () => {
+      const result = await this.fetchJson<GeocodeResponse>(url.href, 1_000_000);
+      return result.features?.[0] ?? null;
+    });
+  }
+
+  private nearbyStops(latitude: number, longitude: number): Promise<StopCollection> {
+    const radius = 0.009;
+    const longitudeRadius = radius / Math.max(0.2, Math.cos(latitude * Math.PI / 180));
+    const url = new URL(`${PAN_API}/gtfs-stops`);
+    url.searchParams.set("south", String(latitude - radius));
+    url.searchParams.set("north", String(latitude + radius));
+    url.searchParams.set("west", String(longitude - longitudeRadius));
+    url.searchParams.set("east", String(longitude + longitudeRadius));
+    return this.cached(`stops:${url.searchParams.toString()}`, 5 * 60_000, () =>
+      this.fetchJson<StopCollection>(url.href, 15 * 1024 * 1024),
+    );
+  }
+
+  private staticMetadata(resource: CatalogResource): Promise<GtfsStaticMetadata | null> {
+    if (!resource.url || !resource.is_available) return Promise.resolve(null);
+    return this.cached(`gtfs-static:${resource.id}`, 12 * 60 * 60_000, async () => {
+      try {
+        const bytes = await this.fetchBytes(resource.url, MAX_STATIC_FEED_BYTES);
+        return parseGtfsStaticMetadata(bytes);
+      } catch (error) {
+        logger.debug({ resourceId: resource.id, err: error }, "GTFS static metadata unavailable");
+        return null;
+      }
+    });
+  }
+
+  private realtimeFeed(resource: CatalogResource): Promise<Uint8Array> {
+    return this.cached(`gtfs-realtime:${resource.id}`, 12_000, () =>
+      this.fetchBytes(resource.url, MAX_REALTIME_FEED_BYTES),
+    );
+  }
+
+  private resolveGroups(
+    features: CatalogStop[],
+    catalog: CatalogDataset[],
+    query: PublicTransportQuery,
+  ): ResolvedStopGroup[] {
+    const resourceToDataset = new Map<number, { dataset: CatalogDataset; resource: CatalogResource }>();
+    for (const dataset of catalog) {
+      if (dataset.type !== "public-transit") continue;
+      for (const resource of dataset.resources ?? []) resourceToDataset.set(resource.id, { dataset, resource });
+    }
+
+    const groups = new Map<string, ResolvedStopGroup>();
+    for (const feature of features) {
+      const stop = feature.properties;
+      const stopId = stop?.stop_id;
+      const stopName = stop?.stop_name?.trim();
+      if (!stopId || !stopName || stop.location_type === 2 || stop.location_type === 3 || stop.location_type === 4) continue;
+      const match = resourceToDataset.get(Number(stop.resource_id));
+      if (!match || !modeMatches(query.mode, match.resource.modes)) continue;
+      const score = stopScore(query.place, stopName);
+      if (score < 0.45) continue;
+
+      const key = `${match.dataset.id}:${match.resource.id}`;
+      const current = groups.get(key);
+      if (current) {
+        current.stopIds.add(stopId);
+        if (score > current.score) {
+          current.stopName = stopName;
+          current.score = score;
+        }
+      } else {
+        groups.set(key, {
+          dataset: match.dataset,
+          staticResource: match.resource,
+          stopIds: new Set([stopId]),
+          stopName,
+          score,
+        });
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+  }
+
+  async search(query: PublicTransportQuery, language: string): Promise<string> {
+    if (query.place.length < 2) {
+      return language === "fr"
+        ? "Indique l’arrêt ou la gare recherché, avec sa ville (par exemple : « métro à Châtelet, Paris »)."
+        : "Please include a stop or station and its city (for example: “metro at Châtelet, Paris”).";
+    }
+
+    const [catalog, geocoded] = await Promise.all([this.getCatalog(), this.geocode(query.place)]);
+    const coordinates = geocoded?.geometry?.coordinates;
+    if (!coordinates || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) {
+      return language === "fr"
+        ? `Je ne trouve pas « ${query.place} » en France. Essaie avec le nom exact de l’arrêt et sa ville.`
+        : `I couldn't locate “${query.place}” in France. Try the exact stop name and city.`;
+    }
+    const latitude = coordinates[1];
+    const longitude = coordinates[0];
+    const geocodeType = normalizeTransitText(geocoded.properties?.type ?? "");
+    const placeTokens = normalizeTransitText(query.place).split(/[^a-z0-9]+/).filter(Boolean);
+    const includesStopHint = /\b(?:gare|station|arr[eê]t|stop|halte|a[eé]roport)\b/i.test(query.place);
+    const cityTokens = normalizeTransitText(geocoded.properties?.city ?? "").split(/[^a-z0-9]+/).filter(Boolean);
+    const hasSpecificPlace = placeTokens.some((token) => !cityTokens.includes(token) && token !== "france");
+    if (geocodeType === "municipality" && !includesStopHint && !hasSpecificPlace) {
+      return language === "fr"
+        ? `Dans quelle gare ou à quel arrêt de ${geocoded.properties?.city ?? query.place} veux-tu les prochains passages ?`
+        : `Which station or stop in ${geocoded.properties?.city ?? query.place} do you want departures for?`;
+    }
+
+    const stopData = await this.nearbyStops(latitude, longitude);
+    const groups = this.resolveGroups(stopData.features ?? [], catalog, query);
+    if (!groups.length) {
+      return language === "fr"
+        ? `Je ne trouve pas d’arrêt correspondant à « ${query.place} » dans les données nationales référencées. Précise le nom exact de l’arrêt et la ville.`
+        : `I couldn't find a matching stop for “${query.place}” in the national transport catalogue. Please give the exact stop name and city.`;
+    }
+
+    const candidates = groups.map((group) => ({
+      group,
+      resources: group.dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
+      staticResource: group.dataset.resources.find((resource) =>
+        resource.is_available && normalizeMode(resource.format) === "gtfs",
+      ) ?? (normalizeMode(group.staticResource.format) === "gtfs" ? group.staticResource : undefined),
+    })).filter((candidate) => candidate.resources.length > 0);
+
+    if (!candidates.length) {
+      return language === "fr"
+        ? `J’ai trouvé **${groups[0]?.stopName ?? query.place}**, mais aucun flux GTFS-RT ouvert n’est référencé pour ce réseau. Je ne peux pas confirmer ses prochains passages en temps réel.`
+        : `I found **${groups[0]?.stopName ?? query.place}**, but no open GTFS-RT feed is listed for this network. I can't confirm its next departures in real time.`;
+    }
+
+    const nowSeconds = Math.floor(this.now() / 1000);
+    const results = await Promise.all(candidates.flatMap(({ group, resources, staticResource }) =>
+      resources.map(async (resource): Promise<FeedResult | null> => {
+        try {
+          const [bytes, metadata] = await Promise.all([
+            this.realtimeFeed(resource),
+            staticResource ? this.staticMetadata(staticResource) : Promise.resolve(null),
+          ]);
+          const decoded = decodeGtfsRealtime(bytes, group.stopIds, metadata ?? undefined, nowSeconds);
+          const departures = filterDepartures(decoded.departures, query, group.staticResource.modes)
+            .filter((departure) => departure.departureAt >= nowSeconds - 20)
+            .slice(0, 12);
+          const updatedAt = decoded.updatedAt;
+          const age = updatedAt == null ? null : nowSeconds - updatedAt;
+          return {
+            departures,
+            updatedAt,
+            timezone: metadata?.timezone || "Europe/Paris",
+            sourceName: group.dataset.title,
+            sourceUrl: group.dataset.page_url,
+            stopName: group.stopName,
+            stale: age == null || age < -5 * 60 || age > MAX_FEED_AGE_SECONDS,
+          };
+        } catch (error) {
+          logger.debug({ resourceId: resource.id, err: error }, "GTFS-RT feed unavailable");
+          return null;
+        }
+      }),
+    ));
+
+    const validResults = results.filter((result): result is FeedResult => result !== null);
+    if (!validResults.length) {
+      return language === "fr"
+        ? "Les flux de ce réseau sont momentanément indisponibles. Réessaie dans quelques instants."
+        : "This network's feeds are temporarily unavailable. Please try again shortly.";
+    }
+    return makeReply(validResults, query, language, nowSeconds);
+  }
+}
+
+const franceTransport = new FranceTransportClient();
+
+export async function handlePublicTransportRequest(message: Message, text: string, language: string): Promise<boolean> {
+  const query = parsePublicTransportQuery(text);
+  if (!query) return false;
+
+  try {
+    if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
+    const answer = await franceTransport.search(query, language);
+    await message.reply({ content: answer, allowedMentions: { parse: [] } });
+  } catch (error) {
+    logger.warn({ err: error }, "Public transport lookup failed");
+    await message.reply(language === "fr"
+      ? "Je n’arrive pas à récupérer les données de transport pour le moment. Réessaie dans quelques instants."
+      : "I can't retrieve transport data right now. Please try again shortly.");
+  }
+  return true;
+}

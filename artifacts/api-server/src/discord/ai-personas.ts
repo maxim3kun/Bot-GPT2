@@ -32,6 +32,7 @@ import { createSearchSourceButton } from "./ai-research-sources.js";
 import { buildBotCommandContext } from "./ai-command-context.js";
 import { getPrefix } from "./prefix-store.js";
 import { handleAiActionRequest } from "./ai-actions.js";
+import { handlePublicTransportRequest } from "./public-transport.js";
 import { createReliableCompletion } from "./ai-reliable-completion.js";
 import { shouldSkipConversation } from "./ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
@@ -969,6 +970,7 @@ async function respondWithPersona(
   if (!await requireConsent(message, responseLanguage)) return;
 
   if (await handleAiActionRequest(message, prompt, openai, responseLanguage)) return;
+  if (await handlePublicTransportRequest(message, prompt, responseLanguage)) return;
   if (message.channel.isSendable()) await message.channel.sendTyping();
   const knowledgeContext = personaKnowledgeContext(persona, message.author.id);
   const personalContext = await getAiPromptContext(message.guildId, message.author.id);
