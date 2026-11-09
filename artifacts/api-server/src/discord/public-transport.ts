@@ -1,5 +1,7 @@
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ComponentType,
   StringSelectMenuBuilder,
   type Message,
@@ -103,8 +105,13 @@ export interface TransportStopChoice {
   description: string;
 }
 
+export interface TransportSource {
+  name: string;
+  url: string;
+}
+
 export type TransportSearchResult =
-  | { kind: "answer"; content: string }
+  | { kind: "answer"; content: string; source?: TransportSource }
   | { kind: "choose-stop"; content: string; choices: TransportStopChoice[] };
 
 type CacheEntry = { expiresAt: number; value: unknown };
@@ -180,7 +187,12 @@ function filterDepartures(
     if (query.mode && !departure.mode && !modeMatches(query.mode, datasetModes)) return false;
     if (query.line) {
       const line = normalizeTransitText(query.line);
-      if (![departure.line, departure.routeId].some((value) => normalizeTransitText(value).includes(line))) return false;
+      const matched = [departure.line, departure.routeId].some((value) => {
+        const candidate = normalizeTransitText(value);
+        if (/^\d+$/.test(line)) return new RegExp(`(^|\\D)${line}(\\D|$)`).test(candidate);
+        return candidate.includes(line);
+      });
+      if (!matched) return false;
     }
     if (query.direction && !normalizeTransitText(departure.destination).includes(normalizeTransitText(query.direction))) return false;
     return true;
@@ -210,9 +222,11 @@ function makeReply(results: FeedResult[], query: PublicTransportQuery, language:
     .slice(0, 8);
   if (!departures.length) {
     const stopName = usable[0]?.stopName ?? query.place;
+    const routeHint = query.line ? ` de la ligne **${query.line}**` : "";
+    const directionHint = query.direction ? ` en direction de **${query.direction}**` : "";
     return french
-      ? `Je n’ai trouvé aucun passage correspondant à ta demande à **${stopName}** dans les flux temps réel disponibles.`
-      : `I found no matching real-time departures at **${stopName}** in the available feeds.`;
+      ? `Je n’ai trouvé aucun passage${routeHint}${directionHint} à **${stopName}** dans les flux temps réel disponibles.`
+      : `I found no matching real-time departures${routeHint}${directionHint} at **${stopName}** in the available feeds.`;
   }
 
   const lines = departures.map(({ departure, result }) => {
@@ -231,14 +245,14 @@ function makeReply(results: FeedResult[], query: PublicTransportQuery, language:
   });
 
   const stopNames = [...new Set(usable.map((result) => result.stopName))];
-  const sources = [...new Map(usable.map((result) => [result.sourceUrl, result.sourceName])).entries()].slice(0, 3);
   const latestUpdated = Math.max(...usable.map((result) => result.updatedAt ?? 0));
   const updatedNote = latestUpdated
     ? (french ? `Flux actualisé à ${formatClock(latestUpdated, usable[0]?.timezone ?? "Europe/Paris", language)}.` : `Feed updated at ${formatClock(latestUpdated, usable[0]?.timezone ?? "Europe/Paris", language)}.`)
     : (french ? "Horodatage du flux indisponible." : "Feed timestamp unavailable.");
   const stopLine = stopNames.length === 1 ? stopNames[0]! : stopNames.join(" / ");
-  const sourcesLine = sources.map(([url, name]) => `[${name}](${url})`).join(" · ");
-  return `${french ? "Prochains passages" : "Next departures"} à **${stopLine}**\n${lines.join("\n")}\n\n${french ? "Temps réel · " : "Real time · "}${updatedNote}\n${sourcesLine}`;
+  const primarySource = departures[0]?.result.sourceName;
+  const sourcesLine = primarySource ? `\nSource : ${primarySource}` : "";
+  return `${french ? "Prochains passages" : "Next departures"} à **${stopLine}**\n${lines.join("\n")}\n\n${french ? "Temps réel · " : "Real time · "}${updatedNote}${sourcesLine}`;
 }
 
 function makeScheduledReply(results: ScheduleResult[], query: PublicTransportQuery, language: string, nowSeconds: number): string {
@@ -249,9 +263,11 @@ function makeScheduledReply(results: ScheduleResult[], query: PublicTransportQue
   const stopNames = [...new Set(results.map((result) => result.stopName))];
   const stopLine = stopNames.length ? stopNames.join(" / ") : query.place;
   if (!departures.length) {
+    const routeHint = query.line ? ` de la ligne **${query.line}**` : "";
+    const directionHint = query.direction ? ` en direction de **${query.direction}**` : "";
     return french
-      ? `Je n’ai pas trouvé de passage programmé dans les trois prochaines heures à **${stopLine}**. Les horaires disponibles sont théoriques, pas en temps réel.`
-      : `I found no scheduled departure in the next three hours at **${stopLine}**. Available timetable data is scheduled, not real time.`;
+      ? `Je n’ai pas trouvé de passage programmé${routeHint}${directionHint} dans les trois prochaines heures à **${stopLine}**. Les horaires disponibles sont théoriques, pas en temps réel.`
+      : `I found no scheduled departure${routeHint}${directionHint} in the next three hours at **${stopLine}**. Available timetable data is scheduled, not real time.`;
   }
 
   const lines = departures.map(({ departure, result }) => {
@@ -263,9 +279,27 @@ function makeScheduledReply(results: ScheduleResult[], query: PublicTransportQue
     const destination = departure.destination ? ` → ${departure.destination}` : "";
     return `• **${departure.line}**${destination} — ${wait} (${time})`;
   });
-  const sources = [...new Map(results.map((result) => [result.sourceUrl, result.sourceName])).entries()].slice(0, 3);
-  const sourcesLine = sources.map(([url, name]) => `[${name}](${url})`).join(" · ");
-  return `${french ? "Horaires théoriques (non temps réel)" : "Scheduled times (not real time)"} à **${stopLine}**\n${lines.join("\n")}\n\n${sourcesLine}`;
+  const primarySource = departures[0]?.result.sourceName;
+  const sourcesLine = primarySource ? `\nSource : ${primarySource}` : "";
+  return `${french ? "Horaires théoriques (non temps réel)" : "Scheduled times (not real time)"} à **${stopLine}**\n${lines.join("\n")}${sourcesLine}`;
+}
+
+function sourceButton(source: TransportSource | undefined, language: string): ActionRowBuilder<ButtonBuilder>[] {
+  if (!source) return [];
+  try {
+    const url = new URL(source.url);
+    if (url.protocol !== "https:" || url.hostname !== "transport.data.gouv.fr") return [];
+    return [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setLabel(language === "fr" ? "Ouvrir la source" : "Open source")
+          .setStyle(ButtonStyle.Link)
+          .setURL(url.href),
+      ),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 export class FranceTransportClient {
@@ -528,7 +562,12 @@ export class FranceTransportClient {
     const realtimeCandidates = candidates.filter((candidate) => candidate.resources.length > 0);
     if (!realtimeCandidates.length) {
       const schedules = await this.loadSchedules(candidates, query, nowSeconds);
-      return { kind: "answer", content: makeScheduledReply(schedules, query, language, nowSeconds) };
+      const primary = schedules.find((result) => result.departures.length);
+      return {
+        kind: "answer",
+        content: makeScheduledReply(schedules, query, language, nowSeconds),
+        ...(primary ? { source: { name: primary.sourceName, url: primary.sourceUrl } } : {}),
+      };
     }
 
     const results = await Promise.all(realtimeCandidates.flatMap(({ group, resources, staticResource }) =>
@@ -563,8 +602,13 @@ export class FranceTransportClient {
     const validResults = results.filter((result): result is FeedResult => result !== null);
     if (!validResults.length) {
       const schedules = await this.loadSchedules(candidates, query, nowSeconds);
-      if (schedules.some((result) => result.departures.length)) {
-        return { kind: "answer", content: makeScheduledReply(schedules, query, language, nowSeconds) };
+      const primary = schedules.find((result) => result.departures.length);
+      if (primary) {
+        return {
+          kind: "answer",
+          content: makeScheduledReply(schedules, query, language, nowSeconds),
+          source: { name: primary.sourceName, url: primary.sourceUrl },
+        };
       }
       return {
         kind: "answer",
@@ -573,7 +617,14 @@ export class FranceTransportClient {
           : "This network's live feeds are temporarily unavailable, and no usable scheduled timetable was found. Please try again shortly.",
       };
     }
-    return { kind: "answer", content: makeReply(validResults, query, language, nowSeconds) };
+    const primary = validResults
+      .filter((result) => !result.stale && result.departures.length)
+      .sort((a, b) => a.departures[0]!.departureAt - b.departures[0]!.departureAt)[0];
+    return {
+      kind: "answer",
+      content: makeReply(validResults, query, language, nowSeconds),
+      ...(primary ? { source: { name: primary.sourceName, url: primary.sourceUrl } } : {}),
+    };
   }
 
   private async loadSchedules(candidates: SearchCandidate[], query: PublicTransportQuery, nowSeconds: number): Promise<ScheduleResult[]> {
@@ -607,7 +658,11 @@ export async function handlePublicTransportRequest(message: Message, text: strin
     if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
     const result = await franceTransport.search(query, language);
     if (result.kind === "answer") {
-      await message.reply({ content: result.content, allowedMentions: { parse: [] } });
+      await message.reply({
+        content: result.content,
+        components: sourceButton(result.source, language),
+        allowedMentions: { parse: [] },
+      });
     } else {
       const menu = new StringSelectMenuBuilder()
         .setCustomId("public_transport_stop_choice")
@@ -643,7 +698,7 @@ export async function handlePublicTransportRequest(message: Message, text: strin
           const selected = await franceTransport.search(query, language, interaction.values[0]);
           await prompt.edit({
             content: selected.kind === "answer" ? selected.content : result.content,
-            components: [],
+            components: selected.kind === "answer" ? sourceButton(selected.source, language) : [],
             allowedMentions: { parse: [] },
           });
         } catch (error) {

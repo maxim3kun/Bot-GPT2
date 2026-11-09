@@ -41,6 +41,12 @@ export function parsePublicTransportQuery(text: string): PublicTransportQuery | 
     if (namedLine) {
       line = namedLine[1];
       place = place.replace(namedLine[0], " ");
+    } else if (mode === "bus") {
+      const numberedBusLine = place.match(/\b\d{2,4}\b/);
+      if (numberedBusLine) {
+        line = numberedBusLine[0];
+        place = place.replace(numberedBusLine[0], " ");
+      }
     }
   }
 

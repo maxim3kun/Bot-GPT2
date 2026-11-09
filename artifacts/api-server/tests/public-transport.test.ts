@@ -20,10 +20,10 @@ function gtfsClockAt(epochSeconds: number): string {
   return `${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
-function staticFeed(departureTime = "08:03:00", routeType = 2): Uint8Array {
+function staticFeed(departureTime = "08:03:00", routeType = 2, routeName = "A"): Uint8Array {
   return zipSync({
     "agency.txt": strToU8("agency_id,agency_name,agency_timezone\nRATP,RATP,Europe/Paris\n"),
-    "routes.txt": strToU8(`route_id,route_short_name,route_long_name,route_type\nroute-a,A,RER A,${routeType}\n`),
+    "routes.txt": strToU8(`route_id,route_short_name,route_long_name,route_type\nroute-a,${routeName},${routeName},${routeType}\n`),
     "trips.txt": strToU8("route_id,service_id,trip_id,trip_headsign,direction_id\nroute-a,weekday,trip-a,Marne-la-Vallée,0\n"),
     "calendar.txt": strToU8("service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nweekday,1,1,1,1,1,1,1,20000101,20991231\n"),
     "stop_times.txt": strToU8(`trip_id,arrival_time,departure_time,stop_id,stop_sequence\ntrip-a,${departureTime},${departureTime},STOP-1,1\n`),
@@ -53,6 +53,10 @@ test("recognizes real-time transport questions and extracts line, direction and 
   assert.deepEqual(
     parsePublicTransportQuery("Prochains passages du métro ligne 1 à Gare de Lyon, Paris, direction La Défense"),
     { place: "Gare de Lyon Paris", mode: "metro", line: "1", direction: "La Défense" },
+  );
+  assert.deepEqual(
+    parsePublicTransportQuery("Dis moi horaire du bus Amiens Beauvais 601"),
+    { place: "Amiens Beauvais", mode: "bus", line: "601" },
   );
   assert.equal(isPublicTransportRequest("Comment prendre le métro à Paris ?"), false);
   assert.equal(parsePublicTransportQuery("Quels bus passent à Lyon ?")?.place, "Lyon");
@@ -131,7 +135,45 @@ test("uses the national catalogue and public GTFS-RT feed to answer without web 
   assert.match(reply, /dans 3 min/);
   assert.match(reply, /Temps réel/);
   assert.match(reply, /Oise Mobilité/);
+  assert.doesNotMatch(reply, /https?:\/\//);
+  assert.equal(result.source?.name, "Réseau urbain Lib'Bus — Oise Mobilité");
   assert.equal(realtimeCalls, 1);
+});
+
+test("filters a numeric bus line instead of returning unrelated departures", async () => {
+  const query = parsePublicTransportQuery("Dis moi horaire du bus Amiens Beauvais 601");
+  assert.ok(query);
+  const datasets = [{
+    id: "corolis-beauvais",
+    title: "Réseau urbain Corolis",
+    slug: "corolis",
+    page_url: "https://transport.data.gouv.fr/datasets/corolis",
+    type: "public-transit",
+    licence: "lov2",
+    resources: [
+      { id: 601, title: "Horaires GTFS", format: "GTFS", type: "main", url: "https://transport.data.gouv.fr/resources/601/download", is_available: true, modes: ["bus"] },
+      { id: 602, title: "GTFS-RT", format: "gtfs-rt", type: "api", url: "https://proxy.transport.data.gouv.fr/resource/corolis-live", is_available: true },
+    ],
+  }];
+  const fetcher: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/datasets") return Response.json(datasets);
+    if (url.hostname === "api-adresse.data.gouv.fr") return Response.json({
+      features: [{ geometry: { coordinates: [2.08, 49.43] }, properties: { type: "locality", city: "Beauvais" } }],
+    });
+    if (url.pathname === "/api/gtfs-stops") return Response.json({
+      features: [{ properties: { resource_id: 601, stop_id: "BEAUVAIS-1", stop_name: "Beauvais Gare Routière", location_type: 0 } }],
+    });
+    if (url.pathname === "/resources/601/download") return new Response(staticFeed("08:03:00", 3, "C1"));
+    if (url.pathname === "/resource/corolis-live") return new Response(realtimeFeed(NOW, NOW + 180));
+    return new Response("Not found", { status: 404 });
+  };
+  const client = new FranceTransportClient(fetcher, () => NOW * 1000);
+  const result = await client.search(query, "fr");
+  assert.equal(result.kind, "answer");
+  if (result.kind !== "answer") return;
+  assert.match(result.content, /aucun passage de la ligne \*\*601\*\*/);
+  assert.doesNotMatch(result.content, /\*\*C1\*\*/);
 });
 
 test("asks the requester to choose when multiple nearby stops match", async () => {
