@@ -5,6 +5,7 @@ export interface PublicTransportQuery {
   mode: TransitMode | null;
   line?: string;
   direction?: string;
+  allowNearbyStops?: boolean;
 }
 
 const MODE_PATTERNS: Array<[TransitMode, RegExp]> = [

@@ -11,6 +11,14 @@ export interface GtfsStaticMetadata {
   timezone: string | null;
 }
 
+export interface GtfsRouteAtStops {
+  routeId: string;
+  shortName: string;
+  longName: string;
+  mode: TransitMode | null;
+  stopIds: string[];
+}
+
 export interface ScheduledDepartures {
   departures: RealtimeDeparture[];
   timezone: string;
@@ -142,6 +150,33 @@ function parseStaticFeed(zipBytes: Uint8Array, requestedStopIds?: ReadonlySet<st
 
 export function parseGtfsStaticMetadata(zipBytes: Uint8Array): GtfsStaticMetadata {
   return parseStaticFeed(zipBytes).metadata;
+}
+
+export function parseGtfsRoutesAtStops(zipBytes: Uint8Array, stopIds: ReadonlySet<string>): GtfsRouteAtStops[] {
+  if (!stopIds.size) return [];
+  const { metadata, stopTimes } = parseStaticFeed(zipBytes, stopIds);
+  const stopsByRoute = new Map<string, Set<string>>();
+
+  for (const row of stopTimes) {
+    const trip = metadata.trips.get(row.trip_id?.trim() ?? "");
+    const stopId = row.stop_id?.trim();
+    if (!trip?.routeId || !stopId) continue;
+    const routeStops = stopsByRoute.get(trip.routeId) ?? new Set<string>();
+    routeStops.add(stopId);
+    stopsByRoute.set(trip.routeId, routeStops);
+  }
+
+  return [...stopsByRoute.entries()].flatMap(([routeId, routeStops]) => {
+    const route = metadata.routes.get(routeId);
+    if (!route) return [];
+    return [{
+      routeId,
+      shortName: route.shortName,
+      longName: route.longName,
+      mode: routeTypeToMode(route.type),
+      stopIds: [...routeStops],
+    }];
+  });
 }
 
 function addDays(date: string, amount: number): string {
@@ -288,7 +323,7 @@ export function routeTypeToMode(type: number | null): TransitMode | null {
   if (type === 0) return "tram";
   if (type === 1 || type === 12) return "metro";
   if (type === 2 || type === 100 || type === 101 || type === 102 || type === 103 || type === 104 || type === 105 || type === 106 || type === 107 || type === 108) return "rail";
-  if (type === 3 || type === 11) return "bus";
+  if (type === 3 || type === 11 || (type != null && type >= 700 && type < 800)) return "bus";
   return null;
 }
 

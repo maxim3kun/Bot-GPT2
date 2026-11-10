@@ -67,7 +67,7 @@ import { rememberConversationTurn } from "./discord/ai-conversation-memory.js";
 import { researchForTurn } from "./discord/ai-research-service.js";
 import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
-import { handlePublicTransportRequest } from "./discord/public-transport.js";
+import { handleBusCommand, handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { handleMgButton } from "./discord/milliongame.js";
@@ -1685,6 +1685,11 @@ export function startBot(): void {
     }
 
     try {
+      if (command === "bus") {
+        await handleBusCommand(message, args, responseLang, guildPrefix);
+        return;
+      }
+
       if (command === "tech" || command === "technician") {
         await handleAdminMessageCommand(message, command, args, guildPrefix, responseLang);
         return;

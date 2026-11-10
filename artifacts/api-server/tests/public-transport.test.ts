@@ -3,7 +3,7 @@ import test from "node:test";
 import { zipSync, strToU8 } from "fflate";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
-import { decodeGtfsRealtime, decodeGtfsScheduledDepartures, parseGtfsStaticMetadata } from "../src/discord/gtfs-realtime.js";
+import { decodeGtfsRealtime, decodeGtfsScheduledDepartures, parseGtfsRoutesAtStops, parseGtfsStaticMetadata } from "../src/discord/gtfs-realtime.js";
 import { parsePublicTransportQuery, isPublicTransportRequest } from "../src/discord/transport-query.js";
 
 const NOW = 1_800_000_000;
@@ -78,6 +78,17 @@ test("decodes scheduled GTFS departures separately from real-time data", () => {
   assert.equal(result.departures.length, 1);
   assert.equal(result.departures[0]?.departureAt, NOW + 180);
   assert.equal(result.departures[0]?.delaySeconds, null);
+});
+
+test("indexes GTFS bus routes by the stops they serve", () => {
+  const routes = parseGtfsRoutesAtStops(staticFeed("08:03:00", 3, "601"), new Set(["STOP-1"]));
+  assert.deepEqual(routes, [{
+    routeId: "route-a",
+    shortName: "601",
+    longName: "601",
+    mode: "bus",
+    stopIds: ["STOP-1"],
+  }]);
 });
 
 test("uses the national catalogue and public GTFS-RT feed to answer without web search", async () => {
@@ -172,8 +183,74 @@ test("filters a numeric bus line instead of returning unrelated departures", asy
   const result = await client.search(query, "fr");
   assert.equal(result.kind, "answer");
   if (result.kind !== "answer") return;
-  assert.match(result.content, /aucun passage de la ligne \*\*601\*\*/);
+  assert.match(result.content, /ligne \*\*601\*\*/);
   assert.doesNotMatch(result.content, /\*\*C1\*\*/);
+});
+
+test("loads the official Oise regional GTFS redirect and lists line 601 as scheduled", async () => {
+  const scheduledZip = staticFeed(gtfsClockAt(NOW + 180), 3, "601");
+  const datasets = [{
+    id: "oise-regional",
+    title: "Réseau interurbain et scolaire - Oise (60)",
+    slug: "reseau-interurbain-oise",
+    page_url: "https://transport.data.gouv.fr/datasets/reseau-interurbain-oise",
+    type: "public-transit",
+    licence: "lov2",
+    publisher: { name: "Région Hauts-de-France" },
+    covered_area: [{ insee: "60", nom: "Oise", type: "departement" }],
+    resources: [{
+      id: 701,
+      title: "Fichier GTFS commercial et scolaire de l’Oise",
+      format: "GTFS",
+      url: "https://www.data.gouv.fr/api/1/datasets/r/oise-p3",
+      is_available: true,
+      modes: ["bus"],
+    }],
+  }];
+  let regionalFileCalls = 0;
+  const fetcher: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/datasets") return Response.json(datasets);
+    if (url.hostname === "api-adresse.data.gouv.fr") return Response.json({
+      features: [{ geometry: { coordinates: [2.08, 49.43] }, properties: { type: "municipality", city: "Beauvais" } }],
+    });
+    if (url.pathname === "/api/gtfs-stops") return Response.json({
+      features: [{ properties: { resource_id: 701, stop_id: "STOP-1", stop_name: "Beauvais Gare Routière", location_type: 0 } }],
+    });
+    if (url.hostname === "www.data.gouv.fr" && url.pathname === "/api/1/datasets/r/oise-p3") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://geocatalogue.hautsdefrance.fr/gtfs/RHDF_GTFS_COM_SCO_60_P3.zip" },
+      });
+    }
+    if (url.hostname === "geocatalogue.hautsdefrance.fr") {
+      regionalFileCalls++;
+      return new Response(scheduledZip);
+    }
+    return new Response("Not found", { status: 404 });
+  };
+
+  const client = new FranceTransportClient(fetcher, () => NOW * 1000);
+  const result = await client.search({
+    place: "Beauvais",
+    mode: "bus",
+    line: "601",
+    allowNearbyStops: true,
+  }, "fr");
+  assert.equal(result.kind, "answer");
+  if (result.kind !== "answer") return;
+  assert.match(result.content, /Horaires théoriques \(non temps réel\)/);
+  assert.match(result.content, /\*\*601\*\*/);
+  assert.match(result.content, /dans 3 min/);
+  assert.equal(result.source?.name, "Réseau interurbain et scolaire - Oise (60)");
+  assert.ok(regionalFileCalls >= 2);
+
+  const cityListing = await client.listBusCity("Beauvais", "fr");
+  assert.match(cityListing, /Réseau interurbain et scolaire - Oise \(60\)/);
+  assert.match(cityListing, /`601`/);
+  const directory = await client.listBusDirectory("fr");
+  assert.match(directory, /Réseaux de bus référencés dans l’Oise/);
+  assert.match(directory, /horaires théoriques/);
 });
 
 test("asks the requester to choose when multiple nearby stops match", async () => {
