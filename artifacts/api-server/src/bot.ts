@@ -11,7 +11,7 @@ import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylis
 import { generateMusicTrack, handleSunoBalanceCommand } from "./discord/music-generation-commands.js";
 import { generateSong, pollSong, getCredits } from "./lib/suno-client.js";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests, handleQuestReminderButton, MAX_WEEKLY_QUEST_REMINDERS } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix } from "./discord/prefix-store";
@@ -1021,6 +1021,16 @@ export function startBot(): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
+
+    if (interaction.customId.startsWith("quest_reminder_disable:")) {
+      try {
+        await handleQuestReminderButton(interaction);
+      } catch (err) {
+        logger.error({ err }, "quest reminder button error");
+        await interaction.reply({ content: "❌ Impossible de désactiver les rappels pour le moment.", ephemeral: true }).catch(() => null);
+      }
+      return;
+    }
 
     if (interaction.customId.startsWith("ai_action:")) {
       // Old confirmation buttons must not replay obsolete requests.
@@ -3094,8 +3104,8 @@ export function startBot(): void {
               {
                 name: "🔔 Reminders",
                 value: questData.reminderActive
-                  ? `Active (${questData.reminderHours.map(h => `${h}h`).join(", ")} UTC)`
-                  : "Not configured",
+                  ? `Active (up to ${MAX_WEEKLY_QUEST_REMINDERS} per week, varied times)`
+                  : "Disabled or not configured",
                 inline: true,
               },
               { name: "\u200b", value: "\u200b", inline: true },

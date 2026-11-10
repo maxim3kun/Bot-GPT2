@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.stringify(path.join(here, "fixtures/quest-language.ts"));
 const stubs = {
-  "db.js": `export const isDbReady=()=>true; export const patchUserData=async()=>{};
+  "db.js": `export const isDbReady=()=>true; export const patchUserData=async(_id,patch)=>{if(patch.questProfile)Object.assign(f.profile,patch.questProfile)};
     export const getAllUserDocs=async()=>[{data:{discordId:"user",questProfile:f.profile}}];`,
   "effective-language.js": `export const getEffectiveLanguage=(guild)=>f.personal??(guild==="fr-guild"?"fr":"en");`,
   "logger.js": `export const logger={info(){},warn(){},error(){}};`,

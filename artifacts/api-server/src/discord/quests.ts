@@ -1,4 +1,4 @@
-import { type Client, type Message, type MessageReaction, type User, EmbedBuilder, type TextChannel } from "discord.js";
+import { type Client, type Message, type MessageReaction, type User, type ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type TextChannel } from "discord.js";
 import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -37,6 +37,10 @@ export interface UserProfile {
   lastRemindedDate?: string;
   lastRemindedHour?: number;
   reminderHours?: number[];
+  remindersDisabled?: boolean;
+  reminderScheduleWeek?: string;
+  reminderSchedule?: string[];
+  reminderAttemptedSlots?: string[];
 }
 
 type QuestStore = Record<string, UserProfile>;
@@ -272,80 +276,183 @@ function attachReactionCollector(questMsg: Message, profile: UserProfile, channe
   });
 }
 
-// ── Scheduler (10:00 / 15:00 / 18:00 UTC) ────────────────────────────────────
+// ── Weekly reminder scheduler ─────────────────────────────────────────────────
 
-const REMINDER_HOURS = [10, 15, 18];
+export const MAX_WEEKLY_QUEST_REMINDERS = 3;
+const REMINDER_HOURS = Array.from({ length: 14 }, (_, i) => i + 8); // 08:00–21:59 UTC
+const REMINDER_DELIVERY_GRACE_MS = 15 * 60 * 1000;
 
-export function startQuestReminders(client: Client, openai: OpenAI | null): void {
-  setInterval(async () => {
-    const now = new Date();
-    const hour = now.getUTCHours();
-    const minute = now.getUTCMinutes();
-    const dateStr = now.toISOString().split("T")[0]!;
+export function getQuestReminderWeekKey(date: Date): string {
+  const monday = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const daysSinceMonday = (monday.getUTCDay() + 6) % 7;
+  monday.setUTCDate(monday.getUTCDate() - daysSinceMonday);
+  return monday.toISOString().slice(0, 10);
+}
 
-    if (minute > 1) return;
+/** Select up to three distinct future days and random daytime slots for this UTC week. */
+export function createQuestReminderSchedule(now: Date, random: () => number = Math.random): string[] {
+  const weekStart = new Date(`${getQuestReminderWeekKey(now)}T00:00:00.000Z`);
+  const eligibleDays: Array<{ date: Date; hours: number[] }> = [];
+  for (let offset = 0; offset < 7; offset++) {
+    const date = new Date(weekStart);
+    date.setUTCDate(date.getUTCDate() + offset);
+    const dateStr = date.toISOString().slice(0, 10);
+    const todayStr = now.toISOString().slice(0, 10);
+    if (dateStr < todayStr) continue;
+    const hours = REMINDER_HOURS.filter(hour =>
+      dateStr !== todayStr || hour > now.getUTCHours(),
+    );
+    if (hours.length > 0) eligibleDays.push({ date, hours });
+  }
+  if (eligibleDays.length === 0) return [];
 
+  for (let i = eligibleDays.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [eligibleDays[i], eligibleDays[j]] = [eligibleDays[j]!, eligibleDays[i]!];
+  }
+  const count = 1 + Math.floor(random() * Math.min(MAX_WEEKLY_QUEST_REMINDERS, eligibleDays.length));
+  return eligibleDays.slice(0, count).map(({ date, hours }) => {
+    const hour = hours[Math.floor(random() * hours.length)]!;
+    const minute = Math.floor(random() * 60);
+    date.setUTCHours(hour, minute, 0, 0);
+    return date.toISOString();
+  }).sort();
+}
+
+async function persistUserNow(userId: string): Promise<void> {
+  const profile = store[userId];
+  if (!profile) return;
+  if (isDbReady()) {
+    await patchUserData(userId, { questProfile: profile as unknown as Record<string, unknown> });
+    return;
+  }
+  try {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), "utf-8");
+  } catch (err) {
+    logger.error({ err }, "Failed to save quest store to JSON");
+    throw err;
+  }
+}
+
+export async function handleQuestReminderButton(interaction: ButtonInteraction): Promise<void> {
+  const targetId = interaction.customId.slice("quest_reminder_disable:".length);
+  if (!targetId || targetId !== interaction.user.id) {
+    const french = getEffectiveLanguage(interaction.guildId, interaction.user.id) === "fr";
+    await interaction.reply({
+      content: french
+        ? "🔒 Seule la personne concernée peut désactiver ses rappels."
+        : "🔒 Only the recipient can disable these reminders.",
+      ephemeral: true,
+    });
+    return;
+  }
+  const profile = store[targetId];
+  if (!profile) {
+    await interaction.reply({ content: "❌ Ce profil de quêtes n’est plus disponible.", ephemeral: true });
+    return;
+  }
+  profile.remindersDisabled = true;
+  await persistUserNow(targetId);
+  const disabled = questLanguage(profile) === "fr"
+    ? "🔕 Tes rappels de quêtes sont désactivés."
+    : "🔕 Your quest reminders are disabled.";
+  await interaction.reply({ content: disabled, ephemeral: true });
+  await interaction.message.edit({ components: [] }).catch(() => null);
+}
+
+let reminderCycleRunning = false;
+
+export async function runQuestReminderCycle(client: Client, openai: OpenAI | null, now = new Date()): Promise<void> {
+  if (reminderCycleRunning) return;
+  reminderCycleRunning = true;
+  try {
+    const weekKey = getQuestReminderWeekKey(now);
     for (const profile of Object.values(store)) {
-      if (!profile.notifyChannelId) continue;
-
+      if (!profile.notifyChannelId || profile.remindersDisabled) continue;
       const pending = profile.quests.filter(q => !q.completed);
       if (pending.length === 0) continue;
 
-      const userHours = profile.reminderHours ?? REMINDER_HOURS;
-      if (!userHours.includes(hour)) continue;
+      if (profile.reminderScheduleWeek !== weekKey || !Array.isArray(profile.reminderSchedule)) {
+        profile.reminderScheduleWeek = weekKey;
+        profile.reminderSchedule = createQuestReminderSchedule(now);
+        profile.reminderAttemptedSlots = [];
+        await persistUserNow(profile.userId);
+      }
 
-      if (profile.lastRemindedDate === dateStr && profile.lastRemindedHour === hour) continue;
+      const attempted = new Set(profile.reminderAttemptedSlots ?? []);
+      const dueSlots = profile.reminderSchedule
+        .filter(slot => !attempted.has(slot) && Date.parse(slot) <= now.getTime())
+        .sort();
+      for (const slot of dueSlots) {
+        // Mark a slot before delivery. A crash after Discord accepted the message
+        // cannot cause the same reminder to be sent again after restart.
+        attempted.add(slot);
+        profile.reminderAttemptedSlots = [...attempted];
+        await persistUserNow(profile.userId);
 
-      try {
-        const channel = await client.channels.fetch(profile.notifyChannelId).catch(() => null);
-        if (!channel?.isTextBased()) continue;
+        if (now.getTime() - Date.parse(slot) > REMINDER_DELIVERY_GRACE_MS) continue;
+        try {
+          const channel = await client.channels.fetch(profile.notifyChannelId).catch(() => null);
+          if (!channel?.isTextBased()) continue;
 
-        let text: string;
-
-        if (profile.bullying && openai) {
-          const questTitles = pending.map(q => q.title).join(", ");
-          const reminderLang = USER_LANG_NAMES[questLanguage(profile)] ?? "English";
-          try {
-            const res = await openai.chat.completions.create({
-              model: "openai/gpt-oss-120b",
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    "You are a brutally honest, tough-love accountability coach. " +
-                    "Write ONE short punchy reminder (max 2 sentences, no hashtags) to push someone to complete their tasks. " +
-                    "Be direct, harsh but not cruel — like a drill sergeant who actually cares. No emojis except at the end. " +
-                    `Respond in ${reminderLang}.`,
-                },
-                {
-                  role: "user",
-                  content: `Name: ${profile.username}. Pending tasks: ${questTitles}`,
-                },
-              ],
-              temperature: 0.9,
-              max_tokens: 120,
-            });
-            text = `<@${profile.userId}> ${res.choices[0]?.message?.content?.trim() || reminderFallback(profile, pending.length)}`;
-          } catch {
+          let text: string;
+          if (profile.bullying && openai) {
+            const questTitles = pending.map(q => q.title).join(", ");
+            const reminderLang = USER_LANG_NAMES[questLanguage(profile)] ?? "English";
+            try {
+              const res = await openai.chat.completions.create({
+                model: "openai/gpt-oss-120b",
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "You are a brutally honest, tough-love accountability coach. " +
+                      "Write ONE short punchy reminder (max 2 sentences, no hashtags) to push someone to complete their tasks. " +
+                      "Be direct, harsh but not cruel — like a drill sergeant who actually cares. No emojis except at the end. " +
+                      `Respond in ${reminderLang}.`,
+                  },
+                  { role: "user", content: `Name: ${profile.username}. Pending tasks: ${questTitles}` },
+                ],
+                temperature: 0.9,
+                max_tokens: 120,
+              });
+              text = `<@${profile.userId}> ${res.choices[0]?.message?.content?.trim() || reminderFallback(profile, pending.length)}`;
+            } catch {
+              text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
+            }
+          } else {
             text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
           }
-        } else if (profile.bullying) {
-          text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
-        } else {
-          text = `<@${profile.userId}> ${reminderFallback(profile, pending.length)}`;
+
+          const button = new ButtonBuilder()
+            .setCustomId(`quest_reminder_disable:${profile.userId}`)
+            .setEmoji("❌")
+            .setStyle(ButtonStyle.Secondary);
+          await (channel as TextChannel).send({
+            content: text,
+            components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
+            allowedMentions: { users: [profile.userId] },
+          });
+          profile.lastRemindedDate = slot.slice(0, 10);
+          profile.lastRemindedHour = new Date(slot).getUTCHours();
+          persistUser(profile.userId);
+          logger.info({ userId: profile.userId, slot, bullying: !!profile.bullying }, "Quest reminder sent");
+        } catch (err) {
+          logger.error({ err, userId: profile.userId }, "Failed to send quest reminder");
         }
-
-        await (channel as TextChannel).send(text).catch(() => null);
-
-        profile.lastRemindedDate = dateStr;
-        profile.lastRemindedHour = hour;
-        persistUser(profile.userId);
-
-        logger.info({ userId: profile.userId, hour, bullying: !!profile.bullying }, "Quest reminder sent");
-      } catch (err) {
-        logger.error({ err, userId: profile.userId }, "Failed to send quest reminder");
+        // At most one reminder per person per scheduler pass, even after downtime.
+        break;
       }
     }
+  } finally {
+    reminderCycleRunning = false;
+  }
+}
+
+export function startQuestReminders(client: Client, openai: OpenAI | null): void {
+  setInterval(() => {
+    void runQuestReminderCycle(client, openai).catch(err => logger.error({ err }, "Quest reminder cycle failed"));
   }, 30_000);
 }
 
@@ -470,9 +577,9 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     attachReactionCollector(questMsg, profile, message.channel as TextChannel);
 
     const modeMsg = await message.channel.send(
-      qt(message, "⚡ Last step — how do you want your daily reminders (10h · 15h · 18h UTC)?\n" +
+      qt(message, `⚡ Last step — choose your reminder style. You can receive up to ${MAX_WEEKLY_QUEST_REMINDERS} reminders per week, at varied times.\n` +
       "🔥 **Brutal accountability** — no excuses, no mercy, straight talk\n" +
-      "💬 **Friendly nudges** — supportive and encouraging", "⚡ Dernière étape — quel style de rappel préfères-tu (10 h · 15 h · 18 h UTC) ?\n🔥 **Mode exigeant** — direct, sans excuses\n💬 **Mode bienveillant** — encourageant et positif"),
+      "💬 **Friendly nudges** — supportive and encouraging", `⚡ Dernière étape — choisis le style de tes rappels. Tu peux en recevoir jusqu’à ${MAX_WEEKLY_QUEST_REMINDERS} par semaine, à des horaires variables.\n🔥 **Mode exigeant** — direct, sans excuses\n💬 **Mode bienveillant** — encourageant et positif`),
     );
     await modeMsg.react("🔥").catch(() => null);
     await modeMsg.react("💬").catch(() => null);
@@ -508,18 +615,18 @@ export async function setReminderChannel(message: Message): Promise<void> {
   const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
   profile.notifyChannelId = message.channelId;
   profile.notifyGuildId = message.guildId;
+  delete profile.remindersDisabled;
   persistUser(profile.userId);
 
   const pending = profile.quests.filter(q => !q.completed).length;
-  const hours = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
   const tip = profile.quests.length === 0
     ? qt(message, "\n💡 No quests yet — use `!quest start` to set your goals.", "\n💡 Aucune quête : utilise `!quest start` pour définir tes objectifs.")
     : "";
 
   await message.reply(
     qt(message, `✅ Reminders will be sent here → <#${message.channelId}>\n` +
-    `⏰ **Schedule:** ${hours} UTC\n` +
-    `📋 **Pending:** ${pending} quest${pending !== 1 ? "s" : ""}${tip}`, `✅ Les rappels seront envoyés ici → <#${message.channelId}>\n⏰ **Horaires :** ${hours} UTC\n📋 **À terminer :** ${pending} quête(s)${tip}`),
+    `⏰ **Schedule:** up to ${MAX_WEEKLY_QUEST_REMINDERS} reminders per week at varied days and times.\n` +
+    `📋 **Pending:** ${pending} quest${pending !== 1 ? "s" : ""}${tip}`, `✅ Les rappels seront envoyés ici → <#${message.channelId}>\n⏰ **Fréquence :** jusqu’à ${MAX_WEEKLY_QUEST_REMINDERS} rappels par semaine à des jours et heures variables.\n📋 **À terminer :** ${pending} quête(s)${tip}`),
   );
 }
 
@@ -642,45 +749,12 @@ export async function showQuestStats(message: Message): Promise<void> {
 }
 
 export async function setSchedule(message: Message, input: string): Promise<void> {
-  const profile = getProfile(message.author.id, message.author.displayName ?? message.author.username);
-
-  if (!input.trim()) {
-    const current = (profile.reminderHours ?? REMINDER_HOURS).map(h => `${h}:00`).join(" · ");
-    await message.reply(
-      qt(message, `⏰ Your current schedule: **${current} UTC**\n` +
-      `To change: \`!quest schedule 8 13 21\` *(up to 5 times, 0–23 UTC)*\n` +
-      `To reset to default: \`!quest schedule reset\``, `⏰ Tes horaires : **${current} UTC**\nModifier : \`!quest schedule 8 13 21\` (5 horaires maximum, de 0 à 23 h UTC)\nRéinitialiser : \`!quest schedule reset\``),
-    );
-    return;
-  }
-
-  if (input.trim().toLowerCase() === "reset") {
-    delete profile.reminderHours;
-    persistUser(profile.userId);
-    await message.reply(qt(message, "✅ Schedule reset to default: **10:00 · 15:00 · 18:00 UTC**", "✅ Horaires réinitialisés : **10:00 · 15:00 · 18:00 UTC**"));
-    return;
-  }
-
-  const parsed = input
-    .split(/[\s,]+/)
-    .map(s => parseInt(s.replace(/:.*$/, ""), 10))
-    .filter(h => !isNaN(h) && h >= 0 && h <= 23);
-
-  if (parsed.length === 0) {
-    await message.reply(qt(message, "❌ Invalid times. Use hours 0–23 — e.g. `!quest schedule 8 13 21`", "❌ Horaires invalides. Indique des heures de 0 à 23, par exemple `!quest schedule 8 13 21`."));
-    return;
-  }
-  if (parsed.length > 5) {
-    await message.reply(qt(message, "❌ Max 5 reminder times.", "❌ Maximum 5 horaires de rappel."));
-    return;
-  }
-
-  const unique = [...new Set(parsed)].sort((a, b) => a - b);
-  profile.reminderHours = unique;
-  persistUser(profile.userId);
-
-  const display = unique.map(h => `${h}:00`).join(" · ");
-  await message.reply(qt(message, `⏰ Schedule updated: **${display} UTC**`, `⏰ Horaires mis à jour : **${display} UTC**`));
+  const explanation = qt(
+    message,
+    `⏰ Quest reminders now run automatically on up to ${MAX_WEEKLY_QUEST_REMINDERS} varied days and times per week. Fixed hours are no longer used. Use ❌ on a reminder to stop them, or \`!quest remind\` in a server channel to enable them again.`,
+    `⏰ Les rappels de quêtes sont désormais programmés automatiquement, jusqu’à ${MAX_WEEKLY_QUEST_REMINDERS} jours et heures variables par semaine. Les horaires fixes ne sont plus utilisés. Utilise ❌ sur un rappel pour les arrêter, ou \`!quest remind\` dans un salon serveur pour les réactiver.`,
+  );
+  await message.reply(explanation);
 }
 
 export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {
@@ -873,7 +947,11 @@ export async function showQuestProfile(message: Message): Promise<void> {
       { name: qt(message, "✅ Completed", "✅ Terminées"), value: qt(message, `${profile.completedCount} quests`, `${profile.completedCount} quêtes`), inline: true },
       { name: qt(message, "📋 Active", "📋 Actives"), value: qt(message, `${active} quests`, `${active} quêtes`), inline: true },
       { name: qt(message, "📅 Since", "📅 Depuis"), value: new Date(profile.createdAt).toLocaleDateString(questLanguage(message)), inline: true },
-      { name: qt(message, "🔔 Reminders", "🔔 Rappels"), value: profile.notifyChannelId ? qt(message, `Active (${(profile.reminderHours ?? REMINDER_HOURS).join("h / ")}h UTC)`, `Actifs (${(profile.reminderHours ?? REMINDER_HOURS).join(" h / ")} h UTC)`) : qt(message, "Not set — use any `!quest` command in a server channel", "Non configurés — utilise une commande `!quest` dans un salon du serveur"), inline: false },
+      { name: qt(message, "🔔 Reminders", "🔔 Rappels"), value: profile.remindersDisabled
+        ? qt(message, "Disabled — use `!quest remind` to re-enable", "Désactivés — utilise `!quest remind` pour les réactiver")
+        : profile.notifyChannelId
+          ? qt(message, `Active (up to ${MAX_WEEKLY_QUEST_REMINDERS} per week, varied times)`, `Actifs (jusqu’à ${MAX_WEEKLY_QUEST_REMINDERS} par semaine, horaires variables)`)
+          : qt(message, "Not set — use any `!quest` command in a server channel", "Non configurés — utilise une commande `!quest` dans un salon du serveur"), inline: false },
       { name: "Mode", value: profile.bullying ? qt(message, "🔥 Bully mode — ON", "🔥 Mode exigeant activé") : qt(message, "💬 Normal mode", "💬 Mode bienveillant"), inline: true },
     );
 
@@ -901,7 +979,7 @@ export function getUserQuestData(userId: string): {
   bullying: boolean;
   createdAt: string;
   reminderActive: boolean;
-  reminderHours: number[];
+  remindersPerWeek: number;
 } | null {
   const profile = store[userId];
   if (!profile) return null;
@@ -923,8 +1001,8 @@ export function getUserQuestData(userId: string): {
     progressBar: bar,
     bullying: profile.bullying ?? false,
     createdAt: profile.createdAt,
-    reminderActive: !!profile.notifyChannelId,
-    reminderHours: profile.reminderHours ?? [10, 15, 18],
+    reminderActive: !!profile.notifyChannelId && !profile.remindersDisabled,
+    remindersPerWeek: MAX_WEEKLY_QUEST_REMINDERS,
   };
 }
 

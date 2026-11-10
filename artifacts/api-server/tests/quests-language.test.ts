@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildQuestEmbed, initQuestStore, showQuestList, showQuestProfile, showQuestStats, addQuestWithCoach, startQuestSetup } from "../src/discord/quests.js";
+import {
+  buildQuestEmbed, initQuestStore, showQuestList, showQuestProfile, showQuestStats, addQuestWithCoach, startQuestSetup,
+  createQuestReminderSchedule, getQuestReminderWeekKey, runQuestReminderCycle, handleQuestReminderButton,
+  getUserQuestData, MAX_WEEKLY_QUEST_REMINDERS,
+} from "../src/discord/quests.js";
 import type { Message } from "discord.js";
 import { questFixture as f } from "./fixtures/quest-language.js";
 
@@ -82,4 +86,86 @@ test("Quest creation prompts the AI in the server language, with French setup an
   await startQuestSetup(generatedMessage, model as any);
   assert.equal(calls.length, 1);
   assert.match(calls[0].messages[0].content, /Respond in French/);
+});
+
+test("Quest reminders vary across the week, stay under the weekly cap, persist across restarts, and only the recipient can disable them", async () => {
+  const scheduleStart = new Date("2026-11-09T06:00:00.000Z");
+  const schedule = createQuestReminderSchedule(scheduleStart, () => 0.99);
+  assert.equal(getQuestReminderWeekKey(scheduleStart), "2026-11-09");
+  assert.equal(schedule.length, MAX_WEEKLY_QUEST_REMINDERS);
+  assert.equal(new Set(schedule.map(slot => new Date(slot).getUTCDay())).size, schedule.length);
+  for (const slot of schedule) {
+    const date = new Date(slot);
+    assert.ok(date > scheduleStart);
+    assert.ok(date.getUTCHours() >= 8 && date.getUTCHours() <= 21);
+    assert.equal(getQuestReminderWeekKey(date), "2026-11-09");
+  }
+  const alternatives = [
+    createQuestReminderSchedule(scheduleStart, () => 0.1),
+    createQuestReminderSchedule(scheduleStart, () => 0.55),
+  ];
+  assert.notDeepEqual(alternatives[0], alternatives[1]);
+
+  f.profile.notifyChannelId = "channel";
+  f.profile.remindersDisabled = false;
+  f.profile.reminderHours = [10, 15, 18]; // Legacy settings remain readable but do not control delivery.
+  f.profile.reminderScheduleWeek = "2026-11-09";
+  f.profile.reminderSchedule = schedule;
+  f.profile.reminderAttemptedSlots = [];
+  await initQuestStore();
+  assert.equal(getUserQuestData("user")?.reminderActive, true);
+
+  const sent: any[] = [];
+  const channel = {
+    isTextBased: () => true,
+    send: async (payload: any) => { sent.push(payload); return {}; },
+  };
+  const client = { channels: { fetch: async () => channel } } as any;
+  for (const slot of schedule) {
+    await runQuestReminderCycle(client, null, new Date(Date.parse(slot) + 60_000));
+  }
+  assert.equal(sent.length, MAX_WEEKLY_QUEST_REMINDERS);
+  for (const payload of sent) {
+    const button = payload.components[0].components[0].data;
+    assert.equal(button.custom_id, "quest_reminder_disable:user");
+    assert.equal(button.emoji.name, "❌");
+    assert.equal(payload.allowedMentions.users[0], "user");
+  }
+
+  const lastDeliveryTime = new Date(Date.parse(schedule.at(-1)!) + 60_000);
+  await initQuestStore(); // Simulate a restart, reloading the persisted attempted slots.
+  await runQuestReminderCycle(client, null, lastDeliveryTime);
+  assert.equal(sent.length, MAX_WEEKLY_QUEST_REMINDERS);
+
+  const deniedReplies: any[] = [];
+  await handleQuestReminderButton({
+    customId: "quest_reminder_disable:user",
+    guildId: "fr-guild",
+    user: { id: "someone-else" },
+    reply: async (payload: any) => { deniedReplies.push(payload); },
+    message: { edit: async () => { throw new Error("unauthorized click must not edit the reminder"); } },
+  } as any);
+  assert.match(deniedReplies[0].content, /Seule la personne concernée/);
+  assert.equal(getUserQuestData("user")?.reminderActive, true);
+
+  const ownerReplies: any[] = [], edits: any[] = [];
+  await handleQuestReminderButton({
+    customId: "quest_reminder_disable:user",
+    guildId: "fr-guild",
+    user: { id: "user" },
+    reply: async (payload: any) => { ownerReplies.push(payload); },
+    message: { edit: async (payload: any) => { edits.push(payload); } },
+  } as any);
+  assert.match(ownerReplies[0].content, /rappels de quêtes sont désactivés/);
+  assert.deepEqual(edits[0].components, []);
+  await initQuestStore();
+  assert.equal(getUserQuestData("user")?.reminderActive, false);
+
+  const missingProfileReplies: any[] = [];
+  await handleQuestReminderButton({
+    customId: "quest_reminder_disable:missing",
+    user: { id: "missing" },
+    reply: async (payload: any) => { missingProfileReplies.push(payload); },
+  } as any);
+  assert.match(missingProfileReplies[0].content, /profil de quêtes/);
 });
