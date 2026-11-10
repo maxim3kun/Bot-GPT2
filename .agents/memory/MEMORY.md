@@ -20,3 +20,4 @@
 - [Persona public profiles](persona-public-profile.md) — Show only creator-written profile text alongside that creator’s public personas in the same server.
 - [Persona consent in DMs](persona-dm-consent.md) — User requests explicit request and consent in DMs instead of a server NSFW-channel requirement.
 - [Bully consent boundaries](bully-consent-boundaries.md) — Bully addresses only the activating member; do not treat mentions or quoted text as another member’s consent.
+- [Railway runtime checks](railway-runtime-checks.md) — Online deployment status can hide runtime restarts; exit 137 alone does not prove OOM.
