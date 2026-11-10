@@ -17,3 +17,4 @@
 - [Bot experience](bot-experience-requirements.md) — Separate image quotas, concise help, self-declared birthdays only, and no paid voice service.
 - [Repository context boundaries](repository-context-boundaries.md) — When the user says a repository changed, do not carry over prior project requests they identify as unrelated.
 - [Transport in the Discord bot](transport-bot-scope.md) — Transport questions are answered in Discord from French network data, with real-time access when available.
+- [Persona public profiles](persona-public-profile.md) — Show only creator-written profile text alongside that creator’s public personas in the same server.

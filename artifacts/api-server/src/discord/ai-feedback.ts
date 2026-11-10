@@ -33,6 +33,22 @@ export function createFeedbackTracker(register = registerResponseIds) {
 }
 export const trackAiReplies = createFeedbackTracker();
 
+export function createPersonaControlSeeder(
+  register = registerResponseIds,
+) {
+  return async (message: Message): Promise<void> => {
+    try {
+      await register([message.id], "bot");
+      await message.react("🎭");
+    } catch (error) {
+      recordDiagnosticMetadata("feedback", error);
+      logger.warn("Cannot add persona control reaction; check Add Reactions and Read Message History permissions");
+    }
+  };
+}
+
+export const seedAiPersonaControl = createPersonaControlSeeder();
+
 async function feedbackEvent(reaction: Reaction, user: Reactor, removed: boolean, at: Date): Promise<void> {
   const vote = reactionVote(reaction.emoji.name);
   if (user.partial) user = await user.fetch();

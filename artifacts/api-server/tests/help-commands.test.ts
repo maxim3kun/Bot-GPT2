@@ -206,9 +206,10 @@ test("Persona help has short themed pages, real examples and the current command
       assert.match(json.footer!.text, new RegExp(`${page + 1}/4`));
       all.push(text);
     }
-    for (const action of ["create", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "delete"]) {
+    for (const action of ["create", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "profile", "delete"]) {
       assert.ok(all.join("\n").includes(`??persona ${action}`), `${language}/${action}`);
     }
+    assert.match(all.join("\n"), /🎭/);
   }
 });
 

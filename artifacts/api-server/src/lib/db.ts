@@ -1,6 +1,7 @@
 import { MongoClient, type Db, type Collection, type Filter } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import { logger } from "./logger.js";
+import { isAiPersonaVisibleToViewer } from "./ai-persona-public-view.js";
 
 // ── Config ────────────────────────────────────────────────────────────
 
@@ -161,6 +162,13 @@ export interface AiPersonaSessionRecord {
   };
 }
 
+export interface AiPersonaPublicProfileRecord {
+  ownerId: string;
+  guildId: string;
+  text: string;
+  updatedAt: string;
+}
+
 interface AiMemoryDoc {
   _id: string;
   encryptedData: string;
@@ -180,6 +188,14 @@ interface AiPersonaSessionDoc {
   _id: string;
   ownerKey: string;
   scopeKey: string;
+  encryptedData: string;
+  updatedAt: Date;
+}
+
+interface AiPersonaPublicProfileDoc {
+  _id: string;
+  ownerKey: string;
+  guildKey: string;
   encryptedData: string;
   updatedAt: Date;
 }
@@ -295,6 +311,7 @@ export let aiConsentCol: Collection<{ userId: string; status: "accepted" | "decl
 export let aiMemoryCol: Collection<AiMemoryDoc> | null = null;
 export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
 export let aiPersonaSessionsCol: Collection<AiPersonaSessionDoc> | null = null;
+export let aiPersonaPublicProfilesCol: Collection<AiPersonaPublicProfileDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
@@ -360,6 +377,7 @@ export async function connectDb(): Promise<void> {
     aiMemoryCol = db.collection<AiMemoryDoc>("ai_memory");
     aiPersonasCol = db.collection<AiPersonaDoc>("ai_personas");
     aiPersonaSessionsCol = db.collection<AiPersonaSessionDoc>("ai_persona_sessions");
+    aiPersonaPublicProfilesCol = db.collection<AiPersonaPublicProfileDoc>("ai_persona_public_profiles");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
@@ -368,6 +386,7 @@ export async function connectDb(): Promise<void> {
     await aiPersonasCol.createIndex({ ownerKey: 1, updatedAt: -1 });
     await aiPersonasCol.createIndex({ guildKey: 1, visibility: 1, updatedAt: -1 });
     await aiPersonaSessionsCol.createIndex({ ownerKey: 1, scopeKey: 1 }, { unique: true });
+    await aiPersonaPublicProfilesCol.createIndex({ ownerKey: 1, guildKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
     await dailyImageQuotaCol.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
     await betaTestersCol.createIndex({ addedAt: -1 });
@@ -388,6 +407,7 @@ export async function connectDb(): Promise<void> {
     guildsCol   = null;
     dailyImageQuotaCol = null;
     aiMemoryCol = null;
+    aiPersonaPublicProfilesCol = null;
     betaTestersCol = null;
   }
 }
@@ -563,10 +583,7 @@ export async function listVisibleAiPersonas(
     .toArray();
   return docs
     .map(decodeAiPersona)
-    .filter((persona) =>
-      (persona.visibility === "private" && persona.ownerId === userId)
-      || (persona.visibility === "public" && Boolean(guildId) && persona.guildId === guildId),
-    );
+    .filter((persona) => isAiPersonaVisibleToViewer(persona, guildId, userId));
 }
 
 export async function getAiPersona(id: string): Promise<AiPersonaRecord | null> {
@@ -735,6 +752,69 @@ export async function saveAiPersonaSession(session: AiPersonaSessionRecord): Pro
     },
     { upsert: true },
   );
+}
+
+function aiPersonaPublicProfileId(ownerId: string, guildId: string): string {
+  return hashUserId(`ai-persona-public-profile:${guildId}:${ownerId}`);
+}
+
+function requireAiPersonaPublicProfileStorage(): Collection<AiPersonaPublicProfileDoc> {
+  if (!aiPersonaPublicProfilesCol || !encKey) {
+    throw new Error("MongoDB and ENCRYPTION_KEY are required for persona public profiles");
+  }
+  return aiPersonaPublicProfilesCol;
+}
+
+export async function getAiPersonaPublicProfile(
+  ownerId: string,
+  guildId: string,
+): Promise<AiPersonaPublicProfileRecord | null> {
+  const collection = requireAiPersonaPublicProfileStorage();
+  const doc = await collection.findOne({
+    _id: aiPersonaPublicProfileId(ownerId, guildId),
+    ownerKey: hashUserId(ownerId),
+    guildKey: hashUserId(guildId),
+  });
+  if (!doc) return null;
+  const profile = JSON.parse(decrypt(doc.encryptedData)) as AiPersonaPublicProfileRecord;
+  return profile.ownerId === ownerId && profile.guildId === guildId ? profile : null;
+}
+
+export async function saveAiPersonaPublicProfile(
+  ownerId: string,
+  guildId: string,
+  text: string,
+): Promise<void> {
+  const collection = requireAiPersonaPublicProfileStorage();
+  const normalized = text.trim().slice(0, 1_000);
+  if (normalized.length < 8) throw new Error("Persona public profile must contain at least 8 characters");
+  const updatedAt = new Date().toISOString();
+  const profile: AiPersonaPublicProfileRecord = { ownerId, guildId, text: normalized, updatedAt };
+  await collection.updateOne(
+    {
+      _id: aiPersonaPublicProfileId(ownerId, guildId),
+      ownerKey: hashUserId(ownerId),
+      guildKey: hashUserId(guildId),
+    },
+    {
+      $set: {
+        ownerKey: hashUserId(ownerId),
+        guildKey: hashUserId(guildId),
+        encryptedData: encrypt(JSON.stringify(profile)),
+        updatedAt: new Date(updatedAt),
+      },
+    },
+    { upsert: true },
+  );
+}
+
+export async function deleteAiPersonaPublicProfile(ownerId: string, guildId: string): Promise<void> {
+  const collection = requireAiPersonaPublicProfileStorage();
+  await collection.deleteOne({
+    _id: aiPersonaPublicProfileId(ownerId, guildId),
+    ownerKey: hashUserId(ownerId),
+    guildKey: hashUserId(guildId),
+  });
 }
 
 export type DailyImageQuotaResult = "reserved" | "limit_reached" | "unavailable";

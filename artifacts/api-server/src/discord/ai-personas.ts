@@ -1,16 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { EmbedBuilder, type Message, type MessageCreateOptions } from "discord.js";
+import {
+  ActionRowBuilder,
+  ComponentType,
+  EmbedBuilder,
+  StringSelectMenuBuilder,
+  type ClientEvents,
+  type Message,
+  type MessageCreateOptions,
+} from "discord.js";
 import type OpenAI from "openai";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
 import {
   deleteAiPersona,
+  deleteAiPersonaPublicProfile,
   getAiTimezone,
   getAiPersona,
+  getAiPersonaPublicProfile,
   getAiPersonaSession as getAiPersonaSessionFromDb,
   isDbReady,
   listAiPersonasOwnedBy,
   listVisibleAiPersonas,
   saveAiPersona,
+  saveAiPersonaPublicProfile,
   saveAiPersonaSession as saveAiPersonaSessionToDb,
   type AiPersonaMemory,
   type AiPersonaRecord,
@@ -21,6 +32,12 @@ import {
   type AiPersonaUserLearning,
   type AiPersonaVisibility,
 } from "../lib/db.js";
+import {
+  buildPublicAiPersonaDetails,
+  canManageAiPersonaPublicProfile,
+} from "../lib/ai-persona-public-view.js";
+import { updatePersonaSessionFromReaction } from "./ai-persona-reaction-policy.js";
+import { responseCollection } from "./ai-observability-store.js";
 import { logger } from "../lib/logger.js";
 import { formatSearchContext } from "../lib/web-search.js";
 import { recordModuleSuccess, reportModuleFailure } from "./module-technician.js";
@@ -51,6 +68,7 @@ import { speakPersonaReply } from "./voice.js";
 import { selectVoice, personaVoiceSelection } from "./voice-settings.js";
 import { isVoiceId } from "./piper-tts.js";
 import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
+import { getEffectiveLanguage } from "./effective-language.js";
 import { simpleArithmeticReply } from "./ai-calculator.js";
 
 const MAX_PERSONAS_PER_USER = 10;
@@ -69,6 +87,7 @@ const MAX_PERSONA_CONVERSATION_MESSAGES = 8;
 const MAX_PERSONA_CONVERSATION_CHARS = 8_000;
 const MAX_PERSONA_CONVERSATION_SESSIONS = 2_000;
 const PERSONA_RECALL_COOLDOWN_MS = 60 * 1_000;
+const MAX_PUBLIC_CREATOR_PROFILE_LENGTH = 1_000;
 const personaRecallCooldowns = new Map<string, number>();
 type PersonaConversationMessage = { role: "user" | "assistant"; content: string };
 const personaConversationHistory = new Map<string, {
@@ -538,19 +557,89 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
     await sendPrivately(message, localized(language, "Tu n’as encore aucun persona visible.", "You don't have any visible personas yet."), language);
     return;
   }
-  const rows = personas.map((persona) => {
-    const scope = persona.visibility === "public"
-      ? localized(language, "public · ce serveur", "public · this server")
-      : localized(language, "privé · toi seul", "private · only you");
-    const memoryCount = persona.knowledgeMemories?.length ?? persona.knowledgeSummaries.length;
-    return `• \`${shortId(persona.id)}\` **${escapeMarkdown(persona.name)}** — ${scope} — mémoire ${memoryCount}/${MAX_PERSONA_MEMORY_MESSAGES}`;
+  const session = await loadPersonaSession(message.author.id, message.guildId);
+  const customId = `persona_select:${message.author.id}:${message.id}`;
+  const options = personas.slice(0, 25).map((persona) => ({
+    label: safeName(persona.name).slice(0, 100),
+    value: persona.id,
+    description: (persona.visibility === "public"
+      ? persona.description
+      : localized(language, "Persona privé · visible par toi seul", "Private persona · visible only to you"))
+      .replace(/\s+/g, " ")
+      .slice(0, 100),
+    ...(session?.activePersonaId === persona.id ? { default: true } : {}),
+  }));
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder(localized(language, "Choisis le persona à activer", "Choose a persona to activate"))
+    .addOptions(options);
+  const response = await sendPrivately(message, {
+    content: [
+      localized(language, "🎭 **Tes personas disponibles**", "🎭 **Your available personas**"),
+      ...personas.slice(0, 25).map((persona) => {
+        const scope = persona.visibility === "public"
+          ? localized(language, "public · ce serveur", "public · this server")
+          : localized(language, "privé · toi seul", "private · only you");
+        return `• **${escapeMarkdown(persona.name)}** — ${scope}`;
+      }),
+      ...(personas.length > 25
+        ? [localized(language, "La liste interactive affiche les 25 premiers personas.", "The interactive list shows the first 25 personas.")]
+        : []),
+      "",
+      localized(language, "Sélectionne un persona ci-dessous pour l’activer uniquement pour toi.", "Select a persona below to activate it only for yourself."),
+    ].join("\n"),
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    allowedMentions: { parse: [] },
+  }, language);
+  if (!response) return;
+  const collector = response.createMessageComponentCollector({
+    componentType: ComponentType.StringSelect,
+    time: 5 * 60_000,
+    filter: (interaction) => interaction.customId === customId,
   });
-  await sendPrivately(message, [
-    localized(language, "🎭 **Tes personas disponibles**", "🎭 **Your available personas**"),
-    ...rows,
-    "",
-    localized(language, "Utilise `!persona <nom> | <message>`.", "Use `!persona <name> | <message>`."),
-  ].join("\n"), language);
+  collector.on("collect", async (interaction) => {
+    try {
+      if (interaction.user.id !== message.author.id) {
+        await interaction.reply({
+          content: localized(language, "Cette liste appartient à une autre personne.", "This list belongs to another person."),
+          ephemeral: true,
+        });
+        return;
+      }
+      const selected = await resolvePersona(
+        await listVisibleAiPersonas(message.guildId, message.author.id),
+        interaction.values[0] ?? "",
+      );
+      if (!selected) {
+        await interaction.reply({
+          content: localized(language, "Ce persona n’est plus accessible ici. Relance la liste.", "That persona is no longer accessible here. Open the list again."),
+          ephemeral: true,
+        });
+        return;
+      }
+      await persistPersonaSession({
+        userId: message.author.id,
+        guildId: message.guildId,
+        activePersonaId: selected.id,
+        lastPersonaId: selected.id,
+      });
+      await interaction.update({
+        content: localized(
+          language,
+          `✅ **${escapeMarkdown(selected.name)}** est activé pour toi dans ce contexte. Utilise \`!persona stop\` ou retire la réaction 🎭 d’une réponse générale pour l’arrêter.`,
+          `✅ **${escapeMarkdown(selected.name)}** is active for you in this context. Use \`!persona stop\` or remove the 🎭 reaction from a general reply to stop it.`,
+        ),
+        components: [],
+      });
+    } catch (error) {
+      logger.warn({ error }, "Could not activate persona from private selector");
+      await interaction.reply({
+        content: localized(language, "Impossible d’activer ce persona pour le moment.", "Could not activate this persona right now."),
+        ephemeral: true,
+      }).catch(() => null);
+    }
+  });
+  collector.on("end", () => { void response.edit({ components: [] }).catch(() => null); });
 }
 
 async function showPersona(message: Message, selector: string, language: UserLang): Promise<void> {
@@ -559,24 +648,93 @@ async function showPersona(message: Message, selector: string, language: UserLan
     await safeReply(message, localized(language, "Persona introuvable ou non accessible. Utilise `!persona list`.", "Persona not found or not accessible. Use `!persona list`."));
     return;
   }
-  const details = [
-    `🎭 **${escapeMarkdown(persona.name)}** — ${persona.visibility === "public" ? "public" : "privé"}`,
-    "",
-    `**Description :** ${persona.description}`,
-    "",
-    `**Profil :** ${persona.profile}`,
-    "",
-    localized(
-      language,
-      `**Mémoire :** ${persona.knowledgeMemories?.length ?? persona.knowledgeSummaries.length}/${MAX_PERSONA_MEMORY_MESSAGES} souvenirs classés ; ${persona.messagesAnalyzedTotal} messages analysés au total.`,
-      `**Memory:** ${persona.knowledgeMemories?.length ?? persona.knowledgeSummaries.length}/${MAX_PERSONA_MEMORY_MESSAGES} ranked notes; ${persona.messagesAnalyzedTotal} messages analyzed overall.`,
-    ),
-  ].join("\n");
   if (persona.visibility === "private") {
-    await sendPrivately(message, { content: details, allowedMentions: { parse: [] } }, language);
+    await sendPrivately(message, {
+      content: [
+        `🎭 **${escapeMarkdown(persona.name)}** — privé`,
+        "",
+        `**Description :** ${persona.description}`,
+        "",
+        `**Profil interne :** ${persona.profile}`,
+        "",
+        localized(
+          language,
+          `**Mémoire :** ${persona.knowledgeMemories?.length ?? persona.knowledgeSummaries.length}/${MAX_PERSONA_MEMORY_MESSAGES} souvenirs classés ; ${persona.messagesAnalyzedTotal} messages analysés au total.`,
+          `**Memory:** ${persona.knowledgeMemories?.length ?? persona.knowledgeSummaries.length}/${MAX_PERSONA_MEMORY_MESSAGES} ranked notes; ${persona.messagesAnalyzedTotal} messages analyzed overall.`,
+        ),
+      ].join("\n"),
+      allowedMentions: { parse: [] },
+    }, language);
     return;
   }
-  await safeReply(message, details);
+  const creatorProfile = persona.guildId
+    ? await getAiPersonaPublicProfile(persona.ownerId, persona.guildId)
+    : null;
+  await message.reply({
+    embeds: [buildPublicAiPersonaDetails(
+      safeName(persona.name),
+      persona.description,
+      creatorProfile?.text,
+      language,
+    )],
+    allowedMentions: { parse: [] },
+  });
+}
+
+async function manageCreatorProfile(message: Message, args: string[], language: UserLang): Promise<void> {
+  if (!message.guildId) {
+    await safeReply(message, localized(
+      language,
+      "Gère ta fiche depuis le serveur où l’un de tes personas est public.",
+      "Manage your profile from the server where one of your personas is public.",
+    ));
+    return;
+  }
+  const ownedPersonas = await listAiPersonasOwnedBy(message.author.id);
+  if (!canManageAiPersonaPublicProfile(ownedPersonas, message.author.id, message.guildId)) {
+    await safeReply(message, localized(
+      language,
+      "Tu dois d’abord avoir un persona public dans ce serveur avec `!persona privacy <nom> public`.",
+      "You need a public persona in this server first: `!persona privacy <name> public`.",
+    ));
+    return;
+  }
+  const submitted = args.join(" ").trim();
+  if (!submitted || ["show", "voir"].includes(submitted.toLowerCase())) {
+    const profile = await getAiPersonaPublicProfile(message.author.id, message.guildId);
+    await sendPrivately(
+      message,
+      profile
+        ? localized(language, `Ta fiche publique dans ce serveur :\n\n${profile.text}`, `Your public profile in this server:\n\n${profile.text}`)
+        : localized(language, "Tu n’as pas encore créé de fiche publique.", "You haven't created a public profile yet."),
+      language,
+    );
+    await safeReply(message, localized(
+      language,
+      `Pour la créer ou la modifier : \`!persona profile <texte public>\` (8 à ${MAX_PUBLIC_CREATOR_PROFILE_LENGTH} caractères). Le texte sera visible avec tes personas publics de ce serveur.`,
+      `To create or edit it: \`!persona profile <public text>\` (8–${MAX_PUBLIC_CREATOR_PROFILE_LENGTH} characters). It will be visible with your public personas in this server.`,
+    ));
+    return;
+  }
+  if (["clear", "effacer", "supprimer"].includes(submitted.toLowerCase())) {
+    await deleteAiPersonaPublicProfile(message.author.id, message.guildId);
+    await safeReply(message, localized(language, "✅ Ta fiche publique a été supprimée de ce serveur.", "✅ Your public profile was removed from this server."));
+    return;
+  }
+  if (submitted.length < 8 || submitted.length > MAX_PUBLIC_CREATOR_PROFILE_LENGTH) {
+    await safeReply(message, localized(
+      language,
+      `La fiche doit contenir entre 8 et ${MAX_PUBLIC_CREATOR_PROFILE_LENGTH} caractères.`,
+      `The profile must contain 8–${MAX_PUBLIC_CREATOR_PROFILE_LENGTH} characters.`,
+    ));
+    return;
+  }
+  await saveAiPersonaPublicProfile(message.author.id, message.guildId, submitted);
+  await safeReply(message, localized(
+    language,
+    "✅ Fiche publique créée ou mise à jour. Elle ne contient que le texte que tu as choisi et n’est visible qu’avec tes personas publics dans ce serveur.",
+    "✅ Public profile created or updated. It contains only the text you chose and is visible only with your public personas in this server.",
+  ));
 }
 
 async function changeVisibility(
@@ -1835,6 +1993,48 @@ async function activatePersona(
   ));
 }
 
+export async function handleAiPersonaControlReaction(
+  reaction: ClientEvents["messageReactionAdd"][0],
+  user: ClientEvents["messageReactionAdd"][1],
+  added: boolean,
+): Promise<void> {
+  if (reaction.emoji.name !== "🎭") return;
+  if (user.partial) user = await user.fetch();
+  if (user.bot) return;
+
+  const message = reaction.message.partial
+    ? await reaction.message.fetch().catch(() => null)
+    : reaction.message;
+  if (!message) return;
+  const responseMetadata = await responseCollection()?.findOne({
+    _id: message.id,
+    kind: "bot",
+    expiresAt: { $gt: new Date() },
+  });
+  if (!responseMetadata) return;
+
+  const session = await loadPersonaSession(user.id, message.guildId);
+  const persona = added && session?.lastPersonaId
+    ? (await listVisibleAiPersonas(message.guildId, user.id))
+      .find((candidate) => candidate.id === session.lastPersonaId)
+    : null;
+  const updatedSession = updatePersonaSessionFromReaction(session, added, Boolean(persona));
+  if (!updatedSession) {
+    if (added && !session?.activePersonaId && !persona) {
+      await message.reply({
+        content: localized(
+          getEffectiveLanguage(message.guildId, user.id),
+          "Choisis d’abord un persona avec `!persona list`. La réaction 🎭 l’activera pour toi ; retire-la pour l’arrêter.",
+          "Choose a persona first with `!persona list`. The 🎭 reaction activates it for you; remove your reaction to stop it.",
+        ),
+        allowedMentions: { parse: [] },
+      }).catch(() => null);
+    }
+    return;
+  }
+  await persistPersonaSession(updatedSession);
+}
+
 async function findPersonaForReply(message: Message): Promise<AiPersonaRecord | null> {
   if (!message.reference?.messageId) return null;
   const referenced = await message.fetchReference().catch(() => null);
@@ -2036,6 +2236,10 @@ export async function handleAiPersonaCommand(
       case "privacy":
       case "visibility":
         await changeVisibility(message, args[0] ?? "", args[1], language);
+        return true;
+      case "profile":
+      case "fiche":
+        await manageCreatorProfile(message, args, language);
         return true;
       case "avatar":
         await handlePersonaAvatarCommand(message, args, language);

@@ -5,7 +5,13 @@ import type { Message } from "discord.js";
 import { createReliableCompletion } from "../src/discord/ai-reliable-completion.js";
 import { buildSpeakerContext, currentUserTurn } from "../src/discord/ai-speaker-context.js";
 import { DISCORD_IDENTITY_GUIDANCE, removeUnrequestedDiscordIds } from "../src/discord/ai-identity-output.js";
-import { createFeedbackTracker } from "../src/discord/ai-feedback.js";
+import { createFeedbackTracker, createPersonaControlSeeder } from "../src/discord/ai-feedback.js";
+import {
+  buildPublicAiPersonaDetails,
+  canManageAiPersonaPublicProfile,
+  isAiPersonaVisibleToViewer,
+} from "../src/lib/ai-persona-public-view.js";
+import { updatePersonaSessionFromReaction } from "../src/discord/ai-persona-reaction-policy.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
 import { researchForTurn } from "../src/discord/ai-research-service.js";
 
@@ -137,6 +143,63 @@ test("Long bot answers seed only their first chunk while personas are not regist
   await track(messages, "persona", "Analyse ce projet en détail");
   assert.equal(registered.length, 1);
   assert.equal(reactions.length, 2);
+});
+
+test("General replies get a persona control without changing rating-reaction policy", async () => {
+  const registered: Array<{ ids: string[]; kind: string }> = [];
+  const reactions: string[] = [];
+  const seed = createPersonaControlSeeder(async (ids, kind) => { registered.push({ ids, kind }); });
+  await seed({
+    id: "general-reply",
+    react: async (emoji: string) => { reactions.push(emoji); },
+  } as unknown as Message);
+  assert.deepEqual(registered, [{ ids: ["general-reply"], kind: "bot" }]);
+  assert.deepEqual(reactions, ["🎭"]);
+});
+
+test("Persona reactions activate the member's own last selection and removal stops only that session", () => {
+  const first = { userId: "member-a", guildId: "guild", activePersonaId: null, lastPersonaId: "public-1" };
+  const second = { userId: "member-b", guildId: "guild", activePersonaId: null, lastPersonaId: "public-2" };
+  assert.deepEqual(updatePersonaSessionFromReaction(first, true, true), {
+    ...first, activePersonaId: "public-1",
+  });
+  assert.deepEqual(updatePersonaSessionFromReaction(second, true, true), {
+    ...second, activePersonaId: "public-2",
+  });
+  assert.deepEqual(updatePersonaSessionFromReaction({
+    ...first, activePersonaId: "public-1",
+  }, false, true), {
+    ...first, activePersonaId: null,
+  });
+  assert.equal(updatePersonaSessionFromReaction(first, true, false), null);
+  assert.equal(updatePersonaSessionFromReaction({
+    ...first, activePersonaId: "public-1",
+  }, true, true), null);
+});
+
+test("Public personas are server-scoped and reveal only creator-selected profile text", () => {
+  const publicPersona = { ownerId: "creator", guildId: "guild-a", visibility: "public" as const };
+  const privatePersona = { ownerId: "creator", guildId: null, visibility: "private" as const };
+  assert.equal(isAiPersonaVisibleToViewer(publicPersona, "guild-a", "member"), true);
+  assert.equal(isAiPersonaVisibleToViewer(publicPersona, "guild-b", "member"), false);
+  assert.equal(isAiPersonaVisibleToViewer(publicPersona, null, "member"), false);
+  assert.equal(isAiPersonaVisibleToViewer(privatePersona, "guild-a", "member"), false);
+  assert.equal(isAiPersonaVisibleToViewer(privatePersona, null, "creator"), true);
+  assert.equal(canManageAiPersonaPublicProfile([publicPersona], "creator", "guild-a"), true);
+  assert.equal(canManageAiPersonaPublicProfile([publicPersona], "member", "guild-a"), false);
+  assert.equal(canManageAiPersonaPublicProfile([publicPersona], "creator", "guild-b"), false);
+  assert.equal(canManageAiPersonaPublicProfile([privatePersona], "creator", "guild-a"), false);
+
+  const details = buildPublicAiPersonaDetails(
+    "Public character",
+    "Description selected by creator",
+    "Creator-selected introduction",
+    "en",
+  ).toJSON();
+  assert.equal(details.description, "Description selected by creator");
+  assert.equal(details.fields?.[0]?.value, "Creator-selected introduction");
+  assert.match(details.fields?.[0]?.name ?? "", /Creator profile/);
+  assert.doesNotMatch(JSON.stringify(details), /generated internal profile|private memory|messages analyzed/i);
 });
 
 test("The completion adapter includes detailed ecology instructions only on request", async () => {
