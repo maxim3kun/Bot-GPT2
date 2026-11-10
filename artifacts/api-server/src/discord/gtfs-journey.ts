@@ -27,12 +27,27 @@ export interface JourneyIndex {
   routeId: string;
   visits: Map<string, Visit[]>;
   stops: Map<string, JourneyStop>;
+  connectionsUnavailable?: boolean;
+  connections?: {
+    network: JourneyIndex;
+    rules: TransferRule[];
+    limited: boolean;
+    frequencyTrips: Set<string>;
+  };
+}
+export interface TransferRule {
+  from: string; to: string; type: number; minimum: number | null;
+  fromRoute: string; toRoute: string; fromTrip: string; toTrip: string;
 }
 export interface JourneyPair { tripId: string; origin: Visit; destination: Visit }
-export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean }
+export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string }
+export type JourneyRealtimeFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
+export function decodeJourneyFeed(bytes: Uint8Array): JourneyRealtimeFeed {
+  return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(bytes);
+}
 
 /** Inflate and parse CSV incrementally; never retain a national stop_times table or shapes. */
-async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) => void): Promise<void> {
+export async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) => void): Promise<void> {
   const parser = parse({
     columns: true, bom: true, skip_empty_lines: true, relax_column_count: true, max_record_size: 20_000,
     on_record(row: Row) { onRow(row); return null; },
@@ -91,22 +106,25 @@ export async function scanRoutesAtStops(zip: Uint8Array, ids: ReadonlySet<string
   });
 }
 
-export async function buildJourneyIndex(zip: Uint8Array, routeId: string): Promise<JourneyIndex> {
-  const metadata = parseGtfsStaticMetadata(zip);
-  metadata.trips = new Map([...metadata.trips].filter(([, trip]) => trip.routeId === routeId));
-  metadata.routes = new Map([...metadata.routes].filter(([id]) => id === routeId));
+export async function buildJourneyIndex(zip: Uint8Array, routeId: string, extraRoutes: ReadonlySet<string> = new Set(),
+  suppliedMetadata?: GtfsStaticMetadata): Promise<JourneyIndex> {
+  const metadata = suppliedMetadata ? { ...suppliedMetadata } : parseGtfsStaticMetadata(zip);
+  metadata.trips = new Map([...metadata.trips].filter(([, trip]) => trip.routeId === routeId || extraRoutes.has(trip.routeId)));
+  metadata.routes = new Map([...metadata.routes].filter(([id]) => id === routeId || extraRoutes.has(id)));
   const visits = new Map<string, Visit[]>();
   const stopIds = new Set<string>();
+  let count = 0;
   await scanRows(zip, "stop_times.txt", (row) => {
     const tripId = row.trip_id?.trim() ?? "";
     if (!metadata.trips.has(tripId)) return;
     const stopId = row.stop_id?.trim() ?? "";
     const sequence = Number(row.stop_sequence);
     if (!stopId || !Number.isFinite(sequence)) return;
+    if (++count > 150_000) throw new Error("Transport journey index exceeds the supported size");
     const stops = visits.get(tripId) ?? [];
     stops.push({ stopId, sequence, departure: row.departure_time?.trim() || row.arrival_time?.trim() || "",
       arrival: row.arrival_time?.trim() || row.departure_time?.trim() || "",
-      pickup: row.pickup_type !== "1", dropoff: row.drop_off_type !== "1" });
+      pickup: !row.pickup_type || row.pickup_type === "0", dropoff: !row.drop_off_type || row.drop_off_type === "0" });
     visits.set(tripId, stops);
     stopIds.add(stopId);
   });
@@ -144,14 +162,15 @@ export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now
       if (departureAt == null || departureAt < now - 20 || departureAt > now + 24 * 3600) continue;
       const arrivalAt = scheduledEpoch(date, pair.destination.arrival, timezone);
       results.push({ tripId: pair.tripId, departureAt,
-        arrivalAt: arrivalAt != null && arrivalAt >= departureAt ? arrivalAt : null, realtime: false });
+        arrivalAt: arrivalAt != null && arrivalAt >= departureAt ? arrivalAt : null, realtime: false,
+        serviceDate: date.replaceAll("-", "") });
     }
   }
   return results.sort((a, b) => a.departureAt - b.departureAt);
 }
 
-export function realtimeJourneys(bytes: Uint8Array, pairs: JourneyPair[], now: number) {
-  const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(bytes);
+export function realtimeJourneys(bytes: Uint8Array | JourneyRealtimeFeed, pairs: JourneyPair[], now: number) {
+  const feed = bytes instanceof Uint8Array ? decodeJourneyFeed(bytes) : bytes;
   const timestamp = Number(feed.header.timestamp);
   const fresh = Number.isFinite(timestamp) && now - timestamp <= 8 * 60 && now - timestamp >= -300;
   const cancelled = new Set<string>();
@@ -160,22 +179,27 @@ export function realtimeJourneys(bytes: Uint8Array, pairs: JourneyPair[], now: n
   for (const entity of feed.entity) {
     const update = entity.tripUpdate;
     if (!update) continue;
+    if (Object.hasOwn(update, "timestamp") && (now - Number(update.timestamp) > 8 * 60 || now - Number(update.timestamp) < -300)) continue;
     const tripId = update.trip.tripId ?? "";
     const matches = pairs.filter((pair) => pair.tripId === tripId);
     if (!matches.length) continue;
     if (update.trip.scheduleRelationship === 3) { cancelled.add(tripId); continue; }
     for (const pair of matches) {
-      const origin = update.stopTimeUpdate?.find((stop) => stop.stopId === pair.origin.stopId);
-      const destination = update.stopTimeUpdate?.find((stop) => stop.stopId === pair.destination.stopId);
+      const origin = update.stopTimeUpdate?.find((stop) => Object.hasOwn(stop, "stopSequence")
+        ? stop.stopSequence === pair.origin.sequence : stop.stopId === pair.origin.stopId);
+      const destination = update.stopTimeUpdate?.find((stop) => Object.hasOwn(stop, "stopSequence")
+        ? stop.stopSequence === pair.destination.sequence : stop.stopId === pair.destination.stopId);
       if (origin?.scheduleRelationship === 1 || destination?.scheduleRelationship === 1) {
         cancelled.add(tripId);
         continue;
       }
+      if (origin?.scheduleRelationship === 2) continue;
       const departureAt = Number(origin?.departure?.time ?? origin?.arrival?.time);
       if (!Number.isFinite(departureAt) || departureAt < now - 20 || departureAt > now + 24 * 3600) continue;
-      const arrivalAt = Number(destination?.arrival?.time ?? destination?.departure?.time);
+      const arrivalAt = destination?.scheduleRelationship === 2 ? NaN : Number(destination?.arrival?.time ?? destination?.departure?.time);
       results.push({ tripId, departureAt,
-        arrivalAt: Number.isFinite(arrivalAt) && arrivalAt >= departureAt ? arrivalAt : null, realtime: true });
+        arrivalAt: Number.isFinite(arrivalAt) && arrivalAt >= departureAt ? arrivalAt : null, realtime: true,
+        ...(update.trip.startDate ? { serviceDate: update.trip.startDate } : {}) });
     }
   }
   return { fresh, cancelled, results };

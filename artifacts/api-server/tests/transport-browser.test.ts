@@ -3,12 +3,14 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Message } from "discord.js";
-import { zipSync, strToU8 } from "fflate";
+import { zipSync, strToU8, unzipSync } from "fflate";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/discord/transport-browser.js";
 import { buildJourneyIndex, journeyPairs, realtimeJourneys } from "../src/discord/gtfs-journey.js";
 import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
+import { addConnections } from "../src/discord/gtfs-connections.js";
+import { connectedJourneys } from "../src/discord/transport-connections.js";
 
 const NOW = Date.parse("2026-11-10T07:00:00Z");
 const zip = zipSync({
@@ -20,7 +22,7 @@ const zip = zipSync({
   "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nB1,08:10:00,08:10:00,O,1\nB1,08:20:00,08:20:00,X,2\nB1,09:00:00,09:00:00,D,3\nB2,08:05:00,08:05:00,D,1\nB2,08:40:00,08:40:00,X,2\nB2,09:10:00,09:10:00,O,3\nM1,08:03:00,08:03:00,P,1\nM1,08:05:00,08:05:00,Q,2\n"),
 });
 
-function fixture(failingSource = false) {
+function fixture(failingSource = false, feed = zip) {
   const boxes: number[] = [];
   const dataset = {
     id: "data", title: "Réseau officiel", type: "public-transit", page_url: "https://transport.data.gouv.fr/datasets/test",
@@ -43,7 +45,7 @@ function fixture(failingSource = false) {
       return Response.json({ features: [1, ...(failingSource ? [2] : [])].flatMap((resource) =>
         ["O", "P"].map((id) => ({ properties: { resource_id: resource, stop_id: id, stop_name: id, location_type: 0 } }))) });
     }
-    if (url.pathname === "/test.zip") return new Response(zip);
+    if (url.pathname === "/test.zip") return new Response(feed);
     throw new Error(`Unexpected URL ${url}`);
   };
   const client = new TransportBrowserClient(new FranceTransportClient(fetcher, () => NOW), () => NOW);
@@ -277,4 +279,212 @@ test("command parsing retains explicit directions, numeric lines and department 
   assert.deepEqual(parseTransportCommand(["Breteuil", "(60)"]), { place: "Breteuil (60)", line: undefined, direction: undefined });
   assert.deepEqual(parseTransportCommand(["Paris", "1"]), { place: "Paris", line: "1", direction: undefined });
   assert.deepEqual(parseTransportCommand(["Beauvais", "vers", "Amiens", "601"]), { place: "Beauvais", direction: "Amiens", line: "601" });
+});
+
+function connectionZip(options: {
+  departure?: string; arrival?: string; rules?: string; mode?: number; extra?: Record<string, string>;
+} = {}) {
+  return zipSync({
+    ...unzipSync(zip),
+    "routes.txt": strToU8(`route_id,route_short_name,route_long_name,route_type\nB,601,Breteuil Amiens,3\nM,A,Ligne A,${options.mode ?? 1}\n`),
+    "stop_times.txt": strToU8(`trip_id,arrival_time,departure_time,stop_id,stop_sequence
+B1,08:10:00,08:10:00,O,1
+B1,08:20:00,08:20:00,X,2
+B1,09:00:00,09:00:00,D,3
+M1,${options.departure ?? "08:25:00"},${options.departure ?? "08:25:00"},P,1
+M1,${options.arrival ?? "08:35:00"},${options.arrival ?? "08:35:00"},Q,2
+`),
+    "transfers.txt": strToU8(options.rules ?? "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nX,P,2,180\n"),
+    ...Object.fromEntries(Object.entries(options.extra ?? {}).map(([name, text]) => [name, strToU8(text)])),
+  });
+}
+async function connectionIndex(options: Parameters<typeof connectionZip>[0] = {}) {
+  const bytes = connectionZip(options);
+  const index = await buildJourneyIndex(bytes, "B");
+  await addConnections(bytes, index);
+  return index;
+}
+const connectionOrigin = { label: "Breteuil Centre", ids: ["O"] };
+const connectionArrival = { label: "Jean Jaurès", ids: ["Q"], viaTransfer: true };
+
+test("a published bus to metro transfer exposes the destination and renders both timed legs", async () => {
+  const { client } = fixture(false, connectionZip());
+  const line = (await client.lines((await client.cities("Breteuil (60)"))[0]!, "bus")).lines[0]!;
+  const index = await client.index(line);
+  const arrival = arrivalOptions(index, connectionOrigin).find((stop) => stop.ids.includes("Q"))!;
+  assert.equal(arrival.viaTransfer, true);
+  const journeys = connectedJourneys(index, connectionOrigin, arrival, NOW / 1000);
+  assert.equal(journeys.length, 1);
+  assert.equal(journeys[0]!.second.departureAt - journeys[0]!.first.arrivalAt!, 300);
+  const result = await client.departures(line, index, connectionOrigin, arrival, "fr");
+  assert.match(result.content, /Bus 601.*08:10.*08:20/);
+  assert.match(result.content, /Métro A.*08:25.*08:35/);
+  assert.match(result.content, /minimum officiel 180 s/);
+  assert.match(result.content, /théorique/);
+  assert.match(result.content, /ne garantissent pas/);
+  assert.equal(result.source.url, line.source.url);
+  assert.ok(result.content.length < 1900);
+});
+
+test("impossible and too-short changes are rejected, the exact published minimum is accepted", async () => {
+  for (const [departure, expected] of [["08:15:00", 0], ["08:22:59", 0], ["08:23:00", 1]] as const) {
+    const index = await connectionIndex({ departure });
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, expected, departure);
+  }
+});
+
+test("identical stop names, proximity and headsigns never invent a connection", async () => {
+  const index = await connectionIndex({ rules: "from_stop_id,to_stop_id,transfer_type,min_transfer_time\n",
+    extra: { "stops.txt": "stop_id,stop_name\nO,Breteuil Centre\nX,Gare\nP,Gare\nQ,Jean Jaurès\nD,Amiens Gare\n" } });
+  assert.ok(!arrivalOptions(index, connectionOrigin).some((stop) => stop.ids.includes("Q")));
+  assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 0);
+});
+
+test("forbidden, reversed, missing-minimum and unsupported transfer rules do not create a journey", async () => {
+  for (const row of ["X,P,3,180", "P,X,2,180", "X,P,2,", "X,P,0,", "X,P,1,", "X,P,2,-1", "X,P,2,1.5"]) {
+    const index = await connectionIndex({ rules: `from_stop_id,to_stop_id,transfer_type,min_transfer_time\n${row}\n` });
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 0, row);
+  }
+});
+
+test("specific trip prohibitions override general transfer minima; ambiguous rules fail closed", async () => {
+  for (const extra of ["X,P,3,,B1,M1", "X,P,2,60,,"]) {
+    const index = await connectionIndex({
+      rules: `from_stop_id,to_stop_id,transfer_type,min_transfer_time,from_trip_id,to_trip_id\nX,P,2,180,,\n${extra}\n`,
+    });
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 0);
+  }
+});
+
+test("station-level rules apply through official parent IDs and support tram and rail changes", async () => {
+  for (const mode of [0, 2]) {
+    const index = await connectionIndex({ mode,
+      rules: "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nSX,SP,2,180\n",
+      extra: { "stops.txt": "stop_id,stop_name,parent_station,location_type\nO,Breteuil Centre,,0\nX,Gare bus,SX,0\nP,Gare train,SP,0\nQ,Terminus,,0\nD,Amiens Gare,,0\nSX,Gare bus,,1\nSP,Gare train,,1\n" },
+    });
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 1);
+  }
+});
+
+test("closed services, no pickup/dropoff and frequency-only trips cannot confirm a transfer", async () => {
+  for (const extra of [
+    { "calendar_dates.txt": "service_id,date,exception_type\nS,20261110,2\n" },
+    { "frequencies.txt": "trip_id,start_time,end_time,headway_secs\nM1,08:00:00,10:00:00,600\n" },
+    { "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\nB1,08:10:00,08:10:00,O,1,0,0\nB1,08:20:00,08:20:00,X,2,0,1\nM1,08:25:00,08:25:00,P,1,1,0\nM1,08:35:00,08:35:00,Q,2,0,0\n" },
+  ]) {
+    const index = await connectionIndex({ extra });
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 0);
+  }
+});
+
+function liveConnections(options: { late?: boolean; stale?: boolean; cancel?: string; skip?: boolean; delayOnly?: boolean; onlySecond?: boolean } = {}) {
+  return GtfsRealtimeBindings.transit_realtime.FeedMessage.encode({
+    header: { gtfsRealtimeVersion: "2.0", timestamp: NOW / 1000 - (options.stale ? 3600 : 0) },
+    entity: [
+      ...(!options.onlySecond ? [{ id: "first", tripUpdate: { trip: { tripId: "B1", startDate: "20261110", ...(options.cancel === "B1" ? { scheduleRelationship: 3 } : {}) },
+        stopTimeUpdate: options.delayOnly ? [{ stopId: "X", arrival: { delay: 240 } }] : [
+          { stopSequence: 1, departure: { time: NOW / 1000 + 600 } },
+          { stopSequence: 2, arrival: { time: NOW / 1000 + (options.late ? 1440 : 1200) } },
+        ] } }] : []),
+      { id: "second", tripUpdate: { trip: { tripId: "M1", startDate: "20261110", ...(options.cancel === "M1" ? { scheduleRelationship: 3 } : {}) },
+        stopTimeUpdate: [
+          { stopId: "P", departure: { time: NOW / 1000 + 1500 }, ...(options.skip ? { scheduleRelationship: 1 } : {}) },
+          { stopId: "Q", arrival: { time: NOW / 1000 + 2100 } },
+        ] } },
+    ],
+  }).finish();
+}
+
+test("fresh live delays, cancellations and skipped stops invalidate an otherwise feasible change", async () => {
+  const index = await connectionIndex();
+  for (const options of [{ late: true }, { cancel: "B1" }, { cancel: "M1" }, { skip: true }, { delayOnly: true }]) {
+    assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000, [liveConnections(options)]).length, 0,
+      JSON.stringify(options));
+  }
+  const stale = connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000, [liveConnections({ late: true, stale: true })]);
+  assert.equal(stale.length, 1);
+  assert.equal(stale[0]!.first.realtime, false);
+  const mixed = connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000, [liveConnections({ onlySecond: true })]);
+  assert.equal(mixed[0]!.first.realtime, false);
+  assert.equal(mixed[0]!.second.realtime, true);
+});
+
+test("Discord can select an arrival on a second line and refresh the complete itinerary", async () => {
+  const { client } = fixture(false, connectionZip());
+  const ui = discordFixture();
+  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  const option = ui.find("choose").options.find((choice: any) => choice.label === "Jean Jaurès");
+  assert.match(option.description, /correspondance/);
+  await ui.click("choose", option.value);
+  await until(() => ui.prompt.content.includes("minimum officiel"));
+  assert.match(ui.prompt.content, /Oise/);
+  assert.match(ui.prompt.content, /Métro A/);
+  await ui.click("refresh");
+  await until(() => ui.prompt.content.includes("minimum officiel"));
+  await ui.click("back");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  ui.collector.stop("cancelled");
+});
+
+test("after-midnight transfers use the previous service day's calendar, not the clock date", async () => {
+  const index = await connectionIndex({
+    departure: "32:25:00", arrival: "32:35:00",
+    extra: {
+      "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence\nB1,32:10:00,32:10:00,O,1\nB1,32:20:00,32:20:00,X,2\nM1,32:25:00,32:25:00,P,1\nM1,32:35:00,32:35:00,Q,2\n",
+      "calendar.txt": "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nS,1,0,0,0,0,0,0,20261109,20261109\n",
+    },
+  });
+  const journeys = connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000);
+  assert.equal(journeys.length, 1);
+  assert.equal(journeys[0]!.first.serviceDate, "20261109");
+  assert.equal(journeys[0]!.second.serviceDate, "20261109");
+  assert.equal(journeys[0]!.first.departureAt, NOW / 1000 + 600);
+});
+
+test("a transfer with a fresh second leg retains and labels the first leg as theoretical", async () => {
+  const { client } = fixture(false, connectionZip());
+  const line = (await client.lines((await client.cities("Breteuil (60)"))[0]!, "bus")).lines[0]!;
+  const index = await client.index(line);
+  line.realtime = [{ ...line.resource, id: 3, format: "gtfs-rt" }];
+  client.provider.realtimeFeed = async () => liveConnections({ onlySecond: true });
+  const result = await client.departures(line, index, connectionOrigin, connectionArrival, "fr");
+  assert.match(result.content, /Bus 601.*\[théorique\]/);
+  assert.match(result.content, /Métro A.*\[temps réel\]/);
+  assert.match(result.content, /ne garantissent pas/);
+});
+
+test("oversized transfer tables leave direct journeys available with an explicit menu warning", async () => {
+  const { client } = fixture(false, connectionZip({
+    rules: `from_stop_id,to_stop_id,transfer_type,min_transfer_time\n${"X,P,2,180\n".repeat(5_001)}`,
+  }));
+  const line = (await client.lines((await client.cities("Breteuil (60)"))[0]!, "bus")).lines[0]!;
+  const index = await client.index(line);
+  assert.equal(index.connectionsUnavailable, true);
+  assert.deepEqual(arrivalOptions(index, connectionOrigin).map((stop) => stop.label), ["Amiens Gare", "Gare"]);
+  const ui = discordFixture();
+  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  assert.match(ui.prompt.content, /seuls les trajets directs/);
+  ui.collector.stop("cancelled");
+});
+
+test("route caps are explicit instead of pretending to search the whole network", async () => {
+  const routes = Array.from({ length: 42 }, (_, i) => `R${i},${i},Rail ${i},2`).join("\n");
+  const trips = Array.from({ length: 42 }, (_, i) => `R${i},S,T${i},Terminus`).join("\n");
+  const times = Array.from({ length: 42 }, (_, i) => `T${i},08:25:00,08:25:00,P,1\nT${i},08:35:00,08:35:00,Q,2`).join("\n");
+  const index = await connectionIndex({ extra: {
+    "routes.txt": `route_id,route_short_name,route_long_name,route_type\nB,601,Bus,3\n${routes}\n`,
+    "trips.txt": `route_id,service_id,trip_id,trip_headsign\nB,S,B1,Amiens\n${trips}\n`,
+    "stop_times.txt": `trip_id,arrival_time,departure_time,stop_id,stop_sequence\nB1,08:10:00,08:10:00,O,1\nB1,08:20:00,08:20:00,X,2\n${times}\n`,
+  } });
+  assert.equal(index.connections!.limited, true);
+  assert.equal(index.connections!.network.metadata.routes.size, 41, "initial route plus at most forty connecting routes");
+  assert.equal(connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000).length, 3);
 });

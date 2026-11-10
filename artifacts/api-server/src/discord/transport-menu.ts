@@ -101,7 +101,9 @@ export async function handleTransportCommand(
     if (stage === "lines") return lines.map((value, i) => ({
       value: String(i), label: `${value.label} · ${value.description}`, description: value.source.name,
     }));
-    return (stage === "origins" ? origins : arrivals).map((value, i) => ({ value: String(i), label: value.label }));
+    return (stage === "origins" ? origins : arrivals).map((value, i) => ({ value: String(i), label: value.label,
+      ...(stage === "arrivals" ? { description: value.viaTransfer ? text("1 correspondance · délai officiel", "1 transfer · official minimum")
+        : text("Trajet direct", "Direct journey") } : {}) }));
   }
 
   async function render() {
@@ -135,7 +137,11 @@ export async function handleTransportCommand(
     rows.push(controls);
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
-    const note = stage === "arrivals" ? text("\nArrivées desservies directement, sans correspondance.", "\nDirectly served destinations, without transfers.") : "";
+    const note = stage === "arrivals" ? text("\nTrajets directs ou avec 1 correspondance publiée, dans la même source officielle. Tous modes à l’arrivée; autres réseaux et marche non calculés. Horaires vérifiés après sélection.",
+      "\nDirect journeys or 1 published transfer within the same official source. Any arrival mode; other networks and walking not calculated. Times checked after selection.") +
+      (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
+      (index?.connectionsUnavailable ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
+        "\nTransfer search unavailable or too large: only direct journeys are offered.") : "") : "";
     await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${stage === "lines" ? listingNote : ""}`, rows);
   }
 

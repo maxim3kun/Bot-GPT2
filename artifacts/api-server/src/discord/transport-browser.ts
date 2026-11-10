@@ -8,6 +8,8 @@ import {
   type JourneyIndex, type JourneyStop,
 } from "./gtfs-journey.js";
 import { logger } from "../lib/logger.js";
+import { addConnections, connectionPaths } from "./gtfs-connections.js";
+import { connectedJourneys, formatConnections } from "./transport-connections.js";
 
 export interface TransportLine {
   routeId: string;
@@ -19,7 +21,7 @@ export interface TransportLine {
   realtime: CatalogResource[];
   source: TransportSource;
 }
-export interface StopGroup { label: string; ids: string[] }
+export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
 export interface LineListing { lines: TransportLine[]; unavailable: number }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 
@@ -51,7 +53,16 @@ export function arrivalOptions(index: JourneyIndex, origin: StopGroup): StopGrou
       if (visit.pickup && ids.has(visit.stopId)) boarded = true;
     }
   }
-  return groupStops([...index.stops.values()].filter((stop) => reachable.has(stop.id)));
+  const direct = groupStops([...index.stops.values()].filter((stop) => reachable.has(stop.id)));
+  let connected = new Set<string>();
+  try { connected = new Set(connectionPaths(index, ids).map((path) => path.second.destination.stopId)); }
+  catch (error) {
+    index.connectionsUnavailable = true;
+    logger.warn({ err: error }, "Transport connection choices exceed supported limits");
+  }
+  const transfers = groupStops([...(index.connections?.network.stops.values() ?? [])].filter((stop) => connected.has(stop.id)))
+    .map((stop) => ({ ...stop, viaTransfer: true }));
+  return [...direct, ...transfers];
 }
 
 export class TransportBrowserClient {
@@ -148,10 +159,18 @@ export class TransportBrowserClient {
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<JourneyIndex>;
     const work = (async () => {
-      const value = await this.scan(async () =>
-        buildJourneyIndex(await this.provider.staticFeed(line.resource), line.routeId));
+      const value = await this.scan(async () => {
+        const zip = await this.provider.staticFeed(line.resource);
+        const index = await buildJourneyIndex(zip, line.routeId);
+        try { await addConnections(zip, index); }
+        catch (error) {
+          index.connectionsUnavailable = true;
+          logger.warn({ err: error, resourceId: line.resource.id }, "Transport connections unavailable; direct index retained");
+        }
+        return index;
+      });
       if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
-      this.indexes.set(key, { value, expires: this.now() + 300_000 });
+      this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable ? 30_000 : 300_000) });
       return value;
     })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);
@@ -161,6 +180,18 @@ export class TransportBrowserClient {
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
+    if (arrival.viaTransfer) {
+      const feeds = (await Promise.all(line.realtime.map(async (resource) => {
+        try { return await this.provider.realtimeFeed(resource); }
+        catch (error) {
+          logger.debug({ resourceId: resource.id, err: error }, "Transport connection realtime unavailable");
+          return null;
+        }
+      }))).filter((feed): feed is Uint8Array => feed !== null);
+      const journeys = connectedJourneys(index, origin, arrival, now, feeds);
+      return { content: formatConnections(line, index, origin, arrival, journeys, language,
+        !journeys.length || journeys.some((journey) => !journey.first.realtime || !journey.second.realtime)), source: line.source };
+    }
     const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
     if (!pairs.length) return { content: french ? "Aucun trajet direct ne relie ces deux arrêts dans ce sens."
       : "No direct journey connects these stops in this direction.", source: line.source };

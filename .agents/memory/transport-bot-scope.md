@@ -32,3 +32,11 @@ The official Normandy feeds serving Breteuil exceed 32 MiB compressed. A lower d
 **Why:** A live regression check failed after lowering the cap to 32 MiB; the same resources worked under the existing larger cap.
 
 **How to apply:** Bound memory by serializing large-feed work and parsing needed CSV data incrementally, not by arbitrarily lowering the accepted size below verified official feeds. Recheck Breteuil in Eure when changing transport resource limits.
+
+## Evidence for connections
+
+Do not infer a transfer or walking duration from equal stop names, destinations, or geographic proximity. The conservative routing scope is one change within a single official feed, using published transfer minima; broader routing needs additional authoritative evidence.
+
+**Why:** The user requires verifiable journeys and explicitly forbids invented connections and walking times. A deliberately incomplete search is preferable to a plausible but ungrounded itinerary.
+
+**How to apply:** Keep routing limitations visible, preserve the selected municipality identity, and label each leg's timetable/realtime status independently. A known but incomplete live update must not silently confirm a connection from unchanged scheduled times.
