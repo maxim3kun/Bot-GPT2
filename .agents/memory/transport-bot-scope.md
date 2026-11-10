@@ -33,6 +33,12 @@ The official Normandy feeds serving Breteuil exceed 32 MiB compressed. A lower d
 
 **How to apply:** Bound memory by serializing large-feed work and parsing needed CSV data incrementally, not by arbitrarily lowering the accepted size below verified official feeds. Recheck Breteuil in Eure when changing transport resource limits.
 
+The global Île-de-France Mobilités GTFS also exceeds an 80 MiB download budget: a public HEAD request returned a roughly 111 MiB ZIP, with the catalogue describing over 400,000 trips.
+
+**Why:** Investigation of the Paris metro failure verified that the catalogue redirects to the public operator file on `eu.ftp.opendatasoft.com`; a domain correction alone would still leave the oversized-file failure.
+
+**How to apply:** Validate the complete real-provider path, including download size and parsing cost, when supporting large metropolitan networks. Do not treat adding a host or raising a byte cap as sufficient proof that a metro line lookup works within the bot's memory and latency bounds.
+
 ## Evidence for connections
 
 Do not infer a transfer or walking duration from equal stop names, destinations, or geographic proximity. The conservative routing scope is one change within a single official feed, using published transfer minima; broader routing needs additional authoritative evidence.
