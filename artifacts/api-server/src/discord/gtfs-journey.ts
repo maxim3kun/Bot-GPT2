@@ -3,6 +3,7 @@ import { parse } from "csv-parse";
 import { finished } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import { normalizeTransitText } from "./transport-query.js";
 import {
   addDays, localDate, serviceRunsOn, scheduledEpoch, parseGtfsStaticMetadata, routeTypeToMode,
   type GtfsStaticMetadata, type GtfsRouteAtStops,
@@ -21,6 +22,7 @@ export interface JourneyStop {
   id: string;
   name: string;
   parent: string;
+  stationName?: string;
 }
 export interface JourneyIndex {
   metadata: GtfsStaticMetadata;
@@ -40,7 +42,7 @@ export interface TransferRule {
   fromRoute: string; toRoute: string; fromTrip: string; toTrip: string;
 }
 export interface JourneyPair { tripId: string; origin: Visit; destination: Visit }
-export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string }
+export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string; departureStopId?: string }
 export type JourneyRealtimeFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
 export function decodeJourneyFeed(bytes: Uint8Array): JourneyRealtimeFeed {
   return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(bytes);
@@ -87,14 +89,17 @@ export async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) 
   }
 }
 
-export async function scanRoutesAtStops(zip: Uint8Array, ids: ReadonlySet<string>): Promise<GtfsRouteAtStops[]> {
+export async function scanRoutesAtStops(zip: Uint8Array, ids: ReadonlySet<string>, requestedLine = ""): Promise<GtfsRouteAtStops[]> {
   const { routes, trips } = parseGtfsStaticMetadata(zip);
+  const wanted = requestedLine ? new Set([...routes].filter(([id, route]) =>
+    normalizeTransitText(route.shortName || id) === normalizeTransitText(requestedLine)).map(([id]) => id)) : null;
+  if (wanted && !wanted.size) return [];
   const selected = new Map<string, Set<string>>();
   await scanRows(zip, "stop_times.txt", (row) => {
     const stopId = row.stop_id?.trim() ?? "";
     if (!ids.has(stopId)) return;
     const routeId = trips.get(row.trip_id?.trim() ?? "")?.routeId;
-    if (!routeId) return;
+    if (!routeId || (wanted && !wanted.has(routeId))) return;
     const stops = selected.get(routeId) ?? new Set<string>();
     stops.add(stopId);
     selected.set(routeId, stops);
@@ -130,10 +135,15 @@ export async function buildJourneyIndex(zip: Uint8Array, routeId: string, extraR
   });
   for (const stops of visits.values()) stops.sort((a, b) => a.sequence - b.sequence);
   const stops = new Map<string, JourneyStop>();
+  const stationNames = new Map<string, string>();
   await scanRows(zip, "stops.txt", (row) => {
     const id = row.stop_id?.trim() ?? "";
+    if (row.location_type?.trim() === "1" && row.stop_name?.trim()) stationNames.set(id, row.stop_name.trim());
     if (stopIds.has(id)) stops.set(id, { id, name: row.stop_name?.trim() || id, parent: row.parent_station?.trim() ?? "" });
   });
+  for (const stop of stops.values()) {
+    if (stop.parent && stationNames.has(stop.parent)) stop.stationName = stationNames.get(stop.parent);
+  }
   return { metadata, routeId, visits, stops };
 }
 
@@ -149,9 +159,10 @@ export function journeyPairs(index: JourneyIndex, origins: ReadonlySet<string>, 
   });
 }
 
-export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now: number): JourneyTime[] {
+export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now: number, horizonDays = 1): JourneyTime[] {
   const timezone = index.metadata.timezone || "Europe/Paris";
-  const dates = [-1, 0, 1].map((offset) => addDays(localDate(now, timezone), offset));
+  const horizon = Math.max(1, Math.min(7, Math.floor(horizonDays)));
+  const dates = Array.from({ length: horizon + 2 }, (_, i) => addDays(localDate(now, timezone), i - 1));
   const results: JourneyTime[] = [];
   for (const pair of pairs) {
     const service = index.metadata.trips.get(pair.tripId)?.serviceId;
@@ -159,9 +170,9 @@ export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now
     for (const date of dates) {
       if (!serviceRunsOn(index.metadata, service, date)) continue;
       const departureAt = scheduledEpoch(date, pair.origin.departure, timezone);
-      if (departureAt == null || departureAt < now - 20 || departureAt > now + 24 * 3600) continue;
+      if (departureAt == null || departureAt < now - 20 || departureAt > now + horizon * 24 * 3600) continue;
       const arrivalAt = scheduledEpoch(date, pair.destination.arrival, timezone);
-      results.push({ tripId: pair.tripId, departureAt,
+      results.push({ tripId: pair.tripId, departureAt, departureStopId: pair.origin.stopId,
         arrivalAt: arrivalAt != null && arrivalAt >= departureAt ? arrivalAt : null, realtime: false,
         serviceDate: date.replaceAll("-", "") });
     }
@@ -197,7 +208,7 @@ export function realtimeJourneys(bytes: Uint8Array | JourneyRealtimeFeed, pairs:
       const departureAt = Number(origin?.departure?.time ?? origin?.arrival?.time);
       if (!Number.isFinite(departureAt) || departureAt < now - 20 || departureAt > now + 24 * 3600) continue;
       const arrivalAt = destination?.scheduleRelationship === 2 ? NaN : Number(destination?.arrival?.time ?? destination?.departure?.time);
-      results.push({ tripId, departureAt,
+      results.push({ tripId, departureAt, departureStopId: pair.origin.stopId,
         arrivalAt: Number.isFinite(arrivalAt) && arrivalAt >= departureAt ? arrivalAt : null, realtime: true,
         ...(update.trip.startDate ? { serviceDate: update.trip.startDate } : {}) });
     }

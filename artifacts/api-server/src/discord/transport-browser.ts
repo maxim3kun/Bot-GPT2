@@ -22,14 +22,27 @@ export interface TransportLine {
   source: TransportSource;
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
-export interface LineListing { lines: TransportLine[]; unavailable: number }
+export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
+
+function publishedRouteCount(resource: CatalogResource): number {
+  const stats = resource.metadata?.stats;
+  const count = stats && typeof stats === "object" && "routes_count" in stats ? Number(stats.routes_count) : NaN;
+  return Number.isFinite(count) && count > 0 ? count : Number.MAX_SAFE_INTEGER;
+}
+
+function publishedModes(resource: CatalogResource): string[] | undefined {
+  const modes = resource.modes ?? resource.metadata?.modes;
+  return Array.isArray(modes) && modes.every((mode) => typeof mode === "string") ? modes : undefined;
+}
 
 export function groupStops(stops: JourneyStop[]): StopGroup[] {
   const groups = new Map<string, StopGroup>();
   for (const stop of stops) {
-    const key = normalizeTransitText(stop.name);
-    const group = groups.get(key) ?? { label: stop.name, ids: [] };
+    // Only an official parent_station establishes that differently named
+    // platforms belong to the same station; never infer it from proximity.
+    const key = stop.parent ? `station:${stop.parent}` : `name:${normalizeTransitText(stop.name)}`;
+    const group = groups.get(key) ?? { label: stop.stationName || stop.name, ids: [] };
     if (!group.ids.includes(stop.id)) group.ids.push(stop.id);
     groups.set(key, group);
   }
@@ -38,8 +51,11 @@ export function groupStops(stops: JourneyStop[]): StopGroup[] {
 
 export function originOptions(index: JourneyIndex, line: TransportLine): StopGroup[] {
   const nearby = new Set(line.nearbyStopIds);
+  const nearbyStations = new Set([...index.stops.values()].filter((stop) => nearby.has(stop.id) && stop.parent)
+    .map((stop) => stop.parent));
   const boarding = new Set([...index.visits.values()].flatMap((visits) =>
-    visits.filter((visit) => visit.pickup && nearby.has(visit.stopId)).map((visit) => visit.stopId)));
+    visits.filter((visit) => visit.pickup && (nearby.has(visit.stopId) ||
+      nearbyStations.has(index.stops.get(visit.stopId)?.parent ?? ""))).map((visit) => visit.stopId)));
   return groupStops([...index.stops.values()].filter((stop) => boarding.has(stop.id)));
 }
 
@@ -85,13 +101,13 @@ export class TransportBrowserClient {
 
   cities(place: string): Promise<TransportLocation[]> { return this.provider.municipalities(place); }
 
-  async lines(city: TransportLocation, mode: TransitMode): Promise<LineListing> {
-    const key = `${city.id}:${mode}`;
+  async lines(city: TransportLocation, mode: TransitMode, requestedLine = ""): Promise<LineListing> {
+    const key = `${city.id}:${mode}:${normalizeTransitText(requestedLine)}`;
     const cached = this.listings.get(key);
     if (cached && cached.expires > this.now()) return cached.value;
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<LineListing>;
-    const work = this.loadLines(city, mode).then((value) => {
+    const work = this.loadLines(city, mode, requestedLine).then((value) => {
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
       this.listings.set(key, { value, expires: this.now() + (value.unavailable ? 30_000 : 300_000) });
       return value;
@@ -100,7 +116,7 @@ export class TransportBrowserClient {
     return work;
   }
 
-  private async loadLines(city: TransportLocation, mode: TransitMode): Promise<LineListing> {
+  private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string): Promise<LineListing> {
     const [catalogue, nearby] = await Promise.all([
       this.provider.getCatalog(), this.provider.nearbyStops(city.latitude, city.longitude, 0.025),
     ]);
@@ -115,19 +131,24 @@ export class TransportBrowserClient {
     }
     const groups = catalogue.filter((dataset) => dataset.type === "public-transit").flatMap((dataset) =>
       dataset.resources.filter((resource) => stopsByResource.has(resource.id) &&
-        isStaticScheduleResource(resource) && modeMatches(mode, resource.modes))
+        isStaticScheduleResource(resource) && modeMatches(mode, publishedModes(resource)))
         .map((resource) => ({ dataset, resource, stopIds: stopsByResource.get(resource.id)! })))
-      .sort((a, b) => Number(/agr[eé]gat/i.test(a.dataset.title)) - Number(/agr[eé]gat/i.test(b.dataset.title)));
+      .sort((a, b) => Number(/agr[eé]gat/i.test(a.dataset.title)) - Number(/agr[eé]gat/i.test(b.dataset.title)) ||
+        // Try smaller operator feeds before European/national bundles. A local
+        // numbered line should not wait for unrelated long-distance operators.
+        publishedRouteCount(a.resource) - publishedRouteCount(b.resource));
     let unavailable = 0;
     const found: TransportLine[] = [];
     // Serialize download + scan together, so a second large ZIP cannot accumulate during parsing.
     let next = 0;
-    await Promise.all(Array.from({ length: Math.min(2, groups.length) }, async () => {
+    // A numbered-line request stops at the first official source serving that line
+    // locally. Do not make it wait for unrelated networks or aggregate feeds.
+    await Promise.all(Array.from({ length: Math.min(requestedLine ? 1 : 2, groups.length) }, async () => {
       while (next < groups.length) {
         const { dataset, resource, stopIds } = groups[next++]!;
         try {
           const routes = await this.scan(async () =>
-            scanRoutesAtStops(await this.provider.staticFeed(resource), stopIds));
+            scanRoutesAtStops(await this.provider.staticFeed(resource), stopIds, requestedLine));
           for (const route of routes) {
             if (route.mode !== mode) continue;
             found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
@@ -135,6 +156,7 @@ export class TransportBrowserClient {
               realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
               source: { name: dataset.title, url: dataset.page_url } });
           }
+          if (requestedLine && found.length) break;
         } catch (error) {
           unavailable++;
           logger.warn({ resourceId: resource.id, err: error }, "Transport browser source unavailable");
@@ -149,7 +171,8 @@ export class TransportBrowserClient {
       if (!unique.has(fingerprint)) unique.set(fingerprint, line);
     }
     return { lines: [...unique.values()].sort((a, b) =>
-      a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")), unavailable };
+      a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
+      unavailable, ...(requestedLine ? { targeted: true } : {}) };
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {
@@ -196,6 +219,9 @@ export class TransportBrowserClient {
     if (!pairs.length) return { content: french ? "Aucun trajet direct ne relie ces deux arrêts dans ce sens."
       : "No direct journey connects these stops in this direction.", source: line.source };
     const schedules = scheduledJourneys(index, pairs, now);
+    // A holiday or the last evening service must not look like a broken lookup.
+    // Widen only if the ordinary window is empty, retaining the official calendar.
+    const laterSchedules = schedules.length ? [] : scheduledJourneys(index, pairs, now, 7);
     const updates = await Promise.all(line.realtime.map(async (resource) => {
       try { return realtimeJourneys(await this.provider.realtimeFeed(resource), pairs, now); }
       catch (error) {
@@ -206,24 +232,31 @@ export class TransportBrowserClient {
     const fresh = updates.filter((update) => update?.fresh);
     const cancelled = new Set(fresh.flatMap((update) => [...update!.cancelled]));
     const estimates = fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
-    const times = estimates.length ? estimates : schedules.filter((time) => !cancelled.has(time.tripId));
+    const times = estimates.length ? estimates : (schedules.length ? schedules : laterSchedules)
+      .filter((time) => time.departureAt > now + 24 * 3600 || !cancelled.has(time.tripId));
     const deduped = [...new Map(times.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
       .sort((a, b) => a.departureAt - b.departureAt).slice(0, 6);
     const timezone = index.metadata.timezone || "Europe/Paris";
     const clock = (time: number) => new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
-      timeZone: timezone, weekday: "short", hour: "2-digit", minute: "2-digit",
+      timeZone: timezone, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     }).format(new Date(time * 1000));
     const heading = `**${MODE_NAMES[line.mode]} ${line.label} · ${origin.label} → ${arrival.label}**`;
     const kind = estimates.length ? (french ? "Estimations en temps réel" : "Real-time estimates")
       : (french ? "Horaires théoriques — non temps réel" : "Scheduled times — not real-time");
-    const rows = deduped.map((time) => `• ${clock(time.departureAt)}${time.arrivalAt == null ? ""
-      : ` → ${clock(time.arrivalAt)}`}`);
-    const empty = french ? "Aucun départ exploitable dans les prochaines 24 h pour ce trajet direct."
-      : "No usable departures in the next 24 hours for this direct journey.";
+    const rows = deduped.map((time) => {
+      const stop = time.departureStopId ? index.stops.get(time.departureStopId) : undefined;
+      const platform = origin.ids.length > 1 && stop ? ` · ${stop.name}` : "";
+      return `• ${clock(time.departureAt)}${time.arrivalAt == null ? "" : ` → ${clock(time.arrivalAt)}`}${platform}`;
+    });
+    const later = !estimates.length && !schedules.length && deduped.length
+      ? (french ? "\nAucun départ prévu dans les prochaines 24 h selon le calendrier publié. Prochains départs (jusqu’à 7 jours) :"
+        : "\nNo departures scheduled in the next 24 hours according to the published calendar. Next departures (up to 7 days):") : "";
+    const empty = french ? "Aucun départ trouvé dans les 7 prochains jours selon le calendrier publié pour ces arrêts. Cela ne signifie pas que la ligne n’existe pas."
+      : "No departure found within the next 7 days in the published calendar for these stops. This does not mean the route does not exist.";
     const warning = !estimates.length && line.realtime.length
       ? (french ? "\nLe direct est indisponible, périmé ou sans estimation pour ce trajet." : "\nLive data is unavailable, stale or has no estimate for this journey.") : "";
     const cancellation = cancelled.size ? (french ? "\nLes courses signalées annulées ou sans desserte ont été exclues."
       : "\nCancelled trips and skipped stops have been excluded.") : "";
-    return { content: `${heading}\n${kind}\n${rows.join("\n") || empty}${warning}${cancellation}`.slice(0, 1900), source: line.source };
+    return { content: `${heading}\n${kind}${later}\n${rows.join("\n") || empty}${warning}${cancellation}`.slice(0, 1900), source: line.source };
   }
 }

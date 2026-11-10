@@ -8,3 +8,9 @@ A Railway service reported as online with no recent failed deployments can still
 **Why:** Investigation of the user's silent bus command found this discrepancy between healthy deployment status and runtime logs. The deployed revision also lacked the locally verified transport changes.
 
 **How to apply:** Correlate deployment revision, scoped runtime logs and resource measurements. Separate confirmed interruptions from suspected memory exhaustion, and do not attribute an interruption to a particular Discord command without timing or event evidence. A local restart does not verify the independently hosted Railway bot.
+
+The user runs Railway with a different Discord token for tests.
+
+**Why:** The user explicitly distinguished the Railway test bot from the bot used for their other transport reproduction.
+
+**How to apply:** Treat them as separate bot instances; do not assume a local restart updates Railway or that logs from one instance explain an interaction with the other. Never inspect or display token values.

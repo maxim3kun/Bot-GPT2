@@ -33,6 +33,7 @@ export interface CatalogResource {
   format: string;
   type?: string;
   url: string;
+  original_url?: string;
   is_available: boolean;
   modes?: string[];
   updated?: string;
@@ -460,7 +461,7 @@ export class FranceTransportClient {
     const key = `static-file:${resource.id}`;
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<Uint8Array>;
-    const request = this.downloadStatic(resource.url).then((bytes) => {
+    const request = this.downloadStaticResource(resource).then((bytes) => {
       // Binary feeds have their own small memory budget, not the generic 500-entry cache.
       if (bytes.length <= MAX_STATIC_FEED_BYTES) {
         let size = [...this.staticFiles.values()].reduce((sum, item) => sum + item.bytes.length, 0);
@@ -475,6 +476,22 @@ export class FranceTransportClient {
     }).finally(() => this.pending.delete(key));
     this.pending.set(key, request);
     return request;
+  }
+
+  private async downloadStaticResource(resource: CatalogResource): Promise<Uint8Array> {
+    // The catalogue redirect service can be slow/down while the published
+    // operator URL still works. Apply the same allowlist to both paths.
+    let direct: string | undefined;
+    if (resource.original_url && resource.original_url !== resource.url) {
+      try { direct = safeUrl(resource.original_url).href; } catch { /* Use the catalogue URL instead. */ }
+    }
+    if (direct) {
+      try { return await this.downloadStatic(direct); }
+      catch (error) {
+        logger.debug({ resourceId: resource.id, err: error }, "Transport operator download unavailable; trying catalogue");
+      }
+    }
+    return this.downloadStatic(resource.url);
   }
 
   private async downloadStatic(url: string): Promise<Uint8Array> {

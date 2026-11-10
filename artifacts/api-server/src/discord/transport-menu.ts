@@ -9,6 +9,7 @@ import { sourceButton, lineMatches, type TransportLocation } from "./public-tran
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import type { JourneyIndex } from "./gtfs-journey.js";
 import { logger } from "../lib/logger.js";
+import { resolveBusJourney, normalizeCityName } from "./bus-journey.js";
 
 const browser = new TransportBrowserClient();
 const active = new Map<string, () => void>();
@@ -171,6 +172,17 @@ export async function handleTransportCommand(
     if (!place) { await cityInput(); return; }
     await edit(text("Recherche des communes…", "Looking up cities…"));
     cities = await service.cities(place);
+    if (!direction && !cities.some((candidate) => normalizeCityName(candidate.name) === normalizeCityName(place))) {
+      const journey = await resolveBusJourney(place, async (name) => {
+        const candidates = name === place ? cities : await service.cities(name);
+        return candidates.find((candidate) => normalizeCityName(candidate.name) === normalizeCityName(name))?.name ?? null;
+      });
+      if (journey.direction) {
+        place = journey.place;
+        direction = journey.direction;
+        cities = await service.cities(place);
+      }
+    }
     if (!live) return;
     if (!cities.length) {
       await cityInput();
@@ -187,13 +199,15 @@ export async function handleTransportCommand(
     if (!live || !city || !selectedMode) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined;
     await edit(`${city.label}\n${text("Chargement des lignes…", "Loading routes…")}`);
-    const result = await service.lines(city, selectedMode);
+    const result = await service.lines(city, selectedMode, lineFilter);
     if (!live) return;
     lines = result.lines;
     logger.info({ cityId: city.id, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
       "Transport routes loaded");
     listingNote = result.unavailable ? text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
       "\nSome network sources could not be loaded; this list may be incomplete.") : "";
+    if (result.targeted) listingNote += text("\nRecherche ciblée sur la ligne demandée; les autres réseaux ne sont pas tous parcourus.",
+      "\nTargeted search for the requested line; not all other networks were searched.");
     if (!lines.length) {
       stage = "error";
       await edit(`${city.label}\n${result.unavailable
@@ -224,7 +238,12 @@ export async function handleTransportCommand(
   async function loadArrivals() {
     if (!live || !index || !origin) return;
     arrivals = arrivalOptions(index, origin);
-    stage = "arrivals"; arrival = undefined; filter = direction; page = 0;
+    if (direction) {
+      const wanted = normalizeTransitText(direction);
+      arrivals.sort((a, b) => Number(normalizeTransitText(b.label).includes(wanted)) -
+        Number(normalizeTransitText(a.label).includes(wanted)));
+    }
+    stage = "arrivals"; arrival = undefined; filter = ""; page = 0;
     await render();
   }
 

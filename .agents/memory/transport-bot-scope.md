@@ -40,3 +40,27 @@ Do not infer a transfer or walking duration from equal stop names, destinations,
 **Why:** The user requires verifiable journeys and explicitly forbids invented connections and walking times. A deliberately incomplete search is preferable to a plausible but ungrounded itinerary.
 
 **How to apply:** Keep routing limitations visible, preserve the selected municipality identity, and label each leg's timetable/realtime status independently. A known but incomplete live update must not silently confirm a connection from unchanged scheduled times.
+
+## Short timetable windows and service exceptions
+
+An empty 24-hour window is not evidence that a valid line has no timetable. For direct journeys, show later published service within seven days when the ordinary window is empty, retaining date exceptions and showing actual dates.
+
+**Why:** A narrow Oise 601 stop query on the evening before 11 November had no departures within 24 hours, but this did not establish an absence of buses from the station: the user correctly reported later departures from another officially linked platform.
+
+**How to apply:** Check all officially linked station platforms, the requested stops, local clock and actual service calendar before attributing missing results to a holiday or an incomplete feed. A destination hint should prioritize choices, not silently hide intermediate stops.
+
+## Stations and their platforms
+
+Offer a station-wide selection for boarding points linked by the official `parent_station`, including a sibling platform even when initial geographic discovery returned only another member. Display the actual departure point for each result.
+
+**Why:** The user was on the 601 and correctly reported departures at 19:40 and 20:45. Both were in the same official file but attached to “Gare Quai E”, while the bot queried only “Gare routière”. Both belong to the same station. The previous holiday explanation was incorrect for the station as a whole.
+
+**How to apply:** Use the official station name and identifiers, not name similarity or invented proximity relationships. Verify reported missing departures against all officially related platforms before concluding that the data or calendar excludes them.
+
+## Catalogue download reliability
+
+Prefer an allowlisted operator URL published in the catalogue, with the catalogue URL as fallback. Check smaller operator feeds before national/European bundles for a specific numbered-line request.
+
+**Why:** Live reproduction found catalogue redirect timeouts and HTTP 502 errors while the official Oise operator file remained available. Unrelated large feeds substantially delayed a local 601 lookup.
+
+**How to apply:** Keep URL validation and resource bounds on both paths. Verify the real operator path, not only fixture tests, after changing download selection. A targeted result must not claim to enumerate every network using that number.

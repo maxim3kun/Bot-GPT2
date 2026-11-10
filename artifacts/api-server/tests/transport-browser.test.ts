@@ -7,7 +7,7 @@ import { zipSync, strToU8, unzipSync } from "fflate";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/discord/transport-browser.js";
-import { buildJourneyIndex, journeyPairs, realtimeJourneys } from "../src/discord/gtfs-journey.js";
+import { buildJourneyIndex, journeyPairs, realtimeJourneys, scheduledJourneys } from "../src/discord/gtfs-journey.js";
 import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
 import { addConnections } from "../src/discord/gtfs-connections.js";
 import { connectedJourneys } from "../src/discord/transport-connections.js";
@@ -107,6 +107,86 @@ test("one failed source leaves usable routes available and identifies the partia
   const result = await client.lines((await client.cities("Breteuil"))[1]!, "bus");
   assert.equal(result.lines.length, 1);
   assert.equal(result.unavailable, 1);
+});
+
+test("a numbered-line lookup stops before unrelated failing sources and keeps its own cache", async () => {
+  const { client } = fixture(true);
+  const catalog = await client.provider.getCatalog();
+  // The catalogue need not list the small local operator first.
+  client.provider.getCatalog = async () => [...catalog].reverse().map((dataset) => ({
+    ...dataset, resources: dataset.resources.map((resource) => ({
+      ...resource, metadata: { stats: { routes_count: resource.id === 1 ? 2 : 1_500 } },
+    })),
+  }));
+  const city = (await client.cities("Breteuil"))[1]!;
+  const targeted = await client.lines(city, "bus", "601");
+  assert.equal(targeted.lines[0]?.label, "601");
+  assert.equal(targeted.unavailable, 0);
+  assert.equal(targeted.targeted, true);
+  assert.equal((await client.lines(city, "bus")).unavailable, 1);
+  assert.equal((await client.lines(city, "bus", "999")).lines.length, 0);
+});
+
+test("published operator URLs bypass a slow catalogue, fall back on failure and retain the allowlist", async () => {
+  for (const scenario of ["direct", "fallback", "blocked"]) {
+    const requested: string[] = [];
+    const provider = new FranceTransportClient(async (input) => {
+      const url = String(input);
+      requested.push(url);
+      if (scenario === "fallback" && url.endsWith("/operator.zip")) return new Response("", { status: 503 });
+      return new Response(zip);
+    });
+    const direct = scenario === "blocked" ? "http://127.0.0.1/private" : "https://transport.data.gouv.fr/operator.zip";
+    await provider.staticFeed({ id: 42, title: "GTFS", format: "GTFS", is_available: true,
+      url: "https://transport.data.gouv.fr/catalogue.zip", original_url: direct });
+    assert.deepEqual(requested, scenario === "direct" ? [direct] : scenario === "fallback"
+      ? [direct, "https://transport.data.gouv.fr/catalogue.zip"] : ["https://transport.data.gouv.fr/catalogue.zip"]);
+  }
+});
+
+test("an evening before a holiday shows the next published service beyond 24 hours", async () => {
+  const { client } = fixture();
+  const line = (await client.lines((await client.cities("Breteuil"))[1]!, "bus")).lines[0]!;
+  const index = await client.index(line);
+  index.metadata.calendarExceptions.set("20261111:S", 2);
+  const evening = Date.parse("2026-11-10T18:00:00Z");
+  const origin = { label: "Breteuil Centre", ids: ["O"] };
+  const arrival = { label: "Amiens Gare", ids: ["D"] };
+  const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
+  assert.equal(scheduledJourneys(index, pairs, evening / 1000).length, 0);
+  const later = new TransportBrowserClient(client.provider, () => evening);
+  const result = await later.departures(line, index, origin, arrival, "fr");
+  assert.match(result.content, /Aucun départ prévu dans les prochaines 24 h/);
+  assert.match(result.content, /12\/11.*08:10/);
+  assert.doesNotMatch(result.content, /11\/11.*08:10/);
+  index.metadata.calendars.clear();
+  const absent = await later.departures(line, index, origin, arrival, "fr");
+  assert.match(absent.content, /7 prochains jours selon le calendrier publié/);
+});
+
+test("at 19:27 a station choice includes the 19:40 and 20:45 departures from its official Quai E", async () => {
+  const feed = zipSync({ ...unzipSync(zip),
+    "trips.txt": strToU8("route_id,service_id,trip_id\nB,S,B1\nB,S,B2\nB,S,B3\n"),
+    "stops.txt": strToU8("stop_id,stop_name,parent_station,location_type\nO,AMIENS - Gare routière,STATION,0\nE,AMIENS - Gare Quai E,STATION,0\nD,BEAUVAIS - Gare routière,,0\nSTATION,AMIENS - Gare,,1\n"),
+    "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nB1,18:25:00,18:25:00,O,1\nB1,20:00:00,20:00:00,D,2\nB2,19:40:00,19:40:00,E,1\nB2,21:08:00,21:08:00,D,2\nB3,20:45:00,20:45:00,E,1\nB3,22:12:00,22:12:00,D,2\n"),
+  });
+  const { client } = fixture(false, feed);
+  const line = (await client.lines((await client.cities("Breteuil"))[1]!, "bus")).lines[0]!;
+  // Discovery only returned O; its official station relationship must retain E.
+  const index = await client.index(line);
+  const origins = originOptions(index, line);
+  assert.equal(origins.length, 1);
+  assert.equal(origins[0]!.label, "AMIENS - Gare");
+  assert.deepEqual(new Set(origins[0]!.ids), new Set(["O", "E"]));
+  const arrival = arrivalOptions(index, origins[0]!)[0]!;
+  const evening = new TransportBrowserClient(client.provider, () => Date.parse("2026-11-10T18:27:00Z"));
+  const result = await evening.departures(line, index, origins[0]!, arrival, "fr");
+  assert.match(result.content, /10\/11 19:40.*Quai E/);
+  assert.match(result.content, /10\/11 20:45.*Quai E/);
+  assert.doesNotMatch(result.content, /Aucun départ/);
+  // Without an official relationship, do not silently merge the two places.
+  index.stops.get("E")!.parent = "";
+  assert.deepEqual(originOptions(index, line)[0]!.ids, ["O"]);
 });
 
 test("stale realtime falls back honestly, but fresh cancellations suppress the scheduled trip", async () => {
@@ -211,6 +291,28 @@ test("Discord menus distinguish the city, protect ownership, then choose departu
   await delay(1);
   assert.equal(ui.prompt.components.length, 0);
   assert.match(ui.prompt.content, /expiré/);
+});
+
+test("a shorthand destination is prioritized without hiding the intermediate stops", async () => {
+  const { client } = fixture();
+  const cities = await client.cities("Breteuil");
+  client.cities = async (place) => {
+    const normalized = place.toLowerCase();
+    if (normalized === "amiens") return [{ ...cities[1]!, id: "80021", name: "Amiens" }];
+    // Reproduce the geocoder loosely returning Breteuil for 'Breteuil Amiens'.
+    return cities;
+  };
+  const ui = discordFixture();
+  await handleTransportCommand(ui.message, ["Breteuil", "Amiens", "601"], "fr", "!", "bus", client);
+  await ui.click("choose", "1");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  const options = ui.find("choose").options;
+  assert.equal(options[0].label, "Amiens Gare");
+  assert.ok(options.some((option: any) => option.label === "Gare"), "the intermediate stop must remain visible");
+  assert.doesNotMatch(ui.prompt.content, /Filtre/);
+  ui.collector.stop("cancelled");
 });
 
 test("a lookup acknowledges immediately, can be cancelled, and never edits after cancellation", async () => {
