@@ -10,6 +10,8 @@ import {
 import { logger } from "../lib/logger.js";
 import { addConnections, connectionPaths } from "./gtfs-connections.js";
 import { connectedJourneys, formatConnections } from "./transport-connections.js";
+import { departureCards } from "./transport-presentation.js";
+import type { APIEmbed } from "discord.js";
 
 export interface TransportLine {
   routeId: string;
@@ -23,6 +25,14 @@ export interface TransportLine {
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
 export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean }
+export interface TransportDepartureResult {
+  content: string;
+  source: TransportSource;
+  embed?: APIEmbed;
+  expandedEmbed?: APIEmbed;
+  expandedContent?: string;
+  hasMore?: boolean;
+}
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 
 function publishedRouteCount(resource: CatalogResource): number {
@@ -85,6 +95,7 @@ export class TransportBrowserClient {
   private readonly listings = new Map<string, { expires: number; value: LineListing }>();
   private readonly indexes = new Map<string, { expires: number; value: JourneyIndex }>();
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly unavailableUntil = new Map<number, number>();
   private scanTail: Promise<unknown> = Promise.resolve();
   private queuedScans = 0;
 
@@ -109,7 +120,7 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<LineListing>;
     const work = this.loadLines(city, mode, requestedLine).then((value) => {
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
-      this.listings.set(key, { value, expires: this.now() + (value.unavailable ? 30_000 : 300_000) });
+      this.listings.set(key, { value, expires: this.now() + (value.lines.length && (!value.unavailable || requestedLine) ? 300_000 : 30_000) });
       return value;
     }).finally(() => this.pending.delete(key));
     this.pending.set(key, work);
@@ -139,6 +150,7 @@ export class TransportBrowserClient {
         publishedRouteCount(a.resource) - publishedRouteCount(b.resource));
     let unavailable = 0;
     const found: TransportLine[] = [];
+    for (const [id, until] of this.unavailableUntil) if (until <= this.now()) this.unavailableUntil.delete(id);
     // Serialize download + scan together, so a second large ZIP cannot accumulate during parsing.
     let next = 0;
     // A numbered-line request stops at the first official source serving that line
@@ -146,6 +158,7 @@ export class TransportBrowserClient {
     await Promise.all(Array.from({ length: Math.min(requestedLine ? 1 : 2, groups.length) }, async () => {
       while (next < groups.length) {
         const { dataset, resource, stopIds } = groups[next++]!;
+        if ((this.unavailableUntil.get(resource.id) ?? 0) > this.now()) { unavailable++; continue; }
         try {
           const routes = await this.scan(async () =>
             scanRoutesAtStops(await this.provider.staticFeed(resource), stopIds, requestedLine));
@@ -159,6 +172,8 @@ export class TransportBrowserClient {
           if (requestedLine && found.length) break;
         } catch (error) {
           unavailable++;
+          if (this.unavailableUntil.size >= 64) this.unavailableUntil.delete(this.unavailableUntil.keys().next().value!);
+          this.unavailableUntil.set(resource.id, this.now() + 60_000);
           logger.warn({ resourceId: resource.id, err: error }, "Transport browser source unavailable");
         }
       }
@@ -200,7 +215,7 @@ export class TransportBrowserClient {
     return work;
   }
 
-  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
+  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
     if (arrival.viaTransfer) {
@@ -237,26 +252,17 @@ export class TransportBrowserClient {
     const deduped = [...new Map(times.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
       .sort((a, b) => a.departureAt - b.departureAt).slice(0, 6);
     const timezone = index.metadata.timezone || "Europe/Paris";
-    const clock = (time: number) => new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
-      timeZone: timezone, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-    }).format(new Date(time * 1000));
-    const heading = `**${MODE_NAMES[line.mode]} ${line.label} · ${origin.label} → ${arrival.label}**`;
-    const kind = estimates.length ? (french ? "Estimations en temps réel" : "Real-time estimates")
-      : (french ? "Horaires théoriques — non temps réel" : "Scheduled times — not real-time");
-    const rows = deduped.map((time) => {
-      const stop = time.departureStopId ? index.stops.get(time.departureStopId) : undefined;
-      const platform = origin.ids.length > 1 && stop ? ` · ${stop.name}` : "";
-      return `• ${clock(time.departureAt)}${time.arrivalAt == null ? "" : ` → ${clock(time.arrivalAt)}`}${platform}`;
-    });
     const later = !estimates.length && !schedules.length && deduped.length
-      ? (french ? "\nAucun départ prévu dans les prochaines 24 h selon le calendrier publié. Prochains départs (jusqu’à 7 jours) :"
-        : "\nNo departures scheduled in the next 24 hours according to the published calendar. Next departures (up to 7 days):") : "";
+      ? (french ? "Aucun départ prévu dans les prochaines 24 h. Recherche étendue à 7 jours selon le calendrier publié."
+        : "No departures scheduled in the next 24 hours. Published-calendar search extended to 7 days.") : "";
     const empty = french ? "Aucun départ trouvé dans les 7 prochains jours selon le calendrier publié pour ces arrêts. Cela ne signifie pas que la ligne n’existe pas."
       : "No departure found within the next 7 days in the published calendar for these stops. This does not mean the route does not exist.";
     const warning = !estimates.length && line.realtime.length
-      ? (french ? "\nLe direct est indisponible, périmé ou sans estimation pour ce trajet." : "\nLive data is unavailable, stale or has no estimate for this journey.") : "";
-    const cancellation = cancelled.size ? (french ? "\nLes courses signalées annulées ou sans desserte ont été exclues."
-      : "\nCancelled trips and skipped stops have been excluded.") : "";
-    return { content: `${heading}\n${kind}${later}\n${rows.join("\n") || empty}${warning}${cancellation}`.slice(0, 1900), source: line.source };
+      ? (french ? "Temps réel indisponible pour ce trajet." : "Live estimates unavailable for this journey.") : "";
+    const cancellation = cancelled.size ? (french ? "Courses annulées ou sans desserte exclues."
+      : "Cancelled trips and skipped stops excluded.") : "";
+    return { ...departureCards({ title: `${MODE_NAMES[line.mode]} ${line.label}`, origin: origin.label, arrival: arrival.label,
+      multiPlatform: origin.ids.length > 1, stops: index.stops, times: deduped, timezone, now, french,
+      realtime: estimates.length > 0, notes: [later, warning, cancellation].filter(Boolean), empty }), source: line.source };
   }
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
-import type { Message } from "discord.js";
+import { EmbedBuilder, type Message } from "discord.js";
 import { zipSync, strToU8, unzipSync } from "fflate";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
@@ -11,6 +11,7 @@ import { buildJourneyIndex, journeyPairs, realtimeJourneys, scheduledJourneys } 
 import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
 import { addConnections } from "../src/discord/gtfs-connections.js";
 import { connectedJourneys } from "../src/discord/transport-connections.js";
+import { departureCards } from "../src/discord/transport-presentation.js";
 
 const NOW = Date.parse("2026-11-10T07:00:00Z");
 const zip = zipSync({
@@ -109,6 +110,25 @@ test("one failed source leaves usable routes available and identifies the partia
   assert.equal(result.unavailable, 1);
 });
 
+test("recent provider failures are not downloaded again for every nearby-city search", async () => {
+  const { client } = fixture(true);
+  let failures = 0;
+  const download = client.provider.staticFeed.bind(client.provider);
+  client.provider.staticFeed = async (resource) => {
+    if (resource.id === 2) failures++;
+    return download(resource);
+  };
+  let clock = NOW;
+  const measured = new TransportBrowserClient(client.provider, () => clock);
+  const city = (await client.cities("Breteuil"))[1]!;
+  assert.equal((await measured.lines(city, "bus")).unavailable, 1);
+  assert.equal((await measured.lines({ ...city, id: "nearby" }, "bus")).unavailable, 1);
+  assert.equal(failures, 1);
+  clock += 61_000;
+  assert.equal((await measured.lines({ ...city, id: "another" }, "bus")).unavailable, 1);
+  assert.equal(failures, 2, "a recovered provider must be retried after the short failure cooldown");
+});
+
 test("a numbered-line lookup stops before unrelated failing sources and keeps its own cache", async () => {
   const { client } = fixture(true);
   const catalog = await client.provider.getCatalog();
@@ -157,7 +177,7 @@ test("an evening before a holiday shows the next published service beyond 24 hou
   const later = new TransportBrowserClient(client.provider, () => evening);
   const result = await later.departures(line, index, origin, arrival, "fr");
   assert.match(result.content, /Aucun départ prévu dans les prochaines 24 h/);
-  assert.match(result.content, /12\/11.*08:10/);
+  assert.match(result.content, /12\/11[\s\S]*08:10/);
   assert.doesNotMatch(result.content, /11\/11.*08:10/);
   index.metadata.calendars.clear();
   const absent = await later.departures(line, index, origin, arrival, "fr");
@@ -181,8 +201,9 @@ test("at 19:27 a station choice includes the 19:40 and 20:45 departures from its
   const arrival = arrivalOptions(index, origins[0]!)[0]!;
   const evening = new TransportBrowserClient(client.provider, () => Date.parse("2026-11-10T18:27:00Z"));
   const result = await evening.departures(line, index, origins[0]!, arrival, "fr");
-  assert.match(result.content, /10\/11 19:40.*Quai E/);
-  assert.match(result.content, /10\/11 20:45.*Quai E/);
+  assert.match(result.embed!.fields![0]!.name, /10\/11/);
+  assert.match(result.embed!.fields![0]!.value, /19:40.*Quai E/);
+  assert.match(result.embed!.fields![0]!.value, /20:45.*Quai E/);
   assert.doesNotMatch(result.content, /Aucun départ/);
   // Without an official relationship, do not silently merge the two places.
   index.stops.get("E")!.parent = "";
@@ -218,9 +239,10 @@ class Collector extends EventEmitter {
 function discordFixture() {
   const collector = new Collector();
   const prompt = {
-    content: "", components: [] as any[], edits: [] as any[],
+    content: "", embeds: [] as any[], components: [] as any[], edits: [] as any[],
     async edit(options: any) {
       if (options.content !== undefined) this.content = options.content;
+      if (options.embeds !== undefined) this.embeds = options.embeds;
       if (options.components !== undefined) this.components = options.components.map((row: any) => row.toJSON?.() ?? row);
       this.edits.push(options);
       for (const row of this.components) {
@@ -282,19 +304,102 @@ test("Discord menus distinguish the city, protect ownership, then choose departu
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("Horaires théoriques"));
-  assert.match(ui.prompt.content, /Oise/);
-  assert.match(ui.prompt.content, /Amiens Gare/);
+  await until(() => !!ui.prompt.embeds[0]?.footer?.text.includes("Horaires théoriques"));
+  assert.equal(ui.prompt.content, "");
+  assert.match(ui.prompt.embeds[0].description, /Amiens Gare/);
   await ui.click("back");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  assert.equal(ui.prompt.embeds.length, 0, "returning to a menu must clear the previous card");
   ui.collector.stop("time");
   await delay(1);
   assert.equal(ui.prompt.components.length, 0);
   assert.match(ui.prompt.content, /expiré/);
 });
 
+test("compact mobile cards group days, state the shared platform once and preserve midnight dates", () => {
+  const now = Date.parse("2026-11-10T18:52:00Z") / 1000;
+  const time = (iso: string) => Date.parse(iso) / 1000;
+  const first = time("2026-11-10T19:45:00Z");
+  const second = time("2026-11-11T11:00:00Z");
+  const card = departureCards({ title: "Bus 601", origin: "AMIENS - Gare Amiens", arrival: "BRETEUIL - RD 1001 nord",
+    multiPlatform: true, stops: new Map([["E", { id: "E", name: "AMIENS - Gare Quai E", parent: "S" }]]),
+    times: [first, second, second + 7200, second + 14400].map((at, i) => ({
+      tripId: String(i), departureAt: at, arrivalAt: at + 2880, realtime: false, departureStopId: "E",
+    })), timezone: "Europe/Paris", now, french: true, realtime: false, notes: [], empty: "" });
+  assert.equal(card.embed.title, "Bus 601");
+  assert.doesNotThrow(() => EmbedBuilder.from(card.embed).toJSON());
+  assert.match(card.embed.description!, /Amiens · Gare Amiens/);
+  assert.equal(card.embed.fields?.length, 2);
+  assert.match(card.embed.fields![0]!.name, /Aujourd’hui.*10\/11/);
+  assert.match(card.embed.fields![0]!.value, /\*\*20:45\*\* → 21:33 · 48 min/);
+  assert.match(card.embed.fields![1]!.name, /Demain.*11\/11/);
+  assert.equal((card.content.match(/Quai E/g) ?? []).length, 1);
+  assert.equal(card.hasMore, true);
+  assert.equal(card.embed.fields!.reduce((sum, field) => sum + field.value.split("\n").length, 0), 3);
+  assert.equal(card.expandedEmbed.fields!.reduce((sum, field) => sum + field.value.split("\n").length, 0), 4);
+  const overnight = departureCards({ title: "Bus N", origin: "A", arrival: "B", multiPlatform: false, stops: new Map(),
+    times: [{ tripId: "N", departureAt: time("2026-11-10T22:50:00Z"), arrivalAt: time("2026-11-10T23:20:00Z"), realtime: false }],
+    timezone: "Europe/Paris", now, french: false, realtime: false, notes: [], empty: "" });
+  assert.match(overnight.embed.fields![0]!.value, /00:20 \(11\/11\)/);
+  assert.match(overnight.embed.footer!.text, /Scheduled times/);
+});
+
+test("more-times toggling reuses the result, refresh reloads, and closing retains a single card", async () => {
+  const { client } = fixture();
+  let lookups = 0;
+  client.departures = async (line, index, origin, arrival) => {
+    lookups++;
+    return { ...departureCards({ title: "Bus 601", origin: origin.label, arrival: arrival.label, multiPlatform: false,
+      stops: index.stops, times: Array.from({ length: 6 }, (_, i) => ({
+        tripId: String(i), departureAt: NOW / 1000 + i * 600, arrivalAt: NOW / 1000 + i * 600 + 2880, realtime: false,
+      })), timezone: "Europe/Paris", now: NOW / 1000, french: true, realtime: false, notes: [], empty: "" }), source: line.source };
+  };
+  const ui = discordFixture();
+  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  await ui.click("choose", "0");
+  await until(() => !!ui.find("more"));
+  assert.equal(ui.prompt.embeds[0].fields[0].value.split("\n").length, 3);
+  await ui.click("more");
+  await until(() => ui.find("more")?.label === "Réduire");
+  assert.equal(ui.prompt.embeds[0].fields[0].value.split("\n").length, 6);
+  assert.equal(lookups, 1);
+  await ui.click("refresh");
+  await until(() => lookups === 2 && !!ui.find("more"));
+  assert.equal(ui.prompt.embeds[0].fields[0].value.split("\n").length, 3);
+  await ui.click("cancel");
+  assert.equal(ui.prompt.embeds.length, 1);
+  assert.equal(ui.prompt.content, "Recherche terminée.");
+  assert.equal(ui.prompt.components.length, 0);
+});
+
+test("a server without embed permissions receives readable compact text instead of an error", async () => {
+  const { client } = fixture();
+  const ui = discordFixture();
+  const edit = ui.prompt.edit.bind(ui.prompt);
+  ui.prompt.edit = async (options: any) => {
+    if (options.embeds?.length) throw Object.assign(new Error("Missing Permissions"), { code: 50013 });
+    return edit(options);
+  };
+  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("Horaires théoriques"));
+  assert.equal(ui.prompt.embeds.length, 0);
+  assert.match(ui.prompt.content, /Aujourd’hui/);
+  assert.ok(ui.find("refresh"));
+  await ui.click("cancel");
+});
+
 test("a shorthand destination is prioritized without hiding the intermediate stops", async () => {
   const { client } = fixture();
+  client.provider.resolveBusQuery = async () => { throw new Error("Legacy geocoding must not run before municipality resolution"); };
   const cities = await client.cities("Breteuil");
   client.cities = async (place) => {
     const normalized = place.toLowerCase();

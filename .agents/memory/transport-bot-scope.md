@@ -57,6 +57,14 @@ Offer a station-wide selection for boarding points linked by the official `paren
 
 **How to apply:** Use the official station name and identifiers, not name similarity or invented proximity relationships. Verify reported missing departures against all officially related platforms before concluding that the data or calendar excludes them.
 
+## Mobile presentation
+
+Transport results should remain compact and readable on Discord mobile, without repeating the full date and boarding-point name on every departure.
+
+**Why:** After confirming that the platform fix worked, the user supplied a mobile screenshot and said the presentation was ugly and the search still felt slow.
+
+**How to apply:** Preserve dates, actual platforms and timetable reliability while grouping repeated information. Offer additional departures without repeating the data lookup. Keep any text fallback equally readable.
+
 ## Catalogue download reliability
 
 Prefer an allowlisted operator URL published in the catalogue, with the catalogue URL as fallback. Check smaller operator feeds before national/European bundles for a specific numbered-line request.

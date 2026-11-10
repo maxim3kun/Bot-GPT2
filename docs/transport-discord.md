@@ -25,6 +25,10 @@ Le menu appartient à la personne qui a lancé la commande. Il propose des retou
 
 Les quais rattachés à une même gare par le champ officiel `parent_station` sont regroupés dans les choix. Les résultats précisent l’arrêt/quai de départ lorsqu’un choix couvre plusieurs quais. Des noms proches ou des coordonnées voisines ne suffisent pas à regrouper des arrêts.
 
+Les trajets directs s’affichent dans une carte Discord compacte : départ et arrivée, quai commun indiqué une seule fois, puis horaires regroupés par jour avec durée du trajet. Trois départs sont visibles par défaut. **Plus d’horaires** en affiche jusqu’à six sans nouvelle requête; **Actualiser** recharge les estimations. Si le serveur refuse les liens intégrés (embeds), le bot conserve une version texte compacte et les mêmes commandes.
+
+Les recherches géographiques ne sont pas effectuées deux fois pour une commande avec deux communes. Une source qui vient d’échouer n’est pas retéléchargée pendant une minute; elle reste signalée comme indisponible. Une ligne ciblée trouvée reste en cache cinq minutes même si un autre réseau a échoué; une liste générale partielle est réévaluée plus vite.
+
 ## Limites et fiabilité
 
 - Les trajets directs et une correspondance avec délai officiel publié sont proposés dans une même source. Le bot ne calcule pas d’itinéraire porte-à-porte ni de marche inventée entre réseaux.

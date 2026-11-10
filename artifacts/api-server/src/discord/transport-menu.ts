@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, StringSelectMenuBuilder,
   TextInputBuilder, TextInputStyle,
-  type Message, type MessageComponentInteraction, type MessageCreateOptions,
+  type APIEmbed, type Message, type MessageComponentInteraction, type MessageCreateOptions,
 } from "discord.js";
-import { TransportBrowserClient, MODE_NAMES, originOptions, arrivalOptions, type TransportLine, type StopGroup } from "./transport-browser.js";
+import { TransportBrowserClient, MODE_NAMES, originOptions, arrivalOptions, type TransportLine, type StopGroup, type TransportDepartureResult } from "./transport-browser.js";
 import { sourceButton, lineMatches, type TransportLocation } from "./public-transport.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import type { JourneyIndex } from "./gtfs-journey.js";
@@ -71,6 +71,9 @@ export async function handleTransportCommand(
   let listingNote = "";
   let live = true;
   let sequence = 0;
+  let lastEmbed: APIEmbed | undefined;
+  let lastResult: TransportDepartureResult | undefined;
+  let expanded = false;
   const id = `transport:${randomUUID()}`;
   const prompt = await message.reply({
     content: text("Recherche de transport en cours…", "Starting transport lookup…"),
@@ -80,12 +83,20 @@ export async function handleTransportCommand(
   const collector = prompt.createMessageComponentCollector({ time: 5 * 60_000 });
   const button = (action: string, label: string, style = ButtonStyle.Secondary) =>
     new ButtonBuilder().setCustomId(`${id}:${action}`).setLabel(label).setStyle(style);
-  const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>) => {
+  const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>, embed?: APIEmbed) => {
     if (!live) return;
     lastContent = content.slice(0, 1950);
-    await prompt.edit({ content: lastContent,
+    lastEmbed = embed;
+    const options = { content: embed ? "" : lastContent, embeds: embed ? [embed] : [],
       components: components ?? [new ActionRowBuilder<ButtonBuilder>().addComponents(button("cancel", text("Annuler", "Cancel")))],
-      allowedMentions: { parse: [] } });
+      allowedMentions: { parse: [] as const } };
+    try { await prompt.edit(options); }
+    catch (error) {
+      if (!embed || !error || typeof error !== "object" || !("code" in error) || error.code !== 50013) throw error;
+      logger.warn("Transport card embedding not permitted; using compact text");
+      lastEmbed = undefined;
+      await prompt.edit({ ...options, content: lastContent, embeds: [] });
+    }
   };
 
   async function cityInput() {
@@ -172,7 +183,8 @@ export async function handleTransportCommand(
     if (!place) { await cityInput(); return; }
     await edit(text("Recherche des communes…", "Looking up cities…"));
     cities = await service.cities(place);
-    if (!direction && !cities.some((candidate) => normalizeCityName(candidate.name) === normalizeCityName(place))) {
+    if (!direction && !/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i.test(place) &&
+      !cities.some((candidate) => normalizeCityName(candidate.name) === normalizeCityName(place))) {
       const journey = await resolveBusJourney(place, async (name) => {
         const candidates = name === place ? cities : await service.cities(name);
         return candidates.find((candidate) => normalizeCityName(candidate.name) === normalizeCityName(name))?.name ?? null;
@@ -247,17 +259,28 @@ export async function handleTransportCommand(
     await render();
   }
 
-  async function showDepartures() {
+  async function showDepartures(reload = true) {
     if (!live || !line || !index || !origin || !arrival) return;
-    await edit(text("Recherche des prochains départs…", "Looking up upcoming departures…"));
-    const result = await service.departures(line, index, origin, arrival, language);
+    if (reload || !lastResult) {
+      await edit(text("Recherche des prochains départs…", "Looking up upcoming departures…"));
+      lastResult = await service.departures(line, index, origin, arrival, language);
+      expanded = false;
+    }
+    const result = lastResult;
     if (!live) return;
     stage = "result";
-    await edit(`${city?.label ?? ""}\n${result.content}`, [
-      ...sourceButton(result.source, language),
-      new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer l’arrivée", "Change arrival")),
-        button("refresh", text("Actualiser", "Refresh")), button("city", text("Changer de commune", "Change city")), button("cancel", text("Terminer", "Finish"))),
-    ]);
+    const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
+      button("back", text("Arrivée", "Destination")));
+    if (result.hasMore) primary.addComponents(button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times")));
+    const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      button("city", text("Nouvelle recherche", "New search")),
+      ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
+        ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
+      button("cancel", text("Fermer", "Close")));
+    const embed = expanded ? result.expandedEmbed ?? result.embed : result.embed;
+    const content = expanded ? result.expandedContent ?? result.content : result.content;
+    await edit(embed ? content : `${city?.label ?? ""}\n${content}`, [primary, secondary], embed);
   }
 
   async function modal(interaction: MessageComponentInteraction, action: string) {
@@ -311,6 +334,7 @@ export async function handleTransportCommand(
     if (action === "prev" || action === "next") { page += action === "next" ? 1 : -1; await render(); return; }
     if (action === "clear") { filter = ""; page = 0; await render(); return; }
     await run(async () => {
+      if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "refresh") { await showDepartures(); return; }
       if (action === "back") {
@@ -350,18 +374,14 @@ export async function handleTransportCommand(
       : reason === "replaced" ? text("Recherche remplacée par une nouvelle demande.", "Search replaced by a new request.")
       : reason === "timeout" ? text(`La recherche a dépassé le délai. Relance \`${prefix}transport\` pour réessayer.`, `The lookup timed out. Run \`${prefix}transport\` to retry.`)
       : text(`Menu expiré. Relance \`${prefix}transport\`.`, `Menu expired. Run \`${prefix}transport\` again.`);
-    void prompt.edit({ content: stage === "result" ? `${lastContent.slice(0, 1750)}\n${notice}` : notice,
+    void prompt.edit({ content: stage === "result" && !lastEmbed ? `${lastContent.slice(0, 1750)}\n${notice}` : notice,
+      embeds: stage === "result" && lastEmbed ? [lastEmbed] : [],
       components: [], allowedMentions: { parse: [] } }).catch(() => undefined);
   });
   const stop = () => collector.stop("replaced");
   active.set(sessionKey, stop);
   await run(async () => {
-    // Preserve the shorthand "!bus Beauvais Amiens 601", while resolving homonyms later.
-    if (mode === "bus" && place && lineFilter && !direction) {
-      const query = await service.provider.resolveBusQuery(place, lineFilter);
-      if (!live) return;
-      place = query.place; direction = query.direction ?? "";
-    }
+    // Municipality-based shorthand resolution happens once in loadCities.
     if (!selectedMode) await render();
     else await loadCities();
   });
