@@ -4,6 +4,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 pnpm install --frozen-lockfile
 
+pnpm run typecheck:libs
+
 # The bot persists data in MongoDB. The unused PostgreSQL template has no
 # tables; do not push its empty schema, force a migration, or start a second bot.
 # Workflows are reconciled by the platform after this script finishes.
