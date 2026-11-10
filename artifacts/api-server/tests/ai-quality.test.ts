@@ -5,9 +5,9 @@ import { classifyAiMessage } from "../src/discord/ai-router.js";
 import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
 import { splitAiAnswer } from "../src/discord/ai-answer-format.js";
 import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
-import { calculateVerified } from "../src/discord/ai-calculator.js";
+import { calculateVerified, simpleArithmeticReply } from "../src/discord/ai-calculator.js";
 import { createOrderedEventQueue, createSerializedFlush, deliverDiagnosticOnce, diagnosticCategory, dueDiagnosticSlot, feedbackSummaryPipeline, reactionVote } from "../src/discord/ai-observability-policy.js";
-import { mentionClarification, shouldSkipConversation, silenceAllowed, stripBotMention, validSilenceRequest } from "../src/discord/ai-conversation-policy.js";
+import { isCondescendingRemark, mentionClarification, shouldSkipConversation, silenceAllowed, stripBotMention, validSilenceRequest } from "../src/discord/ai-conversation-policy.js";
 import { parseConversationSummary, safeSummaryInput, updateConversationMemory } from "../src/discord/ai-conversation-memory-policy.js";
 import { createConversationRepository, type ConversationMemoryDoc } from "../src/discord/ai-conversation-repository.js";
 import { replyFeedbackPlan, LONG_ANSWER_RATING_THRESHOLD } from "../src/discord/ai-feedback-policy.js";
@@ -188,6 +188,18 @@ test("The calculator refuses arbitrary code, invalid units, zero divisors and ov
   ]) assert.throws(() => calculateVerified(input));
 });
 
+test("Plain arithmetic requests resolve locally with a bounded parser", () => {
+  assert.equal(simpleArithmeticReply("Combien font 2 + 2 ?", "fr"), "2 + 2 = 4.");
+  assert.equal(simpleArithmeticReply("Calcule (2 + 3) × 4", "fr"), "( 2 + 3 ) × 4 = 20.");
+  assert.equal(simpleArithmeticReply("what is 8 / 2?", "en"), "8 / 2 = 4.");
+  assert.equal(simpleArithmeticReply("0,1 + 0,2", "fr"), "0.1 + 0.2 = 0,3.");
+  for (const text of [
+    "Explique 2 + 2", "2 + 2 et pourquoi ?", "2026-11-10",
+    "process.exit() + 1", "1 / 0", "1e3 * 2", "1 + ".repeat(20) + "1",
+    "999999999999999999999 * 999999999999999999999",
+  ]) assert.equal(simpleArithmeticReply(text, "fr"), null, text);
+});
+
 test("Only thumbs ratings are accepted, never arbitrary emoji", () => {
   assert.equal(reactionVote("👍"), 1);
   assert.equal(reactionVote("👎"), -1);
@@ -315,6 +327,26 @@ test("Pure directed abuse can produce zero replies, never useful criticism or a 
   assert.equal(validSilenceRequest('{"reason":"no_response_needed"}', "Bonjour"), false);
   assert.equal(validSilenceRequest('{"reason":"targeted_abuse","extra":true}', "t'es con"), false);
   assert.equal(validSilenceRequest("not json", "t'es con"), false);
+});
+
+test("Condescension gets a calm reply instead of being treated as abuse or ignored", () => {
+  for (const text of [
+    "C'est pourtant simple.",
+    "C'est pas compliqué.",
+    "Réfléchis un peu.",
+    "Ce n'est pas sorcier.",
+    "Tu comprends rien.",
+    "Even a child could do this.",
+    "You're really slow.",
+  ]) {
+    assert.equal(isCondescendingRemark(text), true, text);
+    assert.equal(shouldSkipConversation(text), false, text);
+    assert.equal(silenceAllowed(text, "targeted_abuse"), false, text);
+  }
+  assert.equal(isCondescendingRemark('Traduis « réfléchis un peu »'), false);
+  assert.equal(isCondescendingRemark("t'es con"), false);
+  assert.equal(isCondescendingRemark("Ta réponse est incorrecte, peux-tu corriger ?"), false);
+  assert.equal(shouldSkipConversation("C'est pas compliqué, explique-moi comment faire."), false);
 });
 
 test("Intentional persona silence is not retried or replaced with a failure message", async () => {

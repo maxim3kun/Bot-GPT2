@@ -51,6 +51,7 @@ import { speakPersonaReply } from "./voice.js";
 import { selectVoice, personaVoiceSelection } from "./voice-settings.js";
 import { isVoiceId } from "./piper-tts.js";
 import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
+import { simpleArithmeticReply } from "./ai-calculator.js";
 
 const MAX_PERSONAS_PER_USER = 10;
 const MAX_LEARN_MESSAGES_PER_RUN = 100;
@@ -963,11 +964,19 @@ async function respondWithPersona(
     );
     return;
   }
+  if (!await requireConsent(message, responseLanguage)) return;
+
+  const historyKey = personaConversationKey(message, persona.id);
+  const arithmeticReply = simpleArithmeticReply(prompt, responseLanguage);
+  if (arithmeticReply) {
+    await safeReply(message, arithmeticReply);
+    rememberPersonaConversationTurn(historyKey, prompt, arithmeticReply);
+    return;
+  }
   if (!openai) {
     await safeReply(message, localized(responseLanguage, "Les fonctions IA ne sont pas configurées.", "AI features are not configured."));
     return;
   }
-  if (!await requireConsent(message, responseLanguage)) return;
 
   if (await handleAiActionRequest(message, prompt, openai, responseLanguage)) return;
   if (await handlePublicTransportRequest(message, prompt, responseLanguage)) return;
@@ -976,7 +985,6 @@ async function respondWithPersona(
   const personalContext = await getAiPromptContext(message.guildId, message.author.id);
   const speakerContext = await buildSpeakerContext(message);
   const speakerName = (message.member?.displayName || message.author.globalName || message.author.username).slice(0, 80);
-  const historyKey = personaConversationKey(message, persona.id);
   const recentConversation = getPersonaConversationHistory(historyKey);
   const needsResearch = classifyAiMessage(prompt).needsResearch;
   // Only the current request is sent to search, never private learned memories.

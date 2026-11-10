@@ -150,6 +150,35 @@ test("The completion adapter includes detailed ecology instructions only on requ
   }
 });
 
+test("Ordinary replies are guided to be concise, and condescension gets a short in-character response", async () => {
+  const { client, requests } = provider([completion("Je peux t’aider, mais restons courtois.")]);
+  const response = await createReliableCompletion(client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "Réfléchis un peu, peux-tu corriger le résultat ?",
+    messages: [{ role: "user", content: "Réfléchis un peu, peux-tu corriger le résultat ?" }],
+  });
+  const systemMessage = (requests[0]?.messages as { role: string; content: string }[])
+    .find((item) => item.role === "system")?.content ?? "";
+  assert.match(systemMessage, /1–3 short sentences/);
+  assert.match(systemMessage, /current message includes condescension/);
+  assert.match(systemMessage, /answer it directly/);
+  assert.match(response.choices[0]!.message.content!, /courtois/);
+  assert.equal(requests.length, 1);
+});
+
+test("A silence choice for condescension alone is rejected and followed by a reply", async () => {
+  const { client, requests } = provider([
+    completion(null, true),
+    completion("Je peux te répondre, mais restons respectueux."),
+  ]);
+  const response = await createReliableCompletion(client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "Réfléchis un peu.",
+    messages: [{ role: "user", content: "Réfléchis un peu." }],
+  });
+  assert.notEqual(response.intentionallySilent, true);
+  assert.match(response.choices[0]!.message.content!, /respectueux/);
+  assert.equal(requests.length, 2);
+});
+
 const evidenceQuote = "Paris est la capitale de la France.";
 const evidence = {
   title: "Géographie", url: "https://example.org/geographie", snippet: "Résultat de recherche",

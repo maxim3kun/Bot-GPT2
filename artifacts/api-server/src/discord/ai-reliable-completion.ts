@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 import { incrementGroqCalls } from "../lib/bot-stats.js";
 import { calculateVerified, CALCULATION_INSTRUCTIONS } from "./ai-calculator.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
-import { CONVERSATION_GUIDANCE, validSilenceRequest } from "./ai-conversation-policy.js";
+import { CONVERSATION_GUIDANCE, isCondescendingRemark, validSilenceRequest } from "./ai-conversation-policy.js";
 import { ecologyGuidanceFor } from "./ai-ecology-policy.js";
 import type { WebSearchResult } from "../lib/web-search.js";
 import type { CorrectionContext } from "./ai-correction-policy.js";
@@ -20,6 +20,9 @@ export async function createReliableCompletion(openai: OpenAI, params: Params): 
   const verifiedCalculations: unknown[] = [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: CALCULATION_INSTRUCTIONS + "\n" + CONVERSATION_GUIDANCE + "\n" +
+      (isCondescendingRemark(currentUserText ?? "")
+        ? "The current message includes condescension. Give a short, calm response in the active persona's voice; a mild, non-hostile quip is allowed. Never attack the user. If the message also contains a useful question or request, answer it directly rather than focusing on the tone.\n"
+        : "") +
       ecologyGuidanceFor(correction?.question ?? currentUserText ?? "") }, ...params.messages,
   ];
   for (let round = 0; round < 3; round++) {

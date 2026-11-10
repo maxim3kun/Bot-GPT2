@@ -1,6 +1,120 @@
 type MassUnit = "g" | "kg" | "t";
 const grams: Record<MassUnit, number> = { g: 1, kg: 1_000, t: 1_000_000 };
 
+type ArithmeticToken = { kind: "number"; value: number; display: string } | { kind: "operator"; value: string };
+
+/**
+ * Recognizes only a plain arithmetic expression or a short, explicit calculation request.
+ * The bounded parser below never evaluates JavaScript or accepts arbitrary input.
+ */
+export function simpleArithmeticReply(text: string, language: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 128 || /^\d{4}-\d{1,2}-\d{1,2}$/.test(trimmed)) return null;
+  const request = trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const prefixed = request.match(/^(?:combien\s+(?:font|fait)|calcule(?:r)?|calculate|what\s+is|what's|how\s+much\s+is)\s+(.+)$/);
+  const expression = (prefixed?.[1] ?? ( /^[\d.,+\-−*/×÷x()\s]+$/i.test(trimmed) ? trimmed : "" ))
+    .replace(/[?!.]+\s*$/, "")
+    .trim();
+  if (!expression || expression.length > 96 || !/[+\-−*/×÷x]/i.test(expression)) return null;
+
+  const tokens: ArithmeticToken[] = [];
+  let index = 0;
+  while (index < expression.length) {
+    if (/\s/.test(expression[index]!)) {
+      index++;
+      continue;
+    }
+    const number = expression.slice(index).match(/^(?:\d+(?:[.,]\d*)?|[.,]\d+)/);
+    if (number) {
+      const value = Number(number[0].replace(",", "."));
+      if (!Number.isFinite(value) || Math.abs(value) > 1e15) return null;
+      tokens.push({ kind: "number", value, display: number[0].replace(",", ".") });
+      index += number[0].length;
+      continue;
+    }
+    const character = expression[index]!;
+    if ("+-−*/×÷xX()".includes(character)) {
+      tokens.push({ kind: "operator", value: character.toLowerCase() === "x" ? "×" : character });
+      index++;
+      continue;
+    }
+    return null;
+  }
+  if (tokens.length > 31) return null;
+
+  let cursor = 0;
+  let operands = 0;
+  let operations = 0;
+  let nesting = 0;
+  const peek = () => tokens[cursor];
+  const consume = () => tokens[cursor++];
+  const bounded = (value: number): number => {
+    if (!Number.isFinite(value) || Math.abs(value) > 1e30) throw new Error("Arithmetic result out of bounds");
+    return value;
+  };
+  const parseExpression = (): number => {
+    let value = parseTerm();
+    while (peek()?.kind === "operator" && ["+", "-", "−"].includes((peek() as Extract<ArithmeticToken, { kind: "operator" }>).value)) {
+      const operator = (consume() as Extract<ArithmeticToken, { kind: "operator" }>).value;
+      operations++;
+      const right = parseTerm();
+      value = bounded(operator === "+" ? value + right : value - right);
+    }
+    return value;
+  };
+  const parseTerm = (): number => {
+    let value = parseUnary();
+    while (peek()?.kind === "operator" && ["*", "×", "/", "÷"].includes((peek() as Extract<ArithmeticToken, { kind: "operator" }>).value)) {
+      const operator = (consume() as Extract<ArithmeticToken, { kind: "operator" }>).value;
+      operations++;
+      const right = parseUnary();
+      if ((operator === "/" || operator === "÷") && right === 0) throw new Error("Division by zero");
+      value = bounded(operator === "*" || operator === "×" ? value * right : value / right);
+    }
+    return value;
+  };
+  const parseUnary = (): number => {
+    const token = peek();
+    if (token?.kind === "operator" && ["+", "-", "−"].includes(token.value)) {
+      consume();
+      operations++;
+      const value = parseUnary();
+      return token.value === "+" ? value : -value;
+    }
+    if (token?.kind === "operator" && token.value === "(") {
+      consume();
+      nesting++;
+      if (nesting > 6) throw new Error("Expression nesting exceeds limit");
+      const value = parseExpression();
+      if (peek()?.kind !== "operator" || (peek() as Extract<ArithmeticToken, { kind: "operator" }>).value !== ")") {
+        throw new Error("Unclosed parenthesis");
+      }
+      consume();
+      nesting--;
+      return value;
+    }
+    if (token?.kind !== "number") throw new Error("Expected a number");
+    consume();
+    operands++;
+    if (operands > 16) throw new Error("Too many operands");
+    return token.value;
+  };
+
+  try {
+    const result = parseExpression();
+    if (cursor !== tokens.length || operations === 0 || operations > 24) return null;
+    const rounded = Number(bounded(result).toPrecision(12));
+    const display = tokens.map((token) => token.kind === "number" ? token.display : token.value).join(" ");
+    const localizedResult = new Intl.NumberFormat(language, {
+      maximumSignificantDigits: 12,
+      useGrouping: false,
+    }).format(rounded);
+    return `${display} = ${localizedResult}.`;
+  } catch {
+    return null;
+  }
+}
+
 /** Structured arithmetic only: no eval, code, URLs or arbitrary expressions. */
 export function calculateVerified(input: unknown): { result: number; calculation: string; caveat: string } {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid calculation");
