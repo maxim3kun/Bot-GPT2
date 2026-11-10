@@ -1,0 +1,147 @@
+import { Transform } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
+import { zipSync, strToU8 } from "fflate";
+import { GtfsRangeArchive, type GtfsRow, type RangeRequest } from "./gtfs-range.js";
+import { routeTypeToMode } from "./gtfs-realtime.js";
+import { normalizeTransitText, type TransitMode } from "./transport-query.js";
+
+export interface GtfsSelection { mode: TransitMode; line?: string; discoveryStops?: readonly string[] }
+const MAX_RETAINED = 48 * 1024 * 1024;
+
+export function isIdfmGtfs(resource: { original_url?: string }): boolean {
+  if (!resource.original_url) return false;
+  try {
+    const url = new URL(resource.original_url);
+    return url.protocol === "https:" && url.hostname === "eu.ftp.opendatasoft.com" &&
+      url.pathname === "/stif/GTFS/IDFM-gtfs.zip" && !url.username && !url.password;
+  } catch { return false; }
+}
+
+/** Discard irrelevant stop-time records before allocating CSV row objects.
+ * Quoted multiline records and escaped quotes are preserved. If trip_id is not
+ * first, let the ordinary CSV parser do the filtering instead.
+ */
+export class GtfsTripFilter extends Transform {
+  private decoder = new StringDecoder("utf8");
+  private rest = "";
+  private record = "";
+  private quoted = false;
+  private header = true;
+  private fast = true;
+
+  constructor(private readonly ids: ReadonlySet<string>) { super(); }
+
+  private line(line: string) {
+    this.record += line;
+    if (this.record.length > 20_000) throw new Error("Transport CSV record exceeds its size limit");
+    for (const quote of line.matchAll(/"/g)) { void quote; this.quoted = !this.quoted; }
+    if (this.quoted) return;
+    const record = this.record;
+    this.record = "";
+    if (this.header) {
+      this.header = false;
+      this.fast = record.replace(/^\uFEFF/, "").split(",")[0]?.replaceAll('"', "").trim() === "trip_id";
+      this.push(record);
+      return;
+    }
+    let id: string;
+    if (record.startsWith('"')) id = record.match(/^"((?:[^"]|"")*)"\s*,/s)?.[1]?.replaceAll('""', '"') ?? "";
+    else id = record.slice(0, record.indexOf(","));
+    if (!this.fast || this.ids.has(id.trim())) this.push(record);
+  }
+
+  private consume(text: string, final = false) {
+    this.rest += text;
+    let end = 0;
+    let next: number;
+    while ((next = this.rest.indexOf("\n", end)) !== -1) {
+      this.line(this.rest.slice(end, next + 1));
+      end = next + 1;
+    }
+    this.rest = this.rest.slice(end);
+    if (this.rest.length + this.record.length > 20_000) throw new Error("Transport CSV record exceeds its size limit");
+    if (final && this.rest) { this.line(this.rest); this.rest = ""; }
+    if (final && (this.quoted || this.record)) throw new Error("Transport CSV contains an incomplete quoted record");
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
+    try { this.consume(this.decoder.write(chunk)); callback(); } catch (error) { callback(error as Error); }
+  }
+
+  override _flush(callback: (error?: Error | null) => void) {
+    try { this.consume(this.decoder.end(), true); callback(); } catch (error) { callback(error as Error); }
+  }
+}
+
+/** Build a small, compatible GTFS ZIP; shapes, extension tables and the
+ * original 111+ MiB archive never enter the binary cache.
+ */
+export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelection): Promise<Uint8Array> {
+  if (!selection.line && !selection.discoveryStops?.length) throw new Error("A large network lookup requires a line or nearby stops");
+  const archive = new GtfsRangeArchive(request);
+  await archive.open();
+  const files: Record<string, Uint8Array> = {};
+  let retained = 0;
+  const routes = new Set<string>();
+  const trips = new Set<string>();
+  const tripRoutes = new Map<string, string>();
+  const services = new Set<string>();
+  const stops = new Set<string>();
+  const nearby = selection.discoveryStops ? new Set(selection.discoveryStops) : null;
+  const discovered = new Set<string>();
+  const table = async (name: string, keep: (row: GtfsRow) => boolean, filter?: Transform) => {
+    const rows: string[] = [];
+    let columns: string[] | undefined;
+    const escape = (value: string) => /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+    const add = (line: string) => {
+      retained += Buffer.byteLength(line);
+      if (retained > MAX_RETAINED) throw new Error("Selected transport tables exceed the memory budget");
+      rows.push(line);
+    };
+    const found = await archive.rows(name, (row) => {
+      if (!columns) { columns = Object.keys(row); add(`${columns.map(escape).join(",")}\n`); }
+      if (keep(row)) add(`${columns.map((column) => escape(row[column] ?? "")).join(",")}\n`);
+    }, filter);
+    if (found && rows.length) files[name] = strToU8(rows.join(""));
+    return found;
+  };
+  if (!await table("routes.txt", (row) => {
+    if (routeTypeToMode(Number(row.route_type)) !== selection.mode ||
+      (selection.line && normalizeTransitText(row.route_short_name || row.route_id || "") !== normalizeTransitText(selection.line))) return false;
+    routes.add(row.route_id!.trim());
+    return true;
+  })) throw new Error("Transport archive has no routes table");
+  if (!routes.size) return zipSync(files, { level: 1 });
+  if (!await table("trips.txt", (row) => {
+    if (!routes.has(row.route_id?.trim() ?? "")) return false;
+    if (trips.size >= 50_000) throw new Error("Too many selected transport trips");
+    trips.add(row.trip_id!.trim());
+    tripRoutes.set(row.trip_id!.trim(), row.route_id!.trim());
+    services.add(row.service_id!.trim());
+    return true;
+  })) throw new Error("Transport archive has no trips table");
+  if (!await table("stop_times.txt", (row) => {
+    if (!trips.has(row.trip_id?.trim() ?? "")) return false;
+    if (nearby) {
+      const stop = row.stop_id?.trim() ?? "";
+      if (!nearby.has(stop)) return false;
+      // Discovery needs evidence that a route serves a nearby stop, not every
+      // departure of every metro line. Never use this subset as a journey index.
+      const key = JSON.stringify([tripRoutes.get(row.trip_id!.trim()), stop]);
+      if (discovered.has(key)) return false;
+      discovered.add(key);
+    }
+    stops.add(row.stop_id!.trim());
+    return true;
+  }, new GtfsTripFilter(trips))) throw new Error("Transport archive has no stop times table");
+  await Promise.all([
+    table("stops.txt", (row) => stops.has(row.stop_id?.trim() ?? "") || row.location_type?.trim() === "1"),
+    table("calendar.txt", (row) => services.has(row.service_id?.trim() ?? "")),
+    table("calendar_dates.txt", (row) => services.has(row.service_id?.trim() ?? "")),
+    table("agency.txt", () => true),
+  ]);
+  if (!files["stops.txt"] || (!files["calendar.txt"] && !files["calendar_dates.txt"])) {
+    throw new Error("Selected transport data has no usable stops or service calendar");
+  }
+  return zipSync(files, { level: 1 });
+}

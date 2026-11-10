@@ -28,10 +28,11 @@ export async function transportDeadline<T>(work: Promise<T>, milliseconds = 45_0
 
 export function parseTransportCommand(args: string[]) {
   const words = args.map((word) => word.trim()).filter(Boolean);
-  const explicit = words.length >= 3 && /^(ligne|line)$/i.test(words.at(-2)!) ? words.at(-1) : undefined;
+  const marker = words.findIndex((word) => /^(ligne|line)$/i.test(word));
+  const explicit = marker >= 0 && /^[a-z0-9][a-z0-9._-]*$/i.test(words[marker + 1] ?? "") ? words[marker + 1] : undefined;
   const last = words.at(-1) ?? "";
   const line = explicit ?? (words.length > 1 && /^(?:\d{1,4}|[a-z]\d{0,3}|[a-z]{2,3}\d{1,3})$/i.test(last) ? last : undefined);
-  const location = (explicit ? words.slice(0, -2) : line ? words.slice(0, -1) : words).join(" ");
+  const location = (explicit ? words.filter((_, i) => i !== marker && i !== marker + 1) : line ? words.slice(0, -1) : words).join(" ");
   const journey = location.match(/^(?:de\s+)?(.+?)(?:\s+vers\s+|\s+to\s+|\s*->\s*|\s*→\s*)(.+)$/i);
   return { place: journey ? journey[1]!.trim() : location, direction: journey?.[2]?.trim(), line };
 }
@@ -149,10 +150,13 @@ export async function handleTransportCommand(
     rows.push(controls);
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
-    const note = stage === "arrivals" ? text("\nTrajets directs ou avec 1 correspondance publiée, dans la même source officielle. Tous modes à l’arrivée; autres réseaux et marche non calculés. Horaires vérifiés après sélection.",
-      "\nDirect journeys or 1 published transfer within the same official source. Any arrival mode; other networks and walking not calculated. Times checked after selection.") +
+    const note = stage === "arrivals" ? (line?.selection
+      ? text("\nTrajets directs sur la ligne choisie. Correspondances non calculées pour cette grande source.",
+        "\nDirect journeys on the chosen line. Transfers are not calculated for this large source.")
+      : text("\nTrajets directs ou avec 1 correspondance publiée, dans la même source officielle. Tous modes à l’arrivée; autres réseaux et marche non calculés. Horaires vérifiés après sélection.",
+        "\nDirect journeys or 1 published transfer within the same official source. Any arrival mode; other networks and walking not calculated. Times checked after selection.")) +
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
-      (index?.connectionsUnavailable ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
+      (index?.connectionsUnavailable && !line?.selection ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
         "\nTransfer search unavailable or too large: only direct journeys are offered.") : "") : "";
     await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${stage === "lines" ? listingNote : ""}`, rows);
   }
@@ -210,7 +214,9 @@ export async function handleTransportCommand(
   async function loadLines() {
     if (!live || !city || !selectedMode) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined;
-    await edit(`${city.label}\n${text("Chargement des lignes…", "Loading routes…")}`);
+    await edit(`${city.label}\n${text("Chargement des lignes…", "Loading routes…")}${selectedMode === "metro"
+      ? text("\nLe premier chargement d’un grand réseau peut prendre quelques dizaines de secondes; les données sont ensuite mises en cache.",
+        "\nLoading a large network for the first time may take several tens of seconds; the data is then cached.") : ""}`);
     const result = await service.lines(city, selectedMode, lineFilter);
     if (!live) return;
     lines = result.lines;
@@ -220,6 +226,8 @@ export async function handleTransportCommand(
       "\nSome network sources could not be loaded; this list may be incomplete.") : "";
     if (result.targeted) listingNote += text("\nRecherche ciblée sur la ligne demandée; les autres réseaux ne sont pas tous parcourus.",
       "\nTargeted search for the requested line; not all other networks were searched.");
+    else if (result.networkScoped) listingNote += text("\nSource : Île-de-France Mobilités. Seul ce réseau officiel a été parcouru.",
+      "\nSource: Île-de-France Mobilités. Only this official network was searched.");
     if (!lines.length) {
       stage = "error";
       await edit(`${city.label}\n${result.unavailable

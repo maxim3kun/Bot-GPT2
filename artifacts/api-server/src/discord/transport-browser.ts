@@ -12,6 +12,7 @@ import { addConnections, connectionPaths } from "./gtfs-connections.js";
 import { connectedJourneys, formatConnections } from "./transport-connections.js";
 import { departureCards } from "./transport-presentation.js";
 import type { APIEmbed } from "discord.js";
+import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
 
 export interface TransportLine {
   routeId: string;
@@ -22,9 +23,10 @@ export interface TransportLine {
   resource: CatalogResource;
   realtime: CatalogResource[];
   source: TransportSource;
+  selection?: GtfsSelection;
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
-export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean }
+export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean }
 export interface TransportDepartureResult {
   content: string;
   source: TransportSource;
@@ -149,27 +151,34 @@ export class TransportBrowserClient {
         // numbered line should not wait for unrelated long-distance operators.
         publishedRouteCount(a.resource) - publishedRouteCount(b.resource));
     let unavailable = 0;
+    let networkScoped = false;
     const found: TransportLine[] = [];
     for (const [id, until] of this.unavailableUntil) if (until <= this.now()) this.unavailableUntil.delete(id);
     // Serialize download + scan together, so a second large ZIP cannot accumulate during parsing.
     let next = 0;
     // A numbered-line request stops at the first official source serving that line
     // locally. Do not make it wait for unrelated networks or aggregate feeds.
-    await Promise.all(Array.from({ length: Math.min(requestedLine ? 1 : 2, groups.length) }, async () => {
+    const selectiveMetro = mode === "metro" && groups.some(({ resource }) => isIdfmGtfs(resource));
+    await Promise.all(Array.from({ length: Math.min(requestedLine || selectiveMetro ? 1 : 2, groups.length) }, async () => {
       while (next < groups.length) {
         const { dataset, resource, stopIds } = groups[next++]!;
         if ((this.unavailableUntil.get(resource.id) ?? 0) > this.now()) { unavailable++; continue; }
         try {
+          const selection: GtfsSelection | undefined = mode === "metro" && isIdfmGtfs(resource)
+            ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
           const routes = await this.scan(async () =>
-            scanRoutesAtStops(await this.provider.staticFeed(resource), stopIds, requestedLine));
+            scanRoutesAtStops(await this.provider.staticFeed(resource, selection), stopIds, requestedLine));
           for (const route of routes) {
             if (route.mode !== mode) continue;
             found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
               description: route.longName || dataset.title, nearbyStopIds: route.stopIds, resource,
               realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
-              source: { name: dataset.title, url: dataset.page_url } });
+              source: { name: dataset.title, url: dataset.page_url }, ...(selection ? { selection } : {}) });
           }
-          if (requestedLine && found.length) break;
+          if (found.length && (requestedLine || selection)) {
+            networkScoped = !!selection;
+            break;
+          }
         } catch (error) {
           unavailable++;
           if (this.unavailableUntil.size >= 64) this.unavailableUntil.delete(this.unavailableUntil.keys().next().value!);
@@ -187,7 +196,7 @@ export class TransportBrowserClient {
     }
     return { lines: [...unique.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
-      unavailable, ...(requestedLine ? { targeted: true } : {}) };
+      unavailable, ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {
@@ -198,8 +207,16 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<JourneyIndex>;
     const work = (async () => {
       const value = await this.scan(async () => {
-        const zip = await this.provider.staticFeed(line.resource);
+        const selection = line.selection?.discoveryStops ? { mode: line.mode, line: line.label } : line.selection ??
+          (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
+        const zip = await this.provider.staticFeed(line.resource, selection);
         const index = await buildJourneyIndex(zip, line.routeId);
+        if (selection) {
+          // A selective large-network feed intentionally excludes transfers.
+          // Do not claim that the whole IDFM network was searched for changes.
+          index.connectionsUnavailable = true;
+          return index;
+        }
         try { await addConnections(zip, index); }
         catch (error) {
           index.connectionsUnavailable = true;
@@ -208,7 +225,8 @@ export class TransportBrowserClient {
         return index;
       });
       if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
-      this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable ? 30_000 : 300_000) });
+      const deliberateDirectOnly = line.mode === "metro" && isIdfmGtfs(line.resource);
+      this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable && !deliberateDirectOnly ? 30_000 : 300_000) });
       return value;
     })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);

@@ -39,6 +39,12 @@ The global Île-de-France Mobilités GTFS also exceeds an 80 MiB download budget
 
 **How to apply:** Validate the complete real-provider path, including download size and parsing cost, when supporting large metropolitan networks. Do not treat adding a host or raising a byte cap as sufficient proof that a metro line lookup works within the bot's memory and latency bounds.
 
+A metro-only extract of the whole IDFM network can itself exceed a modest memory budget. Keep city-level route discovery separate from complete per-line journey data; never calculate departures from a discovery summary.
+
+**Why:** A live network-wide extraction still exceeded the bounded retained-table budget even after excluding buses and shapes. A route-stop discovery summary plus a complete selected-line extract worked with the real line 8 feed.
+
+**How to apply:** Distinguish discovery and complete-line cache entries. Use the official file's version validator across HTTP ranges, preserve service calendars and parent stations, and disclose that the large-network extract does not calculate transfers.
+
 ## Evidence for connections
 
 Do not infer a transfer or walking duration from equal stop names, destinations, or geographic proximity. The conservative routing scope is one change within a single official feed, using published transfer minima; broader routing needs additional authoritative evidence.

@@ -8,6 +8,7 @@ Les commandes n’appellent pas l’IA. Elles utilisent le catalogue national et
 - `!bus Breteuil` : choisir **Breteuil — 60, Oise, Hauts-de-France** ou **Breteuil — 27, Eure, Normandie**, puis la ligne.
 - `!bus Breteuil (60)` : préciser le département dès le départ.
 - `!metro Toulouse` : afficher les lignes de métro repérées près du centre de la commune.
+- `!metro ligne 8 Paris`, `!metro Paris ligne 8` ou `!metro Paris 8` : charger la ligne 8 depuis les horaires officiels d’Île-de-France Mobilités.
 - `!tram <commune>` et `!train <commune>` : utiliser le même parcours pour les autres modes.
 - `!bus Beauvais Amiens 601` ou `!bus Beauvais vers Amiens 601` : présélectionner la ligne et placer les arrêts de la destination en premier, sans masquer les arrêts intermédiaires.
 
@@ -41,6 +42,14 @@ Les recherches géographiques ne sont pas effectuées deux fois pour une command
 - Les téléchargements, les analyses et les caches ont des limites de concurrence et de taille pour éviter de saturer le bot. Une source trop volumineuse ou non autorisée peut rester indisponible; aucune ligne n’est inventée pour la remplacer.
 - Les petits réseaux sont chargés avant les grandes bases nationales. Le lien direct de l’exploitant est utilisé lorsqu’il est publié et autorisé, avec repli sur le lien du catalogue; les deux chemins gardent les mêmes contrôles de sécurité.
 - Une recherche qui dépasse 45 secondes ferme son menu avec un message explicite; elle ne peut pas écraser ce message avec une réponse tardive.
+
+## Métro parisien
+
+Le ZIP global d’Île-de-France Mobilités dépasse la limite habituelle de téléchargement. Le bot lit ses tables utiles par plages HTTP, vérifie que la version du fichier reste identique et contrôle les tailles et les sommes de contrôle. Les formes géographiques et les tables d’extension ne sont pas téléchargées. Les lignes, courses, calendriers et arrêts utiles sont conservés sous forme d’un petit GTFS compatible avec le moteur existant, sans charger le ZIP complet.
+
+Sans numéro de ligne, la première étape ne garde que les preuves de desserte près de la commune pour proposer une liste. Après le choix d’une ligne, ses courses complètes sont chargées séparément : ce résumé de découverte n’est jamais utilisé pour calculer des horaires.
+
+Le premier chargement peut prendre quelques dizaines de secondes; les données et les index sont ensuite réutilisés en cache. Les horaires sont **théoriques**, pas des passages en temps réel. Pour cette grande source, seuls les trajets directs sont proposés : les correspondances restent explicitement non calculées. Les autres réseaux conservent leur prise en charge habituelle des correspondances publiées.
 
 ## Diagnostic sur Railway
 

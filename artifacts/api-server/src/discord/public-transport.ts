@@ -19,6 +19,8 @@ import {
 } from "./gtfs-realtime.js";
 import { normalizeTransitText, parsePublicTransportQuery, type PublicTransportQuery, type TransitMode } from "./transport-query.js";
 import { normalizeCityName, resolveBusJourney } from "./bus-journey.js";
+import { isIdfmGtfs, selectiveGtfs, type GtfsSelection } from "./gtfs-selective.js";
+import { createHash } from "node:crypto";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -146,7 +148,8 @@ function safeHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === "gouv.fr" || host.endsWith(".gouv.fr") ||
     host === "api.oisemob.cityway.fr" || host === "geocatalogue.hautsdefrance.fr" ||
-    host === "data.toulouse-metropole.fr" || host === "media.ilevia.fr";
+    host === "data.toulouse-metropole.fr" || host === "media.ilevia.fr" ||
+    host === "eu.ftp.opendatasoft.com";
 }
 
 function safeUrl(value: string): URL {
@@ -341,7 +344,7 @@ export function sourceButton(source: TransportSource | undefined, language: stri
 export class FranceTransportClient {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly pending = new Map<string, Promise<unknown>>();
-  private readonly staticFiles = new Map<number, { bytes: Uint8Array; expiresAt: number }>();
+  private readonly staticFiles = new Map<string, { bytes: Uint8Array; expiresAt: number }>();
   private staticDownloads = 0;
   private readonly downloadQueue: Array<() => void> = [];
 
@@ -369,12 +372,12 @@ export class FranceTransportClient {
     return request;
   }
 
-  private async fetchPublic(url: string, accept: string): Promise<Response> {
+  private async fetchPublic(url: string, accept: string, options: { headers?: Record<string, string>; timeoutMs?: number } = {}): Promise<Response> {
     let current = safeUrl(url);
     for (let redirect = 0; redirect <= 3; redirect++) {
       const response = await this.fetcher(current.href, {
-        headers: { accept, "user-agent": "MaximeGPT public-transport lookup" },
-        signal: AbortSignal.timeout(9_000),
+        headers: { accept, "user-agent": "MaximeGPT public-transport lookup", ...options.headers },
+        signal: AbortSignal.timeout(options.timeoutMs ?? 9_000),
         redirect: "manual",
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) return response;
@@ -452,16 +455,24 @@ export class FranceTransportClient {
     return [...new Map(locations.map((location) => [location.id, location])).values()];
   }
 
-  async staticFeed(resource: CatalogResource): Promise<Uint8Array> {
+  async staticFeed(resource: CatalogResource, selection?: GtfsSelection): Promise<Uint8Array> {
     for (const [id, entry] of this.staticFiles) {
       if (entry.expiresAt <= this.now()) this.staticFiles.delete(id);
     }
-    const hit = this.staticFiles.get(resource.id);
+    const selective = selection?.mode === "metro" && isIdfmGtfs(resource);
+    const scope = selection?.discoveryStops
+      ? `stops:${createHash("sha256").update([...selection.discoveryStops].sort().join("\n")).digest("hex").slice(0, 24)}`
+      : normalizeTransitText(selection?.line ?? "*");
+    const cacheId = selective ? `${resource.id}:metro:${scope}` : String(resource.id);
+    const hit = this.staticFiles.get(cacheId);
     if (hit) return hit.bytes;
-    const key = `static-file:${resource.id}`;
+    const key = `static-file:${cacheId}`;
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<Uint8Array>;
-    const request = this.downloadStaticResource(resource).then((bytes) => {
+    const load = selective ? this.withStaticSlot(() => selectiveGtfs((range, validator) =>
+      this.fetchPublic(resource.original_url!, "application/zip", { headers: { ...validator, range }, timeoutMs: 35_000 }),
+    selection)) : this.downloadStaticResource(resource);
+    const request = load.then((bytes) => {
       // Binary feeds have their own small memory budget, not the generic 500-entry cache.
       if (bytes.length <= MAX_STATIC_FEED_BYTES) {
         let size = [...this.staticFiles.values()].reduce((sum, item) => sum + item.bytes.length, 0);
@@ -470,7 +481,7 @@ export class FranceTransportClient {
           size -= this.staticFiles.get(id)!.bytes.length;
           this.staticFiles.delete(id);
         }
-        this.staticFiles.set(resource.id, { bytes, expiresAt: this.now() + 15 * 60_000 });
+        this.staticFiles.set(cacheId, { bytes, expiresAt: this.now() + 15 * 60_000 });
       }
       return bytes;
     }).finally(() => this.pending.delete(key));
@@ -495,12 +506,16 @@ export class FranceTransportClient {
   }
 
   private async downloadStatic(url: string): Promise<Uint8Array> {
+    return this.withStaticSlot(() => this.fetchBytes(url, MAX_STATIC_FEED_BYTES));
+  }
+
+  private async withStaticSlot<T>(load: () => Promise<T>): Promise<T> {
     if (this.staticDownloads >= 1) {
       if (this.downloadQueue.length >= 8) throw new Error("Transport downloads are busy");
       await new Promise<void>((resolve) => this.downloadQueue.push(resolve));
     } else this.staticDownloads++;
     try {
-      return await this.fetchBytes(url, MAX_STATIC_FEED_BYTES);
+      return await load();
     } finally {
       const next = this.downloadQueue.shift();
       if (next) next();
