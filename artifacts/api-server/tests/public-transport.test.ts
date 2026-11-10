@@ -5,8 +5,48 @@ import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { decodeGtfsRealtime, decodeGtfsScheduledDepartures, parseGtfsRoutesAtStops, parseGtfsStaticMetadata } from "../src/discord/gtfs-realtime.js";
 import { parsePublicTransportQuery, isPublicTransportRequest } from "../src/discord/transport-query.js";
+import { normalizeCityName, resolveBusJourney } from "../src/discord/bus-journey.js";
 
 const NOW = 1_800_000_000;
+
+test("recognizes the Beauvais Amiens journey without splitting compound city names", async () => {
+  const cities = ["Beauvais", "Amiens", "Saint-Quentin", "Saint", "Quentin"];
+  const lookup = async (name: string) => cities.find((city) => normalizeCityName(city) === normalizeCityName(name)) ?? null;
+  assert.deepEqual(await resolveBusJourney("beauvais amiens", lookup), { place: "Beauvais", direction: "Amiens" });
+  assert.deepEqual(await resolveBusJourney("Saint Quentin", lookup), { place: "Saint-Quentin" });
+  assert.deepEqual(await resolveBusJourney("Beauvais vers Amiens", lookup), { place: "Beauvais", direction: "Amiens" });
+  assert.deepEqual(await resolveBusJourney("Saint-Quentin → Amiens", lookup), { place: "Saint-Quentin", direction: "Amiens" });
+  assert.deepEqual(await resolveBusJourney("Arrêt inconnu", lookup), { place: "Arrêt inconnu" });
+});
+
+test("bus queries locate the municipality instead of a similarly named street", async () => {
+  const geocodeCalls: URL[] = [];
+  const fetcher: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.hostname !== "api-adresse.data.gouv.fr") {
+      if (url.pathname === "/api/datasets") return Response.json([]);
+      if (url.pathname === "/api/gtfs-stops") {
+        assert.ok(Number(url.searchParams.get("south")) > 49, "must search near Beauvais, not Guichen");
+        return Response.json({ features: [] });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+    geocodeCalls.push(url);
+    const name = url.searchParams.get("q") ?? "";
+    const canonical = ["Beauvais", "Amiens"].find((city) => normalizeCityName(city) === normalizeCityName(name));
+    if (url.searchParams.get("type") === "municipality") return Response.json({
+      features: [{ geometry: { coordinates: [2.087881, 49.439313] },
+        properties: { type: "municipality", city: canonical ?? "Beauvais" } }],
+    });
+    return Response.json({ features: [{ geometry: { coordinates: [-1.8, 47.9] },
+      properties: { type: "street", city: "Guichen" } }] });
+  };
+  const client = new FranceTransportClient(fetcher, () => NOW * 1000);
+  const query = await client.resolveBusQuery("beauvais amiens", "601");
+  assert.deepEqual(query, { place: "Beauvais", direction: "Amiens", mode: "bus", line: "601", allowNearbyStops: true });
+  await client.search(query, "fr");
+  assert.ok(geocodeCalls.every((url) => url.searchParams.get("type") === "municipality"));
+});
 
 function gtfsClockAt(epochSeconds: number): string {
   const parts = new Intl.DateTimeFormat("en-GB", {

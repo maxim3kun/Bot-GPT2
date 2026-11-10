@@ -18,6 +18,7 @@ import {
   type ScheduledDepartures,
 } from "./gtfs-realtime.js";
 import { normalizeTransitText, parsePublicTransportQuery, type PublicTransportQuery, type TransitMode } from "./transport-query.js";
+import { normalizeCityName, resolveBusJourney } from "./bus-journey.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -394,14 +395,33 @@ export class FranceTransportClient {
     return this.cached("pan-catalog", 15 * 60_000, () => this.fetchJson<CatalogDataset[]>(`${PAN_API}/datasets`));
   }
 
-  private geocode(place: string): Promise<GeocodeFeature | null> {
+  private geocode(place: string, municipalityOnly = false): Promise<GeocodeFeature | null> {
     const url = new URL(GEOCODER_API);
     url.searchParams.set("q", place);
     url.searchParams.set("limit", "1");
-    return this.cached(`geocode:${normalizeTransitText(place)}`, 6 * 60 * 60_000, async () => {
+    if (municipalityOnly) url.searchParams.set("type", "municipality");
+    return this.cached(`geocode:${municipalityOnly ? "city" : "any"}:${normalizeTransitText(place)}`, 6 * 60 * 60_000, async () => {
       const result = await this.fetchJson<GeocodeResponse>(url.href, 1_000_000);
       return result.features?.[0] ?? null;
     });
+  }
+
+  private isExactCity(feature: GeocodeFeature | null, place: string): boolean {
+    return feature?.properties?.type === "municipality" &&
+      normalizeCityName(feature.properties.city ?? feature.properties.name ?? "") === normalizeCityName(place);
+  }
+
+  private async locateCityOrStop(place: string): Promise<GeocodeFeature | null> {
+    const city = await this.geocode(place, true);
+    return this.isExactCity(city, place) ? city : this.geocode(place);
+  }
+
+  async resolveBusQuery(location: string, line: string): Promise<PublicTransportQuery> {
+    const journey = await resolveBusJourney(location, async (name) => {
+      const city = await this.geocode(name, true);
+      return this.isExactCity(city, name) ? city!.properties!.city ?? city!.properties!.name ?? name : null;
+    });
+    return { ...journey, mode: "bus", line, allowNearbyStops: true };
   }
 
   private nearbyStops(latitude: number, longitude: number, radius = 0.009): Promise<StopCollection> {
@@ -587,7 +607,7 @@ export class FranceTransportClient {
 
   async listBusCity(city: string, language: string, prefix = "!"): Promise<string> {
     const french = language === "fr";
-    const [catalog, geocoded] = await Promise.all([this.getCatalog(), this.geocode(city)]);
+    const [catalog, geocoded] = await Promise.all([this.getCatalog(), this.locateCityOrStop(city)]);
     const coordinates = geocoded?.geometry?.coordinates;
     if (!coordinates || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) {
       return french
@@ -675,8 +695,8 @@ export class FranceTransportClient {
       return `• **${network.title}** · ${status}\n  ${french ? "Lignes" : "Routes"} : ${labels}${more}`;
     });
     const footer = french
-      ? `\nPour les passages, utilise \`${prefix}bus ${city} <ligne>\`. Si plusieurs arrêts correspondent, le bot te demandera de choisir.`
-      : `\nFor departures, use \`${prefix}bus ${city} <line>\`. If several stops match, the bot will ask you to choose.`;
+      ? `\nPour les passages : \`${prefix}bus ${city} <ligne>\`, ou \`${prefix}bus ${city} vers <destination> <ligne>\`. Si plusieurs arrêts correspondent, le bot te demandera de choisir.`
+      : `\nFor departures: \`${prefix}bus ${city} <line>\`, or \`${prefix}bus ${city} to <destination> <line>\`. If several stops match, the bot will ask you to choose.`;
     let content = `${header}\n${body.join("\n")}${footer}`;
     while (content.length > 1_900 && body.length > 1) {
       body.pop();
@@ -695,7 +715,10 @@ export class FranceTransportClient {
       };
     }
 
-    const [catalog, geocoded] = await Promise.all([this.getCatalog(), this.geocode(query.place)]);
+    const [catalog, geocoded] = await Promise.all([
+      this.getCatalog(),
+      query.allowNearbyStops ? this.locateCityOrStop(query.place) : this.geocode(query.place),
+    ]);
     const coordinates = geocoded?.geometry?.coordinates;
     if (!coordinates || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) {
       return {
@@ -1010,12 +1033,7 @@ export async function handleBusCommand(
       return;
     }
 
-    const query: PublicTransportQuery = {
-      place: city,
-      mode: "bus",
-      line,
-      allowNearbyStops: true,
-    };
+    const query = await franceTransport.resolveBusQuery(city, line);
     const result = await franceTransport.search(query, language);
     await replyWithTransportResult(message, query, result, language, "bus_stop_choice");
   } catch (error) {
