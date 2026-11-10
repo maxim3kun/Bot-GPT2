@@ -68,7 +68,8 @@ import { rememberConversationTurn } from "./discord/ai-conversation-memory.js";
 import { researchForTurn } from "./discord/ai-research-service.js";
 import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
-import { handleBusCommand, handlePublicTransportRequest } from "./discord/public-transport.js";
+import { handlePublicTransportRequest } from "./discord/public-transport.js";
+import { handleTransportCommand } from "./discord/transport-menu.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { handleMgButton } from "./discord/milliongame.js";
@@ -1708,8 +1709,9 @@ export function startBot(): void {
     }
 
     try {
-      if (command === "bus") {
-        await handleBusCommand(message, args, responseLang, guildPrefix);
+      if (command === "bus" || command === "metro" || command === "transport" || command === "transports" || command === "tram" || command === "train") {
+        const mode = command === "metro" ? "metro" : command === "tram" ? "tram" : command === "train" ? "rail" : command === "bus" ? "bus" : null;
+        await handleTransportCommand(message, args, responseLang, guildPrefix, mode);
         return;
       }
 

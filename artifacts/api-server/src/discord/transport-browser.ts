@@ -1,0 +1,198 @@
+import {
+  FranceTransportClient, isStaticScheduleResource, isGtfsRealtimeResource, modeMatches,
+  type CatalogResource, type TransportLocation, type TransportSource,
+} from "./public-transport.js";
+import { normalizeTransitText, type TransitMode } from "./transport-query.js";
+import {
+  scanRoutesAtStops, buildJourneyIndex, journeyPairs, scheduledJourneys, realtimeJourneys,
+  type JourneyIndex, type JourneyStop,
+} from "./gtfs-journey.js";
+import { logger } from "../lib/logger.js";
+
+export interface TransportLine {
+  routeId: string;
+  label: string;
+  description: string;
+  mode: TransitMode;
+  nearbyStopIds: string[];
+  resource: CatalogResource;
+  realtime: CatalogResource[];
+  source: TransportSource;
+}
+export interface StopGroup { label: string; ids: string[] }
+export interface LineListing { lines: TransportLine[]; unavailable: number }
+export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
+
+export function groupStops(stops: JourneyStop[]): StopGroup[] {
+  const groups = new Map<string, StopGroup>();
+  for (const stop of stops) {
+    const key = normalizeTransitText(stop.name);
+    const group = groups.get(key) ?? { label: stop.name, ids: [] };
+    if (!group.ids.includes(stop.id)) group.ids.push(stop.id);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+}
+
+export function originOptions(index: JourneyIndex, line: TransportLine): StopGroup[] {
+  const nearby = new Set(line.nearbyStopIds);
+  const boarding = new Set([...index.visits.values()].flatMap((visits) =>
+    visits.filter((visit) => visit.pickup && nearby.has(visit.stopId)).map((visit) => visit.stopId)));
+  return groupStops([...index.stops.values()].filter((stop) => boarding.has(stop.id)));
+}
+
+export function arrivalOptions(index: JourneyIndex, origin: StopGroup): StopGroup[] {
+  const ids = new Set(origin.ids);
+  const reachable = new Set<string>();
+  for (const visits of index.visits.values()) {
+    let boarded = false;
+    for (const visit of visits) {
+      if (boarded && visit.dropoff && !ids.has(visit.stopId)) reachable.add(visit.stopId);
+      if (visit.pickup && ids.has(visit.stopId)) boarded = true;
+    }
+  }
+  return groupStops([...index.stops.values()].filter((stop) => reachable.has(stop.id)));
+}
+
+export class TransportBrowserClient {
+  private readonly listings = new Map<string, { expires: number; value: LineListing }>();
+  private readonly indexes = new Map<string, { expires: number; value: JourneyIndex }>();
+  private readonly pending = new Map<string, Promise<unknown>>();
+  private scanTail: Promise<unknown> = Promise.resolve();
+  private queuedScans = 0;
+
+  constructor(readonly provider = new FranceTransportClient(), private readonly now = Date.now) {}
+
+  private async scan<T>(load: () => Promise<T>): Promise<T> {
+    if (this.queuedScans >= 8) throw new Error("Transport lookups are busy");
+    this.queuedScans++;
+    const previous = this.scanTail;
+    const request = previous.catch(() => undefined).then(load);
+    this.scanTail = request.catch(() => undefined);
+    try { return await request; } finally { this.queuedScans--; }
+  }
+
+  cities(place: string): Promise<TransportLocation[]> { return this.provider.municipalities(place); }
+
+  async lines(city: TransportLocation, mode: TransitMode): Promise<LineListing> {
+    const key = `${city.id}:${mode}`;
+    const cached = this.listings.get(key);
+    if (cached && cached.expires > this.now()) return cached.value;
+    const pending = this.pending.get(key);
+    if (pending) return pending as Promise<LineListing>;
+    const work = this.loadLines(city, mode).then((value) => {
+      if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
+      this.listings.set(key, { value, expires: this.now() + (value.unavailable ? 30_000 : 300_000) });
+      return value;
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, work);
+    return work;
+  }
+
+  private async loadLines(city: TransportLocation, mode: TransitMode): Promise<LineListing> {
+    const [catalogue, nearby] = await Promise.all([
+      this.provider.getCatalog(), this.provider.nearbyStops(city.latitude, city.longitude, 0.025),
+    ]);
+    const stopsByResource = new Map<number, Set<string>>();
+    for (const feature of nearby.features ?? []) {
+      const stop = feature.properties;
+      if (!stop?.stop_id || stop.location_type === 2 || stop.location_type === 3 || stop.location_type === 4) continue;
+      const resource = Number(stop.resource_id);
+      const ids = stopsByResource.get(resource) ?? new Set<string>();
+      ids.add(stop.stop_id);
+      stopsByResource.set(resource, ids);
+    }
+    const groups = catalogue.filter((dataset) => dataset.type === "public-transit").flatMap((dataset) =>
+      dataset.resources.filter((resource) => stopsByResource.has(resource.id) &&
+        isStaticScheduleResource(resource) && modeMatches(mode, resource.modes))
+        .map((resource) => ({ dataset, resource, stopIds: stopsByResource.get(resource.id)! })))
+      .sort((a, b) => Number(/agr[eé]gat/i.test(a.dataset.title)) - Number(/agr[eé]gat/i.test(b.dataset.title)));
+    let unavailable = 0;
+    const found: TransportLine[] = [];
+    // Serialize download + scan together, so a second large ZIP cannot accumulate during parsing.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(2, groups.length) }, async () => {
+      while (next < groups.length) {
+        const { dataset, resource, stopIds } = groups[next++]!;
+        try {
+          const routes = await this.scan(async () =>
+            scanRoutesAtStops(await this.provider.staticFeed(resource), stopIds));
+          for (const route of routes) {
+            if (route.mode !== mode) continue;
+            found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
+              description: route.longName || dataset.title, nearbyStopIds: route.stopIds, resource,
+              realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
+              source: { name: dataset.title, url: dataset.page_url } });
+          }
+        } catch (error) {
+          unavailable++;
+          logger.warn({ resourceId: resource.id, err: error }, "Transport browser source unavailable");
+        }
+      }
+    }));
+    // An aggregate and its underlying operator often publish the exact same routes.
+    const unique = new Map<string, TransportLine>();
+    for (const line of found.sort((a, b) =>
+      Number(/agr[eé]gat/i.test(a.source.name)) - Number(/agr[eé]gat/i.test(b.source.name)))) {
+      const fingerprint = `${line.mode}:${normalizeTransitText(line.label)}:${normalizeTransitText(line.description)}`;
+      if (!unique.has(fingerprint)) unique.set(fingerprint, line);
+    }
+    return { lines: [...unique.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")), unavailable };
+  }
+
+  async index(line: TransportLine): Promise<JourneyIndex> {
+    const key = `index:${line.resource.id}:${line.routeId}`;
+    const cached = this.indexes.get(key);
+    if (cached && cached.expires > this.now()) return cached.value;
+    const pending = this.pending.get(key);
+    if (pending) return pending as Promise<JourneyIndex>;
+    const work = (async () => {
+      const value = await this.scan(async () =>
+        buildJourneyIndex(await this.provider.staticFeed(line.resource), line.routeId));
+      if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
+      this.indexes.set(key, { value, expires: this.now() + 300_000 });
+      return value;
+    })().finally(() => this.pending.delete(key));
+    this.pending.set(key, work);
+    return work;
+  }
+
+  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
+    const french = language === "fr";
+    const now = Math.floor(this.now() / 1000);
+    const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
+    if (!pairs.length) return { content: french ? "Aucun trajet direct ne relie ces deux arrêts dans ce sens."
+      : "No direct journey connects these stops in this direction.", source: line.source };
+    const schedules = scheduledJourneys(index, pairs, now);
+    const updates = await Promise.all(line.realtime.map(async (resource) => {
+      try { return realtimeJourneys(await this.provider.realtimeFeed(resource), pairs, now); }
+      catch (error) {
+        logger.debug({ resourceId: resource.id, err: error }, "Transport journey realtime unavailable");
+        return null;
+      }
+    }));
+    const fresh = updates.filter((update) => update?.fresh);
+    const cancelled = new Set(fresh.flatMap((update) => [...update!.cancelled]));
+    const estimates = fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
+    const times = estimates.length ? estimates : schedules.filter((time) => !cancelled.has(time.tripId));
+    const deduped = [...new Map(times.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
+      .sort((a, b) => a.departureAt - b.departureAt).slice(0, 6);
+    const timezone = index.metadata.timezone || "Europe/Paris";
+    const clock = (time: number) => new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
+      timeZone: timezone, weekday: "short", hour: "2-digit", minute: "2-digit",
+    }).format(new Date(time * 1000));
+    const heading = `**${MODE_NAMES[line.mode]} ${line.label} · ${origin.label} → ${arrival.label}**`;
+    const kind = estimates.length ? (french ? "Estimations en temps réel" : "Real-time estimates")
+      : (french ? "Horaires théoriques — non temps réel" : "Scheduled times — not real-time");
+    const rows = deduped.map((time) => `• ${clock(time.departureAt)}${time.arrivalAt == null ? ""
+      : ` → ${clock(time.arrivalAt)}`}`);
+    const empty = french ? "Aucun départ exploitable dans les prochaines 24 h pour ce trajet direct."
+      : "No usable departures in the next 24 hours for this direct journey.";
+    const warning = !estimates.length && line.realtime.length
+      ? (french ? "\nLe direct est indisponible, périmé ou sans estimation pour ce trajet." : "\nLive data is unavailable, stale or has no estimate for this journey.") : "";
+    const cancellation = cancelled.size ? (french ? "\nLes courses signalées annulées ou sans desserte ont été exclues."
+      : "\nCancelled trips and skipped stops have been excluded.") : "";
+    return { content: `${heading}\n${kind}\n${rows.join("\n") || empty}${warning}${cancellation}`.slice(0, 1900), source: line.source };
+  }
+}

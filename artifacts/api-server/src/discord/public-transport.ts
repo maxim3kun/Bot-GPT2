@@ -27,7 +27,7 @@ const MAX_STATIC_FEED_BYTES = 80 * 1024 * 1024;
 const MAX_REALTIME_FEED_BYTES = 12 * 1024 * 1024;
 const MAX_FEED_AGE_SECONDS = 8 * 60;
 
-interface CatalogResource {
+export interface CatalogResource {
   id: number;
   title: string;
   format: string;
@@ -39,7 +39,7 @@ interface CatalogResource {
   metadata?: Record<string, unknown>;
 }
 
-interface CatalogDataset {
+export interface CatalogDataset {
   id: string;
   title: string;
   slug: string;
@@ -61,13 +61,13 @@ interface CatalogStop {
   };
 }
 
-interface StopCollection {
+export interface StopCollection {
   features?: CatalogStop[];
 }
 
 interface GeocodeFeature {
   geometry?: { coordinates?: [number, number] };
-  properties?: { type?: string; city?: string; label?: string; name?: string };
+  properties?: { type?: string; city?: string; label?: string; name?: string; citycode?: string; postcode?: string; context?: string; depcode?: string };
 }
 
 interface GeocodeResponse {
@@ -127,6 +127,14 @@ export interface TransportSource {
   url: string;
 }
 
+export interface TransportLocation {
+  id: string;
+  name: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
 export type TransportSearchResult =
   | { kind: "answer"; content: string; source?: TransportSource }
   | { kind: "choose-stop"; content: string; choices: TransportStopChoice[] };
@@ -136,7 +144,8 @@ type CacheEntry = { expiresAt: number; value: unknown };
 function safeHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === "gouv.fr" || host.endsWith(".gouv.fr") ||
-    host === "api.oisemob.cityway.fr" || host === "geocatalogue.hautsdefrance.fr";
+    host === "api.oisemob.cityway.fr" || host === "geocatalogue.hautsdefrance.fr" ||
+    host === "data.toulouse-metropole.fr" || host === "media.ilevia.fr";
 }
 
 function safeUrl(value: string): URL {
@@ -156,7 +165,7 @@ function normalizeMode(value: string): string {
   return normalizeTransitText(value).replace(/[^a-z0-9]+/g, "");
 }
 
-function modeMatches(mode: TransitMode | null, values: string[] | undefined): boolean {
+export function modeMatches(mode: TransitMode | null, values: string[] | undefined): boolean {
   if (!mode || !values?.length) return true;
   const normalized = values.map(normalizeMode);
   const accepted: Record<TransitMode, string[]> = {
@@ -180,18 +189,18 @@ function stopScore(query: string, stopName: string): number {
   return matches / queryTokens.length;
 }
 
-function isGtfsRealtimeResource(resource: CatalogResource): boolean {
+export function isGtfsRealtimeResource(resource: CatalogResource): boolean {
   if (!resource.is_available || !normalizeMode(resource.format).includes("gtfsrt")) return false;
   const descriptor = normalizeTransitText(`${resource.title} ${resource.url}`);
   return !/(service alerts?|situation exchange|alertes?|vehicle.?positions?|position des vehicules|vehicule.?position)/.test(descriptor);
 }
 
-function isStaticScheduleResource(resource: CatalogResource): boolean {
+export function isStaticScheduleResource(resource: CatalogResource): boolean {
   if (!resource.is_available || normalizeMode(resource.format) !== "gtfs") return false;
   return !/\b(?:tad|flex)\b/i.test(normalizeTransitText(resource.title));
 }
 
-function lineMatches(requestedLine: string, values: Array<string | undefined>): boolean {
+export function lineMatches(requestedLine: string, values: Array<string | undefined>): boolean {
   const line = normalizeTransitText(requestedLine);
   if (!line) return false;
   return values.some((value) => {
@@ -310,7 +319,7 @@ function makeScheduledReply(results: ScheduleResult[], query: PublicTransportQue
   return `${french ? "Horaires théoriques (non temps réel)" : "Scheduled times (not real time)"} à **${stopLine}**\n${lines.join("\n")}${sourcesLine}`;
 }
 
-function sourceButton(source: TransportSource | undefined, language: string): ActionRowBuilder<ButtonBuilder>[] {
+export function sourceButton(source: TransportSource | undefined, language: string): ActionRowBuilder<ButtonBuilder>[] {
   if (!source) return [];
   try {
     const url = new URL(source.url);
@@ -331,6 +340,9 @@ function sourceButton(source: TransportSource | undefined, language: string): Ac
 export class FranceTransportClient {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly staticFiles = new Map<number, { bytes: Uint8Array; expiresAt: number }>();
+  private staticDownloads = 0;
+  private readonly downloadQueue: Array<() => void> = [];
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
@@ -382,17 +394,101 @@ export class FranceTransportClient {
     return JSON.parse(text) as T;
   }
 
-  private async fetchBytes(url: string, maxBytes: number): Promise<Uint8Array> {
+  async fetchBytes(url: string, maxBytes: number): Promise<Uint8Array> {
     const response = await this.fetchPublic(url, "application/octet-stream, application/zip, application/x-protobuf, */*");
     if (!response.ok) throw new Error(`Transport feed request returned ${response.status}`);
     if (maxBytesExceeded(response, maxBytes)) throw new Error("Transport feed exceeds its size limit");
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) throw new Error("Transport feed exceeds its size limit");
+    const reader = response.body?.getReader();
+    if (!reader) return new Uint8Array();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > maxBytes) throw new Error("Transport feed exceeds its size limit");
+        chunks.push(value);
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally { reader.releaseLock(); }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     return bytes;
   }
 
-  private getCatalog(): Promise<CatalogDataset[]> {
+  getCatalog(): Promise<CatalogDataset[]> {
     return this.cached("pan-catalog", 15 * 60_000, () => this.fetchJson<CatalogDataset[]>(`${PAN_API}/datasets`));
+  }
+
+  async municipalities(place: string): Promise<TransportLocation[]> {
+    const qualifier = place.match(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i)?.[1]?.toUpperCase();
+    const name = qualifier ? place.replace(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i, "").trim() : place;
+    const url = new URL(GEOCODER_API);
+    url.searchParams.set("q", name);
+    url.searchParams.set("type", "municipality");
+    url.searchParams.set("limit", "20");
+    const result = await this.cached(`cities:${url.search}`, 6 * 60 * 60_000,
+      () => this.fetchJson<GeocodeResponse>(url.href, 1_000_000));
+    let features = (result.features ?? []).filter((feature) => feature.properties?.type === "municipality");
+    const exact = features.filter((feature) => normalizeCityName(feature.properties?.city ?? feature.properties?.name ?? "") === normalizeCityName(name));
+    if (exact.length) features = exact;
+    if (qualifier) features = features.filter((feature) =>
+      qualifier.length === 5 ? feature.properties?.postcode === qualifier
+        : (feature.properties?.depcode ?? feature.properties?.context?.split(",")[0]?.trim()) === qualifier);
+    const locations = features.flatMap((feature) => {
+      const [longitude, latitude] = feature.geometry?.coordinates ?? [];
+      const p = feature.properties;
+      if (!p || longitude == null || latitude == null || !Number.isFinite(longitude) || !Number.isFinite(latitude)) return [];
+      const city = p.city ?? p.name ?? name;
+      const context = p.context ?? p.postcode ?? "";
+      return [{ id: p.citycode ?? `${latitude},${longitude}`, name: city,
+        label: `${city}${context ? ` — ${context}` : ""}`, latitude, longitude }];
+    });
+    return [...new Map(locations.map((location) => [location.id, location])).values()];
+  }
+
+  async staticFeed(resource: CatalogResource): Promise<Uint8Array> {
+    for (const [id, entry] of this.staticFiles) {
+      if (entry.expiresAt <= this.now()) this.staticFiles.delete(id);
+    }
+    const hit = this.staticFiles.get(resource.id);
+    if (hit) return hit.bytes;
+    const key = `static-file:${resource.id}`;
+    const pending = this.pending.get(key);
+    if (pending) return pending as Promise<Uint8Array>;
+    const request = this.downloadStatic(resource.url).then((bytes) => {
+      // Binary feeds have their own small memory budget, not the generic 500-entry cache.
+      if (bytes.length <= MAX_STATIC_FEED_BYTES) {
+        let size = [...this.staticFiles.values()].reduce((sum, item) => sum + item.bytes.length, 0);
+        while (size + bytes.length > MAX_STATIC_FEED_BYTES && this.staticFiles.size) {
+          const id = this.staticFiles.keys().next().value!;
+          size -= this.staticFiles.get(id)!.bytes.length;
+          this.staticFiles.delete(id);
+        }
+        this.staticFiles.set(resource.id, { bytes, expiresAt: this.now() + 15 * 60_000 });
+      }
+      return bytes;
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, request);
+    return request;
+  }
+
+  private async downloadStatic(url: string): Promise<Uint8Array> {
+    if (this.staticDownloads >= 1) {
+      if (this.downloadQueue.length >= 8) throw new Error("Transport downloads are busy");
+      await new Promise<void>((resolve) => this.downloadQueue.push(resolve));
+    } else this.staticDownloads++;
+    try {
+      return await this.fetchBytes(url, MAX_STATIC_FEED_BYTES);
+    } finally {
+      const next = this.downloadQueue.shift();
+      if (next) next();
+      else this.staticDownloads--;
+    }
   }
 
   private geocode(place: string, municipalityOnly = false): Promise<GeocodeFeature | null> {
@@ -424,7 +520,7 @@ export class FranceTransportClient {
     return { ...journey, mode: "bus", line, allowNearbyStops: true };
   }
 
-  private nearbyStops(latitude: number, longitude: number, radius = 0.009): Promise<StopCollection> {
+  nearbyStops(latitude: number, longitude: number, radius = 0.009): Promise<StopCollection> {
     const longitudeRadius = radius / Math.max(0.2, Math.cos(latitude * Math.PI / 180));
     const url = new URL(`${PAN_API}/gtfs-stops`);
     url.searchParams.set("south", String(latitude - radius));
@@ -461,7 +557,7 @@ export class FranceTransportClient {
     });
   }
 
-  private realtimeFeed(resource: CatalogResource): Promise<Uint8Array> {
+  realtimeFeed(resource: CatalogResource): Promise<Uint8Array> {
     return this.cached(`gtfs-realtime:${resource.id}`, 12_000, () =>
       this.fetchBytes(resource.url, MAX_REALTIME_FEED_BYTES),
     );
@@ -999,47 +1095,6 @@ export async function handleBusCommand(
   language: string,
   prefix = "!",
 ): Promise<void> {
-  const words = args.map((word) => word.trim()).filter(Boolean);
-  const directoryRequest = words.length === 0 ||
-    (words.length === 1 && /^(?:list|liste|reseaux|réseaux)$/i.test(words[0]!));
-  try {
-    if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
-    if (directoryRequest) {
-      await message.reply({
-        content: await franceTransport.listBusDirectory(language, prefix),
-        allowedMentions: { parse: [] },
-      });
-      return;
-    }
-
-    const explicitLine = words.length >= 3 && /^(?:ligne|line)$/i.test(words.at(-2)!)
-      ? words.at(-1)
-      : undefined;
-    const lastWord = words.at(-1) ?? "";
-    const looksLikeLine = /^\d{1,4}$/.test(lastWord) || /^[a-z]\d{0,3}$/i.test(lastWord) ||
-      /^[a-z]{2,3}\d{1,3}$/i.test(lastWord);
-    const line = explicitLine ?? (looksLikeLine && words.length > 1 ? lastWord : undefined);
-    const cityWords = explicitLine
-      ? words.slice(0, -2)
-      : line
-        ? words.slice(0, -1)
-        : words;
-    const city = cityWords.join(" ").trim();
-    if (!city || !line) {
-      await message.reply({
-        content: await franceTransport.listBusCity(city || words.join(" "), language, prefix),
-        allowedMentions: { parse: [] },
-      });
-      return;
-    }
-
-    const query = await franceTransport.resolveBusQuery(city, line);
-    const result = await franceTransport.search(query, language);
-    await replyWithTransportResult(message, query, result, language, "bus_stop_choice");
-  } catch (error) {
-    logger.warn({ err: error }, "Direct bus lookup failed");
-    await message.reply(language === "fr"
-      ? "Je n’arrive pas à récupérer les horaires de bus pour le moment. Réessaie dans quelques instants."
-      : "I can't retrieve bus times right now. Please try again shortly.");
-  }
+  const { handleTransportCommand } = await import("./transport-menu.js");
+  await handleTransportCommand(message, args, language, prefix, "bus");
 }

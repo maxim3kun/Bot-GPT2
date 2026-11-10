@@ -86,7 +86,9 @@ function safeStopTimeRows(bytes: Uint8Array | undefined, stopIds: ReadonlySet<st
 }
 
 function parseStaticFeed(zipBytes: Uint8Array, requestedStopIds?: ReadonlySet<string>) {
-  const files = unzipSync(zipBytes);
+  const wanted = new Set(["agency.txt", "routes.txt", "trips.txt", "calendar.txt", "calendar_dates.txt",
+    ...(requestedStopIds ? ["stop_times.txt"] : [])]);
+  const files = unzipSync(zipBytes, { filter: (file) => wanted.has(file.name.split("/").at(-1)?.toLowerCase() ?? "") });
   const find = (name: string) => Object.entries(files).find(([path]) => path.split("/").at(-1)?.toLowerCase() === name)?.[1];
   const agency = safeCsvRows(find("agency.txt"))[0];
 
@@ -179,7 +181,7 @@ export function parseGtfsRoutesAtStops(zipBytes: Uint8Array, stopIds: ReadonlySe
   });
 }
 
-function addDays(date: string, amount: number): string {
+export function addDays(date: string, amount: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const result = new Date(Date.UTC(year!, month! - 1, day! + amount));
   return `${result.getUTCFullYear()}-${String(result.getUTCMonth() + 1).padStart(2, "0")}-${String(result.getUTCDate()).padStart(2, "0")}`;
@@ -189,7 +191,7 @@ function gtfsDate(date: string): string {
   return date.replaceAll("-", "");
 }
 
-function localDate(epochSeconds: number, timezone: string): string {
+export function localDate(epochSeconds: number, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -200,7 +202,7 @@ function localDate(epochSeconds: number, timezone: string): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function serviceRunsOn(metadata: GtfsStaticMetadata, serviceId: string, date: string): boolean {
+export function serviceRunsOn(metadata: GtfsStaticMetadata, serviceId: string, date: string): boolean {
   const exception = metadata.calendarExceptions.get(`${gtfsDate(date)}:${serviceId}`);
   if (exception === 1) return true;
   if (exception === 2) return false;
@@ -212,7 +214,7 @@ function serviceRunsOn(metadata: GtfsStaticMetadata, serviceId: string, date: st
   return calendar.weekdays[weekday] ?? false;
 }
 
-function scheduledEpoch(date: string, time: string, timezone: string): number | null {
+export function scheduledEpoch(date: string, time: string, timezone: string): number | null {
   const match = time.match(/^(\d{1,3}):([0-5]\d):([0-5]\d)$/);
   if (!match) return null;
   const totalHours = Number(match[1]);
