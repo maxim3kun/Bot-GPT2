@@ -14,6 +14,12 @@ import {
 import { updatePersonaSessionFromReaction } from "../src/discord/ai-persona-reaction-policy.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
 import { researchForTurn } from "../src/discord/ai-research-service.js";
+import {
+  BULLY_PERSONA_GUIDANCE,
+  canEngageGuildBully,
+  createGuildBullyPersonaRecord,
+  isBullyToneStopRequest,
+} from "../src/discord/ai-bully-policy.js";
 
 function completion(content: string | null, silence = false) {
   return {
@@ -175,6 +181,35 @@ test("Persona reactions activate the member's own last selection and removal sto
   assert.equal(updatePersonaSessionFromReaction({
     ...first, activePersonaId: "public-1",
   }, true, true), null);
+});
+
+test("The server Bully has one stable public identity per guild and requires personal activation", () => {
+  const first = createGuildBullyPersonaRecord("guild-a", "2026-11-10T00:00:00.000Z");
+  const sameGuild = createGuildBullyPersonaRecord("guild-a", "2026-11-11T00:00:00.000Z");
+  const otherGuild = createGuildBullyPersonaRecord("guild-b", "2026-11-10T00:00:00.000Z");
+
+  assert.equal(first.id, sameGuild.id);
+  assert.ok(first.id.length <= 64, "persona session storage preserves the complete Bully id");
+  assert.notEqual(first.id, otherGuild.id);
+  assert.equal(first.guildId, "guild-a");
+  assert.equal(first.visibility, "public");
+  assert.equal(canEngageGuildBully(first, null), false);
+  assert.equal(canEngageGuildBully(first, "another-persona"), false);
+  assert.equal(canEngageGuildBully(first, first.id), true);
+  assert.match(BULLY_PERSONA_GUIDANCE, /Never target, mock, insult, or humiliate another member/);
+  assert.match(BULLY_PERSONA_GUIDANCE, /Never mock or criticize sensitive or protected traits/);
+});
+
+test("The Bully immediately deactivates when its user asks it to stop roasting", () => {
+  for (const request of [
+    "Stop roasting me",
+    "Don't make fun of me",
+    "Arrête de te moquer de moi",
+    "Sois plus gentil",
+  ]) {
+    assert.equal(isBullyToneStopRequest(request), true, request);
+  }
+  assert.equal(isBullyToneStopRequest("Can you help fix this code?"), false);
 });
 
 test("Public personas are server-scoped and reveal only creator-selected profile text", () => {

@@ -28,6 +28,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
         { name: "Activer ou reprendre", value: `${cmd("start Azumi")}\n${cmd("start")} reprend ton dernier persona ; ${cmd("stop")} l’arrête pour toi. Sélectionne aussi un persona avec ${cmd("list")} ; la réaction 🎭 sous une réponse générale l’active, son retrait l’arrête.` },
         { name: "Retrouver tes personnages", value: `${cmd("list")} — liste des personas accessibles.\n${cmd("show <nom ou id>")} — fiche détaillée.\nCes informations personnelles restent envoyées en privé.` },
         { name: "Privé ou partagé", value: `${cmd("create public | Azumi | Une guide curieuse et bienveillante.")}\nCrée un persona utilisable dans ce serveur. Une activation est personnelle : elle ne change pas le bot pour tous les membres.` },
+        { name: "Persona Bully", value: `${cmd("bully")} l’active uniquement pour toi dans ce serveur ; ${cmd("stop")} l’arrête. Ses piques ne visent que toi, jamais les autres membres ni les caractéristiques sensibles. Ce persona ne change pas les rappels de quêtes.` },
       ],
     },
     {
@@ -71,6 +72,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
         { name: "Activate or resume", value: `${cmd("start Azumi")}\n${cmd("start")} resumes your last persona; ${cmd("stop")} stops it for you. Select one with ${cmd("list")} too; add 🎭 under a general reply to activate it and remove your reaction to stop it.` },
         { name: "Find your characters", value: `${cmd("list")} — available personas.\n${cmd("show <name or id>")} — detailed profile.\nThese personal details are still sent privately.` },
         { name: "Private or shared", value: `${cmd("create public | Azumi | A curious, friendly guide.")}\nCreates a persona usable in this server. Activation is personal: it does not change the bot for everyone.` },
+        { name: "Bully persona", value: `${cmd("bully")} activates it only for you in this server; ${cmd("stop")} turns it off. Its jabs target only you, never other members or sensitive traits. This persona does not change quest reminders.` },
       ],
     },
     {

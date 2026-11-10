@@ -209,6 +209,8 @@ test("Persona help has short themed pages, real examples and the current command
     for (const action of ["create", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "profile", "delete"]) {
       assert.ok(all.join("\n").includes(`??persona ${action}`), `${language}/${action}`);
     }
+    assert.ok(all.join("\n").includes("??persona bully"), `${language}/bully`);
+    assert.match(all.join("\n"), /quest reminders|rappels de quêtes/);
     assert.match(all.join("\n"), /🎭/);
   }
 });

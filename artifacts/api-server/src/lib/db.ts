@@ -2,6 +2,7 @@ import { MongoClient, type Db, type Collection, type Filter } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import { logger } from "./logger.js";
 import { isAiPersonaVisibleToViewer } from "./ai-persona-public-view.js";
+import { createGuildBullyPersonaRecord } from "../discord/ai-bully-policy.js";
 
 // ── Config ────────────────────────────────────────────────────────────
 
@@ -584,6 +585,39 @@ export async function listVisibleAiPersonas(
   return docs
     .map(decodeAiPersona)
     .filter((persona) => isAiPersonaVisibleToViewer(persona, guildId, userId));
+}
+
+/**
+ * Creates one shared Bully persona per server. Its stable server-derived id
+ * uses MongoDB's unique _id constraint to make concurrent first activations safe.
+ */
+export async function getOrCreateGuildBullyPersona(guildId: string): Promise<AiPersonaRecord> {
+  const collection = requireAiPersonaStorage();
+  const persona = createGuildBullyPersonaRecord(guildId);
+  const doc: AiPersonaDoc = {
+    _id: persona.id,
+    ownerKey: hashUserId(persona.ownerId),
+    guildKey: hashUserId(guildId),
+    visibility: "public",
+    encryptedData: encrypt(JSON.stringify(persona)),
+    updatedAt: new Date(persona.updatedAt),
+  };
+
+  try {
+    await collection.insertOne(doc);
+    return persona;
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== 11000) {
+      throw error;
+    }
+    const existing = await collection.findOne({ _id: persona.id });
+    if (!existing) throw error;
+    const saved = decodeAiPersona(existing);
+    if (saved.guildId !== guildId || saved.visibility !== "public") {
+      throw new Error("Guild Bully persona id resolved to a different server record");
+    }
+    return saved;
+  }
 }
 
 export async function getAiPersona(id: string): Promise<AiPersonaRecord | null> {
