@@ -84,7 +84,8 @@ test("675 routes are visibly counted across 27 selectable pages", async () => {
   await choose(card, "0");
   assert.match(card.last.content!, /675 lignes · 1\/27/);
   assert.match(card.last.content!, /25 lignes par page/);
-  assert.equal(card.last.components.flatMap(row => row.components).find(c => c.custom_id?.endsWith(":next"))?.label, "Suivant");
+  const controls = card.last.components.find(row => row.components.some(c => c.custom_id?.endsWith(":next")));
+  assert.deepEqual(controls?.components.map(component => component.label), ["←", "→", "Retour", "Rechercher", "Annuler"]);
   await click(card, "next");
   assert.match(card.last.content!, /675 lignes · 2\/27/);
   const selector = card.last.components.flatMap(row => row.components)

@@ -199,8 +199,8 @@ export async function handleTransportSearch(
         })))));
     }
     const controls = new ActionRowBuilder<ButtonBuilder>();
-    if (pages > 1) controls.addComponents(button("prev", text("Précédent", "Previous")).setDisabled(page === 0),
-      button("next", text("Suivant", "Next")).setDisabled(page === pages - 1));
+    if (pages > 1) controls.addComponents(button("prev", "←").setDisabled(page === 0),
+      button("next", "→").setDisabled(page === pages - 1));
     if (stage !== "mode" && stage !== "territory") controls.addComponents(button("back", text("Retour", "Back")));
     if (stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));

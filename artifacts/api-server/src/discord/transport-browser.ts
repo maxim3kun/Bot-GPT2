@@ -270,7 +270,7 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<LineListing>;
     const work = this.loadLines(city, mode, requestedLine, networkId).then((value) => {
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
-      this.listings.set(key, { value, expires: this.now() + (value.lines.length && (!value.unavailable || requestedLine) ? 300_000 : 30_000) });
+      this.listings.set(key, { value, expires: this.now() + (value.lines.length && (!value.unavailable || requestedLine) ? 15 * 60_000 : 30_000) });
       return value;
     }).finally(() => this.pending.delete(key));
     this.pending.set(key, work);
@@ -417,7 +417,8 @@ export class TransportBrowserClient {
       });
       if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
       const deliberateDirectOnly = line.territory === "en" || !!line.selection || line.mode === "metro" && isIdfmGtfs(line.resource);
-      this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable && !deliberateDirectOnly ? 30_000 : 300_000) });
+      this.indexes.set(key, { value, expires: this.now() + (line.mode === "metro" && isIdfmGtfs(line.resource)
+        ? 15 * 60_000 : value.connectionsUnavailable && !deliberateDirectOnly ? 30_000 : 300_000) });
       return value;
     })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);

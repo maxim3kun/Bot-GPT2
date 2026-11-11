@@ -270,6 +270,21 @@ test("TfL authentication errors never include a secret or authenticated URL", as
   });
 });
 
+test("an exact TfL line request skips downloading all 675 routes and reuses its cached result", async () => {
+  const requests: string[] = [];
+  const http = { json: async (path: string) => {
+    requests.push(path);
+    if (path === "/Line/906") return [{ id: "906", name: "906", modeName: "bus" }];
+    throw new Error(`Unexpected TfL request ${path}`);
+  } };
+  const client = new TflTransportClient(http as any, blankCache(), () => NOW);
+  const first = await client.lines("bus", "906");
+  const second = await client.lines("bus", "906");
+  assert.deepEqual(first.lines.map(line => line.label), ["906"]);
+  assert.equal(second.lines.length, 1);
+  assert.deepEqual(requests, ["/Line/906"]);
+});
+
 test("the BODS catalogue caches only this city and only its verified published operators", async () => {
   const captured: URL[] = [], city = { id: "E0001", name: "Cambridge", label: "Cambridge · England",
     latitude: 52.2, longitude: .12, territory: "en" as const, area: "050" };

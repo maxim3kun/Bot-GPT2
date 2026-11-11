@@ -201,13 +201,32 @@ export class TflTransportClient {
   async lines(mode: TransitMode, requested: string): Promise<LineListing> {
     if (mode === "rail") throw new TransportDataError("Trains anglais : accès National Rail en attente de validation. Aucun horaire train n’est confirmé.");
     const apiMode = mode === "metro" ? "tube" : mode;
-    const rows = await this.metadata.get({ territory: "en", provider: "tfl", kind: "routes",
-      source: `/Line/Mode/${apiMode}`, version: "v1" }, 6 * 3600_000, async () => {
-      const data = await this.http.json<Array<{ id: string; name: string; modeName: string }>>(`/Line/Mode/${apiMode}`);
+    const load = async (path: string) => {
+      const data = await this.http.json<Array<{ id: string; name: string; modeName: string }>>(path);
       if (!Array.isArray(data)) throw new TransportDataError("Catalogue TfL illisible.");
       return data.filter(l => l.modeName === apiMode && /^[a-z0-9-]+$/.test(l.id))
         .map(l => ({ routeId: `tfl:${l.id}`, shortName: l.name, longName: l.name, mode, stopIds: [] as string[] }));
-    });
+    };
+    const lineId = requested.trim();
+    const exactId = /^[a-z0-9-]{1,12}$/i.test(lineId);
+    let rows: Awaited<ReturnType<typeof load>>;
+    if (exactId) {
+      const path = `/Line/${encodeURIComponent(lineId)}`;
+      try {
+        rows = await this.metadata.get({ territory: "en", provider: "tfl", kind: "routes",
+          source: path, version: "v1" }, 6 * 3600_000, () => load(path));
+      } catch (error) {
+        // An unknown route ID may be a display name; use the cached complete
+        // mode list only for a genuine 404, not after a slow or failed request.
+        if (!(error instanceof TransportDataError) || !/HTTP 404/.test(error.message)) throw error;
+        rows = await this.metadata.get({ territory: "en", provider: "tfl", kind: "routes",
+          source: `/Line/Mode/${apiMode}`, version: "v1" }, 6 * 3600_000, () => load(`/Line/Mode/${apiMode}`));
+      }
+    } else {
+      const path = `/Line/Mode/${apiMode}`;
+      rows = await this.metadata.get({ territory: "en", provider: "tfl", kind: "routes",
+        source: path, version: "v1" }, 6 * 3600_000, () => load(path));
+    }
     const wanted = normalizeTransitText(requested);
     return { lines: rows.filter(r => !wanted || [r.shortName, r.routeId.slice(4)].some(s => normalizeTransitText(s) === wanted))
       .map(r => ({ routeId: r.routeId, label: r.shortName, description: "Transport for London", mode, nearbyStopIds: [],
