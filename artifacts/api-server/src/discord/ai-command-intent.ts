@@ -24,7 +24,8 @@ export function commandSafety(text: string): "quoted" | "multiple" | null {
   return null;
 }
 function requestBody(text: string) {
-  return text.trim().replace(/^(?:stp|s['’]il te pla[iî]t|please)[,\s]+/i, "")
+  return text.replace(/<@!?\d+>/g, " ").trim().replace(/^(?:stp|s['’]il te pla[iî]t|please)[,\s]+/i, "")
+    .replace(/^dis[- ]moi\s+/i, "")
     .replace(/^(?:(?:est[- ]ce que )?tu peux|peux[- ]tu|pourrais[- ]tu|est[- ]ce que tu pourrais|can you|could you|je (?:veux|voudrais|souhaite))\s+/i, "")
     .replace(/^(?:me|moi)\s+/i, "").replace(/[?!.\s]+$/, "").replace(/\s+(?:stp|s['’]il te pla[iî]t|please|merci)$/i, "").trim();
 }
@@ -92,7 +93,7 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     const territory = /\b(?:au|du|pour le|en)\s+Qu[eé]bec\b|\bqc\b/i.test(query) ? "qc" :
       /\b(?:en|de|pour la)\s+France\b|\bfr\b/i.test(query) ? "fr" : undefined;
     query = query.replace(/\b(?:(?:au|du|pour le|en)\s+Qu[eé]bec|(?:en|de|pour la)\s+France|qc|fr)\b/gi, "")
-      .replace(/^\s*(?:[àa]|au|de|du|des|dans)\s+/i, "").trim();
+      .replace(/^\s*(?:[àa]|au|de|du|des|dans|en)\s+/i, "").trim();
     const parsed = parseTransportCommand(query.split(/\s+/));
     // A leading number is commonly the route, not part of the locality.
     const leading = parsed.place.match(/^(\d{1,4}(?:bis)?)\s+(.+)$/i);

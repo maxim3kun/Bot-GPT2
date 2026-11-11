@@ -16,6 +16,7 @@ const MODE_PATTERNS: Array<[TransitMode, RegExp]> = [
 ];
 
 const LIVE_INTENT = /\b(?:prochain(?:e|es|s)?|passage(?:s)?|attente|attendre|horaires?|d[eé]part(?:s)?|arriv(?:e|er|ent|[eé]e?s?)|passe(?:nt|r)?|retard(?:s)?|en\s+temps\s+r[eé]el|en\s+direct|live|next)\b/i;
+const DISCOVERY_INTENT = /^(?:(?:dis|donne|montre)[- ]moi|affiche|liste|quels?\s+(?:sont\s+)?les|quelles?\s+(?:sont\s+)?les)\b/i;
 
 export function normalizeTransitText(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -29,7 +30,7 @@ export function routeMatchesRequested(id: string, short: string, long: string, r
 
 export function parsePublicTransportQuery(text: string): PublicTransportQuery | null {
   const clean = text.replace(/<@!?\d+>/g, " ").replace(/<#[\d]+>/g, " ").trim();
-  if (!LIVE_INTENT.test(clean) || !MODE_PATTERNS.some(([, pattern]) => pattern.test(clean))) return null;
+  if (!(LIVE_INTENT.test(clean) || DISCOVERY_INTENT.test(clean)) || !MODE_PATTERNS.some(([, pattern]) => pattern.test(clean))) return null;
 
   const mode = MODE_PATTERNS.find(([, pattern]) => pattern.test(clean))?.[0] ?? null;
   const direction = clean.match(/\b(?:direction|vers)\s+([^?.!,;]+)/i)?.[1]?.trim();
@@ -63,7 +64,7 @@ export function parsePublicTransportQuery(text: string): PublicTransportQuery | 
     .replace(/\b(?:temps\s+d['’]?attente|en\s+temps\s+r[eé]el|en\s+direct|live)\b/gi, " ")
     .replace(/\b(?:prochain(?:e|es|s)?|passage(?:s)?|attente|attendre|horaires?|d[eé]part(?:s)?|arriv(?:e|er|ent|[eé]e?s?)|passe(?:nt|r)?|retard(?:s)?|next)\b/gi, " ")
     .replace(/\b(?:peux[- ]tu|pourrais[- ]tu|est[- ]ce\s+que|dis[- ]moi|donne[- ]moi|s['’]?il\s+te\s+pla[iî]t|svp|stp|quel(?:le)?s?|combien|me|moi|the|please|what|when)\b/gi, " ")
-    .replace(/^[\s,;:!?]*(?:(?:à|a|dans|sur|au|aux|du|des|de la|de l['’]|près de|from|at|near)\s+)+/i, "")
+    .replace(/^[\s,;:!?]*(?:(?:à|a|en|dans|sur|au|aux|du|des|les|le|la|de la|de l['’]|près de|from|at|near)\s+)+/i, "")
     .replace(/[?!.,;:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();

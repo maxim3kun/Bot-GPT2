@@ -6,6 +6,8 @@ import { GtfsRangeArchive } from "./gtfs-range.js";
 import { selectiveGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { scanRows } from "./gtfs-journey.js";
 import { inBounds, networkBounds, QUEBEC_SUPPLEMENTS, safeQuebecUrl } from "./quebec-sources.js";
+import { TransportMetadataCache, resourceVersion } from "./transport-metadata-cache.js";
+import { referenceTable, type ReferenceRoute } from "./transport-reference-tables.js";
 
 type CkanResource = { id: string; name: string; format: string; url: string; last_modified?: string };
 type CkanDataset = { id: string; name: string; title: string; license_id: string; organization?: { title: string }; resources: CkanResource[] };
@@ -19,7 +21,8 @@ export class QuebecTransportClient implements TransportProvider {
   private binaries = new Map<string, { until: number; bytes: Uint8Array }>();
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
-  constructor(private fetcher: typeof fetch = fetch, private now = Date.now) {}
+  constructor(private fetcher: typeof fetch = fetch, private now = Date.now,
+    readonly metadata = new TransportMetadataCache(undefined, now)) {}
 
   private async cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
     const entry = this.cache.get(key);
@@ -76,7 +79,8 @@ export class QuebecTransportClient implements TransportProvider {
     return JSON.parse(new TextDecoder().decode(await this.bytes(await this.response(url), 8 * 1024 * 1024))) as T;
   }
   async getCatalog(): Promise<CatalogDataset[]> {
-    return this.cached("catalogue", 60 * 60_000, async () => {
+    return this.metadata.get<CatalogDataset[]>({ territory: "qc", provider: "donneesquebec", kind: "catalog",
+      source: "quebec-catalogue", version: "verified-supplements-v1" }, 60 * 60_000, async () => {
       const result = await this.json<{ success: boolean; result: { count: number; results: CkanDataset[] } }>(
         "https://www.donneesquebec.ca/recherche/api/3/action/package_search?q=GTFS&rows=100");
       if (!result.success || !Array.isArray(result.result.results)) throw new Error("Invalid Québec catalogue");
@@ -129,7 +133,8 @@ export class QuebecTransportClient implements TransportProvider {
         modes: entry.modes,
       });
       return datasets;
-    });
+    }).then(datasets => datasets.map(dataset => ({ ...dataset, resources: dataset.resources.map(resource =>
+      ({ ...resource, referenceVersion: resourceVersion(resource) })) })));
   }
   async municipalities(place: string): Promise<TransportLocation[]> {
     return this.cached(`cities:${normalizeTransitText(place)}`, 6 * 3600_000, async () => {
@@ -189,12 +194,19 @@ export class QuebecTransportClient implements TransportProvider {
   async realtimeFeed(resource: CatalogResource) {
     return this.cached(`live:${resource.id}`, 12_000, async () => this.bytes(await this.response(resource.url), 8 * 1024 * 1024));
   }
+  referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
+    return this.metadata.get({ territory: "qc", provider: "donneesquebec", kind: "routes",
+      source: `routes:${resource.id}`, version: resourceVersion(resource) }, 6 * 3600_000,
+    () => referenceTable(resource, "routes.txt", (range, validator) => this.response(resource.url, { ...validator, range }),
+      () => this.staticFeed(resource)));
+  }
   async nearbyStopsForResources(latitude: number, longitude: number, resources: CatalogResource[]): Promise<StopCollection> {
     const features: NonNullable<StopCollection["features"]> = [];
     const failures: number[] = [];
     for (const resource of resources) {
       try {
-        const stops = await this.cached(`stops:${resource.id}`, 15 * 60_000, () => this.serial(async () => {
+        const stops = await this.metadata.get({ territory: "qc", provider: "donneesquebec", kind: "stops",
+          source: `stops:${resource.id}`, version: resourceVersion(resource) }, 6 * 3600_000, () => this.serial(async () => {
           const stops: Stop[] = [];
           const row = (r: Record<string, string | undefined>) => {
             const lat = Number(r.stop_lat), lon = Number(r.stop_lon), type = Number(r.location_type || 0);

@@ -24,6 +24,9 @@ import { createHash } from "node:crypto";
 import type { TransportTerritory } from "./transport-provider.js";
 import { safeQuebecUrl, type Bounds } from "./quebec-sources.js";
 import { FranceLocations } from "./france-locations.js";
+import { TransportMetadataCache, resourceVersion } from "./transport-metadata-cache.js";
+import { regionName, type TransportRegion } from "./transport-regions.js";
+import { referenceTable, type ReferenceRoute, type ReferenceStop } from "./transport-reference-tables.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -42,6 +45,8 @@ export interface CatalogResource {
   is_available: boolean;
   modes?: string[];
   updated?: string;
+  /** Catalogue identity, pinned before live downloads update the displayed Last-Modified date. */
+  referenceVersion?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -370,6 +375,7 @@ export class FranceTransportClient {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => number = Date.now,
+    readonly metadata = new TransportMetadataCache(undefined, now),
   ) {}
 
   private async cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
@@ -444,7 +450,39 @@ export class FranceTransportClient {
   }
 
   getCatalog(): Promise<CatalogDataset[]> {
-    return this.cached("pan-catalog", 15 * 60_000, () => this.fetchJson<CatalogDataset[]>(`${PAN_API}/datasets`));
+    return this.metadata.get({ territory: "fr", provider: "pan", kind: "catalog", source: `${PAN_API}/datasets`, version: "catalog-v1" },
+      15 * 60_000, () => this.fetchJson<CatalogDataset[]>(`${PAN_API}/datasets`));
+  }
+
+  async region(place: string): Promise<TransportRegion | null> {
+    if (!regionName(place) || /\d/.test(place)) return null;
+    const areas = (source: string) => this.metadata.get<Array<{ code: string; nom: string; codesRegions?: string[] }>>(
+      { territory: "fr", provider: "geo", kind: "areas", source, version: "administration-v1" },
+      24 * 3600_000, () => this.fetchJson(source, 2_000_000));
+    const regions = await areas("https://geo.api.gouv.fr/regions");
+    const region = regions.find(r => regionName(r.nom) === regionName(place));
+    if (!region) return null;
+    const [departments, epcis] = await Promise.all([
+      areas(`https://geo.api.gouv.fr/regions/${region.code}/departements`),
+      areas("https://geo.api.gouv.fr/epcis?fields=code,nom,codesRegions,codesDepartements"),
+    ]);
+    return { code: region.code, name: region.nom, departmentCodes: departments.map(d => d.code),
+      epciCodes: epcis.filter(e => e.codesRegions?.includes(region.code)).map(e => e.code) };
+  }
+
+  private referenceRequest(resource: CatalogResource) {
+    let url = resource.url;
+    try { if (resource.original_url) url = safeUrl(resource.original_url).href; } catch { /* Catalogue fallback. */ }
+    return (range: string, validator?: Record<string, string>) => this.fetchPublic(url, "application/zip",
+      { headers: { ...validator, range }, timeoutMs: 20_000 });
+  }
+  referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
+    return this.metadata.get({ territory: "fr", provider: "pan", kind: "routes", source: `routes:${resource.id}`, version: resourceVersion(resource) },
+      6 * 3600_000, () => referenceTable(resource, "routes.txt", this.referenceRequest(resource), () => this.staticFeed(resource)));
+  }
+  referenceStops(resource: CatalogResource): Promise<ReferenceStop[]> {
+    return this.metadata.get({ territory: "fr", provider: "pan", kind: "stops", source: `stops:${resource.id}`, version: resourceVersion(resource) },
+      6 * 3600_000, () => referenceTable(resource, "stops.txt", this.referenceRequest(resource), () => this.staticFeed(resource)));
   }
 
   async municipalities(place: string): Promise<TransportLocation[]> {
@@ -586,9 +624,8 @@ export class FranceTransportClient {
     url.searchParams.set("north", String(latitude + radius));
     url.searchParams.set("west", String(longitude - longitudeRadius));
     url.searchParams.set("east", String(longitude + longitudeRadius));
-    return this.cached(`stops:${url.searchParams.toString()}`, 5 * 60_000, () =>
-      this.fetchJson<StopCollection>(url.href, 15 * 1024 * 1024),
-    );
+    return this.metadata.get({ territory: "fr", provider: "pan", kind: "nearby", source: url.href, version: "stop-reference-v1" },
+      60 * 60_000, () => this.fetchJson<StopCollection>(url.href, 15 * 1024 * 1024));
   }
 
   private staticMetadata(resource: CatalogResource): Promise<GtfsStaticMetadata | null> {

@@ -1,6 +1,6 @@
 import {
   FranceTransportClient, isStaticScheduleResource, isGtfsRealtimeResource, modeMatches,
-  type CatalogResource, type TransportLocation, type TransportSource,
+  type CatalogResource, type CatalogDataset, type TransportLocation, type TransportSource,
 } from "./public-transport.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import {
@@ -21,6 +21,10 @@ import { inBounds, sourceLimitations } from "./quebec-sources.js";
 import { parseGtfsAlerts } from "./gtfs-alerts.js";
 import { localDate } from "./gtfs-realtime.js";
 import { TransportDataError } from "./transport-data-error.js";
+import { isRegionName, regionalNetworks, type TransportRegion } from "./transport-regions.js";
+import { resourceVersion } from "./transport-metadata-cache.js";
+import { createHash } from "node:crypto";
+import { routeMatchesRequested } from "./transport-query.js";
 
 export interface TransportLine {
   routeId: string;
@@ -34,6 +38,7 @@ export interface TransportLine {
   selection?: GtfsSelection;
   territory?: TransportTerritory;
   alerts?: CatalogResource[];
+  allStops?: boolean;
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
 export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean; issues?: string[]; centerFallback?: boolean }
@@ -78,7 +83,7 @@ export function originOptions(index: JourneyIndex, line: TransportLine): StopGro
   const nearbyStations = new Set([...index.stops.values()].filter((stop) => nearby.has(stop.id) && stop.parent)
     .map((stop) => stop.parent));
   const boarding = new Set([...index.visits.values()].flatMap((visits) =>
-    visits.filter((visit, i) => visit.pickup && visits.some((next, j) => j > i && next.dropoff && next.stopId !== visit.stopId) && (nearby.has(visit.stopId) ||
+    visits.filter((visit, i) => visit.pickup && visits.some((next, j) => j > i && next.dropoff && next.stopId !== visit.stopId) && (line.allStops || nearby.has(visit.stopId) ||
       nearbyStations.has(index.stops.get(visit.stopId)?.parent ?? ""))).map((visit) => visit.stopId)));
   return groupStops([...index.stops.values()].filter((stop) => boarding.has(stop.id)));
 }
@@ -119,6 +124,44 @@ export class TransportBrowserClient {
     readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now)) {}
 
   private providerFor(territory?: TransportTerritory) { return territory === "qc" ? this.quebec : this.provider; }
+
+  async region(place: string, territory: TransportTerritory = "fr"): Promise<TransportRegion | null> {
+    if (territory !== "fr" || !isRegionName(place)) return null;
+    const provider = this.provider as FranceTransportClient;
+    if (!provider.region) throw new TransportDataError("Référentiel des régions indisponible.");
+    return provider.region(place);
+  }
+  async regionNetworks(region: TransportRegion, mode: TransitMode) {
+    return regionalNetworks(await this.provider.getCatalog(), region, mode);
+  }
+  async regionLines(network: CatalogDataset, mode: TransitMode, requestedLine = ""): Promise<LineListing> {
+    const provider = this.providerFor(network.territory);
+    if (!provider.referenceRoutes) throw new TransportDataError("Le catalogue des lignes de cette source est indisponible.");
+    const lines: TransportLine[] = [];
+    let unavailable = 0;
+    // Current operator source before a future snapshot of the same network.
+    const resources = network.resources.filter(r => isStaticScheduleResource(r) && modeMatches(mode, publishedModes(r)))
+      .sort((a, b) => Number(/avenir|future/i.test(a.title)) - Number(/avenir|future/i.test(b.title)) ||
+        (b.updated ?? "").localeCompare(a.updated ?? ""));
+    for (const resource of resources) {
+      try {
+        const routes = await provider.referenceRoutes(resource);
+        for (const route of routes) if (route.mode === mode && (!requestedLine ||
+          routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine))) {
+          lines.push({ routeId: route.routeId, label: route.shortName || route.longName || route.routeId,
+            description: route.longName || network.title, mode, nearbyStopIds: [], allStops: true, resource,
+            realtime: network.resources.filter(isGtfsRealtimeResource).slice(0, 2),
+            source: { name: network.title, url: network.page_url, updated: resource.updated },
+            ...(network.territory ? { territory: network.territory } : {}) });
+        }
+        if (lines.length) break;
+      } catch (error) {
+        unavailable++; logger.warn({ resourceId: resource.id, err: error }, "Transport regional route catalogue unavailable");
+      }
+    }
+    return { lines: [...new Map(lines.map(line => [line.routeId, line])).values()]
+      .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true })), unavailable, networkScoped: true };
+  }
 
   async networks(city: TransportLocation, mode: TransitMode) {
     if (city.territory !== "qc") return [];
@@ -254,8 +297,13 @@ export class TransportBrowserClient {
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) }
             : mode === "metro" && isIdfmGtfs(resource)
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
-          const routes = await this.scan(async () =>
+          const load = () => this.scan(async () =>
             scanRoutesAtStops(await provider.staticFeed(resource, selection), stopIds, requestedLine));
+          const routes = provider.metadata ? await provider.metadata.get({
+            territory: city.territory ?? "fr", provider: city.territory === "qc" ? "donneesquebec" : "pan", kind: "routes",
+            source: `nearby-routes:${resource.id}:${createHash("sha256").update(JSON.stringify([[...stopIds].sort(), requestedLine, mode])).digest("hex")}`,
+            version: resourceVersion(resource),
+          }, 60 * 60_000, load) : await load();
           for (const route of routes) {
             if (route.mode !== mode) continue;
             found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
@@ -293,7 +341,7 @@ export class TransportBrowserClient {
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {
-    const key = `index:${line.territory ?? "fr"}:${line.resource.id}:${line.routeId}`;
+    const key = `index:${line.territory ?? "fr"}:${resourceVersion(line.resource)}:${line.routeId}`;
     const cached = this.indexes.get(key);
     if (cached && cached.expires > this.now()) return cached.value;
     const pending = this.pending.get(key);
@@ -336,6 +384,57 @@ export class TransportBrowserClient {
     })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);
     return work;
+  }
+
+  /** Resolve reverse boarding platforms from official IDs/parents, then query fresh
+   * departures in that direction. Never reverse times or match stops by their name. */
+  async reverse(line: TransportLine, previous: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
+    const oldStops = new Map([...(previous.connections?.network.stops ?? []), ...previous.stops]);
+    const identities = (group: StopGroup) => new Set(group.ids.flatMap(id => {
+      const stop = oldStops.get(id); return [id, ...(stop?.parent ? [stop.parent] : [])];
+    }));
+    const from = identities(arrival), to = identities(origin);
+    const matches = (id: string, stop: JourneyStop, keys: Set<string>) => keys.has(id) || !!stop.parent && keys.has(stop.parent);
+    const provider = this.providerFor(line.territory);
+    let candidates = [line];
+    if (provider.referenceRoutes) {
+      const routes = await provider.referenceRoutes(line.resource);
+      const ids = arrival.viaTransfer && previous.connections
+        ? new Set([...previous.connections.network.visits].filter(([, visits]) =>
+          visits.some(v => v.pickup && matches(v.stopId, oldStops.get(v.stopId) ?? { id: v.stopId, name: "", parent: "" }, from)))
+          .map(([trip]) => previous.connections!.network.metadata.trips.get(trip)?.routeId)) : null;
+      candidates = routes.filter(r => ids ? ids.has(r.routeId) :
+        r.mode === line.mode && (r.routeId === line.routeId || routeMatchesRequested(r.routeId, r.shortName, r.longName, line.label)))
+        .map(r => ({ ...line, routeId: r.routeId, label: r.shortName || r.longName || r.routeId,
+          mode: r.mode ?? line.mode, selection: undefined, allStops: true }));
+      // Keep large IDFM indexes selective, with the chosen real public line.
+      for (const candidate of candidates) if (isIdfmGtfs(candidate.resource))
+        candidate.selection = { mode: candidate.mode, line: candidate.label };
+    }
+    if (candidates.length > 12) throw new TransportDataError("Trop de variantes pour vérifier le retour. Précise les arrêts avec Modifier.");
+    let empty: { line: TransportLine; index: JourneyIndex; origin: StopGroup; arrival: StopGroup } | null = null;
+    for (const candidate of candidates) {
+      const index = await this.index(candidate);
+      const starting = groupStops([...index.stops.values()].filter(s => matches(s.id, s, from)));
+      const boardable = originOptions(index, { ...candidate, allStops: true });
+      const start = { label: arrival.label, ids: starting.flatMap(g => g.ids).filter(id => boardable.some(g => g.ids.includes(id))) };
+      if (!start.ids.length) continue;
+      const destinations = arrivalOptions(index, start);
+      const lookup = new Map([...(index.connections?.network.stops ?? []), ...index.stops]);
+      for (const destination of destinations) {
+        const ids = destination.ids.filter(id => matches(id, lookup.get(id) ?? { id, name: "", parent: "" }, to));
+        if (!ids.length) continue;
+        const end = { ...destination, label: origin.label, ids };
+        const availableStart = await this.availableStops(candidate, index, [start], language);
+        const availableEnd = await this.availableStops(candidate, index, [end], language);
+        if (!availableStart.options.length || !availableEnd.options.length) continue;
+        const route = { line: candidate, index, origin: availableStart.options[0]!, arrival: availableEnd.options[0]! };
+        // A structurally valid reverse journey still reports calendar/live absence honestly.
+        empty ??= route;
+        if (journeyPairs(index, new Set(route.origin.ids), new Set(route.arrival.ids)).length || route.arrival.viaTransfer) return route;
+      }
+    }
+    return empty;
   }
 
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {

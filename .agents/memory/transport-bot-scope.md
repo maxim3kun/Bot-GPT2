@@ -33,6 +33,14 @@ Le cache MongoDB des transports doit conserver les informations stables des rés
 
 **How to apply:** Garder cette séparation lors des optimisations et des ajouts de pays. Un catalogue, une ligne ou un arrêt en cache ne prouve pas qu’un départ existe ; consulter les sources de passages pour répondre sur les horaires.
 
+## Regional discovery and return journeys
+
+Une région suffit pour découvrir les sources/réseaux et leurs lignes. Les arrêts précis ne sont nécessaires qu'ensuite pour consulter les passages. Le résultat doit proposer le chemin retour et garder une modification claire des extrémités.
+
+**Why:** L'utilisateur a donné « Dis moi les bus en Normandie » comme demande suffisante et préféré le chemin retour à l'accès redondant « Arrivée ».
+
+**How to apply:** Ne pas réduire une région à une ville ou à un point central. Conserver les identités des sources et avertir du recouvrement des agrégats. Vérifier le retour dans son vrai sens, sans renverser les horaires aller.
+
 ## Verified conversational journeys
 
 For the new journey features and associated API integrations, select public sources and free APIs.

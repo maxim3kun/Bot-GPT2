@@ -1,5 +1,7 @@
 import type { CatalogDataset, CatalogResource, StopCollection, TransportLocation } from "./public-transport.js";
 import type { GtfsSelection } from "./gtfs-selective.js";
+import type { ReferenceRoute, ReferenceStop } from "./transport-reference-tables.js";
+import type { TransportMetadataCache } from "./transport-metadata-cache.js";
 
 export type TransportTerritory = "fr" | "qc";
 export const TERRITORY_NAMES: Record<TransportTerritory, string> = { fr: "France", qc: "Québec" };
@@ -12,4 +14,7 @@ export interface TransportProvider {
   staticFeed(resource: CatalogResource, selection?: GtfsSelection): Promise<Uint8Array>;
   realtimeFeed(resource: CatalogResource): Promise<Uint8Array>;
   nearbyStopsForResources?(latitude: number, longitude: number, resources: CatalogResource[]): Promise<StopCollection>;
+  referenceRoutes?(resource: CatalogResource): Promise<ReferenceRoute[]>;
+  referenceStops?(resource: CatalogResource): Promise<ReferenceStop[]>;
+  metadata?: TransportMetadataCache;
 }

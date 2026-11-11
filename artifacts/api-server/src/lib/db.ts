@@ -286,6 +286,10 @@ export const FOOD_HISTORY_MAX = 10;
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 let mongoHealthy = false;
+/** Public reference data only, never timetables or personal transport searches. */
+export function getTransportMetadataCollection(): Collection<import("../discord/transport-metadata-cache.js").MetadataDocument> | null {
+  return db?.collection<import("../discord/transport-metadata-cache.js").MetadataDocument>("public_transport_metadata") ?? null;
+}
 /** Public, kilometre-scale model cache only: no Discord identities or address labels. */
 export function getWeatherCacheCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("public_weather_cache") ?? null;

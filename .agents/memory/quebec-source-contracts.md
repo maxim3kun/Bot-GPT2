@@ -9,6 +9,12 @@ Treat the provincial catalogue as discovery, not proof of current timetable cove
 
 **How to apply:** Inspect published resources, follow only verified HTTPS operator domains, reject HTML as timetable data, preserve explicit unavailable states and distinguish catalogue dates from feed dates. Do not silently discard a valid static resource just because its dataset title mentions realtime.
 
+Keep the reference-cache identity tied to the catalogue revision, even if a download later updates the modification date displayed to the user.
+
+**Why:** Québec catalogue dates can precede the operator's actual Last-Modified date. Letting that display update change the reference key makes a fresh process miss metadata saved by the previous process.
+
+**How to apply:** Preserve the original published revision for cache invalidation, keep the observed download date separate, and verify reuse with a fresh client as well as within one process.
+
 Filter applicable service calendars before building an index for a large Québec line; do not solve oversized indexes by raising memory limits blindly.
 
 **Why:** RTC's single route 800 initially exceeded the journey budget because the feed retained seasonal service versions. Retaining applicable services produced a complete usable near-term route index without loosening the budget.

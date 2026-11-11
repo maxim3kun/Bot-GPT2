@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, StringSelectMenuBuilder,
   TextInputBuilder, TextInputStyle,
-  type APIEmbed, type Message, type MessageComponentInteraction, type MessageCreateOptions,
+   type APIEmbed,
+   type Message, type MessageComponentInteraction, type MessageCreateOptions,
 } from "discord.js";
 import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOptions, type TransportLine, type StopGroup, type TransportDepartureResult } from "./transport-browser.js";
 import { sourceButton, lineMatches, type TransportLocation, type CatalogDataset } from "./public-transport.js";
@@ -13,6 +14,7 @@ import { logger } from "../lib/logger.js";
 import { resolveBusJourney, normalizeCityName } from "./bus-journey.js";
 import { TransportDataError } from "./transport-data-error.js";
 import { parseTransportCommand } from "./transport-command-query.js";
+import type { TransportRegion } from "./transport-regions.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
@@ -62,6 +64,7 @@ export async function handleTransportSearch(
   let stage: Stage = !territory ? "territory" : mode ? "city" : "mode";
   let networks: CatalogDataset[] = [];
   let network: CatalogDataset | undefined;
+  let region: TransportRegion | undefined;
   let city: TransportLocation | undefined;
   let cities: TransportLocation[] = [];
   let lines: TransportLine[] = [];
@@ -82,6 +85,8 @@ export async function handleTransportSearch(
   let lastEmbed: APIEmbed | undefined;
   let lastResult: TransportDepartureResult | undefined;
   let expanded = false;
+  let revision = 0;
+  let validControls = new Set<string>();
   const id = `transport:${randomUUID()}`;
   const prompt = await message.reply({
     content: text("Recherche de transport en cours…", "Starting transport lookup…"),
@@ -93,10 +98,20 @@ export async function handleTransportSearch(
     new ButtonBuilder().setCustomId(`${id}:${action}`).setLabel(label).setStyle(style);
   const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>, embed?: APIEmbed) => {
     if (!live) return;
+    revision++;
+    // A delayed click from the previous list cannot select item 0 in a new list.
+    const serialized = JSON.parse(JSON.stringify(components ??
+      [new ActionRowBuilder<ButtonBuilder>().addComponents(button("cancel", text("Annuler", "Cancel")))])) as
+      Array<ReturnType<ActionRowBuilder<ButtonBuilder>["toJSON"]> | ReturnType<ActionRowBuilder<StringSelectMenuBuilder>["toJSON"]>>;
+    validControls = new Set();
+    for (const row of serialized) for (const component of row.components) if ("custom_id" in component && component.custom_id) {
+      component.custom_id = `${id}:${revision}:${component.custom_id.split(":").at(-1)}`;
+      validControls.add(component.custom_id);
+    }
     lastContent = content.slice(0, 1950);
     lastEmbed = embed;
     const options = { content: embed ? "" : lastContent, embeds: embed ? [embed] : [],
-      components: components ?? [new ActionRowBuilder<ButtonBuilder>().addComponents(button("cancel", text("Annuler", "Cancel")))],
+      components: serialized,
       allowedMentions: { parse: [] as const } };
     try { await prompt.edit(options); }
     catch (error) {
@@ -114,7 +129,8 @@ export async function handleTransportSearch(
       : selectedMode === "rail"
         ? text("Indique une ville, une gare, un département ou un code postal. Les gares du référentiel voyageurs seront proposées; leurs horaires restent à vérifier.",
           "Enter a city, station, department or postal code. Passenger-station reference results are offered; timetables still need checking.")
-        : text("Indique une commune, un département (ex. 60) ou un code postal (ex. 60000).", "Enter a city, department (e.g. 60) or postal code (e.g. 60000).")),
+         : text("Indique une région (ex. Normandie), une commune, un département (ex. 60) ou un code postal (ex. 60000).",
+           "Enter a region (e.g. Normandie), city, department (e.g. 60) or postal code (e.g. 60000).")),
     [new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
       button("restart", text("Nouvelle recherche", "New search")), button("cancel", text("Annuler", "Cancel")))]);
@@ -124,7 +140,8 @@ export async function handleTransportSearch(
     if (stage === "territory") return (service.territories ?? ["fr"]).map(value => ({ value, label: TERRITORY_NAMES[value] }));
     if (stage === "mode") return (Object.keys(MODE_NAMES) as TransitMode[]).map((value) => ({ value, label: modeName(value, territory) }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
-      description: d.resources.length ? text("Source officielle · horaires selon disponibilité", "Official source · timetables where available")
+      description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
+        : d.resources.length ? text("Source officielle · horaires selon disponibilité", "Official source · timetables where available")
         : text("Pas de flux exploitable configuré · lien officiel", "No usable feed configured · official link") }));
     if (stage === "cities") return cities.map((value, i) => ({ value: String(i), label: value.name, description: value.label }));
     if (stage === "lines") return lines.map((value, i) => ({
@@ -150,7 +167,7 @@ export async function handleTransportSearch(
       origins: text("Choisis ton arrêt de départ", "Choose your departure stop"),
       arrivals: text("Choisis ton arrêt d’arrivée", "Choose your arrival stop"),
     };
-    const context = [territory ? TERRITORY_NAMES[territory] : "", city?.label,
+    const context = [territory ? TERRITORY_NAMES[territory] : "", region?.name, city?.label,
       network?.title, selectedMode ? modeName(selectedMode, territory) : "", line ? `${text("Ligne", "Route")} ${line.label}` : "",
       origin ? `${text("Départ", "From")} : ${origin.label}` : ""].filter(Boolean).join(" · ");
     const rows: Array<ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>> = [];
@@ -179,7 +196,10 @@ export async function handleTransportSearch(
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
       (index?.connectionsUnavailable && !line?.selection ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
         "\nTransfer search unavailable or too large: only direct journeys are offered.") : "") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
+    const regionalNote = region && stage === "networks" ? text(
+      "\nSources publiées pour cette région. Les agrégats peuvent recouvrir les réseaux opérateurs. Choisis une source pour voir ses lignes; les passages seront vérifiés après le choix des arrêts.",
+      "\nPublished sources for this region. Aggregates may overlap operator networks. Choose a source to see its routes; departures are checked after stop selection.") : "";
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
   }
 
   async function run(work: () => Promise<void>) {
@@ -213,8 +233,17 @@ export async function handleTransportSearch(
 
   async function loadCities() {
     if (!live) return;
-    line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined;
+    line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined; region = undefined;
     if (!place) { await cityInput(); return; }
+    if (typeof service.region === "function") {
+      const scope = await service.region(place, territory);
+      if (!live) return;
+      if (scope) {
+        region = scope;
+        if (!selectedMode) { stage = "mode"; await render(); return; }
+        await loadNetworks(); return;
+      }
+    }
     await edit(selectedMode === "rail" && territory === "fr" ? text("Recherche des gares…", "Looking up stations…")
       : text("Recherche des communes…", "Looking up cities…"));
     cities = await service.cities(place, territory, selectedMode);
@@ -250,10 +279,11 @@ export async function handleTransportSearch(
   }
 
   async function loadNetworks() {
-    if (!live || !city || !selectedMode) return;
+    if (!live || (!city && !region) || !selectedMode) return;
     network = undefined; line = undefined; index = undefined; origin = undefined; arrival = undefined;
-    await edit(text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
-    networks = await service.networks(city, selectedMode);
+    await edit(region ? `${region.name} · ${text("Recherche des réseaux…", "Looking up networks…")}`
+      : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
+    networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
     if (!live) return;
     filter = ""; page = 0; stage = "networks";
     await render();
@@ -271,16 +301,17 @@ export async function handleTransportSearch(
   }
 
   async function loadLines() {
-    if (!live || !city || !selectedMode) return;
+    if (!live || (!city && !region) || !selectedMode) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined;
     serviceNote = "";
-    await edit(`${city.label}\n${text("Chargement des lignes…", "Loading routes…")}${selectedMode === "metro"
+    await edit(`${region?.name ?? city!.label}\n${text("Chargement des lignes…", "Loading routes…")}${selectedMode === "metro"
       ? text("\nLe premier chargement d’un grand réseau peut prendre quelques dizaines de secondes; les données sont ensuite mises en cache.",
         "\nLoading a large network for the first time may take several tens of seconds; the data is then cached.") : ""}`);
-    const result = await service.lines(city, selectedMode, lineFilter, network?.id);
+    const result = region && network ? await service.regionLines(network, selectedMode, lineFilter)
+      : await service.lines(city!, selectedMode, lineFilter, network?.id);
     if (!live) return;
     lines = result.lines;
-    logger.info({ cityId: city.id, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
+    logger.info({ cityId: city?.id, regionCode: region?.code, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
       "Transport routes loaded");
     listingNote = result.unavailable ? text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
       "\nSome network sources could not be loaded; this list may be incomplete.") : "";
@@ -295,10 +326,12 @@ export async function handleTransportSearch(
         `\nSource: ${lines[0]?.source.name ?? "official network"}. Results are limited to this network.`);
     if (!lines.length) {
       stage = "error";
-      await edit(`${city.label}${network ? `\n${network.title}` : ""}\n${result.issues?.length ? result.issues.join("\n") : result.unavailable
+      await edit(`${region?.name ?? city!.label}${network ? `\n${network.title}` : ""}\n${result.issues?.length ? result.issues.join("\n") : result.unavailable
         ? text("Les sources de ce réseau n’ont pas pu être chargées. Cela ne signifie pas qu’aucune ligne n’existe.",
           "The network sources could not be loaded. This does not mean no routes exist.")
-        : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",
+        : region ? text("Aucune ligne correspondante n’a été trouvée dans cette source. Essaie une autre source ou retire le filtre de ligne.",
+          "No matching route was found in this source. Try another source or clear the route filter.")
+          : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",
           "No routes of this mode were found in open data near this city centre.")}`,
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
          button("city", text("Changer de commune", "Change city")), button("retry", text("Réessayer", "Retry")),
@@ -355,7 +388,8 @@ export async function handleTransportSearch(
     stage = "result";
     const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
-      button("back", text("Arrivée", "Destination")));
+      button("return", text("Retour", "Return journey")),
+      button("modify", text("Modifier", "Modify")));
     if (result.hasMore) primary.addComponents(button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("restart", text("Nouvelle recherche", "New search")),
@@ -367,6 +401,31 @@ export async function handleTransportSearch(
     await edit(embed ? content : `${city?.label ?? ""}\n${content}`, [primary, secondary], embed);
   }
 
+  async function showReturn() {
+    if (!live || !line || !index || !origin || !arrival) return;
+    await edit(text("Vérification du trajet retour et de ses quais…", "Checking the return journey and its platforms…"));
+    const reverse = await service.reverse(line, index, origin, arrival, language);
+    if (!live) return;
+    if (!reverse) {
+      stage = "error"; lastResult = undefined;
+      await edit(`**${arrival.label} → ${origin.label}**\n` +
+        text("Aucun trajet retour n’a pu être confirmé entre ces arrêts dans les sources disponibles. Le trajet aller n’est pas réutilisé.",
+          "No return journey could be confirmed between these stops in the available sources. Outbound departures are not reused."),
+      [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        button("refreshReturn", text("Réessayer le retour", "Retry return")),
+        button("modify", text("Modifier", "Modify")),
+        button("refresh", text("Voir l’aller", "Show outbound")),
+        button("cancel", text("Fermer", "Close")))]);
+      return;
+    }
+    line = reverse.line; index = reverse.index; origin = reverse.origin; arrival = reverse.arrival;
+    selectedMode = line.mode;
+    if (!lines.some(option => option.routeId === line!.routeId && option.resource.id === line!.resource.id))
+      lines = [line, ...lines.filter(option => option.mode === line!.mode)];
+    direction = ""; serviceNote = ""; lastResult = undefined;
+    await showDepartures();
+  }
+
   async function modal(interaction: MessageComponentInteraction, action: string) {
     modalPending = true;
     const cityEntry = action === "city";
@@ -374,7 +433,7 @@ export async function handleTransportSearch(
     const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "qc"
       ? text("Localité du Québec", "Québec locality") : selectedMode === "rail"
         ? text("Ville, gare, département ou code postal", "City, station, department or postal code")
-        : text("Commune, département ou code postal", "City, department or postal code"))
+         : text("Région, commune, département ou code postal", "Region, city, department or postal code"))
       : stage === "cities" ? text("Commune, gare ou code postal", "City, station or postal code")
         : text("Numéro ou nom recherché", "Number or name to find"))
       .setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
@@ -399,7 +458,7 @@ export async function handleTransportSearch(
       await run(loadCities);
     } else {
       filter = submitted.fields.getTextInputValue("value").trim(); page = 0;
-      await render();
+      await run(render);
     }
   }
 
@@ -409,7 +468,12 @@ export async function handleTransportSearch(
       await interaction.reply({ content: text("Ce menu appartient à la personne qui a lancé la recherche.", "This menu belongs to the person who started the search."), ephemeral: true });
       return;
     }
-    if (interaction.customId === `${id}:cancel`) {
+    if (!live || !validControls.has(interaction.customId)) {
+      await interaction.reply({ content: text("Ce choix n’est plus à jour. Utilise le menu actuel.", "This choice is outdated. Use the current menu."), ephemeral: true });
+      return;
+    }
+    const action = interaction.customId.split(":").at(-1)!;
+    if (action === "cancel") {
       await interaction.deferUpdate();
       collector.stop("cancelled");
       return;
@@ -418,28 +482,31 @@ export async function handleTransportSearch(
       await interaction.reply({ content: text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait a moment."), ephemeral: true });
       return;
     }
-    const action = interaction.customId.slice(id.length + 1);
     if (interaction.isButton() && (action === "city" || action === "filter")) { await modal(interaction, action); return; }
-    await interaction.deferUpdate();
-    if (action === "prev" || action === "next") { page += action === "next" ? 1 : -1; await render(); return; }
-    if (action === "clear") { filter = ""; page = 0; await render(); return; }
+    busy = true; // Lock before Discord's asynchronous acknowledgement (double-click race).
+    try { await interaction.deferUpdate(); } catch (error) { busy = false; throw error; }
     await run(async () => {
+      if (action === "prev" || action === "next") { page += action === "next" ? 1 : -1; await render(); return; }
+      if (action === "clear") { filter = ""; page = 0; await render(); return; }
       if (action === "restart") {
-        territory = undefined; network = undefined; city = undefined; line = undefined; index = undefined;
+        territory = undefined; network = undefined; city = undefined; region = undefined; line = undefined; index = undefined;
         origin = undefined; arrival = undefined; lastResult = undefined; filter = ""; page = 0;
         place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
-      if (action === "networks" && territory === "qc") { await loadNetworks(); return; }
+      if (action === "networks" && (territory === "qc" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "refresh") { await showDepartures(); return; }
+      if (action === "return" || action === "refreshReturn") { await showReturn(); return; }
+      if (action === "modify") { await loadOrigins(); return; }
       if (action === "back") {
         filter = ""; page = 0;
         if (stage === "result") { await loadArrivals(); return; }
         if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
         if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
-        if (stage === "lines" && territory === "qc") { stage = "networks"; network = undefined; await render(); return; }
+        if (stage === "lines" && (territory === "qc" || region)) { stage = "networks"; network = undefined; await render(); return; }
+        if (stage === "networks" && region) { region = undefined; await cityInput(); return; }
         if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
         if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
         if (stage === "lines" && cities.length > 1) { stage = "cities"; city = undefined; line = undefined; await render(); return; }

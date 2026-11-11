@@ -307,8 +307,8 @@ test("Discord menus distinguish the city, protect ownership, then choose departu
   await until(() => !!ui.prompt.embeds[0]?.footer?.text.includes("Horaires théoriques"));
   assert.equal(ui.prompt.content, "");
   assert.match(ui.prompt.embeds[0].description, /Amiens Gare/);
-  await ui.click("back");
-  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  await ui.click("modify");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
   assert.equal(ui.prompt.embeds.length, 0, "returning to a menu must clear the previous card");
   ui.collector.stop("time");
   await delay(1);
@@ -632,8 +632,8 @@ test("Discord can select an arrival on a second line and refresh the complete it
   assert.match(ui.prompt.content, /Métro A/);
   await ui.click("refresh");
   await until(() => ui.prompt.content.includes("minimum officiel"));
-  await ui.click("back");
-  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  await ui.click("modify");
+  await until(() => ui.prompt.content.includes("arrêt de départ"));
   ui.collector.stop("cancelled");
 });
 
