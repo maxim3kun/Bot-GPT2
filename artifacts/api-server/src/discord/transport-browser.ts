@@ -11,6 +11,7 @@ import { logger } from "../lib/logger.js";
 import { addConnections, connectionPaths } from "./gtfs-connections.js";
 import { connectedJourneys, formatConnections } from "./transport-connections.js";
 import { departureCards } from "./transport-presentation.js";
+import { withArrivalApproximations } from "./transport-arrivals.js";
 import type { APIEmbed } from "discord.js";
 import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { IdfmLiveClient, idfmLineCode, idfmTimeAllowed, ruleActive, stopAffected, stopClosed, type IdfmTraffic } from "./idfm-live.js";
@@ -306,7 +307,8 @@ export class TransportBrowserClient {
       fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
     const times = idfmLive?.cancelled ? [] : estimates.length ? estimates : (schedules.length ? schedules : laterSchedules)
       .filter((time) => time.departureAt > now + 24 * 3600 || !cancelled.has(time.tripId));
-    const allowed = times.filter(time => !traffic || idfmTimeAllowed(traffic, index, time, origin.ids, arrival.ids));
+    const enriched = withArrivalApproximations(index, pairs, times, cancelled);
+    const allowed = enriched.filter(time => !traffic || idfmTimeAllowed(traffic, index, time, origin.ids, arrival.ids));
     const deduped = [...new Map(allowed.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
       .sort((a, b) => a.departureAt - b.departureAt).slice(0, 6);
     const timezone = index.metadata.timezone || "Europe/Paris";
@@ -323,8 +325,6 @@ export class TransportBrowserClient {
       !traffic.available ? (french ? "Alertes indisponibles : desserte non confirmée." : "Alerts unavailable: service not confirmed.") : "",
       times.length !== allowed.length ? (french ? "Passages touchés par une fermeture exclus." : "Departures affected by a closure excluded.") : "",
       idfmLive?.cancelled ? (french ? "Passages annoncés supprimés par l’exploitant." : "Reported departures cancelled by the operator.") : "",
-      estimates.some(t => t.arrivalAt == null) ? (french ? "Heure d’arrivée non communiquée en temps réel."
-        : "Real-time arrival estimate not provided.") : "",
       ...activeRules.filter(r => !r.blocking && [...origin.ids, ...arrival.ids].some(id => stopAffected(r, index, id)))
         .slice(0, 2).map(r => r.message),
     ].filter(Boolean) : [];

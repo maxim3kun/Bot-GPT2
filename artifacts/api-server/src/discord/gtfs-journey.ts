@@ -42,7 +42,25 @@ export interface TransferRule {
   fromRoute: string; toRoute: string; fromTrip: string; toTrip: string;
 }
 export interface JourneyPair { tripId: string; origin: Visit; destination: Visit }
-export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string; departureStopId?: string; arrivalStopId?: string }
+export interface ArrivalApproximation {
+  at: number;
+  earliestAt: number;
+  latestAt: number;
+  sourceTripId: string;
+  serviceDate: string;
+}
+export interface JourneyTime {
+  tripId: string;
+  departureAt: number;
+  arrivalAt: number | null;
+  realtime: boolean;
+  serviceDate?: string;
+  departureStopId?: string;
+  arrivalStopId?: string;
+  terminalStopId?: string;
+  /** Display-only calculation; never a measured arrival or transfer guarantee. */
+  arrivalApproximation?: ArrivalApproximation;
+}
 export type JourneyRealtimeFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
 export function decodeJourneyFeed(bytes: Uint8Array): JourneyRealtimeFeed {
   return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(bytes);

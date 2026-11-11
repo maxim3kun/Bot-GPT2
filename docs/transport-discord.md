@@ -20,13 +20,19 @@ Le préfixe du serveur remplace `!` s’il a été personnalisé.
 2. Choisir une ligne. Les grandes listes sont paginées et disposent d’une recherche.
 3. Choisir l’arrêt de départ.
 4. Choisir un arrêt d’arrivée réellement desservi après le départ, sur la même ligne.
-5. Consulter les prochains départs et, quand elles sont disponibles, les heures d’arrivée.
+5. Consulter les prochains départs et leur arrivée : temps réel, prévue, approximative (`≈`) ou explicitement indisponible.
 
 Le menu appartient à la personne qui a lancé la commande. Il propose des retours, une annulation et une expiration après cinq minutes. Une nouvelle recherche dans le même salon remplace son ancien menu.
 
 Les quais rattachés à une même gare par le champ officiel `parent_station` sont regroupés dans les choix. Les résultats précisent l’arrêt/quai de départ lorsqu’un choix couvre plusieurs quais. Des noms proches ou des coordonnées voisines ne suffisent pas à regrouper des arrêts.
 
 Les trajets directs s’affichent dans une carte Discord compacte : départ et arrivée, quai commun indiqué une seule fois, puis horaires regroupés par jour avec durée du trajet. Trois départs sont visibles par défaut. **Plus d’horaires** en affiche jusqu’à six sans nouvelle requête; **Actualiser** recharge les estimations. Si le serveur refuse les liens intégrés (embeds), le bot conserve une version texte compacte et les mêmes commandes.
+
+La mention **Embarquement** n’apparaît pas si elle répète le départ ou l’arrivée (accents, casse et ponctuation ignorés). Un quai distinct reste indiqué, même si un seul quai est associé à l’arrêt.
+
+Quand un départ temps réel n’a pas d’arrivée opérateur, une durée officielle peut fournir une arrivée **approximative**, par exemple `11:35 → ≈ 11:42 · ≈ 7 min`. Le pied de carte précise **Départs temps réel · ≈ arrivée approximative**; les horaires prévus restent identifiés comme tels. Sans référence compatible, la ligne affiche **arrivée indisponible**.
+
+Ce calcul ne remplace jamais l’arrivée brute et ne sert pas à valider une correspondance. Une course GTFS connue utilise uniquement son propre service. Un véhicule SIRI distinct exige un terminus officiel compatible et un parcours publié non ambigu : aucun emprunt à une autre branche ou à un express. Les calendriers et exceptions sont respectés, y compris les services après minuit et les changements d’heure. La durée provient du départ publié le plus proche, dans une fenêtre de six heures, avec un maximum de 24 heures de trajet; la fourchette des durées compatibles est conservée pour les fermetures. Les courses signalées annulées sont exclues des références.
 
 Les recherches géographiques ne sont pas effectuées deux fois pour une commande avec deux communes. Une source qui vient d’échouer n’est pas retéléchargée pendant une minute; elle reste signalée comme indisponible. Une ligne ciblée trouvée reste en cache cinq minutes même si un autre réseau a échoué; une liste générale partielle est réévaluée plus vite.
 
@@ -57,7 +63,7 @@ Le processus exécutant le bot doit recevoir le secret `IDFM_PRIM_API_KEY`, obte
 
 - Les messages Info Trafic officiels sont consultés pour la ligne choisie. Les identifiants précis de quai/station et les périodes d’application déterminent les montées et descentes à exclure, dans les menus puis à nouveau au calcul. Une fermeture de quai ne ferme pas automatiquement les autres lignes de la même station. Un trajet traversant une station sans y monter ni y descendre reste possible si la source ne signale pas une interruption de ligne.
 - Une interruption bloquante dont le périmètre ou le calendrier particulier ne sont pas pris en charge interdit de confirmer le trajet; elle n’est pas transformée arbitrairement en fermeture de toutes les stations. Les alertes non bloquantes concernant les arrêts choisis restent visibles.
-- Les prochains passages SIRI sont filtrés par ligne, quai, destination officielle et fraîcheur. L’arrivée n’est associée que si le même véhicule daté est identifié à destination. Une arrivée manquante reste inconnue : aucune durée du planning n’est présentée comme une arrivée réelle.
+- Les prochains passages SIRI sont filtrés par ligne, quai, destination officielle et fraîcheur. L’arrivée opérateur n’est associée que si le même véhicule daté est identifié à destination. Une arrivée manquante reste inconnue dans les données brutes; seul l’affichage peut ajouter une approximation `≈` séparée et identifiée, selon les règles ci-dessus.
 - Les passages explicitement supprimés ne réapparaissent pas comme des départs théoriques. Sans estimation exploitable, les horaires prévus sont clairement étiquetés **théoriques**. Sans accès aux alertes, le résultat indique que la desserte n’est pas confirmée; une panne ne supprime pas immédiatement les fermetures récemment connues.
 
 Les requêtes sont limitées, mutualisées et mises en cache brièvement. Le jeton est envoyé uniquement au domaine officiel PRIM, sans redirection. Aucun test ne doit envoyer de vrais messages Discord pour vérifier ces services : utiliser les réponses simulées et des lectures des API officielles.

@@ -121,7 +121,7 @@ test("live passages match the same vehicle, correct direction and fresh measured
   assert.notEqual(differentFrames[0]!.vehicle, differentFrames[1]!.vehicle);
 });
 
-test("an unmatched or unavailable arrival is never filled with another train or a theoretical duration", async () => {
+test("an unmatched arrival remains raw-null but can show a clearly separate published-duration approximation", async () => {
   const index = await fixture(), pairs = journeyPairs(index, new Set([O]), new Set([D]));
   for (const options of [{ otherTrain: true }, { arrivalsFailure: true }]) {
     const live = server(options);
@@ -130,8 +130,8 @@ test("an unmatched or unavailable arrival is never filled with another train or 
     assert.equal(result.times[0]!.arrivalAt, null);
     const browser = new TransportBrowserClient(new FranceTransportClient(), () => NOW, live.client);
     const card = await browser.departures(line, index, { label: "Bonne Nouvelle", ids: [O] }, { label: "Concorde", ids: [D] }, "fr");
-    assert.match(card.content, /arrivée non communiquée/);
-    assert.doesNotMatch(card.embed!.fields![0]!.value, /→|min/);
+    assert.match(card.embed!.fields![0]!.value, /→ ≈ 11:12 · ≈ 10 min/);
+    assert.match(card.embed!.footer!.text, /Départs temps réel.*arrivée approximative/);
   }
 });
 

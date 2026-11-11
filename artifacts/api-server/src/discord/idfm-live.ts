@@ -92,7 +92,12 @@ export function idfmTimeAllowed(traffic: IdfmTraffic, index: JourneyIndex, time:
     const affectedArrival = (time.arrivalStopId ? [time.arrivalStopId] : arrivals).some(id => stopAffected(rule, index, id));
     if (!affectedArrival) continue;
     if (time.arrivalAt != null) { if (ruleActive(rule, time.arrivalAt)) return false; }
-    else if (!rule.periods.length || rule.periods.some(p => p.end > time.departureAt && p.begin < time.departureAt + 86400)) return false;
+    else if (time.arrivalApproximation) {
+      // A display estimate must not confirm a station open only at one chosen
+      // minute: retain the whole range of compatible published durations.
+      const estimate = time.arrivalApproximation;
+      if (!rule.periods.length || rule.periods.some(p => p.end > estimate.earliestAt && p.begin <= estimate.latestAt)) return false;
+    } else if (!rule.periods.length || rule.periods.some(p => p.end > time.departureAt && p.begin < time.departureAt + 86400)) return false;
   }
   return true;
 }
@@ -206,16 +211,18 @@ export class IdfmLiveClient {
       index.stops.get(a)?.parent === index.stops.get(b)?.parent;
     const times: JourneyTime[] = []; let matched = 0; let cancelled = 0;
     for (const visit of visits.filter(v => origins.has(v.point))) {
-      const relevant = pairs.find(p => p.origin.stopId === visit.point &&
+      const relevant = pairs.filter(p => p.origin.stopId === visit.point &&
         sameStop(index.visits.get(p.tripId)?.at(-1)?.stopId ?? "", visit.terminal));
-      if (!relevant) continue;
+      if (!relevant.length) continue;
       matched++;
       const arrival = visits.find(v => destinations.has(v.point) && v.vehicle === visit.vehicle &&
         sameStop(v.terminal, visit.terminal));
       if (visit.cancelled || arrival?.cancelled) { cancelled++; continue; }
       const arrivalAt = arrival && arrival.arrival >= visit.departure ? arrival.arrival : null;
+      const destinationIds = new Set(relevant.map(p => p.destination.stopId));
       times.push({ tripId: visit.vehicle, departureAt: visit.departure, arrivalAt, departureStopId: visit.point,
-        arrivalStopId: arrival?.point ?? relevant.destination.stopId, realtime: true });
+        arrivalStopId: arrival?.point ?? (destinationIds.size === 1 ? [...destinationIds][0] : undefined),
+        terminalStopId: visit.terminal, realtime: true });
     }
     return { times, available, cancelled: matched > 0 && cancelled === matched };
   }
