@@ -22,6 +22,8 @@ test("Only five explicit tools with closed schemas are advertised", () => {
   const tools = buildAiCommandTools(["nrj"]);
   assert.deepEqual(tools.map((tool) => tool.function.name), [
     "show_help", "start_minesweeper", "start_connect4", "play_radio", "module_diagnostic",
+    "search_transport", "play_youtube", "search_youtube", "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current",
+    "start_geoguessr", "start_guess_logo", "start_trivia", "start_guess_number",
   ]);
   assert.ok(tools.every((tool) => tool.function.parameters.additionalProperties === false));
   assert.deepEqual(tools[3].function.parameters.properties.station, { type: "string", enum: ["nrj"] });
@@ -82,7 +84,7 @@ test("Audio requires a server, an available voice channel and both parties' voic
     [{ inGuild: false }, "guild"], [{ voiceAvailable: false }, "voice"],
     [{ userCanUseVoice: false }, "permissions"], [{ botCanUseVoice: false }, "permissions"],
   ] as const) assert.equal(aiCommandDenial(radio, { ...allowed, ...patch }), reason);
-  assert.equal(aiCommandDenial({ name: "start_connect4" }, { ...allowed, inGuild: false }), "guild");
+  assert.equal(aiCommandDenial({ name: "start_connect4" }, { ...allowed, inGuild: false }), null);
 });
 
 test("Explicit ordinary actions reuse the existing consent without another confirmation", () => {

@@ -15,7 +15,8 @@ export function extractRadioStationRequest(
     .trim();
 
   for (const [key, station] of Object.entries(stations)) {
-    if (candidate === normalize(key) || candidate === normalize(station.name)) {
+    if (candidate === normalize(key) || candidate === normalize(station.name) ||
+      candidate === normalize(station.name).replace(/^(?:radio|station)\s+/, "")) {
       return key;
     }
   }

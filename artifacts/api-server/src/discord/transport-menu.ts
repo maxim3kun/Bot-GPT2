@@ -12,6 +12,8 @@ import type { JourneyIndex } from "./gtfs-journey.js";
 import { logger } from "../lib/logger.js";
 import { resolveBusJourney, normalizeCityName } from "./bus-journey.js";
 import { TransportDataError } from "./transport-data-error.js";
+import { parseTransportCommand } from "./transport-command-query.js";
+export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
 const active = new Map<string, () => void>();
@@ -28,25 +30,21 @@ export async function transportDeadline<T>(work: Promise<T>, milliseconds = 45_0
   } finally { if (timer) clearTimeout(timer); }
 }
 
-export function parseTransportCommand(args: string[]) {
-  const words = args.map((word) => word.trim()).filter(Boolean);
-  const territory = /^(?:qc|--qc)$/i.test(words[0] ?? "") ? "qc" as const :
-    /^(?:fr|france|--fr)$/i.test(words[0] ?? "") ? "fr" as const : undefined;
-  if (territory) words.shift();
-  const marker = words.findIndex((word) => /^(ligne|line)$/i.test(word));
-  const explicit = marker >= 0 && /^[a-z0-9][a-z0-9._-]*$/i.test(words[marker + 1] ?? "") ? words[marker + 1] : undefined;
-  const last = words.at(-1) ?? "";
-  const line = explicit ?? (words.length > 1 && /^(?:\d{1,4}|[a-z]\d{0,3}|[a-z]{2,3}\d{1,3})$/i.test(last) ? last : undefined);
-  const location = (explicit ? words.filter((_, i) => i !== marker && i !== marker + 1) : line ? words.slice(0, -1) : words).join(" ");
-  const journey = location.match(/^(?:de\s+)?(.+?)(?:\s+vers\s+|\s+to\s+|\s*->\s*|\s*→\s*)(.+)$/i);
-  return { place: journey ? journey[1]!.trim() : location, direction: journey?.[2]?.trim(), line,
-    ...(territory ? { territory } : {}) };
-}
-
 export async function handleTransportCommand(
   message: Message, args: string[], language: string, prefix = "!", mode: TransitMode | null = null,
   service = browser, lookupTimeoutMs = 45_000,
 ): Promise<void> {
+  return handleTransportSearch(message, { ...parseTransportCommand(args), mode }, language, prefix, service, lookupTimeoutMs);
+}
+
+export interface TransportSearch {
+  place: string; direction?: string; line?: string; territory?: TransportTerritory; mode: TransitMode | null;
+}
+export async function handleTransportSearch(
+  message: Message, parsed: TransportSearch, language: string, prefix = "!", service = browser, lookupTimeoutMs = 45_000,
+  authorize?: () => Promise<boolean>,
+): Promise<void> {
+  const { mode } = parsed;
   logger.info({ mode: mode ?? "choose", runtime: process.version }, "Transport command received");
   const french = language === "fr";
   const text = (fr: string, en: string) => french ? fr : en;
@@ -56,7 +54,6 @@ export async function handleTransportCommand(
     return;
   }
   active.get(sessionKey)?.();
-  const parsed = parseTransportCommand(args);
   let place = /^(list|liste|aide|help)$/i.test(parsed.place) ? "" : parsed.place;
   let direction = parsed.direction ?? "";
   let lineFilter = parsed.line ?? "";
@@ -182,9 +179,16 @@ export async function handleTransportCommand(
   }
 
   async function run(work: () => Promise<void>) {
+    if (!live) return;
     busy = true;
     const current = ++sequence;
     try {
+      if (authorize) {
+        let permitted = false;
+        try { permitted = await authorize(); } catch { /* Authorization failures are closed, not provider failures. */ }
+        if (!permitted) { collector.stop("denied"); return; }
+      }
+      if (!live || current !== sequence) return;
       await transportDeadline(work(), lookupTimeoutMs);
     } catch (error) {
       if (!live || current !== sequence) return;
@@ -457,7 +461,8 @@ export async function handleTransportCommand(
     live = false; sequence++;
     // A replacement must not remove the newer session's ownership entry.
     if (active.get(sessionKey) === stop) active.delete(sessionKey);
-    const notice = reason === "cancelled" ? text("Recherche terminée.", "Search finished.")
+    const notice = reason === "denied" ? text("Cette recherche n’est plus autorisée.", "This lookup is no longer authorized.")
+      : reason === "cancelled" ? text("Recherche terminée.", "Search finished.")
       : reason === "replaced" ? text("Recherche remplacée par une nouvelle demande.", "Search replaced by a new request.")
       : reason === "timeout" ? text(`La recherche a dépassé le délai. Relance \`${prefix}transport\` pour réessayer.`, `The lookup timed out. Run \`${prefix}transport\` to retry.`)
       : text(`Menu expiré. Relance \`${prefix}transport\`.`, `Menu expired. Run \`${prefix}transport\` again.`);

@@ -18,6 +18,9 @@ import { ytdlpInfo, ytdlpStream, ytdlpStreamWithFx, ytdlpSearch, cleanYouTubeTit
 import { customStationsCol } from "../lib/db.js";
 import { getEffectiveLanguage } from "./effective-language.js";
 import type { UserLang } from "./user-lang-store.js";
+import { authorizeAudioStream, togglePlaybackState } from "./audio-playback-state.js";
+import { enqueueAuthorizedTrack, removeAuthorizedTrack, playingTrackAuthorization, setPlayingTrackAuthorization, playAuthorizedQueuedStream, type PlaybackAuthorization } from "./audio-queue-access.js";
+import { searchActorAllowed, type SearchActor } from "./audio-search-access.js";
 
 const RADIO_COMMAND_COPY: Record<UserLang, { missing: string; suggestions: string; fullList: string }> = {
   en: { missing: "No station found for", suggestions: "Station not found. Did you mean:", fullList: "Full list" },
@@ -400,7 +403,7 @@ interface RadioState {
   paused: boolean;
   requestedBy: string | null;
   /** Set by soundboard: what to resume after the effect finishes */
-  sbResume: { stationKey: string } | { youtubeUrl: string } | null;
+  sbResume: { stationKey: string } | { youtubeUrl: string; authorize?: PlaybackAuthorization } | null;
   /** Current volume level (1.0 = 100%) */
   volume: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -613,7 +616,10 @@ async function playNextFromQueue(guildId: string): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state || state.queue.length === 0) return;
 
-  const url = state.queue.shift()!;
+  const track = removeAuthorizedTrack(state.queue)!;
+  const { url } = track;
+  const previousResource = state.activeResource;
+  const ownsTurn = () => radioStates.get(guildId) === state && state.activeResource === previousResource;
   const addedMsg = state.queueMessages.shift() ?? null;
 
   // Pre-fetch info AND pre-load audio stream for the next track in background
@@ -622,39 +628,56 @@ async function playNextFromQueue(guildId: string): Promise<void> {
     preloadStream(state.queue[0]!); // spawn yt-dlp early so it's buffered
   }
 
+  let queuedResource: ReturnType<typeof createAudioResource> | undefined;
   try {
     // Use pre-loaded stream if available (already buffering), else spawn fresh.
     // If a guild FX filter is active, skip the preload cache and pipe through FFmpeg instead.
     const fxFilterQ = getGuildFx(guildId);
+    const preloaded = preloadedStreamCache.get(url);
+    preloadedStreamCache.delete(url);
+    if (fxFilterQ) preloaded?.destroy();
     const audioStream = fxFilterQ
       ? ytdlpStreamWithFx(url, fxFilterQ)
-      : (preloadedStreamCache.get(url) ?? ytdlpStream(url));
-    if (!fxFilterQ) preloadedStreamCache.delete(url);
+      : (preloaded ?? ytdlpStream(url));
     const resource = createAudioResource(audioStream, {
-      inputType: fxFilterQ ? StreamType.Raw : StreamType.Arbitrary,
-      inlineVolume: true,
+      inputType: fxFilterQ ? StreamType.Raw : StreamType.Arbitrary, inlineVolume: true,
     });
+    queuedResource = resource;
     resource.volume?.setVolume(state.volume ?? 1.0);
-    state.activeResource = resource;
-
-    // Use cached info if available (instant), otherwise fetch
-    const cached = queueInfoCache.get(url);
-    const { title: rawTitle, duration, thumbnail } = cached ?? await ytdlpInfo(url);
-    const cleanTitle = cleanYouTubeTitle(rawTitle);
-
-    // Skip unresolvable tracks (ytdlpInfo fallback: title="Unknown", duration=0)
-    if (cleanTitle === "Unknown" && duration === 0) {
-      logger.warn({ url }, "Skipping unresolvable track");
-      if (state.queue.length > 0) playNextFromQueue(guildId).catch(() => null);
+    const result = await playAuthorizedQueuedStream({
+      ...track, authorize: async () => {
+        if (!ownsTurn()) return false;
+        const allowed = !track.authorize || await track.authorize();
+        return allowed && ownsTurn();
+      },
+    }, audioStream, async () => {
+      const info = queueInfoCache.get(url) ?? await ytdlpInfo(url);
+      const title = cleanYouTubeTitle(info.title);
+      if (title === "Unknown" && info.duration === 0) throw Error("Unresolvable queued track");
+      return { ...info, title };
+    }, (_stream, info) => {
+      if (!ownsTurn()) throw Error("Queue turn was superseded");
+      state.activeResource = resource;
+      state.stationKey = null;
+      state.youtubeTitle = info.title;
+      state.youtubeUrl = url;
+      state.youtubeStartTime = Date.now();
+      state.paused = false;
+      setPlayingTrackAuthorization(state, track.authorize);
+      state.player.play(resource);
+    });
+    if (!result.played) {
+      resource.playStream.destroy();
+      if (addedMsg) addedMsg.delete().catch(() => null);
+      if (!ownsTurn()) return;
+      state.notifyChannel?.send("Un morceau en attente n’a pas été joué : son autorisation n’est plus valable.").catch(() => null);
+      if (state.queue.length) await playNextFromQueue(guildId);
+      else { state.youtubeTitle = null; state.youtubeUrl = null; setPlayingTrackAuthorization(state); startIdleTimer(guildId); }
       return;
     }
-
-    state.stationKey = null;
-    state.youtubeTitle = cleanTitle;
-    state.youtubeUrl = url;
-    state.youtubeStartTime = Date.now();
-    state.paused = false;
-    state.player.play(resource);
+    const { title: cleanTitle, duration, thumbnail } = result.metadata;
+    const announce = async () => {
+    if (radioStates.get(guildId) !== state || state.activeResource !== resource) return;
     maybeSaveArtistFromTitle(cleanTitle);
     _activityCallback?.(cleanTitle);
     _channelNameCallback?.(guildId, cleanTitle);
@@ -676,7 +699,22 @@ async function playNextFromQueue(guildId: string): Promise<void> {
         .catch(() => null);
       state.nowPlayingMsg = (sent as Message | null);
     }
+    };
+    if (state.player.state.status === AudioPlayerStatus.Playing) await announce();
+    else {
+      const cleanup = () => {
+        state.player.off(AudioPlayerStatus.Playing, onPlaying);
+        state.player.off(AudioPlayerStatus.Idle, cleanup);
+        state.player.off("error", cleanup);
+      };
+      const onPlaying = () => { cleanup(); announce().catch(err => logger.warn({ err }, "Queue playback announcement failed")); };
+      state.player.once(AudioPlayerStatus.Playing, onPlaying);
+      state.player.once(AudioPlayerStatus.Idle, cleanup);
+      state.player.once("error", cleanup);
+    }
   } catch (err) {
+    queuedResource?.playStream.destroy();
+    if (radioStates.get(guildId) !== state || state.activeResource !== previousResource && state.activeResource !== queuedResource) return;
     logger.error({ err, url }, "Queue playback error");
     if (state.queue.length > 0) {
       await playNextFromQueue(guildId);
@@ -855,7 +893,8 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
         if ("stationKey" in resume) {
           resumeRadioStation(guildId, resume.stationKey).catch(() => null);
         } else {
-          s.queue = [resume.youtubeUrl];
+          s.queue = [];
+          enqueueAuthorizedTrack(s.queue, resume.youtubeUrl, resume.authorize);
           s.queueMessages = [null];
           playNextFromQueue(guildId).catch(() => null);
         }
@@ -924,6 +963,7 @@ async function resumeRadioStation(guildId: string, stationKey: string): Promise<
     const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
     resource.volume?.setVolume(state.volume ?? 1.0);
     state.activeResource = resource;
+    setPlayingTrackAuthorization(state);
     state.player.play(resource);
     state.notifyChannel?.send(`📻 Resuming **${station.name}** ${station.emoji}`).catch(() => null);
   } catch (err) {
@@ -943,7 +983,7 @@ export function nowPlaying(guildId: string): EmbedBuilder | null {
   if (!state) return null;
 
   if (state.stationKey) {
-    const station = RADIO_STATIONS[state.stationKey];
+    const station = RADIO_STATIONS[state.stationKey] ?? customStations.get(state.stationKey);
     if (!station) return null;
     return new EmbedBuilder()
       .setColor(0x57f287)
@@ -1071,7 +1111,8 @@ function resolveStation(input: string): { key: string } | { suggestions: string[
   return { suggestions: scored.slice(0, 3).map(r => r.key) };
 }
 
-export async function playRadio(message: Message, stationInput: string): Promise<void> {
+export async function playRadio(message: Message, stationInput: string, authorize?: () => Promise<boolean>): Promise<void> {
+  if (authorize && !await authorize()) return;
   const copy = RADIO_COMMAND_COPY[getEffectiveLanguage(message.guildId, message.author.id)];
   const resolved = resolveStation(stationInput);
 
@@ -1100,7 +1141,7 @@ export async function playRadio(message: Message, stationInput: string): Promise
     return;
   }
 
-  const ready = await ensureVoiceConnection(message, () => playRadio(message, stationInput));
+  const ready = await ensureVoiceConnection(message, () => playRadio(message, stationInput, authorize));
   if (!ready) return;
 
   const guildId = message.guildId!;
@@ -1119,9 +1160,17 @@ export async function playRadio(message: Message, stationInput: string): Promise
 
   try {
     const stream = await fetchStream(station.url);
+    if (!await authorizeAudioStream(stream, authorize)) {
+      if (radioStates.get(guildId) === state && state.stationKey === stationKey) {
+        state.stationKey = null; state.player.stop(); startIdleTimer(guildId);
+      }
+      await loadMsg.edit("La lecture n’est plus autorisée. Aucune nouvelle lecture confirmée.");
+      return;
+    }
     const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
     resource.volume?.setVolume(state.volume ?? 1.0);
     state.activeResource = resource;
+    setPlayingTrackAuthorization(state);
     state.player.play(resource);
 
     state.player.once(AudioPlayerStatus.Playing, async () => {
@@ -1177,6 +1226,7 @@ async function execPlayYoutube(
   waitMsg: Message,
   requestedBy?: string,
   knownMeta?: { title: string; duration: number; thumbnail: string | null },
+  authorize?: () => Promise<boolean>,
 ): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state) return;
@@ -1276,12 +1326,22 @@ async function execPlayYoutube(
     await waitMsg.edit({ content: "❌ Playback error. The video may be unavailable or age-restricted.", components: [] }).catch(() => null);
   };
 
+  if (!await authorizeAudioStream(audioStream, authorize)) {
+    clearInterval(loadInterval);
+    if (radioStates.get(guildId) === state && state.youtubeUrl === url && state.youtubeTitle === "Loading…") {
+      state.youtubeTitle = null; state.youtubeUrl = null;
+      if (!state.queue.length) startIdleTimer(guildId);
+    }
+    await waitMsg.edit({ content: "La lecture n’est plus autorisée. Aucune nouvelle lecture confirmée.", components: [] }).catch(() => null);
+    return;
+  }
   const resource = createAudioResource(audioStream, {
     inputType: fxFilter ? StreamType.Raw : StreamType.Arbitrary,
     inlineVolume: true,
   });
   resource.volume?.setVolume(state.volume ?? 1.0);
   state.activeResource = resource;
+  setPlayingTrackAuthorization(state, authorize);
   state.player.play(resource);
 
   let started = false;
@@ -1354,7 +1414,7 @@ export async function playSoundEffect(
   if (!state) return;
 
   // Store resume info BEFORE wiping state
-  state.sbResume = resume ?? null;
+  state.sbResume = resume && "youtubeUrl" in resume ? { ...resume, authorize: playingTrackAuthorization(state) } : resume ?? null;
 
   // Wipe current playback context (caller already stopped the player)
   state.stationKey = null;
@@ -1384,14 +1444,16 @@ export async function playYoutube(
   message: Message,
   url: string,
   knownMeta?: { title: string; duration: number; thumbnail: string | null },
+  authorize?: () => Promise<boolean>,
 ): Promise<void> {
+  if (authorize && !await authorize()) return;
   if (!url.includes("youtube.com/") && !url.includes("youtu.be/")) {
     // Not a URL — treat as a search query
-    await searchAndQueue(message, url);
+    await searchAndQueue(message, url, authorize);
     return;
   }
 
-  const ready = await ensureVoiceConnection(message, () => playYoutube(message, url, knownMeta));
+  const ready = await ensureVoiceConnection(message, () => playYoutube(message, url, knownMeta, authorize));
   if (!ready) return;
 
   const guildId = message.guildId!;
@@ -1400,7 +1462,7 @@ export async function playYoutube(
 
   // ── YouTube already playing → add to queue ────────────────────────────────
   if (state.youtubeTitle) {
-    state.queue.push(url);
+    enqueueAuthorizedTrack(state.queue, url, authorize);
     state.queueMessages.push(null); // placeholder — updated below after fetch
     const pos = state.queue.length; // 1-indexed display position
     const qMsgIdx = pos - 1;        // 0-indexed position in queueMessages
@@ -1464,7 +1526,7 @@ export async function playYoutube(
   preloadStream(url);
   const waitMsg = await message.reply("🎬 Loading…");
   try {
-    await execPlayYoutube(guildId, url, waitMsg, message.author.id, knownMeta);
+    await execPlayYoutube(guildId, url, waitMsg, message.author.id, knownMeta, authorize);
   } catch (err) {
     logger.error({ err, url }, "YouTube load error");
     await waitMsg.edit("❌ Failed to load the YouTube video. It may be private, age-restricted or unavailable.");
@@ -1584,21 +1646,30 @@ interface PendingSearchEntry {
   page: number;
   loadMsg: Message;
   slices: Array<{ start: number; count: number }>;
+  authorize?: () => Promise<boolean>;
+  expiresAt: number;
 }
 
 const pendingSearches = new Map<string, PendingSearchEntry>();
+export function canUsePendingSearch(msgId: string, actor: SearchActor): boolean {
+  const ps = pendingSearches.get(msgId);
+  return searchActorAllowed(ps ? { userId: ps.requestedBy, guildId: ps.message.guildId, channelId: ps.message.channelId,
+    messageId: ps.loadMsg.id, expiresAt: ps.expiresAt } : undefined, actor);
+}
 
 /** Called by the bot.ts button handler when the user clicks a search result (localIdx = position on current page). */
-export function consumePendingSearch(msgId: string, localIdx: number): {
+export function consumePendingSearch(msgId: string, localIdx: number, actor: SearchActor): {
   pick: { url: string; title: string; duration: number; thumbnail: string | null };
   message: Message;
   requestedBy: string;
   originalQuery: string;
+  authorize?: () => Promise<boolean>;
 } | null {
+  if (!canUsePendingSearch(msgId, actor)) return null;
   const ps = pendingSearches.get(msgId);
   if (!ps) return null;
   const slice = ps.slices[ps.page];
-  if (!slice) return null;
+  if (!slice || !Number.isInteger(localIdx) || localIdx < 0 || localIdx >= slice.count) return null;
   const globalIdx = slice.start + localIdx;
   if (globalIdx < 0 || globalIdx >= ps.results.length) return null;
   clearTimeout(ps.expires);
@@ -1608,11 +1679,12 @@ export function consumePendingSearch(msgId: string, localIdx: number): {
   const pick = cached
     ? { url: basePick.url, title: cached.title, duration: cached.duration, thumbnail: cached.thumbnail }
     : basePick;
-  return { pick, message: ps.message, requestedBy: ps.requestedBy, originalQuery: ps.originalQuery };
+  return { pick, message: ps.message, requestedBy: ps.requestedBy, originalQuery: ps.originalQuery, authorize: ps.authorize };
 }
 
 /** Called by the bot.ts button handler when the user clicks ◀ or ▶ to navigate pages. */
-export async function navigateSearch(msgId: string, dir: "prev" | "next"): Promise<void> {
+export async function navigateSearch(msgId: string, dir: "prev" | "next", actor: SearchActor): Promise<void> {
+  if (!canUsePendingSearch(msgId, actor) || !["prev", "next"].includes(dir)) return;
   const ps = pendingSearches.get(msgId);
   if (!ps) return;
   const newPage = dir === "next" ? ps.page + 1 : ps.page - 1;
@@ -1622,7 +1694,7 @@ export async function navigateSearch(msgId: string, dir: "prev" | "next"): Promi
   await ps.loadMsg.edit({ content: "", embeds: [embed], components }).catch(() => null);
 }
 
-export async function searchAndQueue(message: Message, query: string): Promise<void> {
+export async function searchAndQueue(message: Message, query: string, authorize?: () => Promise<boolean>, autoplay = true): Promise<void> {
   if (!query.trim()) {
     await message.reply("❓ Provide keywords.\nExample: `!y stromae papaoutai`");
     return;
@@ -1662,6 +1734,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     title: cleanYouTubeTitle(r.title),
     thumbnail: null as string | null,
   }));
+  if (!cleaned.length) { await loadMsg.edit("Aucun résultat musical exploitable."); return; }
+  if (autoplay && authorize && !await authorize()) { await loadMsg.edit("La recherche n’est plus autorisée."); return; }
 
   // Auto-play heuristic:
   // - 3+ words → specific enough (e.g. "David Guetta Titanium") → play #1 directly
@@ -1672,14 +1746,14 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   const words = query.trim().split(/\s+/).filter(w => w.length > 1);
   const wordCount = words.length;
 
-  if (wordCount >= 3) {
+  if (autoplay && wordCount >= 3) {
     const sel = cleaned[0]!;
     await loadMsg.delete().catch(() => null);
-    await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+    await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null }, authorize);
     return;
   }
 
-  if (wordCount === 2) {
+  if (autoplay && wordCount === 2) {
     const sel = cleaned[0]!;
     const word1 = words[0] ?? "";
     const word2 = (words[1] ?? "").toLowerCase();
@@ -1689,7 +1763,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     // Known artist cache: if word1 is a recognized artist, word2 must be the song → auto-play
     if (isKnownArtist(word1)) {
       await loadMsg.delete().catch(() => null);
-      await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+      await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null }, authorize);
       return;
     }
 
@@ -1699,7 +1773,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
       // word2 is in song part but NOT in artist part → it's a song title → auto-play
       if (songPart.includes(word2) && !artistPart.includes(word2)) {
         await loadMsg.delete().catch(() => null);
-        await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null });
+        await playYoutube(message, sel.url, { title: sel.title, duration: sel.duration, thumbnail: null }, authorize);
         return;
       }
     }
@@ -1716,7 +1790,7 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
   // Pre-warm yt-dlp for the top 3 results while the user reads the picker.
   // The user typically takes 3–10 s to choose — by then the stream is already buffered,
   // so audio starts almost instantly after the click.
-  const warmCount = Math.min(3, allResults.length);
+  const warmCount = autoplay ? Math.min(3, allResults.length) : 0;
   for (let i = 0; i < warmCount; i++) {
     const r = allResults[i]!;
     preloadStream(r.url);
@@ -1747,6 +1821,8 @@ export async function searchAndQueue(message: Message, query: string): Promise<v
     page: 0,
     loadMsg,
     slices,
+    authorize,
+    expiresAt: Date.now() + 120000,
   });
 }
 
@@ -1769,17 +1845,7 @@ export async function skipYoutube(message: Message): Promise<void> {
 
 /** Toggle pause/resume. Returns the new state or "not_playing". */
 export function pauseToggle(guildId: string): "paused" | "resumed" | "not_playing" {
-  const state = radioStates.get(guildId);
-  if (!state || (!state.youtubeTitle && !state.stationKey)) return "not_playing";
-  if (state.paused) {
-    state.player.unpause();
-    state.paused = false;
-    return "resumed";
-  } else {
-    state.player.pause();
-    state.paused = true;
-    return "paused";
-  }
+  return togglePlaybackState(radioStates.get(guildId));
 }
 
 /** Skip the current YouTube track (no message reply). Triggers Idle → next in queue or idle. */
@@ -1837,7 +1903,7 @@ export async function rewindCurrentTrack(guildId: string, notifyMsg?: Message): 
   state.youtubeTitle = null;
   state.youtubeUrl = null;
   state.youtubeStartTime = null;
-  state.queue.unshift(url); // put it at front of queue
+  enqueueAuthorizedTrack(state.queue, url, playingTrackAuthorization(state), true);
   state.queueMessages.unshift(null);
   state.player.stop(); // triggers Idle → playNextFromQueue picks up the URL
 

@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, type Message } from "discord.js";
 import { TransportConversation } from "./transport-conversation.js";
 import { ItineraryControls } from "./transport-itinerary-controls.js";
+import { commandSafety, isTimetableSearch, selectAiCommand } from "./ai-command-intent.js";
 
 export interface DialogueOptions { personaId?: string; continuationOnly?: boolean }
 export const travelScope = (message: Pick<Message, "guildId" | "channelId" | "author">, personaId?: string) =>
@@ -44,6 +45,12 @@ export function createTransportDialogue(
   return async (message: Message, input: string, language: string, options: DialogueOptions = {}): Promise<boolean> => {
     const scope = travelScope(message, options.personaId);
     const existing = attempted.get(message)?.get(scope); if (existing) return existing;
+    // Timetables use the existing transport browser; genuine itineraries keep this official planner.
+    const command = selectAiCommand(input, {});
+    if (commandSafety(input) === "quoted" || isTimetableSearch(input) || command.kind !== "none") {
+      if (!options.continuationOnly) { service.clear(scope); cards.invalidate(scope); }
+      return false;
+    }
     // An ongoing route is not permission to intercept a reply addressed to someone else.
     if (options.continuationOnly && (message.mentions?.users?.some(u => u.id !== message.client.user?.id) ||
       message.mentions?.repliedUser && message.mentions.repliedUser.id !== message.client.user?.id)) return false;
@@ -55,6 +62,12 @@ export function createTransportDialogue(
       try {
         if (!await authorize(message, language)) { service.clear(scope); cards.invalidate(scope); return true; }
         cards.invalidate(scope);
+        if (commandSafety(input) === "multiple") {
+          service.clear(scope);
+          await message.reply({ content: language === "fr" ? "Demande une seule action à la fois. Aucun trajet ni autre action n’a été lancé."
+            : "Request one action at a time. No journey or other action was started.", allowedMentions: { parse: [] } });
+          return true;
+        }
         if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
         const result = await service.reply(scope, input, language, options.continuationOnly);
         if (result?.content) {

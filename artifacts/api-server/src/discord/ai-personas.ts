@@ -1140,12 +1140,12 @@ async function respondWithPersona(
     return;
   }
   if (await handleTransportDialogue(message, prompt, responseLanguage, { personaId: persona.id })) return;
+  if (await handleAiActionRequest(message, prompt, openai, responseLanguage, { personaId: persona.id })) return;
   if (!openai) {
     await safeReply(message, localized(responseLanguage, "Les fonctions IA ne sont pas configurées.", "AI features are not configured."));
     return;
   }
 
-  if (await handleAiActionRequest(message, prompt, openai, responseLanguage)) return;
   if (await handlePublicTransportRequest(message, prompt, responseLanguage)) return;
   if (message.channel.isSendable()) await message.channel.sendTyping();
   const knowledgeContext = personaKnowledgeContext(persona, message.author.id);

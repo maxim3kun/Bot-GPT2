@@ -7,6 +7,11 @@ export type AiCommandAction =
   | { name: "lookup_pokemon"; query: string }
   | { name: "start_minesweeper"; difficulty: "easy" | "medium" | "hard" }
   | { name: "start_connect4" }
+  | { name: "start_geoguessr" | "start_guess_logo"; difficulty: "easy" | "medium" | "hard" }
+  | { name: "start_trivia" | "start_guess_number" }
+  | { name: "search_transport"; mode: "bus" | "metro" | "tram" | "rail" | null; place: string; line?: string; direction?: string; territory?: "fr" | "qc" }
+  | { name: "play_youtube" | "search_youtube"; query: string }
+  | { name: "music_pause" | "music_resume" | "music_skip" | "music_stop" | "music_queue" | "music_current" }
   | { name: "play_radio"; station: string }
   | { name: "module_diagnostic" };
 
@@ -30,20 +35,36 @@ export function parseAiCommandTool(
     args = value as Record<string, unknown>;
   } catch { return null; }
   const name = call.function.name;
-  if (["show_help", "start_connect4", "module_diagnostic"].includes(name)) {
+  if (["show_help", "start_connect4", "module_diagnostic", "start_trivia", "start_guess_number",
+    "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current"].includes(name)) {
     if (Object.keys(args).length !== 0) return null;
     return { name } as AiCommandAction;
   }
-  if (name === "start_minesweeper" && Object.keys(args).length === 1
+  if (["start_minesweeper", "start_geoguessr", "start_guess_logo"].includes(name) && Object.keys(args).length === 1
     && typeof args.difficulty === "string" && ["easy", "medium", "hard"].includes(args.difficulty)) {
-    return { name, difficulty: args.difficulty as "easy" | "medium" | "hard" };
+    return { name, difficulty: args.difficulty as "easy" | "medium" | "hard" } as AiCommandAction;
   }
   if (name === "play_radio" && Object.keys(args).length === 1
     && typeof args.station === "string" && stationKeys.includes(args.station)) {
     return { name, station: args.station };
   }
+  if (["play_youtube", "search_youtube", "lookup_pokemon"].includes(name) && Object.keys(args).length === 1 && safeSearchText(args.query, 200) && args.query.trim())
+    return { name, query: args.query.trim() } as AiCommandAction;
+  if (name === "search_transport" && Object.keys(args).every(k => ["mode", "place", "line", "direction", "territory"].includes(k))
+    && [null, "bus", "metro", "tram", "rail"].includes(args.mode as string | null) && safeSearchText(args.place, 100)
+    && (args.line === undefined || typeof args.line === "string" && /^[\p{L}\p{N}][\p{L}\p{N}._ -]{0,19}$/u.test(args.line))
+    && (args.direction === undefined || safeSearchText(args.direction, 100) && args.direction.trim().length > 0)
+    && (args.territory === undefined || args.territory === "fr" || args.territory === "qc"))
+    return { name, mode: args.mode, place: args.place.trim(), ...(args.line === undefined ? {} : { line: args.line }),
+      ...(args.direction === undefined ? {} : { direction: args.direction.trim() }), ...(args.territory === undefined ? {} : { territory: args.territory }) } as AiCommandAction;
   return null;
 }
+
+export function safeSearchText(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && value.length <= maximum && !/[\u0000-\u001f\u007f<>`{}]|(?:https?:|www\.|:\/\/)|(?:^|\s)[!/$][\p{L}]/iu.test(value);
+}
+export const isMusicAction = (action: AiCommandAction) => action.name === "play_radio" || action.name === "play_youtube" || action.name === "search_youtube" || action.name.startsWith("music_");
+export const needsVoice = (action: AiCommandAction) => isMusicAction(action) && !["search_youtube", "music_queue", "music_current"].includes(action.name);
 
 export function buildAiCommandTools(stationKeys: string[]) {
   const tool = (name: string, description: string, properties: Record<string, object> = {}, required: string[] = []) => ({
@@ -63,6 +84,22 @@ export function buildAiCommandTools(stationKeys: string[]) {
       station: { type: "string", enum: stationKeys },
     }, ["station"]),
     tool("module_diagnostic", "Read module health. Only server administrators can access this; never change settings."),
+    tool("search_transport", "Open the real timetable search, not a transfer itinerary calculator.", {
+      mode: { enum: ["bus", "metro", "tram", "rail", null] }, place: { type: "string", maxLength: 100 },
+      line: { type: "string", maxLength: 20 }, direction: { type: "string", maxLength: 100 }, territory: { enum: ["fr", "qc"] },
+    }, ["mode", "place"]),
+    tool("play_youtube", "Search YouTube using the user's exact title or artist; the real player reports success.", {
+      query: { type: "string", minLength: 1, maxLength: 200 },
+    }, ["query"]),
+    tool("search_youtube", "Show YouTube search results without automatically playing audio.", {
+      query: { type: "string", minLength: 1, maxLength: 200 },
+    }, ["query"]),
+    ...["music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current"].map(name => tool(name, "Use the existing music function only on an explicit request.")),
+    ...["start_geoguessr", "start_guess_logo"].map(name => tool(name, "Start the existing game only on an explicit request.", {
+      difficulty: { enum: ["easy", "medium", "hard"] },
+    }, ["difficulty"])),
+    tool("start_trivia", "Start the existing trivia, without invented categories or difficulty."),
+    tool("start_guess_number", "Start the existing number game: 1 to 100, ten attempts; no custom range."),
   ];
 }
 
@@ -92,8 +129,8 @@ export function aiCommandDenial(action: AiCommandAction, access: AiCommandAccess
   if (!access.consent) return "consent";
   if (!access.userCanUseChannel || !access.botCanReply) return "permissions";
   if (action.name === "module_diagnostic" && (!access.inGuild || !access.administrator)) return "administrator";
-  if (action.name === "start_connect4" && !access.inGuild) return "guild";
-  if (action.name === "play_radio") {
+  if (isMusicAction(action) && !access.inGuild) return "guild";
+  if (needsVoice(action)) {
     if (!access.inGuild) return "guild";
     if (!access.voiceAvailable) return "voice";
     if (!access.userCanUseVoice || !access.botCanUseVoice) return "permissions";

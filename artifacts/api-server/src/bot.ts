@@ -58,6 +58,9 @@ import { createSearchSourceButton, getSearchSources } from "./discord/ai-researc
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
 import { handleAiActionRequest } from "./discord/ai-actions.js";
+import { commandSafety } from "./discord/ai-command-intent.js";
+import { hasAiCommandParameterReply } from "./discord/ai-command-dispatch.js";
+import { canUsePendingSearch } from "./discord/radio.js";
 import { createReliableCompletion } from "./discord/ai-reliable-completion.js";
 import { registerAiFeedback, seedAiPersonaControl, trackAiReplies } from "./discord/ai-feedback.js";
 import { createOrderedEventQueue } from "./discord/ai-observability-policy.js";
@@ -381,11 +384,12 @@ export function startBot(): void {
       await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
       return;
     }
-    if (extractNaturalHelpCommand(prompt) === "help") {
+    if (commandSafety(prompt) === "multiple" && await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
+    if (!commandSafety(prompt) && extractNaturalHelpCommand(prompt) === "help") {
       await sendHelpPaginator(message, aiResponseLang);
       return;
     }
-    const pokemonQuery = extractPokemonQuery(prompt);
+    const pokemonQuery = !commandSafety(prompt) && extractPokemonQuery(prompt);
     if (pokemonQuery) {
       await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
       return;
@@ -1274,13 +1278,19 @@ export function startBot(): void {
     if (interaction.customId.startsWith("yt:")) {
       const parts = interaction.customId.split(":");
       const subtype = parts[1] ?? "";
+      const actor = { userId: interaction.user.id, guildId: interaction.guildId, channelId: interaction.channelId, messageId: interaction.message.id };
+      const searchId = subtype === "nav" || subtype === "pick" ? parts[3] ?? "" : parts[2] ?? "";
+      if (!canUsePendingSearch(searchId, actor)) {
+        await interaction.reply({ content: "Cette recherche a expiré ou appartient à une autre personne.", ephemeral: true });
+        return;
+      }
 
       // Navigation: yt:nav:prev:msgId / yt:nav:next:msgId
       if (subtype === "nav") {
         const dir = (parts[2] ?? "next") as "prev" | "next";
         const msgId = parts[3] ?? "";
         await interaction.deferUpdate();
-        await navigateSearch(msgId, dir);
+        await navigateSearch(msgId, dir, actor);
         return;
       }
 
@@ -1288,9 +1298,14 @@ export function startBot(): void {
       const localIdx = subtype === "pick" ? parseInt(parts[2] ?? "0", 10) : parseInt(subtype, 10);
       const msgId = subtype === "pick" ? (parts[3] ?? "") : (parts[2] ?? "");
 
-      const pending = consumePendingSearch(msgId, localIdx);
+      const pending = consumePendingSearch(msgId, localIdx, actor);
       if (!pending) {
         await interaction.reply({ content: "❌ Search expired. Use `!y` again.", ephemeral: true });
+        return;
+      }
+      await interaction.deferUpdate();
+      if (pending.authorize && !await pending.authorize()) {
+        await interaction.editReply({ content: "La lecture n’est plus autorisée.", embeds: [], components: [] });
         return;
       }
 
@@ -1302,13 +1317,13 @@ export function startBot(): void {
           : null;
       const pickVoiceChannel = (pickMember as GuildMember | null)?.voice?.channel;
       if (!pickVoiceChannel) {
-        await interaction.reply({ content: "❌ Join a voice channel first, then use `!y` again.", ephemeral: true });
+        await interaction.editReply({ content: "Rejoins un salon vocal puis relance la recherche.", embeds: [], components: [] });
         return;
       }
 
-      await interaction.update({ content: `▶️ Playing **${pending.pick.title}**`, embeds: [], components: [] });
+      await interaction.editReply({ content: `Chargement de **${pending.pick.title}**… Lecture pas encore confirmée.`, embeds: [], components: [] });
       try {
-        await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail });
+        await playYoutube(pending.message, pending.pick.url, { title: pending.pick.title, duration: pending.pick.duration, thumbnail: pending.pick.thumbnail }, pending.authorize);
         // Artist cache learning: if query was 2 words and title is "Artist - Song", save the artist
         const queryWords = pending.originalQuery.trim().split(/\s+/).filter(w => w.length > 1);
         if (queryWords.length === 2) {
@@ -1404,7 +1419,7 @@ export function startBot(): void {
       // city answers to a previous clock/time-zone question.
       const timeFollowUp = await consumeTimeFollowUp(message, cleanedContent);
       if (timeFollowUp) { await message.reply(timeFollowUp); return; }
-      if (addressedToBot && await handleAiActionRequest(
+      if ((addressedToBot || hasAiCommandParameterReply(message)) && await handleAiActionRequest(
         message, cleanedContent, openai,
         getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
       )) return;
@@ -1432,11 +1447,11 @@ export function startBot(): void {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
-      if (extractNaturalHelpCommand(userText) === "help") {
+      if (!commandSafety(userText) && extractNaturalHelpCommand(userText) === "help") {
         await sendHelpPaginator(message, aiResponseLang);
         return;
       }
-      const pokemonQuery = extractPokemonQuery(userText);
+      const pokemonQuery = !commandSafety(userText) && extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;
@@ -1549,11 +1564,11 @@ export function startBot(): void {
         await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
         return;
       }
-      if (extractNaturalHelpCommand(userText) === "help") {
+      if (!commandSafety(userText) && extractNaturalHelpCommand(userText) === "help") {
         await sendHelpPaginator(message, aiResponseLang);
         return;
       }
-      const pokemonQuery = extractPokemonQuery(userText);
+      const pokemonQuery = !commandSafety(userText) && extractPokemonQuery(userText);
       if (pokemonQuery) {
         await handlePokemon(pokemonQuery, aiResponseLang, (opts) => message.reply(opts as Parameters<typeof message.reply>[0]));
         return;

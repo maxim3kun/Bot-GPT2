@@ -146,6 +146,16 @@ _Populate as you build — explicit user instructions worth remembering across s
 - Les contrôles expirent avec le contexte, au maximum après cinq minutes sans prolongation par un clic. Les trajets longs sont paginés sans masquer de correspondance et sans nouvel appel au fournisseur lors d’un changement de page.
 - `pnpm --filter @workspace/api-server run test:itineraries` vérifie les dialogues et contrats du calculateur; `test:transport` inclut aussi les régressions d’horaires France/Québec.
 
+## Actions naturelles : transports, musique et jeux
+- Les demandes explicites sont reconnues localement et validées par une liste fermée d’actions typées. Aucun texte de commande généré par le modèle n’est exécuté; une demande multiple, citée, descriptive ou hypothétique ne déclenche pas une partie des actions.
+- Le navigateur d’horaires reçoit une recherche structurée (France/Québec, bus/métro/tram/train, localité et ligne éventuelles). Les itinéraires et correspondances restent confiés au calculateur officiel.
+- L’audio utilise les fonctions existantes : recherche YouTube, radios configurées, pause/reprise, suivant, arrêt, file et titre courant. Les recherches YouTube sont liées au demandeur et au message, et les droits sont revérifiés avant une sélection issue d’une demande IA. « Chargement » ne signifie pas que la lecture a commencé.
+- Une demande de recherche YouTube affiche des résultats sans lecture automatique ni préchargement audio; sa sélection ultérieure nécessite un salon vocal et une nouvelle vérification d’accès.
+- Les morceaux IA en attente gardent leur propre autorisation jusqu’au démarrage. Les changements d’ordre ou retraits doivent utiliser les helpers de `audio-queue-access.ts`, jamais modifier les positions de `state.queue` directement : deux URL identiques peuvent appartenir à des demandes différentes. Un refus détruit le flux et passe au morceau suivant, sans message de lecture réussie.
+- Les jeux disponibles par demande naturelle sont démineur, Puissance 4 solo, GeoGuessr, trivia, devine le nombre et devine le logo. Les paramètres restent ceux des jeux existants. Les fonctions compatibles fonctionnent aussi en MP; l’audio nécessite un serveur et, pour le modifier, un salon vocal autorisé.
+- Un paramètre manquant peut être donné en répondant au message de précision sous deux minutes. Ce contexte est temporaire et séparé par serveur, salon, membre et persona; une simple phrase dans le salon ne vaut pas réponse à la question.
+- `pnpm --filter @workspace/api-server run test:ai-actions` vérifie les intentions, les traitements simulés et la révocation des droits dans les menus, sans lancer de son ou de partie sur Discord.
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

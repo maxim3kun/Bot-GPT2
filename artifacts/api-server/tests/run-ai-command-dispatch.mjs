@@ -7,12 +7,14 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.stringify(path.join(here, "fixtures/ai-commands.ts"));
-const imports = `import { fixture, features, globals, handler, Builder, permissions } from ${fixtures};`;
+const imports = `import { fixture, features, globals, handler, Builder, permissions } from ${fixtures};
+import { togglePlaybackState } from "../src/discord/audio-playback-state.ts";`;
 const stubs = {
   "discord.js": `
     export { Builder as ActionRowBuilder, Builder as ButtonBuilder, permissions as PermissionFlagsBits };
     export const ButtonStyle = { Primary: 1, Secondary: 2 }, ComponentType = { Button: 2 };
     export const ChannelType = { GuildStageVoice: "GuildStageVoice" };`,
+  "@discordjs/voice": `export const AudioPlayerStatus = { Playing: "playing", Paused: "paused", AutoPaused: "autopaused" };`,
   "feature-flags.js": `export const isFeatureEnabled = name => fixture.flags[name] !== false;`,
   "features-store.js": `
     export const getGlobalFeatures = globals;
@@ -38,7 +40,8 @@ const stubs = {
     return reply("real PokéAPI result");
   };`,
   "message-game-commands.js": `
-    export const handleGameMessageCommand = (message, command, args) => handler(command + ":" + args.join(","), message);`,
+    export const handleGameMessageCommand = (message, command, args, openai) =>
+      command === "trivia" && !openai ? message.reply("AI features are not configured") : handler(command + ":" + args.join(","), message);`,
   "module-technician.js": `export const handleTechnicianCommand = message => handler("diagnostic", message);`,
   "module-fallback.js": `
     export const runModuleWithFallback = async (_, module, operation, fallback) => {
@@ -47,7 +50,19 @@ const stubs = {
     export const moduleFallbackMessage = () => "service indisponible";`,
   "radio.js": `
     export const RADIO_STATIONS = { nrj: { name: "NRJ" } };
-    export const playRadio = (message, station) => handler("radio:" + station, message);`,
+    export const customStations = fixture.custom, radioStates = fixture.audio;
+    export const playRadio = (message, station) => handler("radio:" + station, message);
+    export const searchAndQueue = (message, query, authorize, autoplay = true) => {
+      fixture.youtubeRequests.push({ authorize, autoplay }); return handler("youtube:" + query, message);
+    };
+    export const skipYoutube = message => handler("skip", message);
+    export const pauseToggle = guild => { fixture.handlers.push("toggle"); return togglePlaybackState(radioStates.get(guild)); };
+    export const stopForGuild = guild => { fixture.handlers.push("stop"); return radioStates.delete(guild); };
+    export const getQueueEmbed = guild => radioStates.get(guild)?.queue.length ? new Builder() : null;
+    export const nowPlaying = guild => radioStates.has(guild) ? new Builder() : null;`,
+  "transport-menu.js": `export const handleTransportSearch = async (message, request, language, prefix, service, timeout, authorize) => {
+    fixture.searches.push({ request, language, prefix, authorize }); return handler("transport", message);
+  };`,
 };
 const output = await mkdtemp(path.join(tmpdir(), "ai-command-dispatch-"));
 try {
@@ -59,7 +74,7 @@ try {
       name: "offline-io-boundaries",
       setup(build) {
         build.onResolve({ filter: /.*/ }, (args) => {
-          const key = args.path === "discord.js" ? args.path : path.basename(args.path);
+          const key = ["discord.js", "@discordjs/voice"].includes(args.path) ? args.path : path.basename(args.path);
           if (Object.hasOwn(stubs, key)) return { path: key, namespace: "offline" };
         });
         build.onLoad({ filter: /.*/, namespace: "offline" }, (args) => ({

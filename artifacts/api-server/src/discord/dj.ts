@@ -25,6 +25,7 @@ import {
 } from "./radio.js";
 import { addLike, isLiked } from "./likes-store.js";
 import { BUILT_IN_PADS } from "./soundboard.js";
+import { enqueueAuthorizedTrack, removeAuthorizedTrack, playingTrackAuthorization } from "./audio-queue-access.js";
 
 // ── Console mode ───────────────────────────────────────────────────────────────
 
@@ -463,10 +464,11 @@ export async function handleDjButton(interaction: ButtonInteraction): Promise<vo
     if (state?.youtubeUrl && state.youtubeTitle) {
       const nowOn = toggleDjLoop(guildId);
       if (nowOn) {
-        state.queue.unshift(state.youtubeUrl);
+        enqueueAuthorizedTrack(state.queue, state.youtubeUrl, playingTrackAuthorization(state), true);
+        state.queueMessages.unshift(null);
       } else {
         const idx = state.queue.indexOf(state.youtubeUrl);
-        if (idx !== -1) state.queue.splice(idx, 1);
+        if (idx !== -1) { removeAuthorizedTrack(state.queue, idx); state.queueMessages.splice(idx, 1); }
       }
       await interaction.update(buildDjConsolePayload(guildId, nowOn ? "🔁 Loop **enabled** — track will repeat." : "🔁 Loop **disabled**."));
     } else {

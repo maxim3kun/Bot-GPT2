@@ -383,9 +383,9 @@ export function directCapabilitiesAnswer(language: UserLang = "en"): string {
     tr: "**MaximeGPT**, **Maxime (Maxim3kun)** tarafından oluşturuldu. Sohbet edebilir, kaynaklı web araması yapabilir ve taşıyıcının açık canlı veri akışı sunduğu Fransa ağlarında otobüs, metro, tramvay ve tren kalkışlarını gerçek zamanlı kontrol edebilirim. Ayrıca quiz ve mini oyunlar başlatabilir, görevlerde yardımcı olabilir, sesli sohbeti kullanabilir ve radyo ya da YouTube sesi oynatabilirim. Suno yapılandırılmışsa müzik de oluşturabilirim. Yöneticiler öneki, dili, karşılama mesajlarını ve zamanlanmış iletileri ayarlayabilir. İstek üzerine rol veremem; üyeleri banlayamam, atamam veya susturamam. Bazı özellikler izin ya da ek yapılandırma gerektirir. Komut listesini görmek için sunucu önekin ve `help` yaz (varsayılan: `!help`).",
   };
   const controlledActions = language === "fr"
-    ? "\n\nTu peux aussi me demander de lancer un démineur ou une radio : ta demande suffit, sans confirmation supplémentaire, avec tes permissions habituelles. Le diagnostic des modules reste réservé aux administrateurs."
+    ? "\n\nTu peux me demander les horaires de transport en France ou au Québec, lancer un démineur, Puissance 4 solo, GeoGuessr, trivia, devine le nombre ou les logos, rechercher un titre YouTube ou une radio connue, et contrôler la lecture. Une demande précise suffit, avec ton accord IA et tes permissions habituelles. Les itinéraires passent par le calculateur officiel; le diagnostic reste réservé aux administrateurs."
     : language === "en"
-      ? "\n\nYou can also ask me to start minesweeper or play a radio station: your request is sufficient, without another confirmation, subject to your usual permissions. Module diagnostics remain restricted to administrators."
+      ? "\n\nAsk for transport timetables in France or Québec, minesweeper, solo Connect Four, GeoGuessr, trivia, number or logo guessing, YouTube search, a known radio or playback controls. One explicit request is sufficient with existing AI consent and permissions. Itineraries use the official planner; diagnostics remain administrator-only."
       : "";
   return answers[language] + controlledActions;
 }
