@@ -21,7 +21,7 @@ function service(station = false) {
   const index = { stops: new Map([["O", { id: "O", name: "Gare" }], ["D", { id: "D", name: "Arrivée" }]]),
     visits: new Map([["trip", [{ stopId: "O", pickup: true, dropoff: true }, { stopId: "D", pickup: true, dropoff: true }]]]) };
   return { requests, value: {
-     territories: ["fr", "qc", "en"], cities: async (...args: unknown[]) => { requests.push(args); return station ? [place] : [place, { ...place, id: "60009", name: "Allonne" }]; },
+    territories: ["fr", "qc", "en"], cities: async (...args: unknown[]) => { requests.push(args); return station ? [place] : [place, { ...place, id: "60009", name: "Allonne" }]; },
     lines: async () => ({ lines: routes, unavailable: 0 }), index: async () => index,
     availableStops: async (_line: unknown, _index: unknown, options: unknown[]) => ({ options, note: "" }),
     departures: async () => ({ content: "Horaires théoriques", source, embed: { title: "Trajet", description: "Horaires théoriques" } }),
@@ -59,4 +59,25 @@ test("The train entry forwards its mode and uses station coordinates instead of 
   assert.deepEqual(s.requests, [["60000", "fr", "rail"]]);
   assert.match(card.last.content!, /Gare de Beauvais/); assert.match(card.last.content!, /Choisis une ligne/);
   assert.equal(card.custom("territory"), undefined); card.collector.stop("cancelled");
+});
+
+test("675 routes are visibly counted across 27 selectable pages", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.lines = async () => ({ lines: Array.from({ length: 675 }, (_, i) => ({
+    label: String(i + 1), routeId: String(i + 1), description: "Transport for London", mode: "bus",
+    nearbyStopIds: [], source: { name: "TfL", url: "https://tfl.gov.uk/modes/buses/" },
+  })), unavailable: 0 });
+  await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  await choose(card, "fr");
+  await choose(card, "0");
+  assert.match(card.last.content!, /675 lignes · 1\/27/);
+  assert.match(card.last.content!, /25 lignes par page/);
+  assert.equal(card.last.components.flatMap(row => row.components).find(c => c.custom_id?.endsWith(":next"))?.label, "Suivant");
+  await click(card, "next");
+  assert.match(card.last.content!, /675 lignes · 2\/27/);
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.equal(selector?.options?.length, 25);
+  card.collector.stop("cancelled");
 });
