@@ -13,6 +13,7 @@ import { connectedJourneys, formatConnections } from "./transport-connections.js
 import { departureCards } from "./transport-presentation.js";
 import type { APIEmbed } from "discord.js";
 import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
+import { IdfmLiveClient, idfmLineCode, idfmTimeAllowed, ruleActive, stopAffected, stopClosed, type IdfmTraffic } from "./idfm-live.js";
 
 export interface TransportLine {
   routeId: string;
@@ -101,7 +102,31 @@ export class TransportBrowserClient {
   private scanTail: Promise<unknown> = Promise.resolve();
   private queuedScans = 0;
 
-  constructor(readonly provider = new FranceTransportClient(), private readonly now = Date.now) {}
+  constructor(readonly provider = new FranceTransportClient(), private readonly now = Date.now,
+    readonly idfm = new IdfmLiveClient(fetch, now)) {}
+
+  private usesIdfm(line: TransportLine) { return isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
+
+  async availableStops(line: TransportLine, index: JourneyIndex, groups: StopGroup[], language: string) {
+    if (!this.usesIdfm(line)) return { options: groups, note: "" };
+    const traffic = await this.idfm.traffic(line.routeId), at = Math.floor(this.now() / 1000), fr = language === "fr";
+    const unknown = traffic.rules.some(r => r.blocking && r.unresolved && ruleActive(r, at));
+    if (unknown) return { options: [], note: fr
+      ? "Une interruption est signalée mais son périmètre ne peut pas être vérifié. Aucun trajet n’est confirmé."
+      : "A disruption is reported but its scope cannot be verified. No journey is confirmed." };
+    const closed: string[] = [];
+    const options = groups.flatMap(group => {
+      const ids = group.ids.filter(id => !stopClosed(traffic, index, id, at));
+      if (ids.length !== group.ids.length) closed.push(group.label);
+      return ids.length ? [{ ...group, ids }] : [];
+    });
+    return { options, note: [
+      closed.length ? (fr ? "Fermetures prises en compte sur cette ligne : " : "Closures accounted for on this line: ") +
+        [...new Set(closed)].join(", ").slice(0, 450) + "." : "",
+      !traffic.available ? (fr ? "Alertes de perturbation indisponibles : desserte non confirmée."
+        : "Disruption alerts unavailable: service not confirmed.") : "",
+    ].filter(Boolean).join("\n") };
+  }
 
   private async scan<T>(load: () => Promise<T>): Promise<T> {
     if (this.queuedScans >= 8) throw new Error("Transport lookups are busy");
@@ -236,6 +261,19 @@ export class TransportBrowserClient {
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
+    const traffic: IdfmTraffic | null = this.usesIdfm(line) ? await this.idfm.traffic(line.routeId) : null;
+    const activeRules = traffic?.rules.filter(r => ruleActive(r, now)) ?? [];
+    const uncertain = activeRules.find(r => r.blocking && r.unresolved);
+    const endpointsClosed = traffic && [origin, arrival].some(group => group.ids.every(id => stopClosed(traffic, index, id, now)));
+    if (uncertain || endpointsClosed) {
+      const message = uncertain?.message ?? activeRules.find(r => r.blocking &&
+        [...origin.ids, ...arrival.ids].some(id => stopAffected(r, index, id)))?.message;
+      return { content: (french ? `**${MODE_NAMES[line.mode]} ${line.label} · Trajet non proposé**\n` +
+        (endpointsClosed ? "Un arrêt choisi n’est pas desservi actuellement sur cette ligne." : "Une interruption empêche de confirmer ce trajet.")
+        : `**${MODE_NAMES[line.mode]} ${line.label} · Journey not offered**\n` +
+        (endpointsClosed ? "A selected stop is not served on this line currently." : "A disruption prevents confirming this journey.")) +
+        (message ? `\n${message}` : ""), source: line.source };
+    }
     if (arrival.viaTransfer) {
       const feeds = (await Promise.all(line.realtime.map(async (resource) => {
         try { return await this.provider.realtimeFeed(resource); }
@@ -255,19 +293,21 @@ export class TransportBrowserClient {
     // A holiday or the last evening service must not look like a broken lookup.
     // Widen only if the ordinary window is empty, retaining the official calendar.
     const laterSchedules = schedules.length ? [] : scheduledJourneys(index, pairs, now, 7);
-    const updates = await Promise.all(line.realtime.map(async (resource) => {
+    const [updates, idfmLive] = await Promise.all([Promise.all(line.realtime.map(async (resource) => {
       try { return realtimeJourneys(await this.provider.realtimeFeed(resource), pairs, now); }
       catch (error) {
         logger.debug({ resourceId: resource.id, err: error }, "Transport journey realtime unavailable");
         return null;
       }
-    }));
+    })), traffic ? this.idfm.passages(line.routeId, index, pairs) : Promise.resolve(null)]);
     const fresh = updates.filter((update) => update?.fresh);
     const cancelled = new Set(fresh.flatMap((update) => [...update!.cancelled]));
-    const estimates = fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
-    const times = estimates.length ? estimates : (schedules.length ? schedules : laterSchedules)
+    const estimates = idfmLive?.times.length ? idfmLive.times :
+      fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
+    const times = idfmLive?.cancelled ? [] : estimates.length ? estimates : (schedules.length ? schedules : laterSchedules)
       .filter((time) => time.departureAt > now + 24 * 3600 || !cancelled.has(time.tripId));
-    const deduped = [...new Map(times.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
+    const allowed = times.filter(time => !traffic || idfmTimeAllowed(traffic, index, time, origin.ids, arrival.ids));
+    const deduped = [...new Map(allowed.map((time) => [`${time.tripId}:${time.departureAt}`, time])).values()]
       .sort((a, b) => a.departureAt - b.departureAt).slice(0, 6);
     const timezone = index.metadata.timezone || "Europe/Paris";
     const later = !estimates.length && !schedules.length && deduped.length
@@ -275,12 +315,24 @@ export class TransportBrowserClient {
         : "No departures scheduled in the next 24 hours. Published-calendar search extended to 7 days.") : "";
     const empty = french ? "Aucun départ trouvé dans les 7 prochains jours selon le calendrier publié pour ces arrêts. Cela ne signifie pas que la ligne n’existe pas."
       : "No departure found within the next 7 days in the published calendar for these stops. This does not mean the route does not exist.";
-    const warning = !estimates.length && line.realtime.length
+    const warning = !estimates.length && !idfmLive?.cancelled && (line.realtime.length || traffic)
       ? (french ? "Temps réel indisponible pour ce trajet." : "Live estimates unavailable for this journey.") : "";
     const cancellation = cancelled.size ? (french ? "Courses annulées ou sans desserte exclues."
       : "Cancelled trips and skipped stops excluded.") : "";
+    const disruptionNotes = traffic ? [
+      !traffic.available ? (french ? "Alertes indisponibles : desserte non confirmée." : "Alerts unavailable: service not confirmed.") : "",
+      times.length !== allowed.length ? (french ? "Passages touchés par une fermeture exclus." : "Departures affected by a closure excluded.") : "",
+      idfmLive?.cancelled ? (french ? "Passages annoncés supprimés par l’exploitant." : "Reported departures cancelled by the operator.") : "",
+      estimates.some(t => t.arrivalAt == null) ? (french ? "Heure d’arrivée non communiquée en temps réel."
+        : "Real-time arrival estimate not provided.") : "",
+      ...activeRules.filter(r => !r.blocking && [...origin.ids, ...arrival.ids].some(id => stopAffected(r, index, id)))
+        .slice(0, 2).map(r => r.message),
+    ].filter(Boolean) : [];
     return { ...departureCards({ title: `${MODE_NAMES[line.mode]} ${line.label}`, origin: origin.label, arrival: arrival.label,
       multiPlatform: origin.ids.length > 1, stops: index.stops, times: deduped, timezone, now, french,
-      realtime: estimates.length > 0, notes: [later, warning, cancellation].filter(Boolean), empty }), source: line.source };
+      realtime: deduped.some(t => t.realtime) || !!idfmLive?.cancelled, notes: [later, warning, cancellation, ...disruptionNotes].filter(Boolean),
+      empty: idfmLive?.cancelled || times.length !== allowed.length ? (french
+        ? "Aucun passage confirmé pour ce trajet après prise en compte des perturbations."
+        : "No confirmed departure for this journey after accounting for disruptions.") : empty }), source: line.source };
   }
 }

@@ -70,6 +70,7 @@ export async function handleTransportCommand(
   let busy = false;
   let modalPending = false;
   let listingNote = "";
+  let serviceNote = "";
   let live = true;
   let sequence = 0;
   let lastEmbed: APIEmbed | undefined;
@@ -158,7 +159,7 @@ export async function handleTransportCommand(
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
       (index?.connectionsUnavailable && !line?.selection ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
         "\nTransfer search unavailable or too large: only direct journeys are offered.") : "") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${stage === "lines" ? listingNote : ""}`, rows);
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
   }
 
   async function run(work: () => Promise<void>) {
@@ -214,6 +215,7 @@ export async function handleTransportCommand(
   async function loadLines() {
     if (!live || !city || !selectedMode) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined;
+    serviceNote = "";
     await edit(`${city.label}\n${text("Chargement des lignes…", "Loading routes…")}${selectedMode === "metro"
       ? text("\nLe premier chargement d’un grand réseau peut prendre quelques dizaines de secondes; les données sont ensuite mises en cache.",
         "\nLoading a large network for the first time may take several tens of seconds; the data is then cached.") : ""}`);
@@ -251,6 +253,11 @@ export async function handleTransportCommand(
     index = await service.index(line);
     if (!live) return;
     origins = originOptions(index, line);
+    if (typeof service.availableStops === "function") {
+      const available = await service.availableStops(line, index, origins, language);
+      if (!live) return;
+      origins = available.options; serviceNote = available.note;
+    }
     stage = "origins"; origin = undefined; arrival = undefined; filter = ""; page = 0;
     await render();
   }
@@ -258,6 +265,11 @@ export async function handleTransportCommand(
   async function loadArrivals() {
     if (!live || !index || !origin) return;
     arrivals = arrivalOptions(index, origin);
+    if (line && typeof service.availableStops === "function") {
+      const available = await service.availableStops(line, index, arrivals, language);
+      if (!live) return;
+      arrivals = available.options; serviceNote = available.note;
+    }
     if (direction) {
       const wanted = normalizeTransitText(direction);
       arrivals.sort((a, b) => Number(normalizeTransitText(b.label).includes(wanted)) -

@@ -49,7 +49,18 @@ Le ZIP global d’Île-de-France Mobilités dépasse la limite habituelle de té
 
 Sans numéro de ligne, la première étape ne garde que les preuves de desserte près de la commune pour proposer une liste. Après le choix d’une ligne, ses courses complètes sont chargées séparément : ce résumé de découverte n’est jamais utilisé pour calculer des horaires.
 
-Le premier chargement peut prendre quelques dizaines de secondes; les données et les index sont ensuite réutilisés en cache. Les horaires sont **théoriques**, pas des passages en temps réel. Pour cette grande source, seuls les trajets directs sont proposés : les correspondances restent explicitement non calculées. Les autres réseaux conservent leur prise en charge habituelle des correspondances publiées.
+Le premier chargement peut prendre quelques dizaines de secondes; les données et les index sont ensuite réutilisés en cache. Pour cette grande source, seuls les trajets directs sont proposés : les correspondances restent explicitement non calculées. Les autres réseaux conservent leur prise en charge habituelle des correspondances publiées.
+
+### Perturbations et prochains passages IDFM
+
+Le processus exécutant le bot doit recevoir le secret `IDFM_PRIM_API_KEY`, obtenu dans le portail officiel [PRIM](https://prim.iledefrance-mobilites.fr). Le configurer dans l’environnement de développement ne configure pas un autre hébergeur tel que Railway. Ne jamais publier sa valeur dans le code, les commandes ou les journaux.
+
+- Les messages Info Trafic officiels sont consultés pour la ligne choisie. Les identifiants précis de quai/station et les périodes d’application déterminent les montées et descentes à exclure, dans les menus puis à nouveau au calcul. Une fermeture de quai ne ferme pas automatiquement les autres lignes de la même station. Un trajet traversant une station sans y monter ni y descendre reste possible si la source ne signale pas une interruption de ligne.
+- Une interruption bloquante dont le périmètre ou le calendrier particulier ne sont pas pris en charge interdit de confirmer le trajet; elle n’est pas transformée arbitrairement en fermeture de toutes les stations. Les alertes non bloquantes concernant les arrêts choisis restent visibles.
+- Les prochains passages SIRI sont filtrés par ligne, quai, destination officielle et fraîcheur. L’arrivée n’est associée que si le même véhicule daté est identifié à destination. Une arrivée manquante reste inconnue : aucune durée du planning n’est présentée comme une arrivée réelle.
+- Les passages explicitement supprimés ne réapparaissent pas comme des départs théoriques. Sans estimation exploitable, les horaires prévus sont clairement étiquetés **théoriques**. Sans accès aux alertes, le résultat indique que la desserte n’est pas confirmée; une panne ne supprime pas immédiatement les fermetures récemment connues.
+
+Les requêtes sont limitées, mutualisées et mises en cache brièvement. Le jeton est envoyé uniquement au domaine officiel PRIM, sans redirection. Aucun test ne doit envoyer de vrais messages Discord pour vérifier ces services : utiliser les réponses simulées et des lectures des API officielles.
 
 ## Diagnostic sur Railway
 

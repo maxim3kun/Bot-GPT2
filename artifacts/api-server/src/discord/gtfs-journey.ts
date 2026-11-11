@@ -42,7 +42,7 @@ export interface TransferRule {
   fromRoute: string; toRoute: string; fromTrip: string; toTrip: string;
 }
 export interface JourneyPair { tripId: string; origin: Visit; destination: Visit }
-export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string; departureStopId?: string }
+export interface JourneyTime { tripId: string; departureAt: number; arrivalAt: number | null; realtime: boolean; serviceDate?: string; departureStopId?: string; arrivalStopId?: string }
 export type JourneyRealtimeFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
 export function decodeJourneyFeed(bytes: Uint8Array): JourneyRealtimeFeed {
   return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(bytes);
@@ -173,6 +173,7 @@ export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now
       if (departureAt == null || departureAt < now - 20 || departureAt > now + horizon * 24 * 3600) continue;
       const arrivalAt = scheduledEpoch(date, pair.destination.arrival, timezone);
       results.push({ tripId: pair.tripId, departureAt, departureStopId: pair.origin.stopId,
+        arrivalStopId: pair.destination.stopId,
         arrivalAt: arrivalAt != null && arrivalAt >= departureAt ? arrivalAt : null, realtime: false,
         serviceDate: date.replaceAll("-", "") });
     }
@@ -209,6 +210,7 @@ export function realtimeJourneys(bytes: Uint8Array | JourneyRealtimeFeed, pairs:
       if (!Number.isFinite(departureAt) || departureAt < now - 20 || departureAt > now + 24 * 3600) continue;
       const arrivalAt = destination?.scheduleRelationship === 2 ? NaN : Number(destination?.arrival?.time ?? destination?.departure?.time);
       results.push({ tripId, departureAt, departureStopId: pair.origin.stopId,
+        arrivalStopId: pair.destination.stopId,
         arrivalAt: Number.isFinite(arrivalAt) && arrivalAt >= departureAt ? arrivalAt : null, realtime: true,
         ...(update.trip.startDate ? { serviceDate: update.trip.startDate } : {}) });
     }

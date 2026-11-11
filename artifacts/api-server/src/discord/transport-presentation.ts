@@ -61,7 +61,8 @@ export function departureCards(input: CardInput) {
     const fields = [...days.values()].map((day) => ({ name: day.name, value: day.rows.join("\n"), inline: false }));
     if (!shown.length) fields.push({ name: fr ? "Départs" : "Departures", value: input.empty, inline: false });
     if (input.notes.length) fields.push({ name: fr ? "À savoir" : "Please note", value: input.notes.join("\n"), inline: false });
-    const footer = `${input.realtime ? (fr ? "Estimations en temps réel" : "Real-time estimates")
+    const footer = `${input.realtime ? (times.length ? (fr ? "Estimations en temps réel" : "Real-time estimates")
+      : (fr ? "Informations en temps réel" : "Real-time information"))
       : (fr ? "Horaires théoriques · non temps réel" : "Scheduled times · not real-time")} · ${timezone}`;
     const embed: APIEmbed = { color: 0x5865f2, title: input.title.slice(0, 256), description, fields, footer: { text: footer } };
     const content = [`**${input.title}**`, description,
