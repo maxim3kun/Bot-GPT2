@@ -30,7 +30,7 @@ export class BodsTransportClient {
   async networks(city: EnglandLocation): Promise<CatalogDataset[]> {
     if (!/^\d{3}$/.test(city.area)) throw new TransportDataError("Zone administrative anglaise non vérifiée.");
     const catalog = await this.metadata.get({ territory: "en", provider: "bods", kind: "catalog",
-      source: `adminArea:${city.area}`, version: "v1" }, 15 * 60_000, async () => {
+      source: `adminArea:${city.area}:locality:${city.id}`, version: "v1" }, 15 * 60_000, async () => {
       const rows: Dataset[] = [];
       for (let offset = 0; offset < 500; offset += 100) {
         const data = await this.http.json<{ count: number; results: Dataset[] }>(
@@ -41,10 +41,11 @@ export class BodsTransportClient {
         if (offset + data.results.length >= data.count) break;
         if (!data.results.length) throw new TransportDataError("Catalogue BODS incomplet.");
       }
-      return rows.filter(row => row.status === "published" && Number.isInteger(row.id) && ["zip", "xml"].includes(row.extension))
+      return rows.filter(row => row.status === "published" && Number.isInteger(row.id) && ["zip", "xml"].includes(row.extension) &&
+        row.localities?.some(locality => locality.gazetteer_id === city.id))
         .map(row => ({ id: `bods:${row.id}`, title: row.operatorName || row.name, slug: `bods-${row.id}`, type: "public-transit",
           page_url: `https://data.bus-data.dft.gov.uk/timetable/dataset/${row.id}/`, licence: "Open Government Licence",
-          territory: "en" as const, modes: ["bus"], covered_area: (row.localities ?? []).map(l => ({ insee: l.gazetteer_id, nom: l.name, type: "locality" })),
+          territory: "en" as const, modes: ["bus"], covered_area: [{ insee: city.id, nom: city.name, type: "locality" }],
           resources: [...new Set(row.lines ?? [])].map(label => ({ id: row.id, title: label, format: "TransXChange",
             url: `https://data.bus-data.dft.gov.uk/timetable/dataset/${row.id}/download/`, is_available: true, updated: row.modified })),
         }));

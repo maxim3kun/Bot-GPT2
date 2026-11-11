@@ -59,9 +59,10 @@ async function main() {
     const arrival = origin && arrivalOptions(index, origin).find(a => /High Street/i.test(a.label));
     if (!origin || !arrival) throw Error("Official BODS stop pair missing");
     const result = await browser.departures(line, index, origin, arrival, "fr");
+    const reverse = await browser.reverse(line, index, origin, arrival, "fr");
     console.log(JSON.stringify({ mode: "bus", network: network.title, line: line.label, origin: origin.label,
       arrival: arrival.label, trips: index.visits.size, stops: index.stops.size, warning: index.sourceWarning,
-      footer: result.embed?.footer?.text, result: result.embed?.fields ?? result.content }));
+      footer: result.embed?.footer?.text, result: result.embed?.fields ?? result.content, officialReturnVerified: !!reverse }));
     await measure("Cambridge-warm-locality", () => browser.cities("Cambridge", "en", "bus"));
     await measure("Cambridge-warm-operators", () => browser.networks(cambridge, "bus"));
   }

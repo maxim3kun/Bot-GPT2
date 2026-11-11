@@ -65,7 +65,7 @@ export function tflTimes(index: JourneyIndex, origin: StopGroup, arrival: StopGr
     // official branch; never infer a direction from a destination's text.
     const sameVehicleAt = (q: Prediction, stopId: string) => fresh(q) && q.lineId === p.lineId && q.direction === p.direction &&
       q.destinationNaptanId === p.destinationNaptanId && q.naptanId === stopId &&
-      /^[a-z0-9]+$/i.test(p.vehicleId) && !/^0+$/.test(p.vehicleId) && q.vehicleId === p.vehicleId &&
+      /^[a-z0-9_-]{1,80}$/i.test(p.vehicleId) && !/^0+$/.test(p.vehicleId) && q.vehicleId === p.vehicleId &&
       (!p.tripId || q.tripId === p.tripId) &&
       Date.parse(q.expectedArrival) / 1000 > departureAt && Date.parse(q.expectedArrival) / 1000 - departureAt <= 3 * 3600;
     const pair = pairs.find(pair => {

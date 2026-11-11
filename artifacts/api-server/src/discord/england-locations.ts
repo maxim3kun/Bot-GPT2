@@ -34,49 +34,36 @@ export class EnglandLocations {
     return this.pending;
   }
   private async load() {
-    const response = await this.http.response("/v1/nptg", 96 * 1024 * 1024), reader = response.body?.getReader();
-    if (!reader) throw new TransportDataError("Référentiel anglais des localités indisponible.");
-    const decoder = new TextDecoder(), areas = new Map<string, { code: string; name: string }>(), locations: EnglandLocation[] = [];
-    let buffer = "", size = 0, regionsRead = false, complete = false;
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) { complete = buffer.includes("</NationalPublicTransportGazetteer>"); break; }
-        size += value.length; if (size > 96 * 1024 * 1024) throw new TransportDataError("Référentiel anglais trop volumineux.");
-        buffer += decoder.decode(value, { stream: true });
-        if (!regionsRead) {
-          const end = buffer.indexOf("</Regions>");
-          if (end < 0) { if (buffer.length > 512_000) throw new TransportDataError("Régions du référentiel anglais illisibles."); continue; }
-          for (const region of buffer.slice(0, end).matchAll(/<Region\s[\s\S]*?<\/Region>/g)) {
-            if (text(region[0], "Country") !== "England") continue;
-            for (const area of region[0].matchAll(/<AdministrativeArea\s[\s\S]*?<\/AdministrativeArea>/g)) {
-              areas.set(text(area[0], "AdministrativeAreaCode"),
-                { code: text(area[0], "AtcoAreaCode"), name: text(area[0], "Name") });
-            }
-          }
-          buffer = buffer.slice(end + "</Regions>".length); regionsRead = true;
-        }
-        let match: RegExpExecArray | null;
-        const pattern = /<NptgLocality\s[\s\S]*?<\/NptgLocality>/g; let end = 0;
-        while ((match = pattern.exec(buffer))) {
-          end = pattern.lastIndex;
-          const block = match[0], area = areas.get(text(block, "AdministrativeAreaRef"));
-          if (!area || /Modification="delete"/i.test(block)) continue;
-          const latitude = Number(text(block, "Latitude")), longitude = Number(text(block, "Longitude"));
-          const name = text(block, "LocalityName"), id = text(block, "NptgLocalityCode");
-          if (!id || !name || !latitude || !Number.isFinite(longitude)) continue;
-          const qualifier = text(block, "QualifierName");
-          locations.push({ id, name, label: [name, qualifier, area.name, "Angleterre"].filter(Boolean).join(" · "),
-            latitude, longitude, territory: "en", area: area.code });
-        }
-        if (end) buffer = buffer.slice(end);
-        if (buffer.length > 256_000 || locations.length > 60_000) throw new TransportDataError("Localités anglaises hors limites.");
+    const response = await this.http.response("/v1/nptg", 96 * 1024 * 1024);
+    const xml = new TextDecoder().decode(await this.http.bytes(response, 96 * 1024 * 1024));
+    const areas = new Map<string, { code: string; name: string }>(), locations: EnglandLocation[] = [];
+    if (!xml.endsWith("</NationalPublicTransportGazetteer>\n") && !xml.endsWith("</NationalPublicTransportGazetteer>"))
+      throw new TransportDataError("Référentiel anglais incomplet.");
+    const end = xml.indexOf("</Regions>");
+    if (end < 0 || end > 1024 * 1024) throw new TransportDataError("Régions du référentiel anglais illisibles.");
+    for (const region of xml.slice(0, end).matchAll(/<Region\s[\s\S]*?<\/Region>/g)) {
+      if (text(region[0], "Country") !== "England") continue;
+      for (const area of region[0].matchAll(/<AdministrativeArea\s[\s\S]*?<\/AdministrativeArea>/g)) {
+        areas.set(text(area[0], "AdministrativeAreaCode"),
+          { code: text(area[0], "AtcoAreaCode"), name: text(area[0], "Name") });
       }
-    } catch (error) {
-      if (error instanceof TransportDataError) throw error;
-      throw new TransportDataError("Chargement des localités anglaises interrompu.");
-    } finally { await reader.cancel().catch(() => undefined); }
-    if (!complete || !locations.length) throw new TransportDataError("Référentiel anglais incomplet. Aucune localité n’est confirmée.");
+    }
+    let found = 0;
+    for (const match of xml.slice(end + "</Regions>".length).matchAll(/<NptgLocality\s[\s\S]*?<\/NptgLocality>/g)) {
+      found++;
+      const block = match[0], area = areas.get(text(block, "AdministrativeAreaRef"));
+      if (!area || /Modification="delete"/i.test(block)) continue;
+      const latitude = Number(text(block, "Latitude")), longitude = Number(text(block, "Longitude"));
+      const name = text(block, "LocalityName"), id = text(block, "NptgLocalityCode");
+      if (!id || !name || !latitude || !Number.isFinite(longitude)) continue;
+      const qualifier = text(block, "QualifierName");
+      locations.push({ id, name, label: [name, qualifier, area.name, "Angleterre"].filter(Boolean).join(" · "),
+        latitude, longitude, territory: "en", area: area.code });
+      if (locations.length > 60_000) throw new TransportDataError("Référentiel anglais trop volumineux.");
+    }
+    if (!found || !locations.length) throw new TransportDataError("Aucune localité anglaise vérifiable dans le référentiel.");
+    // The national source is only held while resolving a search. Persist the
+    // selected public city references, never XML, timetables or trip times.
     return locations;
   }
 }
