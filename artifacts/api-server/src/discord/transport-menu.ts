@@ -387,6 +387,11 @@ export async function handleTransportSearch(
       if (!live) return;
       origins = available.options; serviceNote = available.note;
     }
+    if (origins.length === 1) {
+      origin = origins[0]!;
+      await loadArrivals();
+      return;
+    }
     stage = "origins"; origin = undefined; arrival = undefined; filter = ""; page = 0;
     await render();
   }

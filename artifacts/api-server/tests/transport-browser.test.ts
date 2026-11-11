@@ -10,7 +10,7 @@ import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/di
 import { buildJourneyIndex, journeyPairs, realtimeJourneys, scheduledJourneys } from "../src/discord/gtfs-journey.js";
 import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
 import { addConnections } from "../src/discord/gtfs-connections.js";
-import { connectedJourneys } from "../src/discord/transport-connections.js";
+import { connectedJourneys, formatConnections } from "../src/discord/transport-connections.js";
 import { departureCards } from "../src/discord/transport-presentation.js";
 
 const NOW = Date.parse("2026-11-10T07:00:00Z");
@@ -146,11 +146,14 @@ test("recent provider failures are not downloaded again for every nearby-city se
   const measured = new TransportBrowserClient(client.provider, () => clock);
   const city = (await client.cities("Breteuil"))[1]!;
   assert.equal((await measured.lines(city, "bus")).unavailable, 1);
+  clock += 61_000;
+  assert.equal((await measured.lines(city, "bus")).unavailable, 1);
+  assert.equal(failures, 1, "a useful partial line list stays cached instead of repeating the slow source scan");
   assert.equal((await measured.lines({ ...city, id: "nearby" }, "bus")).unavailable, 1);
-  assert.equal(failures, 1);
+  assert.equal(failures, 2);
   clock += 61_000;
   assert.equal((await measured.lines({ ...city, id: "another" }, "bus")).unavailable, 1);
-  assert.equal(failures, 2, "a recovered provider must be retried after the short failure cooldown");
+  assert.equal(failures, 3, "a recovered provider must be retried after the short failure cooldown");
 });
 
 test("a numbered-line lookup stops before unrelated failing sources and keeps its own cache", async () => {
@@ -312,7 +315,7 @@ async function until(predicate: () => boolean) {
   assert.fail("Expected menu state was not reached");
 }
 
-test("Discord menus distinguish the city, protect ownership, then choose departure and arrival", async () => {
+test("Discord menus distinguish the city, protect ownership and skip a single departure stop", async () => {
   const { client } = fixture();
   const ui = discordFixture();
   await handleTransportCommand(ui.message, ["fr", "Breteuil"], "fr", "!", "bus", client);
@@ -324,15 +327,13 @@ test("Discord menus distinguish the city, protect ownership, then choose departu
   await ui.click("choose", "1");
   await until(() => ui.prompt.content.includes("Choisis une ligne"));
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   await ui.click("choose", "0");
   await until(() => !!ui.prompt.embeds[0]?.footer?.text.includes("Horaires théoriques"));
   assert.equal(ui.prompt.content, "");
   assert.match(ui.prompt.embeds[0].description, /Amiens Gare/);
   await ui.click("modify");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   assert.equal(ui.prompt.embeds.length, 0, "returning to a menu must clear the previous card");
   ui.collector.stop("time");
   await delay(1);
@@ -381,8 +382,6 @@ test("more-times toggling reuses the result, refresh reloads, and closing retain
   const ui = discordFixture();
   await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   await ui.click("choose", "0");
   await until(() => !!ui.find("more"));
@@ -410,8 +409,6 @@ test("a server without embed permissions receives readable compact text instead 
   };
   await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("Horaires théoriques"));
@@ -434,8 +431,6 @@ test("a shorthand destination is prioritized without hiding the intermediate sto
   const ui = discordFixture();
   await handleTransportCommand(ui.message, ["fr", "Breteuil", "Amiens", "601"], "fr", "!", "bus", client);
   await ui.click("choose", "1");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   const options = ui.find("choose").options;
   assert.equal(options[0].label, "Amiens Gare");
@@ -472,8 +467,8 @@ test("the generic transport entry chooses metro and accepts a city through its m
   await until(() => ui.prompt.content.includes("Choisis une ligne"));
   assert.match(JSON.stringify(ui.prompt.components), /Métro A/);
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("station de départ"));
-  assert.match(ui.prompt.content, /1 station/);
+  await until(() => ui.prompt.content.includes("station d’arrivée"));
+  assert.doesNotMatch(ui.prompt.content, /station de départ/);
   ui.collector.stop("cancelled");
 });
 
@@ -557,6 +552,16 @@ test("a published bus to metro transfer exposes the destination and renders both
   assert.match(result.content, /ne garantissent pas/);
   assert.equal(result.source.url, line.source.url);
   assert.ok(result.content.length < 1900);
+});
+
+test("a published transfer without compatible service is not presented as a confirmed journey", async () => {
+  const index = await connectionIndex({ departure: "08:15:00" });
+  const journeys = connectedJourneys(index, connectionOrigin, connectionArrival, NOW / 1000);
+  assert.equal(journeys.length, 0);
+  const content = formatConnections({} as any, index, connectionOrigin, connectionArrival, journeys, "fr", true);
+  assert.match(content, /trajet non confirmé/);
+  assert.match(content, /aucun horaire compatible/);
+  assert.doesNotMatch(content, /Temps réel absent/);
 });
 
 test("dense train schedules keep one arrival option and stream the best journeys past ten thousand combinations", async () => {
@@ -668,8 +673,6 @@ test("Discord can select an arrival on a second line and refresh the complete it
   const ui = discordFixture();
   await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   const option = ui.find("choose").options.find((choice: any) => choice.label === "Jean Jaurès");
   assert.match(option.description, /correspondance/);
@@ -680,7 +683,7 @@ test("Discord can select an arrival on a second line and refresh the complete it
   await ui.click("refresh");
   await until(() => ui.prompt.content.includes("minimum officiel"));
   await ui.click("modify");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   ui.collector.stop("cancelled");
 });
 
@@ -721,8 +724,6 @@ test("oversized transfer tables leave direct journeys available with an explicit
   assert.deepEqual(arrivalOptions(index, connectionOrigin).map((stop) => stop.label), ["Amiens Gare", "Gare"]);
   const ui = discordFixture();
   await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
-  await ui.click("choose", "0");
-  await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   assert.match(ui.prompt.content, /seuls les trajets directs/);

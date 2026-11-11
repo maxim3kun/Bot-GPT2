@@ -93,14 +93,18 @@ export function formatConnections(line: TransportLine, index: JourneyIndex, orig
     const mode = routeTypeToMode(route.type)!;
     return `${modeNames[mode] ?? ""} ${(route.shortName || route.longName).slice(0, 40)}: ${name(pair.origin.stopId)} ${clock(time.departureAt)} → ${name(pair.destination.stopId)} ${clock(time.arrivalAt!)} [${reliability(time)}]`;
   };
-  const heading = `**${origin.label.slice(0, 80)} → ${arrival.label.slice(0, 80)} · ${fr ? "1 correspondance" : "1 transfer"}**`;
-  const scope = fr ? "Même source officielle, une correspondance avec délai publié. Autres réseaux et marche non calculés."
-    : "Same official source, one transfer with a published minimum. Other networks and walking not calculated.";
+  const heading = `**${origin.label.slice(0, 80)} → ${arrival.label.slice(0, 80)} · ${
+    journeys.length ? fr ? "1 correspondance" : "1 transfer" : fr ? "trajet non confirmé" : "journey unconfirmed"}**`;
+  const scope = journeys.length
+    ? fr ? "Même source officielle, une correspondance avec délai publié. Autres réseaux et marche non calculés."
+      : "Same official source, one transfer with a published minimum. Other networks and walking not calculated."
+    : fr ? "Une correspondance publiée existe, mais aucun horaire compatible n’a confirmé ce trajet."
+      : "A published transfer exists, but no compatible timetable confirms this journey.";
   const rows = journeys.slice(0, 2).map(({ path, first, second }, i) =>
     `${i + 1}. ${leg(path.first, first)}\n${fr ? "Changement" : "Change"}: ${name(path.first.destination.stopId)} → ${name(path.second.origin.stopId)}, ${second.departureAt - first.arrivalAt!} s (${fr ? "minimum officiel" : "official minimum"} ${path.rule.minimum} s).\n${leg(path.second, second)}`);
   const empty = fr ? "Aucune correspondance vérifiable dans les prochaines 24 h : horaires incompatibles, délai insuffisant ou desserte indisponible."
     : "No verifiable transfer in the next 24 hours: incompatible times, insufficient transfer time or unavailable service.";
-  const warning = realtimeUnavailable ? (fr ? "\nTemps réel absent, périmé ou incomplet : les étapes théoriques ne garantissent pas la correspondance."
+  const warning = !journeys.length ? "" : realtimeUnavailable ? (fr ? "\nTemps réel absent, périmé ou incomplet : les étapes théoriques ne garantissent pas la correspondance."
     : "\nLive data absent, stale or incomplete: scheduled legs do not guarantee the transfer.") : (fr
       ? "\nEstimations susceptibles de changer; correspondance non garantie." : "\nEstimates may change; transfer not guaranteed.");
   const limit = data.limited ? (fr ? "\nRecherche partielle : limite de lignes atteinte." : "\nPartial search: route limit reached.") : "";

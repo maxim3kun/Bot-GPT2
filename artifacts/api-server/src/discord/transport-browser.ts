@@ -270,7 +270,7 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<LineListing>;
     const work = this.loadLines(city, mode, requestedLine, networkId).then((value) => {
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
-      this.listings.set(key, { value, expires: this.now() + (value.lines.length && (!value.unavailable || requestedLine) ? 15 * 60_000 : 30_000) });
+      this.listings.set(key, { value, expires: this.now() + (value.lines.length ? 15 * 60_000 : 30_000) });
       return value;
     }).finally(() => this.pending.delete(key));
     this.pending.set(key, work);
