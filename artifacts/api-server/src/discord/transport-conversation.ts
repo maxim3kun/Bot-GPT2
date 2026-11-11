@@ -1,7 +1,9 @@
 import { IdfmPlanner } from "./idfm-planner.js";
 import { display, placeKey } from "./idfm-itinerary.js";
 import { isTravelTimeReply, requestedTravelTime, travelTurn, type TravelTime } from "./transport-intent.js";
-import { PlannerError, type ItineraryProvider, type OfficialPlace, type VerifiedJourney } from "./transport-planner-types.js";
+import { PlannerError, type ItineraryProvider, type OfficialPlace } from "./transport-planner-types.js";
+import { formatItinerary, ITINERARY_SOURCE, type ItineraryView } from "./transport-itinerary-presentation.js";
+export { formatItinerary } from "./transport-itinerary-presentation.js";
 
 type Side = "origin" | "destination";
 interface Session {
@@ -11,41 +13,34 @@ interface Session {
   kind: "journey" | "stations"; line?: string; paris?: boolean;
   choice?: { side: Side; places: OfficialPlace[] };
   expires: number;
+  ticket?: symbol;
 }
-export interface TravelReply { content: string | null }
-const SOURCE = "https://prim.iledefrance-mobilites.fr/fr/apis/idfm-navitia-general-v2";
+export interface TravelReply { content: string | null; itinerary?: ItineraryView & { ticket: symbol } }
+const SOURCE = ITINERARY_SOURCE;
 const keyTokens = (s: string) => placeKey(s).split(" ").filter(t => !["de", "du", "la", "le", "les", "station", "metro"].includes(t));
 function exactPlaces(query: string, places: OfficialPlace[]) {
   const tokens = keyTokens(query);
   return places.filter(p => tokens.length && tokens.every(t => keyTokens(p.label).includes(t)));
 }
 
-export function formatItinerary(journey: VerifiedJourney, origin: OfficialPlace, destination: OfficialPlace, french: boolean) {
-  const clock = (at: number) => new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
-    timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-  }).format(at * 1000);
-  const minutes = (s: number) => `${Math.ceil(s / 60)} min`;
-  const legs = journey.legs.filter(l => l.kind === "transit" || l.arrival > l.departure && l.kind !== "wait").map((leg) =>
-    leg.kind === "transit" ? `• **${leg.line}** · ${french ? "direction" : "towards"} **${leg.direction}**\n  ${leg.from} → ${leg.to}`
-      : `• ${french ? leg.kind === "transfer" ? "Correspondance" : "À pied" : leg.kind === "transfer" ? "Transfer" : "Walk"} : ${
-        leg.from === leg.to ? leg.from : `${leg.from} → ${leg.to}`} · ${minutes(leg.arrival - leg.departure)}`);
-  const transit = journey.legs.filter(l => l.kind === "transit"), live = transit.filter(l => l.freshness === "realtime").length;
-  const label = live === transit.length ? (french ? "Prévisions temps réel" : "Real-time estimates")
-    : live ? (french ? "Prévisions et horaires théoriques" : "Predictions and scheduled times")
-    : (french ? "Horaires théoriques" : "Scheduled times");
-  const result = `**${origin.label} → ${destination.label}**\n${french ? "Départ" : "Departure"} ${clock(journey.departure)} · ${
-    french ? "Arrivée" : "Arrival"} ${clock(journey.arrival)} · ${minutes(journey.arrival - journey.departure)}\n\n${legs.join("\n")}\n\n${
-    journey.warning ? (french ? "Perturbation signalée; vérifie les informations de l’exploitant.\n" : "A disruption is reported; check operator information.\n") : ""}${
-    label} · Europe/Paris\n[Île-de-France Mobilités](${SOURCE})`;
-  return result.length <= 1950 ? result : (french
-    ? "Le trajet officiel comporte trop de détails pour une réponse lisible. Précise un trajet plus court; je ne tronque pas ses correspondances."
-    : "This official journey is too detailed for a readable reply. Narrow the trip; I won't omit its transfers.");
-}
-
 export class TransportConversation {
   private sessions = new Map<string, Session>();
   constructor(private provider: ItineraryProvider = new IdfmPlanner(), private now = Date.now) {}
   clear(scope: string) { this.sessions.delete(scope); }
+  remaining(scope: string, ticket: symbol): number {
+    const state = this.get(scope);
+    return state?.ticket === ticket ? Math.max(0, state.expires - this.now()) : 0;
+  }
+  close(scope: string, ticket: symbol) {
+    if (this.remaining(scope, ticket)) this.clear(scope);
+  }
+  async refresh(scope: string, ticket: symbol, language: string): Promise<TravelReply | null> {
+    const current = this.get(scope);
+    if (!current || current.ticket !== ticket) return null;
+    const state = { ...current };
+    this.sessions.set(scope, state);
+    return this.calculate(scope, state, language, true);
+  }
   private get(scope: string) {
     for (const [key, value] of this.sessions) if (value.expires <= this.now()) this.sessions.delete(key);
     return this.sessions.get(scope);
@@ -64,7 +59,7 @@ export class TransportConversation {
     if (!this.canHandle(scope, input, continuationOnly)) return null;
     const fr = language === "fr", t = (a: string, b: string) => fr ? a : b, turn = travelTurn(input), previous = this.get(scope);
     if (turn.cancel) { this.clear(scope); return { content: t("Recherche de trajet terminée.", "Journey search closed.") }; }
-    const state: Session = previous ? { ...previous } : { kind: "journey", expires: 0 };
+    const state: Session = previous ? { ...previous, ticket: undefined } : { kind: "journey", expires: 0 };
     const fresh = !!turn.correction;
     if (turn.stationQuestion) {
       state.kind = "stations"; state.line = turn.line; state.paris = turn.paris || !turn.outside && !!previous?.resolvedOrigin;
@@ -155,26 +150,42 @@ export class TransportConversation {
       if (state.resolvedOrigin!.id === state.resolvedDestination!.id) return answer(t(
         "Les deux lieux correspondent à la même station officielle. Vérifie le départ et l’arrivée.",
         "Both places resolve to the same official station. Please check the endpoints."));
-      const requested = state.time ?? { at: Math.floor(this.now() / 1000), represents: "departure" as const };
-      if (requested.at < this.now() / 1000 - 60) return answer(t("L’heure demandée est passée. Précise une nouvelle heure.", "The requested time has passed. Please give a new time."));
-      const journeys = await this.provider.journeys(state.resolvedOrigin!, state.resolvedDestination!, requested.at, requested.represents, fresh);
-      if (!journeys.length) return answer(t("Le calculateur officiel ne propose aucun trajet pour ces lieux et cette heure. Je ne peux pas en confirmer un.",
-        "The official planner returned no journey for these places and time. I cannot confirm a route."));
-      return answer((fresh ? t("Trajet revérifié auprès du calculateur officiel.\n", "Rechecked with the official planner.\n") : "") +
-        formatItinerary(journeys[0]!, state.resolvedOrigin!, state.resolvedDestination!, fr));
+      return this.calculate(scope, state, language, fresh);
     } catch (error) {
-      const code = error instanceof PlannerError ? error.code : "unavailable";
-      const reasons: Record<string, [string, string]> = {
-        not_configured: ["L’accès au calculateur officiel n’est pas configuré.", "Official planner access is not configured."],
-        access: ["L’accès PRIM au calculateur est refusé; son autorisation doit être vérifiée.", "PRIM planner access was denied; authorization needs checking."],
-        quota: ["Le quota du calculateur officiel est atteint. Réessaie plus tard.", "The official planner quota has been reached. Try later."],
-        date: ["La date demandée n’est pas couverte par les horaires du calculateur.", "The requested date is outside the planner's schedule coverage."],
-        invalid: ["La réponse du calculateur est incomplète ou incohérente; je ne peux pas confirmer ce trajet.", "The planner response is incomplete or contradictory; I cannot confirm this route."],
-        busy: ["Trop de calculs sont en cours. Réessaie dans un instant.", "Too many route calculations are running. Try shortly."],
-        unavailable: ["Le calculateur officiel est momentanément indisponible.", "The official planner is temporarily unavailable."],
-      };
-      return answer(`${reasons[code]![fr ? 0 : 1]} ${t("Je ne vais pas inventer un résultat.", "I won't invent a result.")}`);
+      return answer(this.failure(error, fr));
     }
+  }
+  private async calculate(scope: string, state: Session, language: string, fresh: boolean): Promise<TravelReply> {
+    const fr = language === "fr", answer = (content: string): TravelReply => ({
+      content: this.get(scope) === state ? content : null,
+    });
+    try {
+      const requested = state.time ?? { at: Math.floor(this.now() / 1000), represents: "departure" as const };
+      if (requested.at < this.now() / 1000 - 60) return answer(fr ? "L’heure demandée est passée. Précise une nouvelle heure." : "The requested time has passed. Please give a new time.");
+      const origin = state.resolvedOrigin!, destination = state.resolvedDestination!;
+      const journeys = await this.provider.journeys(origin, destination, requested.at, requested.represents, fresh);
+      if (this.get(scope) !== state) return { content: null };
+      if (!journeys.length) return answer(fr ? "Le calculateur officiel ne propose aucun trajet pour ces lieux et cette heure. Je ne peux pas en confirmer un."
+        : "The official planner returned no journey for these places and time. I cannot confirm a route.");
+      const journey = journeys[0]!;
+      state.ticket ??= Symbol("verified-trip");
+      return { content: (fresh ? (fr ? "Trajet revérifié auprès du calculateur officiel.\n" : "Rechecked with the official planner.\n") : "") +
+        formatItinerary(journey, origin, destination, fr),
+      itinerary: { journey, origin, destination, now: Math.floor(this.now() / 1000), ticket: state.ticket } };
+    } catch (error) { return answer(this.failure(error, fr)); }
+  }
+  private failure(error: unknown, fr: boolean) {
+    const code = error instanceof PlannerError ? error.code : "unavailable";
+    const reasons: Record<string, [string, string]> = {
+      not_configured: ["L’accès au calculateur officiel n’est pas configuré.", "Official planner access is not configured."],
+      access: ["L’accès PRIM au calculateur est refusé; son autorisation doit être vérifiée.", "PRIM planner access was denied; authorization needs checking."],
+      quota: ["Le quota du calculateur officiel est atteint. Réessaie plus tard.", "The official planner quota has been reached. Try later."],
+      date: ["La date demandée n’est pas couverte par les horaires du calculateur.", "The requested date is outside the planner's schedule coverage."],
+      invalid: ["La réponse du calculateur est incomplète ou incohérente; je ne peux pas confirmer ce trajet.", "The planner response is incomplete or contradictory; I cannot confirm this route."],
+      busy: ["Trop de calculs sont en cours. Réessaie dans un instant.", "Too many route calculations are running. Try shortly."],
+      unavailable: ["Le calculateur officiel est momentanément indisponible.", "The official planner is temporarily unavailable."],
+    };
+    return `${reasons[code]![fr ? 0 : 1]} ${fr ? "Je ne vais pas inventer un résultat." : "I won't invent a result."}`;
   }
   private choose(choice: NonNullable<Session["choice"]>, fr: boolean) {
     return (fr ? `Quel ${choice.side === "origin" ? "départ" : "arrêt d’arrivée"} souhaites-tu ? Réponds avec le numéro ou précise le lieu.\n`

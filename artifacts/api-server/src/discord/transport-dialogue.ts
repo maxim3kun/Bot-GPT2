@@ -1,5 +1,6 @@
 import { PermissionFlagsBits, type Message } from "discord.js";
 import { TransportConversation } from "./transport-conversation.js";
+import { ItineraryControls } from "./transport-itinerary-controls.js";
 
 export interface DialogueOptions { personaId?: string; continuationOnly?: boolean }
 export const travelScope = (message: Pick<Message, "guildId" | "channelId" | "author">, personaId?: string) =>
@@ -19,10 +20,16 @@ async function authorizeTransport(message: Message, language: string): Promise<b
       allowedMentions: { parse: [] } });
     return false;
   }
-  if (message.guildId && "permissionsFor" in message.channel) {
+  const channel = message.guild
+    ? await message.guild.channels.fetch(message.channelId, { force: true }).catch(() => null) : message.channel;
+  if (!channel) return false;
+  if (message.guildId && "permissionsFor" in channel) {
     const me = message.client.user;
-    const user = message.channel.permissionsFor(message.author), bot = me && message.channel.permissionsFor(me);
-    const send = message.channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages;
+    // Refresh roles as well as channel settings when a saved card is clicked.
+    const member = await message.guild?.members.fetch({ user: message.author.id, force: true }).catch(() => null);
+    const botMember = await message.guild?.members.fetchMe({ force: true }).catch(() => null);
+    const user = member && channel.permissionsFor(member), bot = me && botMember && channel.permissionsFor(botMember);
+    const send = channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages;
     if (!user?.has([PermissionFlagsBits.ViewChannel, send]) || !bot?.has([PermissionFlagsBits.ViewChannel, send])) return false;
   }
   return requireConsent(message, language === "fr" ? "fr" : "en");
@@ -33,6 +40,7 @@ export function createTransportDialogue(
   authorize: (message: Message, language: string) => Promise<boolean> = authorizeTransport,
 ) {
   const attempted = new WeakMap<Message, Map<string, Promise<boolean>>>();
+  const cards = new ItineraryControls(service, authorize);
   return async (message: Message, input: string, language: string, options: DialogueOptions = {}): Promise<boolean> => {
     const scope = travelScope(message, options.personaId);
     const existing = attempted.get(message)?.get(scope); if (existing) return existing;
@@ -40,18 +48,23 @@ export function createTransportDialogue(
     if (options.continuationOnly && (message.mentions?.users?.some(u => u.id !== message.client.user?.id) ||
       message.mentions?.repliedUser && message.mentions.repliedUser.id !== message.client.user?.id)) return false;
     if (!service.canHandle(scope, input, options.continuationOnly)) {
-      if (!options.continuationOnly) service.clear(scope);
+      if (!options.continuationOnly) { service.clear(scope); cards.invalidate(scope); }
       return false;
     }
     const work = (async () => {
       try {
-        if (!await authorize(message, language)) { service.clear(scope); return true; }
+        if (!await authorize(message, language)) { service.clear(scope); cards.invalidate(scope); return true; }
+        cards.invalidate(scope);
         if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
         const result = await service.reply(scope, input, language, options.continuationOnly);
-        if (result?.content) await message.reply({ content: result.content, allowedMentions: { parse: [] } });
+        if (result?.content) {
+          if (result.itinerary) await cards.send(message, scope, result, language);
+          else await message.reply({ content: result.content, allowedMentions: { parse: [] } });
+        }
       } catch {
         // Consume the intent even if permissions/provider/output fail; never fall through to free generation.
         service.clear(scope);
+        cards.invalidate(scope);
         await message.reply({ content: language === "fr"
           ? "Je ne peux pas vérifier ce trajet actuellement. Aucun itinéraire non vérifié ne sera proposé."
           : "I cannot verify this journey right now. I won't provide an unverified route.",

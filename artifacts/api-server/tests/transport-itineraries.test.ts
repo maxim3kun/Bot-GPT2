@@ -8,6 +8,7 @@ import { TransportConversation, formatItinerary } from "../src/discord/transport
 import { createTransportDialogue, travelScope } from "../src/discord/transport-dialogue.js";
 import { PlannerError, type ItineraryProvider, type OfficialPlace } from "../src/discord/transport-planner-types.js";
 import { NOW, origin, destination, area, journeyBody, requestAt, placeBody } from "./fixtures/itinerary-fixtures.js";
+import { fakeDiscord } from "./fixtures/transport-discord.js";
 
 const FIRST = "je prend mon service à Créteil pointe du lac quelle est le chemin que je dois prendre";
 const SECOND = "Je prend le métro à Dugommier";
@@ -261,12 +262,8 @@ test("unsafe/out-of-region places and oversized responses are rejected", async (
   await assert.rejects(client.places("Dugommier"), PlannerError);
 });
 function message(id = "u") {
-  const replies: string[] = [];
-  const m = { guildId: "g", channelId: "c", author: { id }, client: { user: { id: "bot" } },
-    channel: { isSendable: () => true, sendTyping: async () => undefined },
-    reply: async (payload: { content: string }) => { replies.push(payload.content); },
-  } as unknown as Message;
-  return { m, replies };
+  const fake = fakeDiscord({ userId: id, embed: false });
+  return { m: fake.message, replies: fake.replies };
 }
 test("Discord adapter consumes denied intents without any provider or model fallback", async () => {
   const { api, calls } = provider(), handle = createTransportDialogue(new TransportConversation(api, () => NOW), async () => false);

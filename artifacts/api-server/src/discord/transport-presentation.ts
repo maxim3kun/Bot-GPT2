@@ -3,6 +3,8 @@ import { addDays, localDate } from "./gtfs-realtime.js";
 import type { JourneyStop, JourneyTime } from "./gtfs-journey.js";
 import { arrivalForDisplay } from "./transport-arrivals.js";
 
+export const TRANSPORT_CARD_COLOR = 0x5865f2;
+
 interface CardInput {
   title: string;
   origin: string;
@@ -86,7 +88,7 @@ export function departureCards(input: CardInput) {
       : input.realtime && !times.length ? (fr ? "Informations en temps réel" : "Real-time information")
       : (fr ? "Horaires théoriques · non temps réel" : "Scheduled times · not real-time");
     const footer = `${reliability} · ${timezone}`;
-    const embed: APIEmbed = { color: 0x5865f2, title: input.title.slice(0, 256), description, fields, footer: { text: footer } };
+    const embed: APIEmbed = { color: TRANSPORT_CARD_COLOR, title: input.title.slice(0, 256), description, fields, footer: { text: footer } };
     const content = [`**${input.title}**`, description,
       ...fields.map((field) => `**${field.name}**\n${field.value}`), footer].join("\n\n");
     return { embed, content };

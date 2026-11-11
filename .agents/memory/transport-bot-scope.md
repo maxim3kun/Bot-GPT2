@@ -93,6 +93,12 @@ Transport results should remain compact and readable on Discord mobile, without 
 
 **How to apply:** Preserve dates, actual platforms and timetable reliability while grouping repeated information. Offer additional departures without repeating the data lookup. Keep any text fallback equally readable.
 
+Use the same transport-card presentation for conversational journeys as for the explicit metro command.
+
+**Why:** After approving the verified journey, the user specifically asked for the visual presentation of `!metro`, rather than a plain AI message.
+
+**How to apply:** Reuse the transport presentation conventions regardless of whether the request came from a command, a mention, a DM or a persona. Preserve verified connections and reliability labels; visual consistency is not permission to substitute a direct timetable lookup for a journey calculation.
+
 ## Catalogue download reliability
 
 Prefer an allowlisted operator URL published in the catalogue, with the catalogue URL as fallback. Check smaller operator feeds before national/European bundles for a specific numbered-line request.

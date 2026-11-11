@@ -142,6 +142,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 - Le calculateur d’itinéraires est limité ici aux transports en commun franciliens. Cela ne réduit pas la couverture France/Québec des commandes d’horaires existantes.
 - Le départ, l’arrivée et l’éventuelle heure d’arrivée souhaitée sont gardés en mémoire temporaire pendant cinq minutes, séparément pour chaque serveur, salon, membre et persona. Aucun historique complet ni souvenir persistant n’est envoyé à PRIM.
 - Une erreur, un quota ou une réponse incohérente ne déclenche jamais un itinéraire généré librement par l’IA. Le statut théorique/temps réel dépend de la réponse officielle.
+- Les trajets conversationnels utilisent le style de carte de `!metro`, avec repli textuel si les cartes sont interdites. Actualiser et Fermer sont liés au demandeur, au message et à son trajet, jamais à une recherche plus récente; le lien Source est public et ne déclenche aucun calcul.
+- Les contrôles expirent avec le contexte, au maximum après cinq minutes sans prolongation par un clic. Les trajets longs sont paginés sans masquer de correspondance et sans nouvel appel au fournisseur lors d’un changement de page.
 - `pnpm --filter @workspace/api-server run test:itineraries` vérifie les dialogues et contrats du calculateur; `test:transport` inclut aussi les régressions d’horaires France/Québec.
 
 ## Pointers
