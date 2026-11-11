@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:transport": "pnpm run test:transport:core && pnpm run test:quebec",
+    "test:transport": "pnpm run test:transport:core && pnpm run test:quebec && pnpm run test:itineraries",
+    "test:itineraries": "esbuild tests/transport-itineraries.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/transport-itineraries.test.mjs && node ./node_modules/.cache/transport-itineraries.test.mjs",
     "test:quebec": "esbuild tests/quebec-transport.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/quebec-transport.test.mjs && node ./node_modules/.cache/quebec-transport.test.mjs",
     "dev": "export NODE_ENV=development && bash ../../scripts/ensure-ytdlp.sh && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",

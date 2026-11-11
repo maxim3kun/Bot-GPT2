@@ -136,6 +136,14 @@ _Populate as you build — explicit user instructions worth remembering across s
 - L'intent **Server Members** et **Voice** doivent aussi être activés pour le chat vocal.
 - Les modules natifs (@discordjs/voice, @discordjs/opus, prism-media) sont externalisés dans esbuild — ils doivent être installés sur le serveur de déploiement.
 
+## Itinéraires dans les conversations Discord
+
+- Les demandes de trajet dans les mentions, MP, `!ask`/`!ia` et personas passent par le calculateur officiel Île-de-France Mobilités/PRIM, avec `IDFM_PRIM_API_KEY` et l’autorisation d’accès au calculateur générique Navitia v2.
+- Le calculateur d’itinéraires est limité ici aux transports en commun franciliens. Cela ne réduit pas la couverture France/Québec des commandes d’horaires existantes.
+- Le départ, l’arrivée et l’éventuelle heure d’arrivée souhaitée sont gardés en mémoire temporaire pendant cinq minutes, séparément pour chaque serveur, salon, membre et persona. Aucun historique complet ni souvenir persistant n’est envoyé à PRIM.
+- Une erreur, un quota ou une réponse incohérente ne déclenche jamais un itinéraire généré librement par l’IA. Le statut théorique/temps réel dépend de la réponse officielle.
+- `pnpm --filter @workspace/api-server run test:itineraries` vérifie les dialogues et contrats du calculateur; `test:transport` inclut aussi les régressions d’horaires France/Québec.
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

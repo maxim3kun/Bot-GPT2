@@ -20,3 +20,9 @@ An unmatched operator arrival may have a separate, display-only approximation fr
 **Why:** The user explicitly requested readable arrivals even when live arrival predictions are missing, while retaining an honest distinction between official predictions and locally calculated approximations.
 
 **How to apply:** Require compatible stops, direction, service calendar and an unambiguous published pattern; otherwise display “arrival unavailable”. Keep raw arrivals separate, retain closure checks across the compatible duration range, and label departures and approximate arrivals separately.
+
+For Navitia route calculations, requesting `data_freshness=realtime` does not guarantee live predictions in the response.
+
+**Why:** Actual PRIM calculations returned public-transport sections explicitly marked `base_schedule` despite accepting the realtime request parameter.
+
+**How to apply:** Label the returned sections using their own freshness metadata. Never promote scheduled or mixed results to fully live, and check access to the journey endpoint separately from permission to use stop monitoring or traffic reports.

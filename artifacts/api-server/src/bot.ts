@@ -69,6 +69,7 @@ import { researchForTurn } from "./discord/ai-research-service.js";
 import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
+import { handleTransportDialogue } from "./discord/transport-dialogue.js";
 import { handleTransportCommand } from "./discord/transport-menu.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -390,6 +391,7 @@ export function startBot(): void {
       return;
     }
 
+    if (await handleTransportDialogue(message, prompt, aiResponseLang)) return;
     if (await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
     const route = classifyAiMessage(prompt);
     if (route.intent === "greeting") {
@@ -1373,16 +1375,6 @@ export function startBot(): void {
     const guildPrefix = getPrefix(message.guildId);
     const responseLang = getEffectiveLanguage(message.guildId, message.author.id);
 
-    // A location reply to a time question should work without mentioning the bot
-    // again, and the saved preference is keyed by user rather than channel.
-    if (!content.startsWith(guildPrefix) && !content.startsWith("/")) {
-      const timeFollowUp = await consumeTimeFollowUp(message, stripMentions(content));
-      if (timeFollowUp) {
-        await message.reply(timeFollowUp);
-        return;
-      }
-    }
-
     // --- Image generation ---
     if (content === "/image" || content.startsWith("/image ") || content === `${guildPrefix}image` || content.startsWith(`${guildPrefix}image `)) {
       const prompt = content.includes(" ") ? content.slice(content.indexOf(" ") + 1).trim() : "";
@@ -1398,16 +1390,23 @@ export function startBot(): void {
       if (addressedToBot && shouldSkipConversation(cleanedContent)) return;
       if (addressedToBot && await clarifyMentionedRecipient(message, cleanedContent,
         getAiResponseLanguage(message.author.id, cleanedContent, responseLang))) return;
-      if (addressedToBot && await handleAiActionRequest(
-        message, cleanedContent, openai,
-        getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
-      )) return;
       if (await handleAiPersonaNaturalMessage(
         message,
         cleanedContent,
         openai,
         responseLang,
         addressedToBot,
+      )) return;
+      if (await handleTransportDialogue(message, cleanedContent,
+        getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
+        { continuationOnly: !addressedToBot })) return;
+      // Route follow-ups have their own isolated context and must not become
+      // city answers to a previous clock/time-zone question.
+      const timeFollowUp = await consumeTimeFollowUp(message, cleanedContent);
+      if (timeFollowUp) { await message.reply(timeFollowUp); return; }
+      if (addressedToBot && await handleAiActionRequest(
+        message, cleanedContent, openai,
+        getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
       )) return;
       if (addressedToBot && isSelfPhotoRequest(cleanedContent)) {
         const imageLanguage = getAiResponseLanguage(message.author.id, cleanedContent, responseLang);

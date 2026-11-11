@@ -17,6 +17,14 @@ The requested geographic coverage also includes the whole province of Québec, n
 
 **How to apply:** Plan province-wide discovery using real official feeds and disclose missing or inaccessible data per network. Do not reinterpret this as a timezone-only change or silently restrict Québec to the Montréal metropolitan area.
 
+## Verified conversational journeys
+
+Use an official journey calculator as the authority for routes and connections, not model memory or a faster database. If it cannot verify a journey, report the limitation instead of generating directions.
+
+**Why:** An invented route reversed a user's departure and destination and assigned a station to a line that did not serve it. Faster storage alone cannot correct that failure.
+
+**How to apply:** Keep departure and destination roles explicit across turns, isolate temporary context by server/channel/member/persona, and recheck criticism with the provider without automatically agreeing. Keep timetable coverage separate from the narrower geographic coverage of an available route calculator.
+
 ## Address-search ranking
 
 The national address search can rank a street named after a city above the municipality itself. A bare “Beauvais” lookup returned a street in Guichen, while “Beauvais Amiens” returned streets in Amiens.

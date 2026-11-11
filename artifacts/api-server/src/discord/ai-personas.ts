@@ -51,6 +51,7 @@ import { buildBotCommandContext } from "./ai-command-context.js";
 import { getPrefix } from "./prefix-store.js";
 import { handleAiActionRequest } from "./ai-actions.js";
 import { handlePublicTransportRequest } from "./public-transport.js";
+import { handleTransportDialogue } from "./transport-dialogue.js";
 import { createReliableCompletion } from "./ai-reliable-completion.js";
 import { shouldSkipConversation } from "./ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
@@ -1138,6 +1139,7 @@ async function respondWithPersona(
     rememberPersonaConversationTurn(historyKey, prompt, arithmeticReply);
     return;
   }
+  if (await handleTransportDialogue(message, prompt, responseLanguage, { personaId: persona.id })) return;
   if (!openai) {
     await safeReply(message, localized(responseLanguage, "Les fonctions IA ne sont pas configurées.", "AI features are not configured."));
     return;

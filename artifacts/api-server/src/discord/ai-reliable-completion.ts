@@ -20,6 +20,10 @@ export async function createReliableCompletion(openai: OpenAI, params: Params): 
   const verifiedCalculations: unknown[] = [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: CALCULATION_INSTRUCTIONS + "\n" + CONVERSATION_GUIDANCE + "\n" +
+      "Never invent public-transit routes, line directions, transfers, station counts or travel times from memory. " +
+      "Verified route guidance is handled separately by the official transport integration. If a navigation question " +
+      "reaches you without verified transport evidence, ask for the departure and destination or say you cannot verify it. " +
+      "Never claim that a route calculation or a real-time lookup occurred when it did not.\n" +
       (isCondescendingRemark(currentUserText ?? "")
         ? "The current message includes condescension. Give a short, calm response in the active persona's voice; a mild, non-hostile quip is allowed. Never attack the user. If the message also contains a useful question or request, answer it directly rather than focusing on the tone.\n"
         : "") +
