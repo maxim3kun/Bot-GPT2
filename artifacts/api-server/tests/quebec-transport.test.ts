@@ -267,7 +267,8 @@ test("Discord asks territory before searching, retains Québec through refresh a
     assert(predicate(), `Menu state not reached: ${ui.prompt.content}`);
   };
   await handleTransportCommand(ui.message as never, ["Montréal"], "fr", "!", "bus", service);
-  assert.match(ui.prompt.content, /France ou Québec/);
+  assert.match(ui.prompt.content, /Choisis le territoire/);
+  assert.deepEqual(ui.find("choose").options.map((option: any) => option.value), ["fr", "qc", "en"]);
   assert.equal(calls.length, 0);
   await ui.click("choose", "qc");
   assert.match(ui.prompt.content, /Choisis un réseau/);
@@ -285,6 +286,6 @@ test("Discord asks territory before searching, retains Québec through refresh a
   await ui.click("refresh");
   assert.equal(ui.prompt.embeds[0].footer.text.includes("America/Montreal"), true);
   assert.deepEqual(calls, ["qc"]);
-  await ui.click("restart"); assert.match(ui.prompt.content, /France ou Québec/);
+  await ui.click("restart"); assert.match(ui.prompt.content, /Choisis le territoire/);
   ui.collector.stop("cancelled");
 });

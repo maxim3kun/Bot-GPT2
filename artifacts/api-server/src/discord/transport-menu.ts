@@ -186,7 +186,8 @@ export async function handleTransportSearch(
         })))));
     }
     const controls = new ActionRowBuilder<ButtonBuilder>();
-    if (pages > 1) controls.addComponents(button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages - 1));
+    if (pages > 1) controls.addComponents(button("prev", text("Précédent", "Previous")).setDisabled(page === 0),
+      button("next", text("Suivant", "Next")).setDisabled(page === pages - 1));
     if (stage !== "mode" && stage !== "territory") controls.addComponents(button("back", text("Retour", "Back")));
     if (stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
@@ -205,7 +206,11 @@ export async function handleTransportSearch(
     const regionalNote = region && stage === "networks" ? text(
       "\nSources publiées pour cette région. Les agrégats peuvent recouvrir les réseaux opérateurs. Choisis une source pour voir ses lignes; les passages seront vérifiés après le choix des arrêts.",
       "\nPublished sources for this region. Aggregates may overlap operator networks. Choose a source to see its routes; departures are checked after stop selection.") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${text("choix", "choices")} · ${page + 1}/${pages}` : empty}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
+    const countLabel = stage === "lines" ? text("lignes", "routes") : text("choix", "choices");
+    const pageHint = stage === "lines" && pages > 1
+      ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
+        "\n25 routes per page · use Search or Next to browse routes.") : "";
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
   }
 
   async function run(work: () => Promise<void>) {

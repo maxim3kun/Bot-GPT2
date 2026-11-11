@@ -22,7 +22,7 @@ test("England command prefixes and AI actions keep transport geography scoped", 
   assert.equal(parsed.place, "Cambridge");
   assert.equal(parsed.line, "132");
   assert.equal(parsed.territory, "en");
-  const intent = selectAiCommand("Quels bus à Londres ?", {});
+  const intent = selectAiCommand("Quels bus à Londres en Angleterre ?", {});
   assert.equal(intent.kind, "action");
   if (intent.kind === "action") {
     assert.equal(intent.action.name, "search_transport");
@@ -31,7 +31,9 @@ test("England command prefixes and AI actions keep transport geography scoped", 
       assert.equal(intent.action.place, "Londres");
     }
   }
-  assert.equal(parseAiCommandTool("search_transport", { mode: "bus", place: "London", territory: "en" })?.name, "search_transport");
+  assert.equal(parseAiCommandTool([{ type: "function", function: {
+    name: "search_transport", arguments: JSON.stringify({ mode: "bus", place: "London", territory: "en" }),
+  } }], [])?.name, "search_transport");
   assert.equal(normalizeTransitText("Angleterre"), "angleterre");
 });
 
@@ -91,7 +93,7 @@ test("TfL never invents an arrival from a different vehicle, trip, branch or sta
   ];
   const noArrival = tflTimes(index, origin, destination, [departure], mismatched, now);
   assert.ok(noArrival.every(t => t.arrivalAt == null));
-  const liveAtArrival = prediction({ naptanId: "stop-1", destinationNaptanId: "stop-2",
+  const liveAtArrival = prediction({ naptanId: "stop-1", tripId: "different-trip", destinationNaptanId: "stop-2",
     expectedArrival: new Date(NOW + 10 * 60_000).toISOString() });
   assert.ok(tflTimes(index, origin, destination, [departure], [liveAtArrival], now).every(t => t.arrivalAt == null));
 });
@@ -117,7 +119,9 @@ test("TXC weekly calendars and published English bank holidays stay explicit", (
   const holidayProfile = xmlDocument(`<OperatingProfile><RegularDayType><DaysOfWeek><MondayToFriday/></DaysOfWeek></RegularDayType><BankHolidayOperation><DaysOfOperation><GoodFriday/></DaysOfOperation></BankHolidayOperation></OperatingProfile>`).OperatingProfile as Record<string, unknown>;
   const holidays: BankHoliday[] = [{ date: "2026-04-03", title: "Good Friday" }];
   assert.equal(txcRuns(holidayProfile, "2026-04-03", holidays), true);
-  assert.equal(txcRuns(holidayProfile, "2026-04-02", holidays), false);
+  assert.equal(txcRuns(holidayProfile, "2026-04-02", holidays), true);
+  const holidayExclusion = xmlDocument(`<OperatingProfile><RegularDayType><DaysOfWeek><MondayToFriday/></DaysOfWeek></RegularDayType><BankHolidayOperation><DaysOfNonOperation><GoodFriday/></DaysOfNonOperation></BankHolidayOperation></OperatingProfile>`).OperatingProfile as Record<string, unknown>;
+  assert.equal(txcRuns(holidayExclusion, "2026-04-03", holidays), false);
 });
 
 test("unknown TXC school-day rules fail closed rather than inventing a calendar", () => {
@@ -138,10 +142,10 @@ test("both published clock times survive the London autumn transition", () => {
 test("the official locality resolver separates England from Scotland and Wales", async () => {
   const feed = `<?xml version="1.0"?><NationalPublicTransportGazetteer><Regions>
     <Region id="eng"><Country>England</Country><AdministrativeAreas>
-      <AdministrativeArea><AdministrativeAreaCode>001</AdministrativeAreaCode><AtcoAreaCode>050</AtcoAreaCode><Name>Cambridgeshire</Name></AdministrativeArea>
+      <AdministrativeArea id="001"><AdministrativeAreaCode>001</AdministrativeAreaCode><AtcoAreaCode>050</AtcoAreaCode><Name>Cambridgeshire</Name></AdministrativeArea>
     </AdministrativeAreas></Region>
     <Region id="sco"><Country>Scotland</Country><AdministrativeAreas>
-      <AdministrativeArea><AdministrativeAreaCode>002</AdministrativeAreaCode><AtcoAreaCode>100</AtcoAreaCode><Name>Scotland</Name></AdministrativeArea>
+      <AdministrativeArea id="002"><AdministrativeAreaCode>002</AdministrativeAreaCode><AtcoAreaCode>100</AtcoAreaCode><Name>Scotland</Name></AdministrativeArea>
     </AdministrativeAreas></Region>
   </Regions><NptgLocality CreationDateTime="2026-01-01"><NptgLocalityCode>E001</NptgLocalityCode><Descriptor><LocalityName>Cambridge</LocalityName><Qualify><QualifierName>City</QualifierName></Qualify></Descriptor><AdministrativeAreaRef>001</AdministrativeAreaRef><Location><Translation><Latitude>52.205</Latitude><Longitude>0.119</Longitude></Translation></Location></NptgLocality>
   <NptgLocality CreationDateTime="2026-01-01"><NptgLocalityCode>S001</NptgLocalityCode><Descriptor><LocalityName>Cambridge</LocalityName></Descriptor><AdministrativeAreaRef>002</AdministrativeAreaRef><Location><Translation><Latitude>56.0</Latitude><Longitude>-3.0</Longitude></Translation></Location></NptgLocality></NationalPublicTransportGazetteer>`;

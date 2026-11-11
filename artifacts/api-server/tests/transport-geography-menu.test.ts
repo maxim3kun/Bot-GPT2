@@ -21,17 +21,20 @@ function service(station = false) {
   const index = { stops: new Map([["O", { id: "O", name: "Gare" }], ["D", { id: "D", name: "Arrivée" }]]),
     visits: new Map([["trip", [{ stopId: "O", pickup: true, dropoff: true }, { stopId: "D", pickup: true, dropoff: true }]]]) };
   return { requests, value: {
-    territories: ["fr", "qc"], cities: async (...args: unknown[]) => { requests.push(args); return station ? [place] : [place, { ...place, id: "60009", name: "Allonne" }]; },
+     territories: ["fr", "qc", "en"], cities: async (...args: unknown[]) => { requests.push(args); return station ? [place] : [place, { ...place, id: "60009", name: "Allonne" }]; },
     lines: async () => ({ lines: routes, unavailable: 0 }), index: async () => index,
     availableStops: async (_line: unknown, _index: unknown, options: unknown[]) => ({ options, note: "" }),
     departures: async () => ({ content: "Horaires théoriques", source, embed: { title: "Trajet", description: "Horaires théoriques" } }),
   } as unknown as TransportBrowserClient };
 }
-test("France/Québec is chosen once, absent from results, and reappears only through New search", async () => {
+test("France, Québec or Angleterre is selected once and returns only through New search", async () => {
   const d = fakeDiscord(), s = service();
   await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
-  assert.match(card.last.content!, /France ou Québec/); assert.equal(s.requests.length, 0);
+  assert.match(card.last.content!, /Choisis le territoire/); assert.equal(s.requests.length, 0);
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.deepEqual(selector?.options?.map((option: any) => option.label), ["France", "Québec", "Angleterre"]);
   await choose(card, "fr");
   assert.deepEqual(s.requests, [["60000", "fr", "bus"]]);
   assert.ok(card.custom("filter"), "department and postcode commune lists must be searchable");
@@ -43,7 +46,7 @@ test("France/Québec is chosen once, absent from results, and reappears only thr
   await card.collector.collect(outsider.value); await tick();
   assert.match(JSON.stringify(outsider.replies), /appartient/); assert.equal(card.last.embeds.length, 1);
   await click(card, "restart");
-  assert.match(card.last.content!, /France ou Québec/); assert.equal(card.last.embeds.length, 0);
+  assert.match(card.last.content!, /Choisis le territoire/); assert.equal(card.last.embeds.length, 0);
   assert.equal(s.requests.length, 1, "restart must not silently query the previous postal code again");
   await choose(card, "qc");
   assert.match(card.last.content!, /localité québécoise/); assert.equal(s.requests.length, 1);
