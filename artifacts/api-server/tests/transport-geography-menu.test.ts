@@ -81,3 +81,61 @@ test("675 routes are visibly counted across 27 selectable pages", async () => {
   assert.equal(selector?.options?.length, 25);
   card.collector.stop("cancelled");
 });
+
+test("numbered bus routes sort low to high and a unique search opens it directly", async () => {
+  const d = fakeDiscord();
+  const city = { id: "tfl:london", name: "London", label: "London · TfL", latitude: 51.5, longitude: -.1, territory: "en" as const };
+  const network = { id: "tfl", title: "Transport for London", slug: "tfl", type: "public-transit",
+    page_url: "https://tfl.gov.uk", resources: [{ id: 1, title: "TfL", format: "JSON", is_available: true,
+      url: "https://api.tfl.gov.uk/" }] };
+  const lines = Array.from({ length: 975 }, (_, i) => {
+    const number = 975 - i;
+    return { routeId: `tfl:${number}`, label: String(number), description: `Bus ${number}`,
+      mode: "bus", nearbyStopIds: [], allStops: true, territory: "en",
+      source: { name: "TfL", url: "https://tfl.gov.uk/modes/buses/" },
+      resource: { id: number, title: String(number), format: "TfL JSON", is_available: true, url: "https://api.tfl.gov.uk/" } };
+  });
+  const index = { routeId: "tfl:906",
+    metadata: { routes: new Map(), trips: new Map([["trip", { routeId: "tfl:906", headsign: "End",
+      directionId: "inbound", serviceId: "live" }]]), calendars: new Map(), calendarExceptions: new Map(), timezone: "Europe/London" },
+    stops: new Map([["origin", { id: "origin", name: "Beehive Lane", parent: "" }],
+      ["arrival", { id: "arrival", name: "Millwell Crescent", parent: "" }]]),
+    visits: new Map([["trip", [{ stopId: "origin", sequence: 0, pickup: true, dropoff: true },
+      { stopId: "arrival", sequence: 1, pickup: true, dropoff: true }]]]) };
+  let indexedLine = "";
+  const service = {
+    territories: ["en"], cities: async () => [city], networks: async () => [network],
+    lines: async () => ({ lines, unavailable: 0, networkScoped: true }),
+    index: async (line: { routeId: string }) => { indexedLine = line.routeId; return index; },
+  } as any;
+  await handleTransportCommand(d.message, ["Angleterre", "London"], "en", "!", "bus", service);
+  const card = d.cards[0]!;
+  const wait = async (predicate: () => boolean) => {
+    for (let i = 0; i < 100 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.ok(predicate(), `Menu state was not reached: ${card.last.content}`);
+  };
+  await wait(() => card.last.content?.includes("Choose a route") ?? false);
+  assert.match(card.last.content!, /975 routes · 1\/39/);
+  const routeOptions = () => card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.equal(routeOptions()?.options?.length, 25);
+  assert.match(routeOptions().options[0].label, /^1 ·/);
+  assert.match(routeOptions().options[24].label, /^25 ·/);
+  await click(card, "next");
+  await wait(() => card.last.content?.includes("975 routes · 2/39") ?? false);
+  assert.match(routeOptions().options[0].label, /^26 ·/);
+
+  const submitted = card.interaction("filter", {
+    isButton: () => true,
+    async showModal() {},
+    async awaitModalSubmit() {
+      return { fields: { getTextInputValue: () => "906" }, async deferUpdate() {} };
+    },
+  });
+  await card.collector.collect(submitted.value);
+  await wait(() => card.last.content?.includes("departure stop") ?? false);
+  assert.equal(indexedLine, "tfl:906");
+  assert.match(card.last.content!, /906/);
+  assert.doesNotMatch(card.last.content!, /Choose a route/);
+  card.collector.stop("cancelled");
+});

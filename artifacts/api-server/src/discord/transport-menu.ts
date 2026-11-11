@@ -22,6 +22,17 @@ const active = new Map<string, () => void>();
 type Stage = "territory" | "mode" | "city" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
 
+function compareRouteNumbers(a: TransportLine, b: TransportLine) {
+  const left = a.label.trim(), right = b.label.trim();
+  const leftNumeric = /^\d+$/.test(left), rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    const difference = Number(left) - Number(right);
+    if (difference) return difference;
+  } else if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+  return left.localeCompare(right, "fr", { numeric: true, sensitivity: "base" }) ||
+    a.routeId.localeCompare(b.routeId, "fr", { numeric: true, sensitivity: "base" });
+}
+
 export async function transportDeadline<T>(work: Promise<T>, milliseconds = 45_000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -323,7 +334,7 @@ export async function handleTransportSearch(
     const result = region && network ? await service.regionLines(network, selectedMode, lineFilter)
       : await service.lines(city!, selectedMode, lineFilter, network?.id);
     if (!live) return;
-    lines = result.lines;
+    lines = [...result.lines].sort(compareRouteNumbers);
     logger.info({ cityId: city?.id, regionCode: region?.code, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
       "Transport routes loaded");
     listingNote = result.unavailable ? text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
@@ -472,7 +483,12 @@ export async function handleTransportSearch(
       await run(loadCities);
     } else {
       filter = submitted.fields.getTextInputValue("value").trim(); page = 0;
-      await run(render);
+      const matches = stage === "lines" && filter
+        ? choices().filter(choice => normalizeTransitText(`${choice.label} ${choice.description ?? ""}`)
+          .includes(normalizeTransitText(filter))) : [];
+      const selectedLine = matches.length === 1 ? lines[Number(matches[0]!.value)] : undefined;
+      if (selectedLine) { line = selectedLine; await run(loadOrigins); }
+      else await run(render);
     }
   }
 

@@ -450,7 +450,7 @@ test("the generic transport entry chooses metro and accepts a city through its m
   ui.collector.stop("cancelled");
 });
 
-test("long route menus paginate and their search modal preserves original selection indexes", async () => {
+test("long route menus paginate and multi-match searches preserve original indexes", async () => {
   const { client } = fixture();
   const city = (await client.cities("Breteuil"))[1]!;
   const base = (await client.lines(city, "bus")).lines[0]!;
@@ -462,10 +462,9 @@ test("long route menus paginate and their search modal preserves original select
   assert.equal(ui.find("choose").options[0].value, "25");
   await ui.click("next");
   assert.equal(ui.find("choose").options.length, 5);
-  ui.setModalText("Ligne-51");
+  ui.setModalText("Ligne-5");
   await ui.click("filter");
-  assert.equal(ui.find("choose").options.length, 1);
-  assert.equal(ui.find("choose").options[0].value, "51");
+  assert.deepEqual(ui.find("choose").options.map((option: any) => option.value), ["5", "50", "51", "52", "53", "54"]);
   await ui.click("clear");
   assert.equal(ui.find("choose").options.length, 25);
   ui.collector.stop("cancelled");
