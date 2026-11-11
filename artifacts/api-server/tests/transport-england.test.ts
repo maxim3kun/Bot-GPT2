@@ -10,7 +10,7 @@ import { parseTransportCommand } from "../src/discord/transport-command-query.js
 import { selectAiCommand } from "../src/discord/ai-command-intent.js";
 import { parseAiCommandTool } from "../src/discord/ai-command-tools.js";
 import { scheduledEpoch } from "../src/discord/gtfs-realtime.js";
-import { tflPatterns, tflTimes } from "../src/discord/england-tfl.js";
+import { tflPatterns, tflTimes, tflTimetableTimes, TflTransportClient } from "../src/discord/england-tfl.js";
 import { txcRuns, xmlDocument, type BankHoliday } from "../src/discord/england-txc.js";
 import type { JourneyIndex } from "../src/discord/gtfs-journey.js";
 import { EnglandTransportClient } from "../src/discord/england-transport.js";
@@ -118,6 +118,74 @@ test("London buses without a mapped terminal keep the departure but never invent
   assert.equal(tflTimes(index, origin, destination, [
     prediction({ destinationNaptanId: "stop-0" }),
   ], [], now).length, 0, "a vehicle known to terminate before arrival is excluded");
+});
+
+const n41Timetable = {
+  lineId: "n41",
+  timetable: { departureStopId: "stop-0", routes: [{
+    stationIntervals: [{ id: "0", intervals: [{ stopId: "stop-1", timeToArrival: 17 }] }],
+    schedules: [{ name: "Mo-Th Nights/Tu-Fr Morning", knownJourneys: [
+      { hour: "25", minute: "46", intervalId: 0 },
+      { hour: "26", minute: "15", intervalId: 0 },
+      { hour: "26", minute: "44", intervalId: 0 },
+    ] }],
+  }] },
+};
+
+test("TfL fixed bus timetables show upcoming overnight departures and arrival times", () => {
+  const now = Date.parse("2026-11-11T20:56:00Z") / 1000;
+  const result = tflTimetableTimes(n41Timetable, origin, destination, now);
+  assert.equal(result.hasPublishedSchedule, true);
+  assert.equal(new Date(result.times[0]!.departureAt * 1000).toISOString(), "2026-11-12T01:46:00.000Z");
+  assert.equal(result.times[0]!.arrivalAt, result.times[0]!.departureAt + 17 * 60);
+  assert.equal(result.times[0]!.realtime, false);
+  assert.equal(result.times[0]!.departureStopId, "stop-0");
+});
+
+test("TfL overnight timetable continues across midnight using the previous service day", () => {
+  const now = Date.parse("2026-11-12T01:55:00Z") / 1000;
+  const result = tflTimetableTimes(n41Timetable, origin, destination, now);
+  assert.equal(new Date(result.times[0]!.departureAt * 1000).toISOString(), "2026-11-12T02:15:00.000Z");
+});
+
+test("the TfL bus client falls back to published times only when live predictions are empty", async () => {
+  const requests: string[] = [];
+  const http = { json: async (path: string) => {
+    requests.push(path);
+    if (path.endsWith("/Status")) return [{ lineStatuses: [{ statusSeverity: 10, statusSeverityDescription: "Good Service" }] }];
+    if (path.includes("/Disruption")) return [];
+    if (path.includes("/Arrivals/")) return [];
+    if (path.includes("/Timetable/")) return n41Timetable;
+    throw new Error("Unexpected TfL request");
+  } };
+  const client = new TflTransportClient(http as any, blankCache(), () => Date.parse("2026-11-11T20:56:00Z"));
+  const line = { routeId: "tfl:n41", label: "N41", description: "Night bus", mode: "bus",
+    nearbyStopIds: [], allStops: true, territory: "en", realtime: [],
+    resource: { id: 1, title: "N41", format: "TfL JSON", is_available: true, url: "https://api.tfl.gov.uk/" },
+    source: { name: "Transport for London", url: "https://tfl.gov.uk/" } } as any;
+  const result = await client.departures(line, liveIndex("tfl:n41"), origin, destination, "fr");
+  assert.ok(requests.some(path => path.includes("/Timetable/stop-0/to/stop-1")));
+  assert.match(result.embed!.fields![0]!.value, /01:46\*\* → 02:03 · 17 min/);
+  assert.match(result.embed!.fields!.at(-1)!.value, /Horaires fixes publiés par TfL · non temps réel/);
+  assert.match(result.embed!.footer!.text!, /Horaires théoriques · non temps réel · Europe\/London/);
+});
+
+test("the TfL bus fallback does not invent fixed trips when none are published", async () => {
+  const http = { json: async (path: string) => {
+    if (path.endsWith("/Status")) return [{ lineStatuses: [{ statusSeverity: 10, statusSeverityDescription: "Good Service" }] }];
+    if (path.includes("/Disruption") || path.includes("/Arrivals/")) return [];
+    if (path.includes("/Timetable/")) return { lineId: "n41", timetable: { departureStopId: "stop-0", routes: [] } };
+    throw new Error("Unexpected TfL request");
+  } };
+  const client = new TflTransportClient(http as any, blankCache(), () => Date.parse("2026-11-11T20:56:00Z"));
+  const line = { routeId: "tfl:n41", label: "N41", description: "Night bus", mode: "bus",
+    nearbyStopIds: [], allStops: true, territory: "en", realtime: [],
+    resource: { id: 1, title: "N41", format: "TfL JSON", is_available: true, url: "https://api.tfl.gov.uk/" },
+    source: { name: "Transport for London", url: "https://tfl.gov.uk/" } } as any;
+  const result = await client.departures(line, liveIndex("tfl:n41"), origin, destination, "fr");
+  assert.match(result.embed!.fields![0]!.value, /Aucun passage en temps réel confirmé/);
+  assert.match(result.embed!.fields!.at(-1)!.value, /Aucun horaire fixe TfL publié/);
+  assert.doesNotMatch(result.content, /01:46/);
 });
 
 test("same-name TfL stops remain distinguishable by their official stop letters", () => {

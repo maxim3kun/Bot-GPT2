@@ -8,6 +8,8 @@ import { EnglandHttp } from "./england-http.js";
 import { TransportDataError } from "./transport-data-error.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import type { EnglandLocation } from "./england-locations.js";
+import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
+import { logger } from "../lib/logger.js";
 
 interface TflStop { id: string; name: string; parentId?: string; stationId?: string; topMostParentId?: string;
   stopLetter?: string; lat: number; lon: number }
@@ -17,6 +19,17 @@ interface StopReference { id: string; name: string; parent: string; latitude: nu
 interface Prediction {
   id: string; vehicleId: string; naptanId: string; lineId: string; direction: string;
   destinationNaptanId: string; expectedArrival: string; timestamp: string; tripId?: string;
+}
+interface TimetableInterval { stopId?: string; timeToArrival?: number | string }
+interface TimetableKnownJourney { hour?: number | string; minute?: number | string; intervalId?: number | string }
+interface TimetableSchedule { name?: string; knownJourneys?: TimetableKnownJourney[] }
+interface TimetableRoute {
+  stationIntervals?: Array<{ id?: number | string; intervals?: TimetableInterval[] }>;
+  schedules?: TimetableSchedule[];
+}
+interface TimetableResponse {
+  lineId?: string;
+  timetable?: { departureStopId?: string; routes?: TimetableRoute[] };
 }
 interface Disruption { atcoCode?: string; stationAtcoCode?: string; type?: string; description?: string; fromDate?: string; toDate?: string; mode?: string }
 interface Status { lineStatuses?: Array<{ statusSeverity: number; reason?: string; statusSeverityDescription: string }> }
@@ -89,6 +102,86 @@ export function tflTimes(index: JourneyIndex, origin: StopGroup, arrival: StopGr
       departureStopId: p.naptanId, arrivalStopId: pair.destination.stopId }];
   }).sort((a, b) => a.departureAt - b.departureAt)
     .filter((p, i, all) => all.findIndex(q => q.tripId === p.tripId && q.departureAt === p.departureAt) === i).slice(0, 6);
+}
+
+const DAY_NAMES = new Map([
+  ["monday", 1], ["mondays", 1], ["mon", 1], ["mo", 1],
+  ["tuesday", 2], ["tuesdays", 2], ["tue", 2], ["tu", 2],
+  ["wednesday", 3], ["wednesdays", 3], ["wed", 3], ["we", 3],
+  ["thursday", 4], ["thursdays", 4], ["thu", 4], ["th", 4],
+  ["friday", 5], ["fridays", 5], ["fri", 5], ["fr", 5],
+  ["saturday", 6], ["saturdays", 6], ["sat", 6], ["sa", 6],
+  ["sunday", 0], ["sundays", 0], ["sun", 0], ["su", 0],
+]);
+
+function scheduleWeekdays(name: string): Set<number> {
+  const normalized = normalizeTransitText(name);
+  if (/\b(?:daily|every day|all days|all week)\b/.test(normalized)) return new Set([0, 1, 2, 3, 4, 5, 6]);
+  if (/\bweekdays?\b/.test(normalized)) return new Set([1, 2, 3, 4, 5]);
+  if (/\bweekends?\b/.test(normalized)) return new Set([0, 6]);
+  // TfL labels overnight schedules by the evening service day, e.g.
+  // "Mo-Th Nights/Tu-Fr Morning"; only the first half identifies that day.
+  const label = normalized.split(/[\\/;]/, 1)[0]!;
+  const aliases = "monday|mondays|mon|mo|tuesday|tuesdays|tue|tu|wednesday|wednesdays|wed|we|thursday|thursdays|thu|th|friday|fridays|fri|fr|saturday|saturdays|sat|sa|sunday|sundays|sun|su";
+  const range = label.match(new RegExp(`\\b(${aliases})\\s*(?:-|\\bto\\b)\\s*(${aliases})\\b`));
+  if (range) {
+    const start = DAY_NAMES.get(range[1]!), end = DAY_NAMES.get(range[2]!);
+    if (start === undefined || end === undefined) return new Set();
+    const days = new Set<number>();
+    for (let day = start, count = 0; count < 7; day = (day + 1) % 7, count++) {
+      days.add(day);
+      if (day === end) break;
+    }
+    return days;
+  }
+  return new Set((label.match(/[a-z]+/g) ?? []).flatMap(token => {
+    const day = DAY_NAMES.get(token);
+    return day === undefined ? [] : [day];
+  }));
+}
+
+function weekday(date: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
+}
+
+export function tflTimetableTimes(data: TimetableResponse, origin: StopGroup, arrival: StopGroup, now: number) {
+  const routes = data.timetable?.routes ?? [];
+  const matchedRoutes = routes.filter(route => route.stationIntervals?.some(interval =>
+    interval.intervals?.some(stop => arrival.ids.includes(stop.stopId ?? ""))));
+  const schedules = matchedRoutes.flatMap(route => (route.schedules ?? []).map(schedule =>
+    ({ route, schedule, days: scheduleWeekdays(schedule.name ?? "") })));
+  const hasPublishedSchedule = schedules.some(({ schedule }) => (schedule.knownJourneys?.length ?? 0) > 0);
+  const hasUsableSchedule = schedules.some(({ schedule, days }) => (schedule.knownJourneys?.length ?? 0) > 0 && days.size > 0);
+  const today = localDate(now, "Europe/London");
+  const times: JourneyTime[] = [];
+
+  for (let offset = -1; offset <= 7; offset++) {
+    const serviceDate = addDays(today, offset);
+    for (const { route, schedule, days } of schedules) {
+      if (!days.has(weekday(serviceDate))) continue;
+      for (const [index, journey] of (schedule.knownJourneys ?? []).entries()) {
+        const hour = Number(journey.hour), minute = Number(journey.minute);
+        if (journey.intervalId === undefined || journey.intervalId === null ||
+          !Number.isInteger(hour) || hour < 0 || hour > 47 || !Number.isInteger(minute) || minute < 0 || minute > 59) continue;
+        const departureAt = scheduledEpoch(serviceDate,
+          `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`, "Europe/London");
+        if (departureAt === null || departureAt <= now || departureAt > now + 7 * 24 * 3600) continue;
+        const interval = route.stationIntervals?.find(value => String(value.id) === String(journey.intervalId));
+        const duration = interval?.intervals?.find(stop => arrival.ids.includes(stop.stopId ?? ""))?.timeToArrival;
+        const minutes = Number(duration);
+        if (!interval || !Number.isFinite(minutes) || minutes < 0 || minutes > 360) continue;
+        const departureStopId = data.timetable?.departureStopId ?? origin.ids[0];
+        if (!origin.ids.includes(departureStopId)) continue;
+        times.push({ tripId: `tfl-schedule:${serviceDate}:${schedule.name ?? "service"}:${index}`,
+          departureAt, arrivalAt: departureAt + minutes * 60, realtime: false,
+          departureStopId, arrivalStopId: arrival.ids.find(id => interval.intervals?.some(stop => stop.stopId === id)) });
+      }
+    }
+  }
+  const unique = [...new Map(times.sort((a, b) => a.departureAt - b.departureAt)
+    .map(time => [`${time.departureAt}:${time.arrivalStopId}`, time])).values()].slice(0, 6);
+  return { times: unique, hasPublishedSchedule, hasUsableSchedule };
 }
 
 export class TflTransportClient {
@@ -174,6 +267,28 @@ export class TflTransportClient {
       (!d.toDate || Date.parse(d.toDate) > at));
     return { statuses: statuses.flatMap(s => s.lineStatuses ?? []), disruptions: active };
   }
+  private async fixedBusTimes(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, now: number) {
+    const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
+    const endpoints = [...new Map(pairs.map(pair => [`${pair.origin.stopId}:${pair.destination.stopId}`,
+      { from: pair.origin.stopId, to: pair.destination.stopId }])).values()].slice(0, 3);
+    let checked = false, hasPublishedSchedule = false, hasUsableSchedule = false;
+    for (const endpoint of endpoints) {
+      try {
+        const data = await this.http.json<TimetableResponse>(
+          `/Line/${encoded(lineId(line))}/Timetable/${encoded(endpoint.from)}/to/${encoded(endpoint.to)}`);
+        checked = true;
+        if (data.lineId && data.lineId.toLowerCase() !== lineId(line).toLowerCase()) continue;
+        const result = tflTimetableTimes(data,
+          { label: origin.label, ids: [endpoint.from] }, { label: arrival.label, ids: [endpoint.to] }, now);
+        hasPublishedSchedule ||= result.hasPublishedSchedule;
+        hasUsableSchedule ||= result.hasUsableSchedule;
+        if (result.times.length) return { ...result, checked };
+      } catch (error) {
+        logger.debug({ routeId: line.routeId, err: error }, "TfL fixed timetable unavailable; keeping live result");
+      }
+    }
+    return { times: [] as JourneyTime[], checked, hasPublishedSchedule, hasUsableSchedule };
+  }
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
     const french = language === "fr", id = lineId(line), now = Math.floor(this.now() / 1000);
     const stops = [...new Set([...origin.ids, ...arrival.ids])];
@@ -191,11 +306,26 @@ export class TflTransportClient {
     const predictions = await Promise.all(stops.map(stop =>
       this.http.json<Prediction[]>(`/Line/${id}/Arrivals/${encoded(stop)}`)));
     const all = predictions.flat();
-    const times = tflTimes(index, origin, arrival, all, all, now);
+    let times = tflTimes(index, origin, arrival, all, all, now);
     const notes = [...new Set([
       ...traffic.statuses.filter(s => s.statusSeverity !== 10).map(s => s.reason || s.statusSeverityDescription),
       ...traffic.disruptions.map(d => d.description ?? ""),
     ].filter(Boolean))].slice(0, 3).map(s => s.slice(0, 350));
+    if (!times.length && line.mode === "bus") {
+      const fallback = await this.fixedBusTimes(line, index, origin, arrival, now);
+      times = fallback.times;
+      if (times.length) notes.push(french ? "Horaires fixes publiés par TfL · non temps réel." : "TfL published timetable · not real time.");
+      else if (!fallback.checked) notes.push(french
+        ? "Horaires fixes TfL indisponibles pour cette recherche." : "TfL fixed timetable unavailable for this search.");
+      else if (!fallback.hasPublishedSchedule) notes.push(french
+        ? "Aucun horaire fixe TfL publié pour ces arrêts." : "No fixed TfL timetable is published for these stops.");
+      else if (!fallback.hasUsableSchedule) notes.push(french
+        ? "Les jours de service des horaires TfL publiés ne permettent pas de confirmer les prochains passages."
+        : "The published TfL timetable days do not allow the next departures to be confirmed.");
+      else notes.push(french
+        ? "Aucun départ prévu dans les 7 prochains jours selon les horaires TfL publiés."
+        : "No departure is scheduled in the next 7 days in the published TfL timetable.");
+    }
     if (times.some(t => t.arrivalAt == null)) notes.push(french
       ? "Arrivée non publiée pour le même véhicule : aucune heure d’arrivée n’est inventée."
       : "No arrival prediction for the same vehicle: no arrival time is invented.");
