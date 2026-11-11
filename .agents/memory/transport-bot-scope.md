@@ -19,6 +19,12 @@ The requested geographic coverage also includes the whole province of Québec, n
 
 ## Verified conversational journeys
 
+For the new journey features and associated API integrations, select public sources and free APIs.
+
+**Why:** When choosing providers, the user explicitly answered “Source publique et API gratuite”.
+
+**How to apply:** Check actual usage terms and quotas before selecting a new provider. Do not enable Google Maps billing or another paid service for this extension.
+
 Use an official journey calculator as the authority for routes and connections, not model memory or a faster database. If it cannot verify a journey, report the limitation instead of generating directions.
 
 **Why:** An invented route reversed a user's departure and destination and assigned a station to a line that did not serve it. Faster storage alone cannot correct that failure.
