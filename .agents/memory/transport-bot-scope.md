@@ -17,6 +17,14 @@ The requested geographic coverage also includes the whole province of Québec, n
 
 **How to apply:** Plan province-wide discovery using real official feeds and disclose missing or inaccessible data per network. Do not reinterpret this as a timezone-only change or silently restrict Québec to the Montréal metropolitan area.
 
+## England extension
+
+L’Angleterre est le premier territoire supplémentaire demandé après France et Québec.
+
+**Why:** À la question sur les pays à ajouter en priorité, l’utilisateur a répondu « Angleterre ».
+
+**How to apply:** Garder cette portée distincte de l’ensemble du Royaume-Uni et annoncer la couverture réellement intégrée, sans présenter Londres comme la couverture complète de l’Angleterre. Conserver la contrainte de sources publiques et d’API gratuites.
+
 ## Persistent transport cache
 
 Le cache MongoDB des transports doit conserver les informations stables des réseaux, lignes et arrêts, pas les horaires ni les estimations de passage.
