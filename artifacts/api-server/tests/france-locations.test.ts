@@ -49,6 +49,37 @@ test("60000 retains its multiple real communes for buses but only the referenced
   const query = calls.find(u => u.hostname === "ressources.data.sncf.com")!.searchParams.get("where")!;
   for (const code of communes.map(c => c.code)) assert.ok(query.includes(code!));
 });
+test("named French transport cities use the official commune API and keep exact accented matches", async () => {
+  const found = [
+    { nom: "Fréjus", code: "83061", codeDepartement: "83", codesPostaux: ["83600"],
+      centre: { coordinates: [6.7848, 43.4553] }, departement: { code: "83", nom: "Var" },
+      region: { nom: "Provence-Alpes-Côte d'Azur" }, population: 57000 },
+    { nom: "Fréjus-sur-Mer", code: "83062", codeDepartement: "83", codesPostaux: ["83600"],
+      centre: { coordinates: [6.7, 43.4] }, departement: { code: "83", nom: "Var" }, population: 200 },
+    { nom: "Fréjus", code: "13061", codeDepartement: "13", codesPostaux: ["13000"],
+      centre: { coordinates: [5.4, 43.3] }, departement: { code: "13", nom: "Bouches-du-Rhône" }, population: 100 },
+  ];
+  const calls: URL[] = [];
+  const client = new FranceTransportClient(async input => {
+    const url = new URL(String(input)); calls.push(url);
+    assert.equal(url.hostname, "geo.api.gouv.fr");
+    assert.equal(url.pathname, "/communes");
+    return Response.json(found);
+  });
+  const unaccented = await client.municipalities("Frejus");
+  assert.deepEqual(unaccented.map(city => city.id), ["83061", "13061"]);
+  assert.equal(unaccented[0]!.name, "Fréjus");
+  assert.match(unaccented[0]!.label, /83, Var, Provence-Alpes-Côte d'Azur/);
+  assert.deepEqual((await client.municipalities("Frejus 83")).map(city => city.id), ["83061"]);
+  assert.deepEqual((await client.municipalities("Frejus 83600")).map(city => city.id), ["83061"]);
+  assert.ok(calls.every(url => url.searchParams.get("nom") === "Frejus"));
+});
+test("metro shortcut keeps Paris and line 8 intact while omitting optional territory selection", () => {
+  const parsed = parseTransportCommand(["Paris", "ligne", "8"]);
+  assert.equal(parsed.place, "Paris");
+  assert.equal(parsed.line, "8");
+  assert.equal(parsed.territory, undefined);
+});
 test("Department station search is bounded, paginated, and ignores foreign or malformed records", async () => {
   let pages = 0; const locations = new FranceLocations(async url => {
     const offset = Number(new URL(url).searchParams.get("offset")); pages++;

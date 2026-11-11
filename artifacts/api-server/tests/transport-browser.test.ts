@@ -32,11 +32,13 @@ function fixture(failingSource = false, feed = zip) {
   };
   const fetcher: typeof fetch = async (input) => {
     const url = new URL(String(input));
-    if (url.hostname === "api-adresse.data.gouv.fr") {
-      return Response.json({ features: [
-        { properties: { type: "municipality", city: "Breteuil", citycode: "27112", depcode: "27", postcode: "27160", context: "27, Eure, Normandie" }, geometry: { coordinates: [0.91, 48.83] } },
-        { properties: { type: "municipality", city: "Breteuil", citycode: "60104", depcode: "60", postcode: "60120", context: "60, Oise, Hauts-de-France" }, geometry: { coordinates: [2.29, 49.63] } },
-      ] });
+    if (url.hostname === "geo.api.gouv.fr" && url.pathname === "/communes") {
+      return Response.json([
+        { nom: "Breteuil", code: "27112", codeDepartement: "27", codesPostaux: ["27160"],
+          centre: { coordinates: [0.91, 48.83] }, departement: { code: "27", nom: "Eure" }, region: { nom: "Normandie" } },
+        { nom: "Breteuil", code: "60104", codeDepartement: "60", codesPostaux: ["60120"],
+          centre: { coordinates: [2.29, 49.63] }, departement: { code: "60", nom: "Oise" }, region: { nom: "Hauts-de-France" } },
+      ]);
     }
     if (url.pathname === "/api/datasets") return Response.json([dataset, ...(failingSource ? [{
       ...dataset, id: "failed", resources: [{ ...dataset.resources[0], id: 2, url: "https://unsupported.example/feed.zip" }],

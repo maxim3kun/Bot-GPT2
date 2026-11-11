@@ -488,30 +488,7 @@ export class FranceTransportClient {
   async municipalities(place: string): Promise<TransportLocation[]> {
     const numeric = await this.locations.numeric(place);
     if (numeric) return numeric;
-    const qualifier = place.match(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i)?.[1]?.toUpperCase();
-    const name = qualifier ? place.replace(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i, "").trim() : place;
-    const url = new URL(GEOCODER_API);
-    url.searchParams.set("q", name);
-    url.searchParams.set("type", "municipality");
-    url.searchParams.set("limit", "20");
-    const result = await this.cached(`cities:${url.search}`, 6 * 60 * 60_000,
-      () => this.fetchJson<GeocodeResponse>(url.href, 1_000_000));
-    let features = (result.features ?? []).filter((feature) => feature.properties?.type === "municipality");
-    const exact = features.filter((feature) => normalizeCityName(feature.properties?.city ?? feature.properties?.name ?? "") === normalizeCityName(name));
-    if (exact.length) features = exact;
-    if (qualifier) features = features.filter((feature) =>
-      qualifier.length === 5 ? feature.properties?.postcode === qualifier
-        : (feature.properties?.depcode ?? feature.properties?.context?.split(",")[0]?.trim()) === qualifier);
-    const locations = features.flatMap((feature) => {
-      const [longitude, latitude] = feature.geometry?.coordinates ?? [];
-      const p = feature.properties;
-      if (!p || longitude == null || latitude == null || !Number.isFinite(longitude) || !Number.isFinite(latitude)) return [];
-      const city = p.city ?? p.name ?? name;
-      const context = p.context ?? p.postcode ?? "";
-      return [{ id: p.citycode ?? `${latitude},${longitude}`, name: city,
-        label: `${city}${context ? ` — ${context}` : ""}`, latitude, longitude }];
-    });
-    return [...new Map(locations.map((location) => [location.id, location])).values()];
+    return this.locations.named(place);
   }
 
   async railLocations(place: string): Promise<TransportLocation[]> {

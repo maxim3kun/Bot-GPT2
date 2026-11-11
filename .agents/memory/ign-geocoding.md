@@ -9,6 +9,12 @@ Keep municipality, precise-address and station/POI searches distinct. A high geo
 
 **How to apply:** Do not silently accept a corrected street type or replace a requested station with a street named after a station. Present non-exact alternatives for selection and retain the selected point rather than substituting a town centre.
 
+The legacy `api-adresse.data.gouv.fr/search` endpoint now redirects to an unavailable page. Use `geo.api.gouv.fr/communes` for municipality-name searches, then retain exact-name matches and their department/region context; this is not a replacement for precise address or stop geocoding.
+
+**Why:** A live request to the legacy endpoint returned HTTP 302 with an empty body, while the official commune endpoint returned Paris and Fréjus successfully.
+
+**How to apply:** Keep municipality lookups separate from address and stop lookups. Verify the real endpoint when a place unexpectedly disappears; normalize accents without silently selecting among homonyms.
+
 Road services normally snap the requested coordinates to the road network.
 
 **Why:** Verified IGN route responses returned nearby but non-identical start/end coordinates. Exact coordinate equality would reject legitimate routes.
