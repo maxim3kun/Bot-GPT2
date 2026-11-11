@@ -68,6 +68,7 @@ function publishedModes(resource: CatalogResource): string[] | undefined {
 
 export function groupStops(stops: JourneyStop[]): StopGroup[] {
   const groups = new Map<string, StopGroup>();
+  const stopById = new Map(stops.map(stop => [stop.id, stop]));
   for (const stop of stops) {
     // Only an official parent_station establishes that differently named
     // platforms belong to the same station; never infer it from proximity.
@@ -76,7 +77,18 @@ export function groupStops(stops: JourneyStop[]): StopGroup[] {
     if (!group.ids.includes(stop.id)) group.ids.push(stop.id);
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+  const result = [...groups.values()];
+  const labels = new Map<string, number>();
+  for (const group of result) labels.set(normalizeTransitText(group.label), (labels.get(normalizeTransitText(group.label)) ?? 0) + 1);
+  for (const group of result) {
+    if ((labels.get(normalizeTransitText(group.label)) ?? 0) < 2) continue;
+    const letters = [...new Set(group.ids.flatMap(id => {
+      const letter = stopById.get(id)?.stopLetter?.trim();
+      return letter ? [letter.replace(/^->/, "→")] : [];
+    }))];
+    if (letters.length) group.label = `${group.label} (${letters.join("/")})`;
+  }
+  return result.sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
 }
 
 export function originOptions(index: JourneyIndex, line: TransportLine): StopGroup[] {

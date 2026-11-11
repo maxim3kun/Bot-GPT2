@@ -9,10 +9,11 @@ import { TransportDataError } from "./transport-data-error.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import type { EnglandLocation } from "./england-locations.js";
 
-interface TflStop { id: string; name: string; parentId?: string; stationId?: string; topMostParentId?: string; lat: number; lon: number }
+interface TflStop { id: string; name: string; parentId?: string; stationId?: string; topMostParentId?: string;
+  stopLetter?: string; lat: number; lon: number }
 interface Sequence { branchId: number; direction: string; nextBranchIds: number[]; prevBranchIds: number[]; stopPoint: TflStop[] }
 interface Pattern { id: string; routeId: string; direction: string; stopIds: string[] }
-interface StopReference { id: string; name: string; parent: string; latitude: number; longitude: number }
+interface StopReference { id: string; name: string; parent: string; latitude: number; longitude: number; stopLetter?: string }
 interface Prediction {
   id: string; vehicleId: string; naptanId: string; lineId: string; direction: string;
   destinationNaptanId: string; expectedArrival: string; timestamp: string; tripId?: string;
@@ -70,10 +71,14 @@ export function tflTimes(index: JourneyIndex, origin: StopGroup, arrival: StopGr
       Date.parse(q.expectedArrival) / 1000 > departureAt && Date.parse(q.expectedArrival) / 1000 - departureAt <= 3 * 3600;
     const pair = pairs.find(pair => {
       const trip = index.metadata.trips.get(pair.tripId), visits = index.visits.get(pair.tripId)!;
-      const terminal = visits.find(v => v.sequence >= pair.destination.sequence && v.stopId === p.destinationNaptanId);
-      // London bus predictions often omit destinationNaptanId. In that case
-      // require an actual prediction for this same vehicle AND trip at arrival.
-      const reaches = p.destinationNaptanId ? !!terminal : alighting.some(q => sameVehicleAt(q, pair.destination.stopId));
+      // The official line branch proves this route serves the selected stop.
+      // A prediction's terminal can confirm or rule out that stop only when its
+      // ID matches the branch. If TfL omits/uses an unknown terminal ID, keep
+      // the real departure and leave its arrival time explicitly unconfirmed.
+      const terminalOnBranch = visits.some(v => v.stopId === p.destinationNaptanId);
+      const terminalAfterArrival = visits.some(v => v.sequence >= pair.destination.sequence &&
+        v.stopId === p.destinationNaptanId);
+      const reaches = !p.destinationNaptanId || terminalAfterArrival || !terminalOnBranch;
       return trip?.directionId === p.direction && pair.origin.stopId === p.naptanId && reaches;
     });
     if (!pair) return [];
@@ -131,7 +136,7 @@ export class TflTransportClient {
         const patterns = tflPatterns(sequences, `tfl:${id}`);
         const stops = [...new Map(sequences.flatMap(s => s.stopPoint.map(p => [p.id, {
           id: p.id, name: p.name, parent: p.parentId || (p.stationId !== p.id ? p.stationId : "") || "",
-          latitude: p.lat, longitude: p.lon,
+          latitude: p.lat, longitude: p.lon, ...(p.stopLetter ? { stopLetter: p.stopLetter } : {}),
         }] as const))).values()];
         return { patterns, stops };
       });

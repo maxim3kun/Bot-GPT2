@@ -17,7 +17,7 @@ const shapes = {
   areas: [{ code: "string", nom: "string", codesRegions: strings, codesDepartements: strings }],
   nearby: { features: [{ properties: { resource_id: "number", stop_id: "string", stop_name: "string", location_type: "number" } }] },
   routes: [{ routeId: "string", shortName: "string", longName: "string", mode: "string", stopIds: strings }],
-  stops: [{ id: "string", name: "string", parent: "string", latitude: "number", longitude: "number", type: "number" }],
+  stops: [{ id: "string", name: "string", parent: "string", latitude: "number", longitude: "number", type: "number", stopLetter: "string" }],
   locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
     territory: "string", area: "string" }],
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],

@@ -14,6 +14,7 @@ import { tflPatterns, tflTimes } from "../src/discord/england-tfl.js";
 import { txcRuns, xmlDocument, type BankHoliday } from "../src/discord/england-txc.js";
 import type { JourneyIndex } from "../src/discord/gtfs-journey.js";
 import { EnglandTransportClient } from "../src/discord/england-transport.js";
+import { groupStops } from "../src/discord/transport-browser.js";
 
 const NOW = Date.parse("2026-11-11T18:00:00Z");
 const blankCache = () => new TransportMetadataCache(() => null, () => NOW);
@@ -95,14 +96,37 @@ test("TfL never invents an arrival from a different vehicle, trip, branch or sta
   assert.ok(noArrival.every(t => t.arrivalAt == null));
   const liveAtArrival = prediction({ naptanId: "stop-1", tripId: "different-trip", destinationNaptanId: "stop-2",
     expectedArrival: new Date(NOW + 10 * 60_000).toISOString() });
-  assert.ok(tflTimes(index, origin, destination, [departure], [liveAtArrival], now).every(t => t.arrivalAt == null));
+  const wrongTrip = tflTimes(index, origin, destination, [departure], [liveAtArrival], now);
+  assert.equal(wrongTrip.length, 1, "a confirmed live departure remains visible");
+  assert.equal(wrongTrip[0]!.arrivalAt, null, "a different trip cannot provide an arrival time");
 });
 
-test("London buses without a published terminal need the same bus AND journey at arrival", () => {
+test("London buses without a mapped terminal keep the departure but never invent arrival", () => {
   const now = NOW / 1000, index = liveIndex(), departure = prediction({ destinationNaptanId: "", tripId: "trip" });
   const arrival = prediction({ naptanId: "stop-1", destinationNaptanId: "", expectedArrival: new Date(NOW + 10 * 60_000).toISOString() });
   assert.equal(tflTimes(index, origin, destination, [departure], [arrival], now).length, 1);
-  assert.equal(tflTimes(index, origin, destination, [departure], [ { ...arrival, tripId: "other-trip" } ], now).length, 0);
+  const withoutMatchingVehicle = tflTimes(index, origin, destination, [departure], [
+    { ...arrival, tripId: "other-trip", vehicleId: "different-vehicle" },
+  ], now);
+  assert.equal(withoutMatchingVehicle.length, 1);
+  assert.equal(withoutMatchingVehicle[0]!.arrivalAt, null);
+  const unknownTerminal = tflTimes(index, origin, destination, [
+    prediction({ destinationNaptanId: "an-unmapped-official-terminal" }),
+  ], [], now);
+  assert.equal(unknownTerminal.length, 1);
+  assert.equal(unknownTerminal[0]!.arrivalAt, null);
+  assert.equal(tflTimes(index, origin, destination, [
+    prediction({ destinationNaptanId: "stop-0" }),
+  ], [], now).length, 0, "a vehicle known to terminate before arrival is excluded");
+});
+
+test("same-name TfL stops remain distinguishable by their official stop letters", () => {
+  const stops = [
+    { id: "north", name: "Beehive Lane", parent: "same-station", stopLetter: "->N" },
+    { id: "south", name: "Beehive Lane", parent: "same-station", stopLetter: "->S" },
+    { id: "west", name: "Beehive Lane", parent: "other-station", stopLetter: "WJ" },
+  ];
+  assert.deepEqual(groupStops(stops).map(stop => stop.label), ["Beehive Lane (→N/→S)", "Beehive Lane (WJ)"]);
 });
 
 test("TfL always uses the England timezone, including the autumn clock change", () => {

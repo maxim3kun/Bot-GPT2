@@ -23,6 +23,7 @@ export interface JourneyStop {
   name: string;
   parent: string;
   stationName?: string;
+  stopLetter?: string;
 }
 export interface JourneyIndex {
   metadata: GtfsStaticMetadata;
