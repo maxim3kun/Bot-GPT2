@@ -247,7 +247,7 @@ function discordFixture() {
     }, createMessageComponentCollector: () => collector };
   const message = { channelId: `test-${Math.random()}`, author: { id: "owner" },
     async reply(options: any) { return prompt.edit(options); } };
-  const find = (action: string) => prompt.components.flatMap(r => r.components).find(c => c.custom_id.endsWith(`:${action}`));
+  const find = (action: string) => prompt.components.flatMap(r => r.components).find(c => c.custom_id?.endsWith(`:${action}`));
   const click = async (action: string, value?: string) => {
     const component = find(action); assert(component, `Missing ${action}: ${prompt.content}`);
     collector.emit("collect", { customId: component.custom_id, user: { id: "owner" }, values: value == null ? [] : [value],
@@ -256,7 +256,7 @@ function discordFixture() {
   };
   return { prompt, message, find, click, collector };
 }
-test("Discord asks territory before searching, retains Québec through refresh and resets it deliberately", async () => {
+test("Discord resolves city homonyms before asking for territory and retains Québec through refresh", async () => {
   const { client: qc } = providerFixture();
   const service = new TransportBrowserClient(undefined, () => NOW, undefined, qc), calls: string[] = [];
   const original = service.cities.bind(service);
@@ -269,10 +269,10 @@ test("Discord asks territory before searching, retains Québec through refresh a
   await handleTransportCommand(ui.message as never, ["Montréal"], "fr", "!", "bus", service);
   assert.match(ui.prompt.content, /Choisis le territoire/);
   assert.deepEqual(ui.find("choose").options.map((option: any) => option.value), ["fr", "qc", "en"]);
-  assert.equal(calls.length, 0);
+  assert.deepEqual(calls, ["fr", "qc"], "only the two public place gazetteers are queried to resolve a homonym");
   await ui.click("choose", "qc");
   assert.match(ui.prompt.content, /Choisis un réseau/);
-  assert.deepEqual(calls, ["qc"]);
+  assert.deepEqual(calls, ["fr", "qc", "qc"]);
   const choice = ui.find("choose").options.find((c: any) => c.label === "Test Québec");
   await ui.click("choose", choice.value);
   await wait(() => ui.prompt.content.includes("Choisis une ligne"));
@@ -285,7 +285,7 @@ test("Discord asks territory before searching, retains Québec through refresh a
   assert.equal(ui.prompt.embeds[0].footer.text.includes("America/Montreal"), true);
   await ui.click("refresh");
   assert.equal(ui.prompt.embeds[0].footer.text.includes("America/Montreal"), true);
-  assert.deepEqual(calls, ["qc"]);
-  await ui.click("restart"); assert.match(ui.prompt.content, /Choisis le territoire/);
+  assert.deepEqual(calls, ["fr", "qc", "qc"]);
+  assert.equal(ui.find("restart"), undefined);
   ui.collector.stop("cancelled");
 });

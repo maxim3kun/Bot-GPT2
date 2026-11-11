@@ -9,11 +9,16 @@ import { NOW, origin, destination } from "./fixtures/itinerary-fixtures.js";
 const tick = () => new Promise<void>(r => setImmediate(r));
 test("AI transport menus recheck access before new provider work and close on revocation", async () => {
   const d = fakeDiscord(); let calls = 0, checks = 0;
-  const client = { cities: async () => { calls++; return []; } } as unknown as TransportBrowserClient;
+  const client = { cities: async () => { calls++; return [
+    { id: "a", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35 },
+    { id: "b", name: "Paris", label: "Paris — autre", latitude: 48.85, longitude: 2.35 },
+  ]; } } as unknown as TransportBrowserClient;
   await handleTransportSearch(d.message, { place: "Paris", mode: "metro", territory: "fr" }, "fr", "!", client, 1000,
     async () => ++checks === 1);
-  const card = d.cards[0]!, id = card.payloads.flatMap(p => p.components.flatMap(r => r.components)).find(c => c.custom_id?.endsWith(":restart"))!.custom_id!;
-  await card.collector.collect(card.interaction("restart", { customId: id }).value);
+  const card = d.cards[0]!;
+  await card.collector.collect(card.interaction("choose", {
+    values: ["0"], isButton: () => false, isStringSelectMenu: () => true,
+  }).value);
   await tick();
   assert.equal(checks, 2); assert.equal(calls, 1); assert.equal(card.collector.stopped, true);
   assert.match(card.last.content!, /plus autorisée/);

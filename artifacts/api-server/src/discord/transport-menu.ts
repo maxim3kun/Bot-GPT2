@@ -147,9 +147,9 @@ export async function handleTransportSearch(
           "Enter a city, station, department or postal code. Passenger-station reference results are offered; timetables still need checking.")
          : text("Indique une région (ex. Normandie), une commune, un département (ex. 60) ou un code postal (ex. 60000).",
            "Enter a region (e.g. Normandie), city, department (e.g. 60) or postal code (e.g. 60000).")),
-    [new ActionRowBuilder<ButtonBuilder>().addComponents(
-      button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
-      button("restart", text("Nouvelle recherche", "New search")), button("cancel", text("Annuler", "Cancel")))]);
+     [new ActionRowBuilder<ButtonBuilder>().addComponents(
+       button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
+       button("cancel", text("Annuler", "Cancel")))]);
   }
 
   function choices(): Choice[] {
@@ -205,12 +205,10 @@ export async function handleTransportSearch(
     if (stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
     rows.push(controls);
-    if (stage !== "territory") rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("restart", text("Nouvelle recherche", "New search"))));
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
     const note = stage === "arrivals" ? (line?.selection
-      ? text("\nTrajets directs sur la ligne choisie. Correspondances non calculées pour cette grande source.",
-        "\nDirect journeys on the chosen line. Transfers are not calculated for this large source.")
+      ? ""
       : text("\nTrajets directs ou avec 1 correspondance publiée, dans la même source officielle. Tous modes à l’arrivée; autres réseaux et marche non calculés. Horaires vérifiés après sélection.",
         "\nDirect journeys or 1 published transfer within the same official source. Any arrival mode; other networks and walking not calculated. Times checked after selection.")) +
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
@@ -255,7 +253,7 @@ export async function handleTransportSearch(
         text("La recherche n’a pas abouti à temps ou une source est indisponible. Tu peux réessayer; aucune ligne ne sera inventée.",
          "The lookup timed out or a source is unavailable. You can retry; routes will not be invented."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("retry", text("Réessayer", "Retry")),
-         button("city", text("Changer de commune", "Change city")), button("restart", text("Nouvelle recherche", "New search")),
+         button("city", text("Changer de commune", "Change city")),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }
@@ -326,7 +324,7 @@ export async function handleTransportSearch(
     stage = "error";
     await edit(`**${value.title}**\n${(value.limitations ?? []).join("\n")}`,
       [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        button("networks", text("Autre réseau", "Other network")), button("restart", text("Nouvelle recherche", "New search")),
+        button("networks", text("Autre réseau", "Other network")),
         ...sourceButton({ name: value.title, url: value.page_url }, language).flatMap(row => row.components),
         button("cancel", text("Fermer", "Close")))]);
   }
@@ -368,7 +366,7 @@ export async function handleTransportSearch(
           "No routes of this mode were found in open data near this city centre.")}`,
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
          button("city", text("Changer de commune", "Change city")), button("retry", text("Réessayer", "Retry")),
-         button("restart", text("Nouvelle recherche", "New search")), button("cancel", text("Annuler", "Cancel")))]);
+          button("cancel", text("Annuler", "Cancel")))]);
       return;
     }
     const matching = lineFilter ? lines.filter((option) => lineMatches(lineFilter, [option.label, option.description, option.routeId])) : [];
@@ -424,9 +422,8 @@ export async function handleTransportSearch(
       button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
       button("return", text("Retour", "Return journey")),
       button("modify", text("Modifier", "Modify")));
-    if (result.hasMore) primary.addComponents(button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      button("restart", text("Nouvelle recherche", "New search")),
+      ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times"))] : []),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));

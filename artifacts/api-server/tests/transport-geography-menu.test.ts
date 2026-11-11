@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleTransportCommand } from "../src/discord/transport-menu.js";
+import { handleTransportCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
 import type { TransportBrowserClient } from "../src/discord/transport-browser.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -27,7 +27,7 @@ function service(station = false) {
     departures: async () => ({ content: "Horaires théoriques", source, embed: { title: "Trajet", description: "Horaires théoriques" } }),
   } as unknown as TransportBrowserClient };
 }
-test("France, Québec or Angleterre is selected once and returns only through New search", async () => {
+test("France, Québec or Angleterre is selected once and the redundant new-search button is hidden", async () => {
   const d = fakeDiscord(), s = service();
   await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
@@ -40,16 +40,10 @@ test("France, Québec or Angleterre is selected once and returns only through Ne
   assert.ok(card.custom("filter"), "department and postcode commune lists must be searchable");
   assert.equal(card.custom("territory"), undefined);
   for (let i = 0; i < 4; i++) await choose(card, "0"); // commune, line, origin, destination
-  assert.equal(card.last.embeds.length, 1); assert.ok(card.custom("restart"));
+  assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
-  const outsider = card.interaction("restart", { user: { id: "other" } });
-  await card.collector.collect(outsider.value); await tick();
-  assert.match(JSON.stringify(outsider.replies), /appartient/); assert.equal(card.last.embeds.length, 1);
-  await click(card, "restart");
-  assert.match(card.last.content!, /Choisis le territoire/); assert.equal(card.last.embeds.length, 0);
-  assert.equal(s.requests.length, 1, "restart must not silently query the previous postal code again");
-  await choose(card, "qc");
-  assert.match(card.last.content!, /localité québécoise/); assert.equal(s.requests.length, 1);
+  assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
+    [["Actualiser", "Retour", "Modifier"], ["Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -69,6 +63,31 @@ test("a uniquely resolved French metro city skips the territory prompt", async (
   assert.doesNotMatch(card.last.content!, /Choisis le territoire/);
   assert.match(card.last.content!, /Quelle commune/);
   assert.deepEqual(s.requests, [["Paris", "fr", "metro"]]);
+  card.collector.stop("cancelled");
+});
+
+test("selected metro arrivals omit redundant route notes and results use two compact button rows", async () => {
+  const d = fakeDiscord(), s = service();
+  const city = { id: "75056", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35 };
+  const source = { name: "IDFM", url: "https://transport.data.gouv.fr/datasets/test" };
+  s.value.cities = async () => [city] as any;
+  s.value.lines = async () => ({ lines: [{ label: "8", routeId: "M8", description: "Métro 8", mode: "metro",
+    nearbyStopIds: ["O"], selection: true, source,
+    resource: { original_url: "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip" } }] as any, unavailable: 0 });
+  s.value.departures = async () => ({ content: "Horaires", source, hasMore: true,
+    embed: { title: "Métro 8", description: "Horaires" } } as any);
+  await handleTransportSearch(d.message, { place: "Paris", territory: "fr", mode: "metro" }, "fr", "!", s.value);
+  const card = d.cards[0]!;
+  assert.match(card.last.content!, /Choisis une ligne/);
+  await choose(card, "0");
+  assert.match(card.last.content!, /Choisis ta station de départ/);
+  await choose(card, "0");
+  assert.match(card.last.content!, /Choisis ta station d’arrivée/);
+  assert.doesNotMatch(card.last.content!, /Trajets directs sur la ligne choisie|Correspondances non calculées/);
+  await choose(card, "0");
+  assert.equal(card.last.components.length, 2);
+  assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
+    [["Actualiser", "Retour", "Modifier"], ["Plus d’horaires", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 
