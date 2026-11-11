@@ -19,6 +19,16 @@ test("Typed road request preserves persona scope and uses the authorized domain 
   await dispatchAiCommand(fakeMessage() as unknown as Message, request, "fr", null, { personaId: "persona-test" });
   assert.deepEqual(fixture.handlers, []);
 });
+test("Typed weather uses the authorized handler and preserves its persona without a model call",async()=>{
+  fixture.reset();
+  const request={name:"get_weather" as const,atDestination:true};
+  await dispatchAiCommand(fakeMessage()as unknown as Message,request,"fr",null,{personaId:"weather-persona"});
+  assert.deepEqual(JSON.parse(fixture.handlers[0]!.slice("weather:".length)),{request,personaId:"weather-persona"});
+  assert.equal(fixture.modelCalls,0);
+  fixture.reset();fixture.features.ai_chat=false;
+  await dispatchAiCommand(fakeMessage()as unknown as Message,request,"fr",null);
+  assert.deepEqual(fixture.handlers,[]);
+});
 test("Persona action route uses the Pokémon domain handler directly, not model prose", async () => {
   fixture.reset();
   const handled = await handleAiActionRequest(fakeMessage() as unknown as Message,

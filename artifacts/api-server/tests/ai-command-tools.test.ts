@@ -21,7 +21,7 @@ const confirmation = () => new AiCommandConfirmation(radio, "requester", "text",
 test("Only the explicit allowlisted tools with closed schemas are advertised", () => {
   const tools = buildAiCommandTools(["nrj"]);
   assert.deepEqual(tools.map((tool) => tool.function.name), [
-    "plan_journey", "show_help", "start_minesweeper", "start_connect4", "play_radio", "module_diagnostic",
+    "get_weather", "plan_journey", "show_help", "start_minesweeper", "start_connect4", "play_radio", "module_diagnostic",
     "search_transport", "play_youtube", "search_youtube", "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current",
     "start_geoguessr", "start_guess_logo", "start_trivia", "start_guess_number",
   ]);

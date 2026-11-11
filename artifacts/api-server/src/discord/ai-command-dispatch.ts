@@ -19,6 +19,7 @@ import { RADIO_STATIONS, customStations, radioStates } from "./radio.js";
 import { handleAiMusicCommand } from "./ai-music-commands.js";
 import { handleTransportSearch } from "./transport-menu.js";
 import { handleTransportDialogue } from "./transport-dialogue.js";
+import { handleWeatherDialogue } from "./weather-dialogue.js";
 import { commandSafety, completeAiCommand, selectAiCommand, type CommandParameter } from "./ai-command-intent.js";
 import { handlePokemon } from "./pokemon.js";
 import type { Language } from "./responses.js";
@@ -116,7 +117,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
       }
       const module = isMusicAction(action) ? "music"
         : action.name === "module_diagnostic" ? "admin"
-        : ["show_help", "lookup_pokemon", "search_transport", "plan_journey"].includes(action.name) ? "other" : "games";
+        : ["show_help", "lookup_pokemon", "search_transport", "plan_journey", "get_weather"].includes(action.name) ? "other" : "games";
       await runModuleWithFallback(message, module, async () => {
         if (isMusicAction(action)) {
           let expectedVoice = action.name === "search_youtube" ? null : authorizedVoice;
@@ -129,6 +130,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
           return;
         }
         switch (action.name) {
+          case "get_weather": await handleWeatherDialogue(message,"météo",language,{request:action,personaId:options.personaId});break;
           case "plan_journey": await handleTransportDialogue(message, "itinéraire", language, { journey: action, personaId: options.personaId }); break;
           case "show_help": await sendHelpPaginator(message, language); break;
           case "lookup_pokemon":

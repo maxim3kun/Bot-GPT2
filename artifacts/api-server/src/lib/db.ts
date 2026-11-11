@@ -286,6 +286,10 @@ export const FOOD_HISTORY_MAX = 10;
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
 let mongoHealthy = false;
+/** Public, kilometre-scale model cache only: no Discord identities or address labels. */
+export function getWeatherCacheCollection<T extends import("mongodb").Document>(): Collection<T> | null {
+  return db?.collection<T>("public_weather_cache") ?? null;
+}
 export function getConversationMemoryCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("ai_conversation_memory") ?? null;
 }

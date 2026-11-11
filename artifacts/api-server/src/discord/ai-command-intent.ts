@@ -2,6 +2,7 @@ import { parseAiCommandTool, safeSearchText, type AiCommandAction } from "./ai-c
 import { extractRadioStationRequest } from "./radio-intent.js";
 import { parseTransportCommand } from "./transport-command-query.js";
 import { travelTurn } from "./transport-intent.js";
+import { weatherTurn } from "./weather-intent.js";
 
 export type CommandParameter = "youtube" | "youtube_search" | "radio" | "game";
 export type CommandIntent = { kind: "action"; action: AiCommandAction } | { kind: "clarify"; fr: string; en: string; parameter?: CommandParameter } | { kind: "none" };
@@ -45,6 +46,8 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     return checked ? { kind: "action", action: checked } : clarify("Précise des paramètres valides, sans commande, lien externe ni identifiant de membre ou de salon.", "Use valid arguments without commands, external links, or member/channel identifiers.");
   };
   const station = extractRadioStationRequest(body, stations);
+  const weather = weatherTurn(body);
+  if (weather) return action({ name: "get_weather", ...weather });
   if (station) return action({ name: "play_radio", station });
   if (/^(?:(?:mets|mettre|lance|lancer|joue|jouer|ecoute|ecouter|play|start)\s+(?:la |une |le )?)?(?:radio|station)\b/.test(n))
     return clarify(`Quelle radio connue souhaites-tu ? Par exemple : ${Object.values(stations).slice(0, 6).map(s => s.name).join(", ")}.`, "Which configured radio station would you like?", "radio");

@@ -65,6 +65,8 @@ const stubs = {
   };`,
   "transport-dialogue.js": `export const handleTransportDialogue = async (message, text, language, options) =>
     handler("journey:" + JSON.stringify(options), message);`,
+  "weather-dialogue.js": `export const handleWeatherDialogue = async (message, text, language, options) =>
+    handler("weather:" + JSON.stringify(options), message);`,
 };
 const output = await mkdtemp(path.join(tmpdir(), "ai-command-dispatch-"));
 try {

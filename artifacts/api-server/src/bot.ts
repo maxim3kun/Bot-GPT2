@@ -73,6 +73,7 @@ import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTransportDialogue, handleJourneyCommand } from "./discord/transport-dialogue.js";
+import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
 import { handleTransportCommand } from "./discord/transport-menu.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
@@ -395,6 +396,7 @@ export function startBot(): void {
       return;
     }
 
+    if (await handleWeatherDialogue(message, prompt, aiResponseLang)) return;
     if (await handleTransportDialogue(message, prompt, aiResponseLang)) return;
     if (await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
     const route = classifyAiMessage(prompt);
@@ -1412,6 +1414,9 @@ export function startBot(): void {
         responseLang,
         addressedToBot,
       )) return;
+      if (await handleWeatherDialogue(message, cleanedContent,
+        getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
+        { continuationOnly: !addressedToBot })) return;
       if (await handleTransportDialogue(message, cleanedContent,
         getAiResponseLanguage(message.author.id, cleanedContent, responseLang),
         { continuationOnly: !addressedToBot })) return;
@@ -1725,6 +1730,10 @@ export function startBot(): void {
     try {
       if (command === "trajet" || command === "itineraire") {
         await handleJourneyCommand(message, args, responseLang);
+        return;
+      }
+      if (command === "meteo" || command === "weather") {
+        await handleWeatherCommand(message, args, responseLang);
         return;
       }
       if (command === "bus" || command === "metro" || command === "transport" || command === "transports" || command === "tram" || command === "train") {

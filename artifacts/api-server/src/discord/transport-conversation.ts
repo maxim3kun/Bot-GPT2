@@ -8,6 +8,7 @@ export { formatItinerary } from "./transport-itinerary-presentation.js";
 
 type Side = "origin" | "destination";
 interface Session {
+  weatherDestination?: { place: OfficialPlace; arrival: number };
   mode?: "car" | "transit";
   origin?: string; destination?: string; service?: boolean;
   resolvedOrigin?: OfficialPlace; resolvedDestination?: OfficialPlace;
@@ -30,6 +31,10 @@ export class TransportConversation {
   constructor(private provider: ItineraryProvider = new IdfmPlanner(), private now = Date.now,
     private road: ItineraryProvider = new IgnRoadPlanner(fetch, now)) {}
   clear(scope: string) { this.sessions.delete(scope); }
+  verifiedWeatherDestination(scope: string) {
+    const state = this.get(scope), value = state?.weatherDestination;
+    return state?.ticket && value ? { place: { ...value.place, ids: [...value.place.ids] }, arrival: value.arrival } : null;
+  }
   remaining(scope: string, ticket: symbol): number {
     const state = this.get(scope);
     return state?.ticket === ticket ? Math.max(0, state.expires - this.now()) : 0;
@@ -190,6 +195,7 @@ export class TransportConversation {
       if (!journeys.length) return answer(fr ? "Le calculateur officiel ne propose aucun trajet pour ces lieux et cette heure. Je ne peux pas en confirmer un."
         : "The official planner returned no journey for these places and time. I cannot confirm a route.");
       const journey = journeys[0]!;
+      state.weatherDestination = { place: { ...destination, ids: [...destination.ids] }, arrival: journey.arrival };
       state.ticket ??= Symbol("verified-trip");
       return { content: (fresh ? (fr ? "Trajet revérifié auprès du calculateur officiel.\n" : "Rechecked with the official planner.\n") : "") +
         formatItinerary(journey, origin, destination, fr),

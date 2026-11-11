@@ -8,7 +8,7 @@ export interface DialogueOptions { personaId?: string; continuationOnly?: boolea
 export const travelScope = (message: Pick<Message, "guildId" | "channelId" | "author">, personaId?: string) =>
   JSON.stringify([message.guildId ?? "dm", message.channelId, message.author.id, personaId ?? "bot"]);
 
-async function authorizeTransport(message: Message, language: string): Promise<boolean> {
+export async function authorizeTransport(message: Message, language: string): Promise<boolean> {
   const [{ getGlobalFeatures, getGuildFeatures }, { isFeatureEnabled }, { requireConsent },
     { checkCommandBlock, sendBlockedMessage }, { getPrefix }] = await Promise.all([
     import("../lib/features-store.js"), import("../bootstrap/feature-flags.js"), import("./ai-consent.js"),
@@ -48,6 +48,7 @@ export function createTransportDialogue(
     const existing = attempted.get(message)?.get(scope); if (existing) return existing;
     // Timetables use the existing transport browser; genuine itineraries keep this official planner.
     const command = selectAiCommand(input, {});
+    if (command.kind === "action" && command.action.name === "get_weather") return false;
     if (!options.journey && (commandSafety(input) === "quoted" || isTimetableSearch(input) ||
       command.kind !== "none" && !(command.kind === "action" && command.action.name === "plan_journey"))) {
       if (!options.continuationOnly) { service.clear(scope); cards.invalidate(scope); }
@@ -92,7 +93,10 @@ export function createTransportDialogue(
     return work;
   };
 }
-export const handleTransportDialogue = createTransportDialogue();
+const transportService = new TransportConversation();
+export const handleTransportDialogue = createTransportDialogue(transportService);
+export const verifiedWeatherDestination = (message: Message, personaId?: string) =>
+  transportService.verifiedWeatherDestination(travelScope(message, personaId));
 
 /** Native aliases use exactly the same authorization, context and cards as mentions. */
 export async function handleJourneyCommand(message: Message, args: string[], language: string,

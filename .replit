@@ -87,6 +87,8 @@ externalPort = 3000
 
 [userenv.shared]
 PORT = "8080"
+MET_WEATHER_CONTACT_URL = "https://github.com/maxim3kun/Bot-GPT2/tree/test-gpt4-refactor"
+MET_WEATHER_TERMS_ACCEPTED = "true"
 
 [nix]
 channel = "stable-25_05"

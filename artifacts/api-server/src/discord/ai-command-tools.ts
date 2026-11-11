@@ -1,9 +1,11 @@
 import type { JourneyRequest } from "./transport-planner-types.js";
+import type { WeatherRequest } from "./weather-types.js";
 /**
  * Deliberately closed tool boundary. Model text is never parsed as a prefix
  * command, and tool arguments cannot supply users, channels, URLs or permissions.
  */
 export type AiCommandAction =
+  | ({ name: "get_weather" } & WeatherRequest)
   | ({ name: "plan_journey" } & JourneyRequest)
   | { name: "show_help" }
   | { name: "lookup_pokemon"; query: string }
@@ -37,6 +39,13 @@ export function parseAiCommandTool(
     args = value as Record<string, unknown>;
   } catch { return null; }
   const name = call.function.name;
+  if (name === "get_weather" && Object.keys(args).every(k=>["place","territory","when","atDestination"].includes(k))
+    && (args.place===undefined||safeSearchText(args.place,140)&&args.place.trim().length>0)
+    && (args.when===undefined||safeSearchText(args.when,80)&&args.when.trim().length>0)
+    && (args.territory===undefined||["fr","qc"].includes(args.territory as string))
+    && (args.atDestination===undefined||typeof args.atDestination==="boolean")
+    && !(args.place&&args.atDestination))
+    return {name,...args} as AiCommandAction;
   if (name === "plan_journey" && Object.keys(args).every(k => ["mode", "origin", "destination", "time"].includes(k))
     && [null, "car", "transit"].includes(args.mode as string | null)
     && ["origin", "destination", "time"].every(k => args[k] === undefined || safeSearchText(args[k], k === "time" ? 80 : 140) && (args[k] as string).trim().length > 0))
@@ -82,6 +91,9 @@ export function buildAiCommandTools(stationKeys: string[]) {
     },
   });
   return [
+    tool("get_weather","Get a verified forecast on explicit request. Destination means only the requester's verified journey in this channel/persona. Never supply coordinates, URLs, user IDs or invented weather.",{
+      place:{type:"string",maxLength:140},territory:{enum:["fr","qc"]},when:{type:"string",maxLength:80},atDestination:{type:"boolean"},
+    }),
     tool("plan_journey", "Calculate a verified driving route in metropolitan France or public transit where the official planner covers it. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
       mode: { enum: ["car", "transit", null] }, origin: { type: "string", maxLength: 140 },
       destination: { type: "string", maxLength: 140 }, time: { type: "string", maxLength: 80 },

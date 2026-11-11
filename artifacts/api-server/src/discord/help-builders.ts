@@ -449,6 +449,14 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "ai":
       embed.setTitle({ en: "🤖 AI Commands", fr: "🤖 Commandes IA", es: "🤖 Comandos IA", de: "🤖 KI-Befehle", pt: "🤖 Comandos de IA", it: "🤖 Comandi IA" }[tl] ?? "🤖 AI");
       embed.addFields(
+        { name: `\`${p}meteo Beauvais demain\``, value: ({
+          fr:"Prévisions gratuites MET Norway, sur demande uniquement. Précise France/Québec pour les communes homonymes. « Météo à destination » utilise ton trajet vérifié dans le même salon/persona.",
+          en:"Free MET Norway forecasts, on request only. Specify France/Québec for similarly named towns. “Weather at destination” uses your verified journey in the same channel/persona.",
+          es:"Previsiones gratuitas de MET Norway, solo a petición. Precisa Francia/Quebec para lugares homónimos. El destino usa solo tu viaje verificado en este canal/persona.",
+          de:"Kostenlose MET-Norway-Vorhersagen nur auf Anfrage. Bei gleichnamigen Orten Frankreich/Québec angeben. Das Ziel stammt nur aus deiner bestätigten Reise in diesem Kanal/Persona.",
+          pt:"Previsões gratuitas da MET Norway, apenas a pedido. Especifica França/Québec para locais homónimos. O destino usa só a tua viagem verificada neste canal/persona.",
+          it:"Previsioni gratuite MET Norway, solo su richiesta. Specifica Francia/Québec per luoghi omonimi. La destinazione usa solo il tuo viaggio verificato in questo canale/persona.",
+        }[tl]??"") },
         { name: `\`${p}trajet voiture Beauvais -> Amiens\``, value: tl === "fr"
           ? "Itinéraire gratuit IGN : distance, durée estimée et instructions. Une demande naturelle fonctionne aussi. Pour les transports collectifs, les correspondances dépendent de la couverture officielle."
           : "Free IGN driving route: distance, estimated duration and instructions. Natural requests also work. Public-transit connections depend on official coverage." },

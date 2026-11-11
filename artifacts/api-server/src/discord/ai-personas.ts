@@ -52,6 +52,7 @@ import { getPrefix } from "./prefix-store.js";
 import { handleAiActionRequest } from "./ai-actions.js";
 import { handlePublicTransportRequest } from "./public-transport.js";
 import { handleTransportDialogue } from "./transport-dialogue.js";
+import { handleWeatherDialogue } from "./weather-dialogue.js";
 import { createReliableCompletion } from "./ai-reliable-completion.js";
 import { shouldSkipConversation } from "./ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./ai-speaker-context.js";
@@ -1139,6 +1140,7 @@ async function respondWithPersona(
     rememberPersonaConversationTurn(historyKey, prompt, arithmeticReply);
     return;
   }
+  if (await handleWeatherDialogue(message, prompt, responseLanguage, { personaId: persona.id })) return;
   if (await handleTransportDialogue(message, prompt, responseLanguage, { personaId: persona.id })) return;
   if (await handleAiActionRequest(message, prompt, openai, responseLanguage, { personaId: persona.id })) return;
   if (!openai) {
