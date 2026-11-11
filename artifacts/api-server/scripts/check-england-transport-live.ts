@@ -45,6 +45,25 @@ async function main() {
     console.log(JSON.stringify({ mode, structuralReturnVerified: !!reverse }));
     await measure(`${mode}-warm-routes`, () => browser.lines(city, mode, requested, "tfl"));
   }
+  if (process.argv.includes("--line462")) {
+    const listing = await measure("TfL-462-live-inventory", () => browser.lines(city, "bus", "462", "tfl"));
+    const line = listing.lines[0];
+    if (!line) throw Error("Official TfL 462 route missing");
+    const index = await measure("TfL-462-live-topology", () => browser.index(line));
+    const routeOrigins = originOptions(index, line).filter(o => /Beehive Lane/i.test(o.label));
+    if (!routeOrigins.length) throw Error("TfL 462 Beehive Lane missing");
+    const summary = [];
+    for (const origin of routeOrigins) {
+      const arrival = arrivalOptions(index, origin).find(a => /Millwell Crescent/i.test(a.label));
+      if (!arrival) { summary.push({ origin: origin.label, officialMillwellRouteAvailable: false }); continue; }
+      const result = await measure("TfL-462-selected-stops-live-result",
+        () => browser.departures(line, index, origin, arrival, "fr"));
+      summary.push({ origin: origin.label, arrival: arrival.label, originPlatforms: origin.ids.length,
+        result: result.embed?.fields?.map(f => ({ name: f.name, value: f.value })) ?? result.content });
+    }
+    console.log(JSON.stringify({ mode: "bus", line: line.label, stops: summary,
+      routeCount: listing.lines.length, branches: index.visits.size }));
+  }
   if (process.argv.includes("--bods")) {
     const cities = await measure("Cambridge-official-locality", () => browser.cities("Cambridge", "en", "bus"));
     const cambridge = cities.find(c => /Cambridgeshire/.test(c.label));
