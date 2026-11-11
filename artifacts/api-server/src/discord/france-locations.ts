@@ -1,4 +1,5 @@
 import type { TransportLocation } from "./public-transport.js";
+import { normalizeCityName } from "./bus-journey.js";
 export interface FrenchArea { kind: "department" | "postcode"; code: string }
 export function frenchArea(value: string): FrenchArea | null {
   const text = value.normalize("NFD").replace(/\p{Diacritic}/gu, "").trim()
@@ -9,7 +10,7 @@ export function frenchArea(value: string): FrenchArea | null {
 }
 type Json = (url: string, maxBytes: number) => Promise<unknown>;
 interface Commune {
-  nom?: string; code?: string; population?: number; codesPostaux?: string[];
+  nom?: string; code?: string; codeDepartement?: string; population?: number; codesPostaux?: string[];
   centre?: { coordinates?: number[] }; departement?: { code?: string; nom?: string }; region?: { nom?: string };
 }
 interface Station {
@@ -23,6 +24,35 @@ const coordinates = (lon?: number, lat?: number) => Number.isFinite(lon) && Numb
 /** Official geographic and passenger-station references; neither is evidence of today's train service. */
 export class FranceLocations {
   constructor(private readonly json: Json) {}
+  async named(place: string): Promise<TransportLocation[]> {
+    const qualifier = place.match(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i)?.[1]?.toUpperCase();
+    const name = qualifier ? place.replace(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i, "").trim() : place;
+    const url = new URL("https://geo.api.gouv.fr/communes");
+    url.searchParams.set("nom", name);
+    url.searchParams.set("fields", "nom,code,codeDepartement,codesPostaux,centre,departement,region,population");
+    url.searchParams.set("format", "json");
+    url.searchParams.set("limit", "20");
+    const result = await this.json(url.href, 1_000_000);
+    if (!Array.isArray(result)) throw Error("Invalid official municipality response");
+    let communes = result as Commune[];
+    const exact = communes.filter(commune => normalizeCityName(commune.nom ?? "") === normalizeCityName(name));
+    if (exact.length) communes = exact;
+    if (qualifier) communes = communes.filter(commune => qualifier.length === 5
+      ? commune.codesPostaux?.includes(qualifier)
+      : (commune.departement?.code ?? commune.codeDepartement) === qualifier);
+    return communes.sort((a, b) => (b.population ?? 0) - (a.population ?? 0)).flatMap(commune => {
+      const [longitude, latitude] = commune.centre?.coordinates ?? [];
+      if (!commune.nom || !commune.code || !cityCode(commune.code) || !coordinates(longitude, latitude)) return [];
+      const context = [commune.departement?.code ?? commune.codeDepartement, commune.departement?.nom, commune.region?.nom]
+        .filter(Boolean).join(", ");
+      const postcodes = Array.isArray(commune.codesPostaux)
+        ? commune.codesPostaux.filter(code => /^\d{5}$/.test(code)).join("/") : "";
+      return [{ id: commune.code, name: commune.nom,
+        label: `${commune.nom}${context ? ` — ${context}` : ""}${postcodes ? ` · ${postcodes}` : ""}`,
+        latitude: latitude!, longitude: longitude! }];
+    });
+  }
+
   async anchor(city: TransportLocation): Promise<TransportLocation> {
     if (city.kind === "station" || !cityCode(city.id)) return city;
     const url = new URL(`https://geo.api.gouv.fr/communes/${city.id}`);
