@@ -123,11 +123,11 @@ Transport results should remain compact and readable on Discord mobile, without 
 
 **How to apply:** Preserve dates, actual platforms and timetable reliability while grouping repeated information. Offer additional departures without repeating the data lookup. Keep any text fallback equally readable.
 
-Offer France/Québec only at the beginning of each search. Remove its separate control after selection; users change territory through “Nouvelle recherche”.
+Infer the territory when a city resolves exactly in only one official gazetteer, and persist stable public city references in MongoDB. Keep the territory chooser for cross-territory homonyms or unavailable gazetteers; restart selection through “Nouvelle recherche” when needed.
 
-**Why:** The user explicitly confirmed “Oui, puis seulement Nouvelle recherche”.
+**Why:** The user confirmed the chooser should appear at the start rather than throughout the flow, then clarified that `!metro Paris ligne 8` should already identify France from known city data.
 
-**How to apply:** Restart the territory selection for a new search without adding a France/Québec button back to results or intermediate choices.
+**How to apply:** Cache only public city identity and coordinates, not schedules. Skip the chooser only when one territory is confirmed; never guess between France and Québec for an ambiguous name.
 
 Municipality geocoding can return an area centroid rather than its inhabited centre. For local network discovery, prefer the official town-hall point; preserve exact station coordinates when a station was selected.
 

@@ -243,6 +243,21 @@ export class TransportBrowserClient {
     return this.providerFor(territory).municipalities(place);
   }
 
+  async inferTerritory(place: string): Promise<TransportTerritory | undefined> {
+    const query = normalizeTransitText(place.replace(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i, ""));
+    if (!query) return undefined;
+    if (query === "london" || query === "londres") return "en";
+    const [france, quebec] = await Promise.allSettled([
+      this.cities(place, "fr", "bus"), this.cities(place, "qc", "bus"),
+    ]);
+    // A failed gazetteer cannot prove that the other territory is unique.
+    if (france.status !== "fulfilled" || quebec.status !== "fulfilled") return undefined;
+    const matches = new Set<TransportTerritory>();
+    if (france.value.some(city => normalizeTransitText(city.name) === query)) matches.add("fr");
+    if (quebec.value.some(city => normalizeTransitText(city.name) === query)) matches.add("qc");
+    return matches.size === 1 ? [...matches][0] : undefined;
+  }
+
   async lines(city: TransportLocation, mode: TransitMode, requestedLine = "", networkId?: string): Promise<LineListing> {
     const key = `${city.territory ?? "fr"}:${city.id}:${mode}:${normalizeTransitText(requestedLine)}:${networkId ?? "*"}`;
     const cached = this.listings.get(key);

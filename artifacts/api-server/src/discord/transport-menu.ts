@@ -584,6 +584,8 @@ export async function handleTransportSearch(
   const stop = () => collector.stop("replaced");
   active.set(sessionKey, stop);
   await run(async () => {
+    if (!territory && place && selectedMode && typeof service.inferTerritory === "function")
+      territory = await service.inferTerritory(place);
     // Municipality-based shorthand resolution happens once in loadCities.
     if (!territory || !selectedMode) await render();
     else await loadCities();

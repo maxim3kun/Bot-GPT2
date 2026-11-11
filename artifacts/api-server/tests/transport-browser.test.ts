@@ -23,6 +23,18 @@ const zip = zipSync({
   "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nB1,08:10:00,08:10:00,O,1\nB1,08:20:00,08:20:00,X,2\nB1,09:00:00,09:00:00,D,3\nB2,08:05:00,08:05:00,D,1\nB2,08:40:00,08:40:00,X,2\nB2,09:10:00,09:10:00,O,3\nM1,08:03:00,08:03:00,P,1\nM1,08:05:00,08:05:00,Q,2\n"),
 });
 
+test("territory inference selects a unique official place, retains homonym choices, and recognizes London", async () => {
+  const france = { municipalities: async (place: string) => place === "Paris"
+    ? [{ id: "75056", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35, territory: "fr" }]
+    : place === "Laval" ? [{ id: "53000", name: "Laval", label: "Laval — Mayenne", latitude: 48.07, longitude: -.77, territory: "fr" }] : [] };
+  const quebec = { municipalities: async (place: string) => place === "Laval"
+    ? [{ id: "qc:laval", name: "Laval", label: "Laval · Québec", latitude: 45.6, longitude: -73.7, territory: "qc" }] : [] };
+  const browser = new TransportBrowserClient(france as any, Date.now, undefined, quebec as any, {} as any);
+  assert.equal(await browser.inferTerritory("Paris"), "fr");
+  assert.equal(await browser.inferTerritory("Laval"), undefined, "homonyms must keep the country selector");
+  assert.equal(await browser.inferTerritory("Londres"), "en");
+});
+
 function fixture(failingSource = false, feed = zip) {
   const boxes: number[] = [];
   const dataset = {

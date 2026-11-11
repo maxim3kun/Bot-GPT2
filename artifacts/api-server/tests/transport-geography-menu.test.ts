@@ -61,6 +61,17 @@ test("The train entry forwards its mode and uses station coordinates instead of 
   assert.equal(card.custom("territory"), undefined); card.collector.stop("cancelled");
 });
 
+test("a uniquely resolved French metro city skips the territory prompt", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.inferTerritory = async (place: string) => place === "Paris" ? "fr" : undefined;
+  await handleTransportCommand(d.message, ["Paris", "ligne", "8"], "fr", "!", "metro", s.value);
+  const card = d.cards[0]!;
+  assert.doesNotMatch(card.last.content!, /Choisis le territoire/);
+  assert.match(card.last.content!, /Quelle commune/);
+  assert.deepEqual(s.requests, [["Paris", "fr", "metro"]]);
+  card.collector.stop("cancelled");
+});
+
 test("675 routes are visibly counted across 27 selectable pages", async () => {
   const d = fakeDiscord(), s = service();
   s.value.lines = async () => ({ lines: Array.from({ length: 675 }, (_, i) => ({

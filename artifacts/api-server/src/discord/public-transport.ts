@@ -486,9 +486,10 @@ export class FranceTransportClient {
   }
 
   async municipalities(place: string): Promise<TransportLocation[]> {
-    const numeric = await this.locations.numeric(place);
-    if (numeric) return numeric;
-    return this.locations.named(place);
+    const normalized = normalizeTransitText(place);
+    return this.metadata.get({ territory: "fr", provider: "geo", kind: "locations",
+      source: `commune-search:${normalized}`, version: "geo-api-v1" }, 24 * 3600_000, async () =>
+      await this.locations.numeric(place) ?? this.locations.named(place));
   }
 
   async railLocations(place: string): Promise<TransportLocation[]> {

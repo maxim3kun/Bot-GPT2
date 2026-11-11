@@ -137,7 +137,10 @@ export class QuebecTransportClient implements TransportProvider {
       ({ ...resource, referenceVersion: resourceVersion(resource) })) })));
   }
   async municipalities(place: string): Promise<TransportLocation[]> {
-    return this.cached(`cities:${normalizeTransitText(place)}`, 6 * 3600_000, async () => {
+    const normalized = normalizeTransitText(place);
+    return this.metadata.get({ territory: "qc", provider: "geogratis", kind: "locations",
+      source: `municipality-search:${normalized}`, version: "geogratis-v1" }, 24 * 3600_000, () =>
+      this.cached(`cities:${normalized}`, 6 * 3600_000, async () => {
       const url = new URL("https://geogratis.gc.ca/services/geoname/fr/geonames.json");
       for (const [key, value] of Object.entries({ q: place, province: "24", category: "O", concise: "CITY,TOWN,VILG,UNP", num: "100" })) url.searchParams.set(key, value);
       const data = await this.json<{ items?: Array<{ id: string; name: string; category: string; province: { code: string };
@@ -152,7 +155,7 @@ export class QuebecTransportClient implements TransportProvider {
         normalizeTransitText(c.name) === normalizeTransitText(x.name) && c.location === x.location));
       return items.slice(0, 30).map(x => ({ id: `qc:${x.id}`, name: x.name, label: `${x.name} — ${x.location} · Québec`,
         latitude: x.latitude, longitude: x.longitude, territory: "qc" }));
-    });
+    }));
   }
   private archive(resource: CatalogResource) {
     return new GtfsRangeArchive(async (range, validator) => {

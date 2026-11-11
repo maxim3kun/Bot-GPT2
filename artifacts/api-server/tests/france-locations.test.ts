@@ -74,6 +74,21 @@ test("named French transport cities use the official commune API and keep exact 
   assert.deepEqual((await client.municipalities("Frejus 83600")).map(city => city.id), ["83061"]);
   assert.ok(calls.every(url => url.searchParams.get("nom") === "Frejus"));
 });
+test("French city-to-territory lookups are stored as public Mongo metadata", async () => {
+  let key: any, ttl = 0;
+  const metadata = { async get(value: any, lifetime: number, load: () => Promise<unknown>) {
+    key = value; ttl = lifetime; return load();
+  } };
+  const client = new FranceTransportClient(async () => Response.json([{
+    nom: "Paris", code: "75056", codeDepartement: "75", codesPostaux: ["75001"],
+    centre: { coordinates: [2.347, 48.8589] }, departement: { code: "75", nom: "Paris" },
+    region: { nom: "Île-de-France" }, population: 2_100_000,
+  }]), Date.now, metadata as any);
+  const [paris] = await client.municipalities("Paris");
+  assert.equal(paris?.territory, "fr");
+  assert.deepEqual([key.territory, key.provider, key.kind], ["fr", "geo", "locations"]);
+  assert.equal(ttl, 24 * 3600_000);
+});
 test("metro shortcut keeps Paris and line 8 intact while omitting optional territory selection", () => {
   const parsed = parseTransportCommand(["Paris", "ligne", "8"]);
   assert.equal(parsed.place, "Paris");

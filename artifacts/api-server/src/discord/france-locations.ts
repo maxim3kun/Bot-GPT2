@@ -49,7 +49,7 @@ export class FranceLocations {
         ? commune.codesPostaux.filter(code => /^\d{5}$/.test(code)).join("/") : "";
       return [{ id: commune.code, name: commune.nom,
         label: `${commune.nom}${context ? ` — ${context}` : ""}${postcodes ? ` · ${postcodes}` : ""}`,
-        latitude: latitude!, longitude: longitude! }];
+        latitude: latitude!, longitude: longitude!, territory: "fr" as const }];
     });
   }
 
@@ -78,7 +78,7 @@ export class FranceLocations {
         const context = [c.departement?.code, c.departement?.nom, c.region?.nom].filter(Boolean).join(", ");
         const postcodes = Array.isArray(c.codesPostaux) ? c.codesPostaux.filter(code => typeof code === "string" && /^\d{5}$/.test(code)).join("/") : "";
         return [{ id: c.code, name: c.nom, label: `${c.nom}${context ? ` — ${context}` : ""}${postcodes ? ` · ${postcodes}` : ""}`,
-          longitude: lon!, latitude: lat! }];
+          longitude: lon!, latitude: lat!, territory: "fr" as const }];
       });
   }
   async stations(place: string, cities: TransportLocation[]): Promise<TransportLocation[]> {
