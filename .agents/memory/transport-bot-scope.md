@@ -99,6 +99,12 @@ Do not infer a transfer or walking duration from equal stop names, destinations,
 
 **How to apply:** Keep routing limitations visible, preserve the selected municipality identity, and label each leg's timetable/realtime status independently. A known but incomplete live update must not silently confirm a connection from unchanged scheduled times.
 
+Dense GTFS feeds can have far more theoretical trip-pair combinations than useful arrival choices. Build arrival options from deduplicated official stop/route evidence, and restrict timed itinerary evaluation to trips with service in the requested time window rather than materializing the full Cartesian product.
+
+**Why:** A live Beauvais train lookup exceeded the transfer-work budget while generating choices and again after an arrival was selected, even though a valid one-change itinerary existed.
+
+**How to apply:** Keep the official transfer-rule precedence and minimum-time checks, but deduplicate structural arrival candidates and filter timed paths by active service before evaluating them. If a bounded search still cannot finish, disclose the limitation instead of inventing or silently dropping a connection.
+
 ## Short timetable windows and service exceptions
 
 An empty 24-hour window is not evidence that a valid line has no timetable. For direct journeys, show later published service within seven days when the ordinary window is empty, retaining date exceptions and showing actual dates.

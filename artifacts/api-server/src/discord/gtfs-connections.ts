@@ -59,10 +59,6 @@ export interface ConnectionPath {
   rule: TransferRule;
 }
 
-function applies(stopId: string, ruleStop: string, index: JourneyIndex): boolean {
-  return stopId === ruleStop || index.stops.get(stopId)?.parent === ruleStop;
-}
-
 function specificity(rule: TransferRule): number {
   const trips = Number(Boolean(rule.fromTrip)) + Number(Boolean(rule.toTrip));
   const routes = Number(Boolean(rule.fromRoute)) + Number(Boolean(rule.toRoute));
@@ -78,7 +74,7 @@ function preferredTransferRule(matching: TransferRule[]): TransferRule | undefin
 }
 
 export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string>, destinations?: ReadonlySet<string>,
-  onPath?: (path: ConnectionPath) => void): ConnectionPath[] {
+  onPath?: (path: ConnectionPath) => void, relevantPair?: (pair: JourneyPair) => boolean): ConnectionPath[] {
   const data = index.connections;
   if (!data || data.network === index) return [];
   const network = data.network;
@@ -103,7 +99,9 @@ export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string
       for (const destination of visits.slice(position + 1)) {
         spend();
         if (destination.sequence > origin.sequence && destination.dropoff && fromStops.has(destination.stopId)) {
-          firstPairs.push({ tripId, origin, destination });
+          const pair = { tripId, origin, destination };
+          if (relevantPair && !relevantPair(pair)) continue;
+          firstPairs.push(pair);
           if (firstPairs.length > 10_000) throw new Error("Too many transfer approach legs");
         }
       }
@@ -118,47 +116,88 @@ export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string
       ids.push(stop.id); children.set(stop.parent, ids);
     }
   }
+  const rulesByFrom = new Map<string, TransferRule[]>();
+  const specificFromTrips = new Set<string>();
+  const specificToTrips = new Set<string>();
+  for (const rule of data.rules) {
+    const entries = rulesByFrom.get(rule.from) ?? [];
+    entries.push(rule);
+    rulesByFrom.set(rule.from, entries);
+    if (rule.fromTrip) specificFromTrips.add(rule.fromTrip);
+    if (rule.toTrip) specificToTrips.add(rule.toTrip);
+  }
   type Boarding = { tripId: string; visits: JourneyIndex["visits"] extends Map<string, infer V> ? V : never; position: number };
   const boardings = new Map<string, Boarding[]>();
   for (const [tripId, visits] of network.visits) {
     if (network.metadata.trips.get(tripId)?.routeId === index.routeId || data.frequencyTrips.has(tripId)) continue;
     visits.forEach((visit, position) => {
       if (!visit.pickup) return;
+      const nextDropoff = visits.slice(position + 1).find((candidate) => candidate.dropoff);
+      if (!nextDropoff || (relevantPair && !relevantPair({ tripId, origin: visit, destination: nextDropoff }))) return;
       const entries = boardings.get(visit.stopId) ?? [];
       entries.push({ tripId, visits, position }); boardings.set(visit.stopId, entries);
     });
   }
+  const listedFirstGroups = new Set<string>();
+  const listedBoardingGroups = new Set<string>();
   for (const first of firstPairs) {
     if (data.frequencyTrips.has(first.tripId)) continue;
-    const rules = data.rules.filter((rule) => { spend(); return applies(first.destination.stopId, rule.from, network); });
+    const firstRoute = network.metadata.trips.get(first.tripId)?.routeId;
+    const firstGroup = `${first.destination.stopId}:${firstRoute ?? ""}:${specificFromTrips.has(first.tripId) ? first.tripId : "*"}`;
+    if (listedDestinations) {
+      if (listedFirstGroups.has(firstGroup)) continue;
+      listedFirstGroups.add(firstGroup);
+    }
+    const firstStop = network.stops.get(first.destination.stopId);
+    const rules = [...(rulesByFrom.get(first.destination.stopId) ?? []),
+      ...(firstStop?.parent && firstStop.parent !== first.destination.stopId ? rulesByFrom.get(firstStop.parent) ?? [] : [])];
+    if (!rules.length) continue;
+    const rulesByTo = new Map<string, TransferRule[]>();
+    for (const rule of rules) {
+      const entries = rulesByTo.get(rule.to) ?? [];
+      entries.push(rule);
+      rulesByTo.set(rule.to, entries);
+    }
     const targets = new Set(rules.flatMap((rule) => [rule.to, ...(children.get(rule.to) ?? [])]));
     for (const target of targets) {
       for (const { tripId, visits, position } of boardings.get(target) ?? []) {
         spend();
         const boarding = visits[position]!;
+        const secondRoute = network.metadata.trips.get(tripId)?.routeId;
+        if (listedDestinations) {
+          const boardingGroup = `${firstGroup}:${boarding.stopId}:${secondRoute ?? ""}:${specificToTrips.has(tripId) ? tripId : "*"}`;
+          if (listedBoardingGroups.has(boardingGroup)) continue;
+          listedBoardingGroups.add(boardingGroup);
+        }
+        const boardingStop = network.stops.get(boarding.stopId);
+        const candidates = [...(rulesByTo.get(boarding.stopId) ?? []),
+          ...(boardingStop?.parent && boardingStop.parent !== boarding.stopId ? rulesByTo.get(boardingStop.parent) ?? [] : [])];
+        budget += candidates.length;
+        spend();
+        const rule = preferredTransferRule(candidates.filter((candidate) =>
+          (!candidate.fromRoute || candidate.fromRoute === firstRoute) &&
+          (!candidate.toRoute || candidate.toRoute === secondRoute) &&
+          (!candidate.fromTrip || candidate.fromTrip === first.tripId) &&
+          (!candidate.toTrip || candidate.toTrip === tripId)));
+        if (!rule) continue;
         for (const destination of visits.slice(position + 1)) {
           spend();
           if (destination.sequence <= boarding.sequence || !destination.dropoff || origins.has(destination.stopId) ||
             (destinations && !destinations.has(destination.stopId))) continue;
           const second = { tripId, origin: boarding, destination };
-          // Charge for rule matching too, so a dense transfers table cannot block the event loop.
-          budget += rules.length;
-          spend();
-          const rule = transferRule(index, first, second, rules);
-          if (rule) {
-            const path = { first, second, rule };
-            if (onPath) onPath(path);
-            else if (listedDestinations) {
-              // Arrival pickers need proof that a stop is reachable, not every
-              // timetable combination that reaches that same stop.
-              if (!listedDestinations.has(destination.stopId)) {
-                listedDestinations.add(destination.stopId);
-                paths.push(path);
-              }
-            } else {
+          if (relevantPair && !relevantPair(second)) continue;
+          const path = { first, second, rule };
+          if (onPath) onPath(path);
+          else if (listedDestinations) {
+            // Arrival pickers need proof that a stop is reachable, not every
+            // timetable combination that reaches that same stop.
+            if (!listedDestinations.has(destination.stopId)) {
+              listedDestinations.add(destination.stopId);
               paths.push(path);
-              if (paths.length > 10_000) throw new Error("Too many possible transfer paths");
             }
+          } else {
+            paths.push(path);
+            if (paths.length > 10_000) throw new Error("Too many possible transfer paths");
           }
         }
       }

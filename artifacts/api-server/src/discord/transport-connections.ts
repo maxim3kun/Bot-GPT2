@@ -72,7 +72,7 @@ export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arriva
         }
       }
     }
-  });
+  }, (pair) => times(pair).length > 0);
   return [...results.values()].sort(rank);
 }
 
