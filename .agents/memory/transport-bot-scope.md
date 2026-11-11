@@ -9,6 +9,14 @@ Transport questions should be handled through the Discord bot. Query public-tran
 
 **How to apply:** Implement a Discord-side data lookup, not a separate transport website. Include any usable public network feed, distinguish verified real-time estimates from scheduled times, and state when live data is unavailable.
 
+## Québec coverage
+
+The requested geographic coverage also includes the whole province of Québec, not only Montréal, Laval and Longueuil, for buses, metro and trains, while retaining French coverage.
+
+**Why:** The user explicitly chose “Tout le Québec” when asked to select coverage.
+
+**How to apply:** Plan province-wide discovery using real official feeds and disclose missing or inaccessible data per network. Do not reinterpret this as a timezone-only change or silently restrict Québec to the Montréal metropolitan area.
+
 ## Address-search ranking
 
 The national address search can rank a street named after a city above the municipality itself. A bare “Beauvais” lookup returned a street in Guichen, while “Beauvais Amiens” returned streets in Amiens.
