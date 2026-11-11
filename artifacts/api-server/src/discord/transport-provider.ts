@@ -6,6 +6,8 @@ export const TERRITORY_NAMES: Record<TransportTerritory, string> = { fr: "France
 export interface TransportProvider {
   getCatalog(): Promise<CatalogDataset[]>;
   municipalities(place: string): Promise<TransportLocation[]>;
+  railLocations?(place: string): Promise<TransportLocation[]>;
+  transportAnchor?(city: TransportLocation): Promise<TransportLocation>;
   nearbyStops(latitude: number, longitude: number, radius: number): Promise<StopCollection>;
   staticFeed(resource: CatalogResource, selection?: GtfsSelection): Promise<Uint8Array>;
   realtimeFeed(resource: CatalogResource): Promise<Uint8Array>;

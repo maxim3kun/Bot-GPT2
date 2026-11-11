@@ -36,7 +36,7 @@ export interface TransportLine {
   alerts?: CatalogResource[];
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
-export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean; issues?: string[] }
+export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean; issues?: string[]; centerFallback?: boolean }
 export interface TransportDepartureResult {
   content: string;
   source: TransportSource;
@@ -178,7 +178,8 @@ export class TransportBrowserClient {
     try { return await request; } finally { this.queuedScans--; }
   }
 
-  cities(place: string, territory: TransportTerritory = "fr"): Promise<TransportLocation[]> {
+  cities(place: string, territory: TransportTerritory = "fr", mode?: TransitMode | null): Promise<TransportLocation[]> {
+    if (territory === "fr" && mode === "rail" && this.provider.railLocations) return this.provider.railLocations(place);
     return this.providerFor(territory).municipalities(place);
   }
 
@@ -199,7 +200,7 @@ export class TransportBrowserClient {
 
   private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string, networkId?: string): Promise<LineListing> {
     const provider = this.providerFor(city.territory);
-    let catalogue, nearby;
+    let catalogue, nearby, centerFallback = false;
     if (city.territory === "qc") {
       if (!networkId) throw new Error("Select a Québec transport network");
       catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
@@ -207,7 +208,12 @@ export class TransportBrowserClient {
       const resources = catalogue.flatMap(d => d.resources.filter(isStaticScheduleResource));
       nearby = await provider.nearbyStopsForResources!(city.latitude, city.longitude, resources);
     } else {
-      [catalogue, nearby] = await Promise.all([provider.getCatalog(), provider.nearbyStops(city.latitude, city.longitude, 0.025)]);
+      let anchor = city;
+      if (provider.transportAnchor) {
+        try { anchor = await provider.transportAnchor(city); }
+        catch { centerFallback = true; }
+      }
+      [catalogue, nearby] = await Promise.all([provider.getCatalog(), provider.nearbyStops(anchor.latitude, anchor.longitude, 0.025)]);
     }
     const stopsByResource = new Map<number, Set<string>>();
     for (const feature of nearby.features ?? []) {
@@ -222,7 +228,10 @@ export class TransportBrowserClient {
       dataset.resources.filter((resource) => stopsByResource.has(resource.id) &&
         isStaticScheduleResource(resource) && modeMatches(mode, publishedModes(resource)))
         .map((resource) => ({ dataset, resource, stopIds: stopsByResource.get(resource.id)! })))
-      .sort((a, b) => Number(/agr[eé]gat/i.test(a.dataset.title)) - Number(/agr[eé]gat/i.test(b.dataset.title)) ||
+      .sort((a, b) => Number(!publishedModes(a.resource)?.length) - Number(!publishedModes(b.resource)?.length) ||
+        Number(/agr[eé]gat/i.test(a.dataset.title)) - Number(/agr[eé]gat/i.test(b.dataset.title)) ||
+        Number(/a[_ ]venir|future/i.test(`${a.resource.title} ${a.resource.original_url ?? ""}`)) -
+        Number(/a[_ ]venir|future/i.test(`${b.resource.title} ${b.resource.original_url ?? ""}`)) ||
         // Try smaller operator feeds before European/national bundles. A local
         // numbered line should not wait for unrelated long-distance operators.
         publishedRouteCount(a.resource) - publishedRouteCount(b.resource));
@@ -233,9 +242,9 @@ export class TransportBrowserClient {
     for (const [id, until] of this.unavailableUntil) if (until <= this.now()) this.unavailableUntil.delete(id);
     // Serialize download + scan together, so a second large ZIP cannot accumulate during parsing.
     let next = 0;
-    // A numbered-line request stops at the first official source serving that line
-    // locally. Do not make it wait for unrelated networks or aggregate feeds.
-    const selectiveMetro = mode === "metro" && groups.some(({ resource }) => isIdfmGtfs(resource));
+    // Numbered-line and metro requests stop at the first matching official network.
+    // Report that scope instead of waiting for unrelated or duplicate bundles.
+    const selectiveMetro = mode === "metro";
     await Promise.all(Array.from({ length: Math.min(requestedLine || selectiveMetro ? 1 : 2, groups.length) }, async () => {
       while (next < groups.length) {
         const { dataset, resource, stopIds } = groups[next++]!;
@@ -258,8 +267,8 @@ export class TransportBrowserClient {
                 alerts: dataset.resources.filter(r => r.is_available && /alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
               ...(selection ? { selection } : {}) });
           }
-          if (found.length && (requestedLine || selection)) {
-            networkScoped = !!selection;
+          if (found.length && (requestedLine || selection || selectiveMetro)) {
+            networkScoped = !!selection || selectiveMetro;
             break;
           }
         } catch (error) {
@@ -280,7 +289,7 @@ export class TransportBrowserClient {
     }
     return { lines: [...unique.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
-       unavailable, ...(issues.length ? { issues } : {}), ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
+       unavailable, ...(centerFallback ? { centerFallback: true } : {}), ...(issues.length ? { issues } : {}), ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {

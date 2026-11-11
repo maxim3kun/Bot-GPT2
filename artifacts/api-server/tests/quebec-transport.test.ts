@@ -285,6 +285,6 @@ test("Discord asks territory before searching, retains Québec through refresh a
   await ui.click("refresh");
   assert.equal(ui.prompt.embeds[0].footer.text.includes("America/Montreal"), true);
   assert.deepEqual(calls, ["qc"]);
-  await ui.click("territory"); assert.match(ui.prompt.content, /France ou Québec/);
+  await ui.click("restart"); assert.match(ui.prompt.content, /France ou Québec/);
   ui.collector.stop("cancelled");
 });

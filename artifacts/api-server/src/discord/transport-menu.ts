@@ -111,10 +111,13 @@ export async function handleTransportSearch(
     stage = "city";
     await edit(`**Transport · ${territory ? TERRITORY_NAMES[territory] : ""}**\n` + (territory === "qc"
       ? text("Indique une localité québécoise. Les homonymes seront proposés avec leur région.", "Enter a Québec locality. Matching places include their region.")
-      : text("Indique une commune. Les homonymes seront proposés avec leur département.", "Enter a city. Matching cities include their department.")),
+      : selectedMode === "rail"
+        ? text("Indique une ville, une gare, un département ou un code postal. Les gares du référentiel voyageurs seront proposées; leurs horaires restent à vérifier.",
+          "Enter a city, station, department or postal code. Passenger-station reference results are offered; timetables still need checking.")
+        : text("Indique une commune, un département (ex. 60) ou un code postal (ex. 60000).", "Enter a city, department (e.g. 60) or postal code (e.g. 60000).")),
     [new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
-      button("territory", "France / Québec"), button("cancel", text("Annuler", "Cancel")))]);
+      button("restart", text("Nouvelle recherche", "New search")), button("cancel", text("Annuler", "Cancel")))]);
   }
 
   function choices(): Choice[] {
@@ -141,7 +144,8 @@ export async function handleTransportSearch(
       territory: text("France ou Québec ?", "France or Québec?"),
       mode: text("Choisis un moyen de transport", "Choose a transport mode"),
       networks: text("Choisis un réseau", "Choose a network"),
-      cities: text("Quelle commune de départ ?", "Which departure city?"),
+      cities: cities.length && cities.every(c => c.kind === "station")
+        ? text("Quelle gare de départ ?", "Which departure station?") : text("Quelle commune de départ ?", "Which departure city?"),
       lines: text("Choisis une ligne", "Choose a route"),
       origins: text("Choisis ton arrêt de départ", "Choose your departure stop"),
       arrivals: text("Choisis ton arrêt d’arrivée", "Choose your arrival stop"),
@@ -161,10 +165,10 @@ export async function handleTransportSearch(
     const controls = new ActionRowBuilder<ButtonBuilder>();
     if (pages > 1) controls.addComponents(button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages - 1));
     if (stage !== "mode" && stage !== "territory") controls.addComponents(button("back", text("Retour", "Back")));
-    if (stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
+    if (stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
     rows.push(controls);
-    if (stage !== "territory") rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("territory", "France / Québec")));
+    if (stage !== "territory") rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("restart", text("Nouvelle recherche", "New search"))));
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
     const note = stage === "arrivals" ? (line?.selection
@@ -202,7 +206,7 @@ export async function handleTransportSearch(
         text("La recherche n’a pas abouti à temps ou une source est indisponible. Tu peux réessayer; aucune ligne ne sera inventée.",
          "The lookup timed out or a source is unavailable. You can retry; routes will not be invented."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("retry", text("Réessayer", "Retry")),
-         button("city", text("Changer de commune", "Change city")), button("territory", "France / Québec"),
+         button("city", text("Changer de commune", "Change city")), button("restart", text("Nouvelle recherche", "New search")),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }
@@ -211,25 +215,29 @@ export async function handleTransportSearch(
     if (!live) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined;
     if (!place) { await cityInput(); return; }
-    await edit(text("Recherche des communes…", "Looking up cities…"));
-    cities = await service.cities(place, territory);
+    await edit(selectedMode === "rail" && territory === "fr" ? text("Recherche des gares…", "Looking up stations…")
+      : text("Recherche des communes…", "Looking up cities…"));
+    cities = await service.cities(place, territory, selectedMode);
     if (!direction && !/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i.test(place) &&
       !cities.some((candidate) => normalizeCityName(candidate.name) === normalizeCityName(place))) {
       const journey = await resolveBusJourney(place, async (name) => {
-        const candidates = name === place ? cities : await service.cities(name, territory);
+        const candidates = name === place ? cities : await service.cities(name, territory, selectedMode);
         return candidates.find((candidate) => normalizeCityName(candidate.name) === normalizeCityName(name))?.name ?? null;
       });
       if (journey.direction) {
         place = journey.place;
         direction = journey.direction;
-        cities = await service.cities(place, territory);
+        cities = await service.cities(place, territory, selectedMode);
       }
     }
     if (!live) return;
     if (!cities.length) {
       await cityInput();
-      await prompt.edit({ content: text(`Je ne trouve pas de commune pour « ${place} ». Indique une ville, puis choisis l’arrêt dans les menus.`,
-        `No city found for “${place}”. Enter a city, then choose the stop in the menus.`) });
+      await prompt.edit({ content: selectedMode === "rail" && territory === "fr"
+        ? text(`Aucune gare trouvée dans le référentiel voyageurs pour « ${place} ». Cela ne confirme pas une absence de trains. Essaie une ville ou une gare voisine.`,
+          `No passenger-reference station found for “${place}”. This does not establish that there are no trains. Try a nearby city or station.`)
+        : text(`Je ne trouve pas de commune pour « ${place} ». Indique une ville, un département ou un code postal.`,
+          `No city found for “${place}”. Enter a city, department or postal code.`) });
       return;
     }
     filter = ""; page = 0;
@@ -257,7 +265,7 @@ export async function handleTransportSearch(
     stage = "error";
     await edit(`**${value.title}**\n${(value.limitations ?? []).join("\n")}`,
       [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        button("networks", text("Autre réseau", "Other network")), button("territory", "France / Québec"),
+        button("networks", text("Autre réseau", "Other network")), button("restart", text("Nouvelle recherche", "New search")),
         ...sourceButton({ name: value.title, url: value.page_url }, language).flatMap(row => row.components),
         button("cancel", text("Fermer", "Close")))]);
   }
@@ -277,12 +285,14 @@ export async function handleTransportSearch(
     listingNote = result.unavailable ? text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
       "\nSome network sources could not be loaded; this list may be incomplete.") : "";
     if (result.issues?.length) listingNote += `\n${result.issues.join("\n").slice(0, 500)}`;
+    if (result.centerFallback) listingNote += text("\nRepère du centre-ville indisponible : recherche autour du point géographique de la commune; liste potentiellement incomplète.",
+      "\nTown-centre reference unavailable: searching around the municipality's geographic point; results may be incomplete.");
     if (result.targeted) listingNote += text("\nRecherche ciblée sur la ligne demandée; les autres réseaux ne sont pas tous parcourus.",
       "\nTargeted search for the requested line; not all other networks were searched.");
     else if (result.networkScoped) listingNote += territory === "qc"
       ? text("\nSeul le réseau sélectionné a été parcouru.", "\nOnly the selected network was searched.")
-      : text("\nSource : Île-de-France Mobilités. Seul ce réseau officiel a été parcouru.",
-        "\nSource: Île-de-France Mobilités. Only this official network was searched.");
+      : text(`\nSource : ${lines[0]?.source.name ?? "réseau officiel"}. Liste limitée à ce réseau.`,
+        `\nSource: ${lines[0]?.source.name ?? "official network"}. Results are limited to this network.`);
     if (!lines.length) {
       stage = "error";
       await edit(`${city.label}${network ? `\n${network.title}` : ""}\n${result.issues?.length ? result.issues.join("\n") : result.unavailable
@@ -292,7 +302,7 @@ export async function handleTransportSearch(
           "No routes of this mode were found in open data near this city centre.")}`,
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
          button("city", text("Changer de commune", "Change city")), button("retry", text("Réessayer", "Retry")),
-         button("territory", "France / Québec"), button("cancel", text("Annuler", "Cancel")))]);
+         button("restart", text("Nouvelle recherche", "New search")), button("cancel", text("Annuler", "Cancel")))]);
       return;
     }
     const matching = lineFilter ? lines.filter((option) => lineMatches(lineFilter, [option.label, option.description, option.routeId])) : [];
@@ -348,8 +358,7 @@ export async function handleTransportSearch(
       button("back", text("Arrivée", "Destination")));
     if (result.hasMore) primary.addComponents(button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      button("city", text("Nouvelle recherche", "New search")),
-      button("territory", "France / Québec"),
+      button("restart", text("Nouvelle recherche", "New search")),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));
@@ -363,14 +372,18 @@ export async function handleTransportSearch(
     const cityEntry = action === "city";
     const modalId = `${id}:modal:${randomUUID()}`;
     const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "qc"
-      ? text("Localité du Québec", "Québec locality") : text("Commune et département facultatif", "City and optional department"))
-      : text("Numéro ou nom recherché", "Number or name to find"))
+      ? text("Localité du Québec", "Québec locality") : selectedMode === "rail"
+        ? text("Ville, gare, département ou code postal", "City, station, department or postal code")
+        : text("Commune, département ou code postal", "City, department or postal code"))
+      : stage === "cities" ? text("Commune, gare ou code postal", "City, station or postal code")
+        : text("Numéro ou nom recherché", "Number or name to find"))
       .setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
     if (!cityEntry && filter) input.setValue(filter);
     let submitted;
     try {
       await interaction.showModal(new ModalBuilder().setCustomId(modalId)
-        .setTitle(cityEntry ? text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
+        .setTitle(cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
+          : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
         .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)));
       submitted = await interaction.awaitModalSubmit({ time: 60_000,
         filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
@@ -411,9 +424,10 @@ export async function handleTransportSearch(
     if (action === "prev" || action === "next") { page += action === "next" ? 1 : -1; await render(); return; }
     if (action === "clear") { filter = ""; page = 0; await render(); return; }
     await run(async () => {
-      if (action === "territory") {
+      if (action === "restart") {
         territory = undefined; network = undefined; city = undefined; line = undefined; index = undefined;
         origin = undefined; arrival = undefined; lastResult = undefined; filter = ""; page = 0;
+        place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
       if (action === "networks" && territory === "qc") { await loadNetworks(); return; }

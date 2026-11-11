@@ -12,8 +12,8 @@ test("AI transport menus recheck access before new provider work and close on re
   const client = { cities: async () => { calls++; return []; } } as unknown as TransportBrowserClient;
   await handleTransportSearch(d.message, { place: "Paris", mode: "metro", territory: "fr" }, "fr", "!", client, 1000,
     async () => ++checks === 1);
-  const card = d.cards[0]!, id = card.payloads.flatMap(p => p.components.flatMap(r => r.components)).find(c => c.custom_id?.endsWith(":territory"))!.custom_id!;
-  await card.collector.collect(card.interaction("territory", { customId: id }).value);
+  const card = d.cards[0]!, id = card.payloads.flatMap(p => p.components.flatMap(r => r.components)).find(c => c.custom_id?.endsWith(":restart"))!.custom_id!;
+  await card.collector.collect(card.interaction("restart", { customId: id }).value);
   await tick();
   assert.equal(checks, 2); assert.equal(calls, 1); assert.equal(card.collector.stopped, true);
   assert.match(card.last.content!, /plus autorisée/);

@@ -93,6 +93,18 @@ Transport results should remain compact and readable on Discord mobile, without 
 
 **How to apply:** Preserve dates, actual platforms and timetable reliability while grouping repeated information. Offer additional departures without repeating the data lookup. Keep any text fallback equally readable.
 
+Offer France/Québec only at the beginning of each search. Remove its separate control after selection; users change territory through “Nouvelle recherche”.
+
+**Why:** The user explicitly confirmed “Oui, puis seulement Nouvelle recherche”.
+
+**How to apply:** Restart the territory selection for a new search without adding a France/Québec button back to results or intermediate choices.
+
+Municipality geocoding can return an area centroid rather than its inhabited centre. For local network discovery, prefer the official town-hall point; preserve exact station coordinates when a station was selected.
+
+**Why:** Orléans' BAN municipality point is roughly three kilometres south of its centre and missed tram B despite the TAO feed being available.
+
+**How to apply:** Use a verified municipal identity for the official town-centre lookup. If unavailable, keep the real geographic point and disclose that discovery may be incomplete; do not substitute a similarly named place.
+
 Use the same transport-card presentation for conversational journeys as for the explicit metro command.
 
 **Why:** After approving the verified journey, the user specifically asked for the visual presentation of `!metro`, rather than a plain AI message.

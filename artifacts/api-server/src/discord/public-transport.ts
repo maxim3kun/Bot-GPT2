@@ -23,6 +23,7 @@ import { isIdfmGtfs, selectiveGtfs, type GtfsSelection } from "./gtfs-selective.
 import { createHash } from "node:crypto";
 import type { TransportTerritory } from "./transport-provider.js";
 import { safeQuebecUrl, type Bounds } from "./quebec-sources.js";
+import { FranceLocations } from "./france-locations.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -147,6 +148,7 @@ export interface TransportLocation {
   latitude: number;
   longitude: number;
   territory?: TransportTerritory;
+  kind?: "station";
 }
 
 export type TransportSearchResult =
@@ -160,6 +162,7 @@ function safeHostname(hostname: string): boolean {
   return host === "gouv.fr" || host.endsWith(".gouv.fr") ||
     host === "api.oisemob.cityway.fr" || host === "geocatalogue.hautsdefrance.fr" ||
     host === "data.toulouse-metropole.fr" || host === "media.ilevia.fr" ||
+    host === "ressources.data.sncf.com" || host === "chouette.enroute.mobi" || host === "ara-api.enroute.mobi" ||
     host === "eu.ftp.opendatasoft.com";
 }
 
@@ -361,6 +364,8 @@ export class FranceTransportClient {
   private readonly staticFiles = new Map<string, { bytes: Uint8Array; expiresAt: number }>();
   private staticDownloads = 0;
   private readonly downloadQueue: Array<() => void> = [];
+  private readonly locations = new FranceLocations((url, maxBytes) =>
+    this.cached(`locations:${url}`, 6 * 60 * 60_000, () => this.fetchJson(url, maxBytes)));
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
@@ -443,6 +448,8 @@ export class FranceTransportClient {
   }
 
   async municipalities(place: string): Promise<TransportLocation[]> {
+    const numeric = await this.locations.numeric(place);
+    if (numeric) return numeric;
     const qualifier = place.match(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i)?.[1]?.toUpperCase();
     const name = qualifier ? place.replace(/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i, "").trim() : place;
     const url = new URL(GEOCODER_API);
@@ -468,6 +475,12 @@ export class FranceTransportClient {
     });
     return [...new Map(locations.map((location) => [location.id, location])).values()];
   }
+
+  async railLocations(place: string): Promise<TransportLocation[]> {
+    const cities = await this.municipalities(place);
+    return this.locations.stations(place, cities);
+  }
+  transportAnchor(city: TransportLocation): Promise<TransportLocation> { return this.locations.anchor(city); }
 
   async staticFeed(resource: CatalogResource, selection?: GtfsSelection): Promise<Uint8Array> {
     for (const [id, entry] of this.staticFiles) {
