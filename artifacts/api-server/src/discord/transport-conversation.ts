@@ -1,12 +1,14 @@
 import { IdfmPlanner } from "./idfm-planner.js";
 import { display, placeKey } from "./idfm-itinerary.js";
 import { isTravelTimeReply, requestedTravelTime, travelTurn, type TravelTime } from "./transport-intent.js";
-import { PlannerError, type ItineraryProvider, type OfficialPlace } from "./transport-planner-types.js";
+import { PlannerError, type ItineraryProvider, type OfficialPlace, type JourneyRequest } from "./transport-planner-types.js";
+import { IgnRoadPlanner } from "./ign-road-planner.js";
 import { formatItinerary, ITINERARY_SOURCE, type ItineraryView } from "./transport-itinerary-presentation.js";
 export { formatItinerary } from "./transport-itinerary-presentation.js";
 
 type Side = "origin" | "destination";
 interface Session {
+  mode?: "car" | "transit";
   origin?: string; destination?: string; service?: boolean;
   resolvedOrigin?: OfficialPlace; resolvedDestination?: OfficialPlace;
   time?: TravelTime; timeError?: string;
@@ -25,7 +27,8 @@ function exactPlaces(query: string, places: OfficialPlace[]) {
 
 export class TransportConversation {
   private sessions = new Map<string, Session>();
-  constructor(private provider: ItineraryProvider = new IdfmPlanner(), private now = Date.now) {}
+  constructor(private provider: ItineraryProvider = new IdfmPlanner(), private now = Date.now,
+    private road: ItineraryProvider = new IgnRoadPlanner(fetch, now)) {}
   clear(scope: string) { this.sessions.delete(scope); }
   remaining(scope: string, ticket: symbol): number {
     const state = this.get(scope);
@@ -48,23 +51,26 @@ export class TransportConversation {
   canHandle(scope: string, text: string, continuationOnly = false) {
     const state = this.get(scope), turn = travelTurn(text);
     if (!continuationOnly && (turn.request || turn.stationQuestion)) return true;
-    return !!state && (!!turn.origin || !!turn.destination || !!turn.correction || !!turn.reverse || !!turn.cancel ||
+    return !!state && (!!turn.mode || !!turn.modeAmbiguous || !!turn.origin || !!turn.destination || !!turn.correction || !!turn.reverse || !!turn.cancel ||
       !!state.choice && (!!turn.bare || /^\d+$/.test(text.trim())) ||
       (!state.origin || !state.destination) && !!turn.bare ||
       state.kind === "journey" && isTravelTimeReply(text) ||
       !!state.timeError && /\d/.test(text) || state.kind === "stations" && /^(?:oui|paris|m[eé]tro parisien|yes|non)$/i.test(text.trim()));
   }
 
-  async reply(scope: string, input: string, language: string, continuationOnly = false): Promise<TravelReply | null> {
+  async reply(scope: string, input: string, language: string, continuationOnly = false, request?: JourneyRequest): Promise<TravelReply | null> {
     if (!this.canHandle(scope, input, continuationOnly)) return null;
-    const fr = language === "fr", t = (a: string, b: string) => fr ? a : b, turn = travelTurn(input), previous = this.get(scope);
+    const fr = language === "fr", t = (a: string, b: string) => fr ? a : b,
+      turn = request ? { ...travelTurn("itinéraire"), origin: request.origin, destination: request.destination, mode: request.mode ?? undefined }
+        : travelTurn(input), previous = this.get(scope);
     if (turn.cancel) { this.clear(scope); return { content: t("Recherche de trajet terminée.", "Journey search closed.") }; }
     const state: Session = previous ? { ...previous, ticket: undefined } : { kind: "journey", expires: 0 };
     const fresh = !!turn.correction;
     if (turn.stationQuestion) {
+      state.mode = "transit";
       state.kind = "stations"; state.line = turn.line; state.paris = turn.paris || !turn.outside && !!previous?.resolvedOrigin;
       state.choice = undefined;
-    } else if (turn.origin || turn.destination) {
+    } else if (turn.origin || turn.destination || turn.mode && state.kind === "stations") {
       if (state.kind === "stations") {
         state.origin = undefined; state.destination = undefined; state.resolvedOrigin = undefined;
         state.resolvedDestination = undefined; state.time = undefined; state.service = false;
@@ -74,9 +80,14 @@ export class TransportConversation {
       if (turn.origin && turn.destination) {
         state.time = undefined; state.timeError = undefined; state.choice = undefined;
         state.service = false;
+        state.mode = undefined;
       }
     }
-    if (state.choice && !turn.origin && !turn.destination && !turn.request && !turn.correction) {
+    if (turn.mode && turn.mode !== state.mode) {
+      state.mode = turn.mode; state.resolvedOrigin = undefined; state.resolvedDestination = undefined; state.choice = undefined;
+    }
+    if (turn.modeAmbiguous) { state.mode = undefined; state.resolvedOrigin = undefined; state.resolvedDestination = undefined; state.choice = undefined; }
+    if (state.choice && !turn.origin && !turn.destination && !turn.request && !turn.correction && !turn.mode) {
       const choice = state.choice;
       const number = /^\d+$/.test(input.trim()) ? Number(input.trim()) - 1 : -1;
       const candidates = number >= 0 ? choice.places[number] ? [choice.places[number]!] : [] : exactPlaces(input, choice.places);
@@ -89,7 +100,7 @@ export class TransportConversation {
       for (const side of ["origin", "destination"] as const) if (turn[side]) {
         state[side] = turn[side]; state[side === "origin" ? "resolvedOrigin" : "resolvedDestination"] = undefined; state.choice = undefined;
       }
-      if (!turn.origin && !turn.destination && turn.bare && !turn.request && !turn.correction && !turn.reverse &&
+      if (!turn.mode && !turn.modeAmbiguous && !turn.origin && !turn.destination && turn.bare && !turn.request && !turn.correction && !turn.reverse &&
         state.kind === "journey") {
         if (!state.origin) state.origin = turn.bare; else if (!state.destination) state.destination = turn.bare;
       }
@@ -100,7 +111,7 @@ export class TransportConversation {
       state.choice = undefined;
     }
     state.service ||= turn.service;
-    const time = requestedTravelTime(input, this.now(), state.time ? state.time.represents === "arrival" : state.service);
+    const time = requestedTravelTime(request?.time ?? input, this.now(), state.time ? state.time.represents === "arrival" : state.service);
     if (time && "error" in time) state.timeError = time.error;
     else if (time) { state.time = time; state.timeError = undefined; }
     state.expires = this.now() + 5 * 60_000;
@@ -108,9 +119,9 @@ export class TransportConversation {
     this.sessions.set(scope, state);
     const answer = (content: string): TravelReply => ({ content: this.get(scope) === state ? content : null });
     if (turn.unsupportedMode) { this.clear(scope); return { content: t(
-      "Ce calculateur est utilisé ici pour les transports en commun. Je ne peux pas vérifier un itinéraire en voiture, à vélo ou entièrement à pied.",
-      "This planner is used here for public transit. I cannot verify driving, cycling or walking-only routes.") }; }
-    if (turn.outside || state.kind === "journey" && travelTurn(`${state.origin ?? ""} ${state.destination ?? ""}`).outside) return answer(t(
+      "Je peux vérifier un trajet en voiture ou en transports collectifs, pas encore un trajet à vélo ou entièrement à pied.",
+      "I can check driving or public transit routes, not cycling or walking-only routes yet.") }; }
+    if (state.mode !== "car" && (turn.outside || state.kind === "journey" && travelTurn(`${state.origin ?? ""} ${state.destination ?? ""}`).outside) && state.mode) return answer(t(
       "Le calculateur d’itinéraires connecté couvre l’Île-de-France, pas ce territoire. Utilise les commandes de transport pour ses horaires disponibles; je ne vais pas inventer de correspondances.",
       "The connected route planner covers Île-de-France, not that region. Transport commands can show available schedules; I won't invent transfers."));
     try {
@@ -126,20 +137,31 @@ export class TransportConversation {
       }
       if (state.timeError) return answer(fr ? state.timeError : "Please specify a valid travel date and time, with departure or arrival.");
       if (!state.origin && !state.destination) return answer(t(
-        "Quels sont ton départ et ton arrivée ? Indique les stations ou arrêts et leur ville.",
-        "What are your departure and destination stops and cities?"));
-      if (!state.origin) return answer(t(`D’où pars-tu pour aller à **${display(state.destination)}** ? Indique la station ou l’arrêt et la ville.`,
-        `Where are you leaving from to reach **${display(state.destination)}**? Give the stop and city.`));
+        "Quels sont ton départ et ton arrivée ? Indique les communes, arrêts ou adresses.",
+        "What are your departure and destination? Give towns, stops or addresses."));
+      if (!state.origin) return answer(t(`D’où pars-tu pour aller à **${display(state.destination)}** ? Indique la commune, l’arrêt ou l’adresse.`,
+        `Where are you leaving from to reach **${display(state.destination)}**? Give a town, stop or address.`));
       if (!state.destination) return answer(t(`Où souhaites-tu aller depuis **${display(state.origin)}** ?`, `Where are you going from **${display(state.origin)}**?`));
+      if (!state.mode) return answer(t("Souhaites-tu faire ce trajet en voiture ou en transports collectifs ? Réponds « voiture » ou « transports ».",
+        "Would you like to drive or use public transit? Reply “car” or “transit”."));
+      const foreignOrUnclear = [state.origin, state.destination].some(query => {
+        const key = placeKey(query);
+        return /^(?:quebec|canada|montreal|toronto|londres|london)$/.test(key) ||
+          /\b(?:quebec|canada)$/.test(key) && !/\b(?:rue|avenue|boulevard|chemin|route)\b/.test(key);
+      });
+      if (state.mode === "car" && foreignOrUnclear)
+        return answer(t("Le calcul routier connecté couvre la France métropolitaine, pas le Canada ou l’étranger. Pour une commune française homonyme, précise le département. Les horaires Québec restent disponibles via la commande transport.",
+          "Driving covers metropolitan France, not Canada or other countries. For a similarly named French town, specify the department. Québec timetables remain available through the transport command."));
       if (state.choice) return answer(this.choose(state.choice, fr));
       for (const side of ["origin", "destination"] as const) {
         const resolved = side === "origin" ? "resolvedOrigin" : "resolvedDestination";
         if (!state[resolved] || fresh) {
-          const found = await this.provider.places(state[side]!, fresh);
+          const found = await (state.mode === "car" ? this.road : this.provider).places(state[side]!, fresh);
           if (this.get(scope) !== state) return { content: null };
           const exact = exactPlaces(state[side]!, found);
-          if (!found.length) return answer(t(`Je ne trouve pas « ${display(state[side])} » dans le référentiel francilien. Précise l’arrêt et la ville; je ne choisis pas une autre station à sa place.`,
-            `I cannot find “${display(state[side])}” in the Île-de-France stop directory. Specify the stop and city.`));
+          if (!found.length) return answer(state.mode === "car" ? t(`Je ne trouve pas « ${display(state[side])} » dans le géocodage routier de France métropolitaine. Précise la commune, le département ou l’adresse.`,
+            `No driving location found for “${display(state[side])}” in metropolitan France. Specify the town, department or address.`) : t(`Je ne trouve pas « ${display(state[side])} » dans le référentiel francilien. Précise l’arrêt et la ville; je ne choisis pas une autre station à sa place. Le calcul de correspondances est francilien ; les horaires France/Québec restent accessibles via la commande transport.`,
+            `I cannot find “${display(state[side])}” in the Île-de-France stop directory. Specify the stop and city. Connected journey planning covers Île-de-France; France/Québec timetables remain available through the transport command.`));
           if (exact.length !== 1) {
             state.choice = { side, places: exact.length ? exact : found };
             return answer(this.choose(state.choice, fr));
@@ -152,7 +174,7 @@ export class TransportConversation {
         "Both places resolve to the same official station. Please check the endpoints."));
       return this.calculate(scope, state, language, fresh);
     } catch (error) {
-      return answer(this.failure(error, fr));
+      return answer(this.failure(error, fr, state.mode));
     }
   }
   private async calculate(scope: string, state: Session, language: string, fresh: boolean): Promise<TravelReply> {
@@ -163,7 +185,7 @@ export class TransportConversation {
       const requested = state.time ?? { at: Math.floor(this.now() / 1000), represents: "departure" as const };
       if (requested.at < this.now() / 1000 - 60) return answer(fr ? "L’heure demandée est passée. Précise une nouvelle heure." : "The requested time has passed. Please give a new time.");
       const origin = state.resolvedOrigin!, destination = state.resolvedDestination!;
-      const journeys = await this.provider.journeys(origin, destination, requested.at, requested.represents, fresh);
+      const journeys = await (state.mode === "car" ? this.road : this.provider).journeys(origin, destination, requested.at, requested.represents, fresh);
       if (this.get(scope) !== state) return { content: null };
       if (!journeys.length) return answer(fr ? "Le calculateur officiel ne propose aucun trajet pour ces lieux et cette heure. Je ne peux pas en confirmer un."
         : "The official planner returned no journey for these places and time. I cannot confirm a route.");
@@ -172,9 +194,9 @@ export class TransportConversation {
       return { content: (fresh ? (fr ? "Trajet revérifié auprès du calculateur officiel.\n" : "Rechecked with the official planner.\n") : "") +
         formatItinerary(journey, origin, destination, fr),
       itinerary: { journey, origin, destination, now: Math.floor(this.now() / 1000), ticket: state.ticket } };
-    } catch (error) { return answer(this.failure(error, fr)); }
+    } catch (error) { return answer(this.failure(error, fr, state.mode)); }
   }
-  private failure(error: unknown, fr: boolean) {
+  private failure(error: unknown, fr: boolean, mode?: "car" | "transit") {
     const code = error instanceof PlannerError ? error.code : "unavailable";
     const reasons: Record<string, [string, string]> = {
       not_configured: ["L’accès au calculateur officiel n’est pas configuré.", "Official planner access is not configured."],
@@ -185,7 +207,9 @@ export class TransportConversation {
       busy: ["Trop de calculs sont en cours. Réessaie dans un instant.", "Too many route calculations are running. Try shortly."],
       unavailable: ["Le calculateur officiel est momentanément indisponible.", "The official planner is temporarily unavailable."],
     };
-    return `${reasons[code]![fr ? 0 : 1]} ${fr ? "Je ne vais pas inventer un résultat." : "I won't invent a result."}`;
+    const reason = mode === "car" && code === "date" ? (fr ? "La source routière ne peut pas calculer ce parcours ou l’heure de départ estimée est passée." : "No driving route is available or its estimated departure is in the past.")
+      : reasons[code]![fr ? 0 : 1];
+    return `${reason} ${fr ? "Je ne vais pas inventer un résultat." : "I won't invent a result."}`;
   }
   private choose(choice: NonNullable<Session["choice"]>, fr: boolean) {
     return (fr ? `Quel ${choice.side === "origin" ? "départ" : "arrêt d’arrivée"} souhaites-tu ? Réponds avec le numéro ou précise le lieu.\n`

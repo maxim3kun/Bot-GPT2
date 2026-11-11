@@ -1,8 +1,10 @@
+import type { JourneyRequest } from "./transport-planner-types.js";
 /**
  * Deliberately closed tool boundary. Model text is never parsed as a prefix
  * command, and tool arguments cannot supply users, channels, URLs or permissions.
  */
 export type AiCommandAction =
+  | ({ name: "plan_journey" } & JourneyRequest)
   | { name: "show_help" }
   | { name: "lookup_pokemon"; query: string }
   | { name: "start_minesweeper"; difficulty: "easy" | "medium" | "hard" }
@@ -35,6 +37,11 @@ export function parseAiCommandTool(
     args = value as Record<string, unknown>;
   } catch { return null; }
   const name = call.function.name;
+  if (name === "plan_journey" && Object.keys(args).every(k => ["mode", "origin", "destination", "time"].includes(k))
+    && [null, "car", "transit"].includes(args.mode as string | null)
+    && ["origin", "destination", "time"].every(k => args[k] === undefined || safeSearchText(args[k], k === "time" ? 80 : 140) && (args[k] as string).trim().length > 0))
+    return { name, mode: args.mode, ...(args.origin ? { origin: args.origin } : {}),
+      ...(args.destination ? { destination: args.destination } : {}), ...(args.time ? { time: args.time } : {}) } as AiCommandAction;
   if (["show_help", "start_connect4", "module_diagnostic", "start_trivia", "start_guess_number",
     "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current"].includes(name)) {
     if (Object.keys(args).length !== 0) return null;
@@ -75,6 +82,10 @@ export function buildAiCommandTools(stationKeys: string[]) {
     },
   });
   return [
+    tool("plan_journey", "Calculate a verified driving route in metropolitan France or public transit where the official planner covers it. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
+      mode: { enum: ["car", "transit", null] }, origin: { type: "string", maxLength: 140 },
+      destination: { type: "string", maxLength: 140 }, time: { type: "string", maxLength: 80 },
+    }, ["mode"]),
     tool("show_help", "Show the bot's real help, only when the user requests help."),
     tool("start_minesweeper", "Start a spoiler minesweeper board, only on explicit request.", {
       difficulty: { type: "string", enum: ["easy", "medium", "hard"] },

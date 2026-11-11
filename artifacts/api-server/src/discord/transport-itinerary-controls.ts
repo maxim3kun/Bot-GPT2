@@ -4,7 +4,7 @@ import {
   type APIEmbed, type Message, type MessageComponentInteraction,
 } from "discord.js";
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
-import { itineraryPages, ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
+import { itineraryPages, itinerarySource } from "./transport-itinerary-presentation.js";
 
 export type TransportAuthorization = (message: Message, language: string) => Promise<boolean>;
 type Payload = {
@@ -30,7 +30,7 @@ export class ItineraryControls {
     const id = `transport-trip:${randomUUID()}`;
     let pages = itineraryPages(view, fr), page = 0, lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
-    const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Source").setURL(ITINERARY_SOURCE);
+    const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Source").setURL(itinerarySource(view.journey));
     const button = (name: string, label: string, style = ButtonStyle.Secondary) =>
       new ButtonBuilder().setCustomId(`${id}:${name}`).setLabel(label).setStyle(style);
     const rows = (closed = false) => {
@@ -110,6 +110,7 @@ export class ItineraryControls {
           await edit(); return;
         }
         const updated = await this.service.refresh(scope, ticket, language);
+        if (!await this.authorize(message, language)) { collector.stop("denied"); return; }
         if (!live || !this.service.remaining(scope, ticket) || !updated?.content) {
           collector.stop("replaced"); return;
         }

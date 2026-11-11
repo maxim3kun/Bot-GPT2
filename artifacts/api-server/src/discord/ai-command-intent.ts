@@ -1,6 +1,7 @@
 import { parseAiCommandTool, safeSearchText, type AiCommandAction } from "./ai-command-tools.js";
 import { extractRadioStationRequest } from "./radio-intent.js";
 import { parseTransportCommand } from "./transport-command-query.js";
+import { travelTurn } from "./transport-intent.js";
 
 export type CommandParameter = "youtube" | "youtube_search" | "radio" | "game";
 export type CommandIntent = { kind: "action"; action: AiCommandAction } | { kind: "clarify"; fr: string; en: string; parameter?: CommandParameter } | { kind: "none" };
@@ -97,6 +98,10 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     return action({ name: "search_transport", mode, place: parsed.place, ...(parsed.direction ? { direction: parsed.direction } : {}),
       ...(parsed.line ? { line: parsed.line } : {}), ...(territory ? { territory } : {}) });
   }
+  const travel = travelTurn(body);
+  if (travel.request && travel.mode === "car" && !travel.unsupportedMode)
+    return action({ name: "plan_journey", mode: "car", ...(travel.origin ? { origin: travel.origin } : {}),
+      ...(travel.destination ? { destination: travel.destination } : {}) });
   if (/^(?:affiche[r]?|montre[r]?|ouvre|show)\s+(?:l |la |le )?(?:aide|help)$/.test(n)) return action({ name: "show_help" });
   if (/^(?:(?:affiche[r]?|montre[r]?|consulte[r]?|verifie[r]?) (?:le |les )?)?(?:diagnostic(?: des modules)?|module diagnostics|tech status)$/.test(n)) return action({ name: "module_diagnostic" });
   return none;

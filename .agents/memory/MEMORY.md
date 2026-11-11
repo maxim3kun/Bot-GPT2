@@ -24,3 +24,4 @@
 - [GTFS protobuf field presence](gtfs-protobuf-presence.md) — Missing optional fields have inherited zero defaults; check actual presence before using timestamps or stop sequences.
 - [IDFM live-data contracts](idfm-live-contracts.md) — Closure code bundles span platforms; scope exact impacts by line and never invent a live arrival from GTFS or another vehicle.
 - [Québec source contracts](quebec-source-contracts.md) — Verify catalogue resources and seasonal services; resolve public route numbers from official names, not guessed aliases.
+- [IGN geocoding](ign-geocoding.md) — Towns, addresses and station POIs need distinct searches; plausible geocoding corrections must not silently change a location.

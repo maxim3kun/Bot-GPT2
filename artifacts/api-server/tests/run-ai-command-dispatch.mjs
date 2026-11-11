@@ -63,6 +63,8 @@ const stubs = {
   "transport-menu.js": `export const handleTransportSearch = async (message, request, language, prefix, service, timeout, authorize) => {
     fixture.searches.push({ request, language, prefix, authorize }); return handler("transport", message);
   };`,
+  "transport-dialogue.js": `export const handleTransportDialogue = async (message, text, language, options) =>
+    handler("journey:" + JSON.stringify(options), message);`,
 };
 const output = await mkdtemp(path.join(tmpdir(), "ai-command-dispatch-"));
 try {

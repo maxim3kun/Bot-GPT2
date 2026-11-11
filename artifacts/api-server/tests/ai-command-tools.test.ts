@@ -18,15 +18,15 @@ const actor = { userId: "requester", channelId: "text", guildId: "guild", voiceC
 const call = (name: string, args = "{}") => ({ type: "function", function: { name, arguments: args } });
 const confirmation = () => new AiCommandConfirmation(radio, "requester", "text", "guild", "voice", 60_000);
 
-test("Only five explicit tools with closed schemas are advertised", () => {
+test("Only the explicit allowlisted tools with closed schemas are advertised", () => {
   const tools = buildAiCommandTools(["nrj"]);
   assert.deepEqual(tools.map((tool) => tool.function.name), [
-    "show_help", "start_minesweeper", "start_connect4", "play_radio", "module_diagnostic",
+    "plan_journey", "show_help", "start_minesweeper", "start_connect4", "play_radio", "module_diagnostic",
     "search_transport", "play_youtube", "search_youtube", "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current",
     "start_geoguessr", "start_guess_logo", "start_trivia", "start_guess_number",
   ]);
   assert.ok(tools.every((tool) => tool.function.parameters.additionalProperties === false));
-  assert.deepEqual(tools[3].function.parameters.properties.station, { type: "string", enum: ["nrj"] });
+  assert.deepEqual(tools.find(t => t.function.name === "play_radio")!.function.parameters.properties.station, { type: "string", enum: ["nrj"] });
 });
 
 test("Valid tool arguments are parsed without producing arbitrary commands", () => {

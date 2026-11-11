@@ -11,7 +11,7 @@ import { PlannerError, type ItineraryProvider, type VerifiedJourney } from "../s
 import { NOW, origin, destination, journeyBody, requestAt } from "./fixtures/itinerary-fixtures.js";
 import { fakeDiscord, hasControls } from "./fixtures/transport-discord.js";
 
-const PAIR = "Quel trajet de Dugommier à Créteil Pointe du Lac ?";
+const PAIR = "Quel trajet de Dugommier à Créteil Pointe du Lac en transports ?";
 function setup() {
   let now = NOW, authorized = true, authCalls = 0;
   const calls: { from: string; to: string; at: number; represents: string; fresh?: boolean }[] = [];
@@ -260,6 +260,6 @@ test("Discord adapter renders the same card in guilds, DMs and persona scopes", 
     assert.equal(await handle(d.message, PAIR, "fr", { personaId: settings.personaId }), true);
     assert.equal(d.replies[0]!.embeds.length, 1);
     await d.cards[0]!.collector.collect(d.cards[0]!.interaction("refresh").value);
-    assert.equal(s.authCalls, 2); assert.equal(s.calls.length, 2);
+    assert.equal(s.authCalls, 4); assert.equal(s.calls.length, 2);
   }
 });

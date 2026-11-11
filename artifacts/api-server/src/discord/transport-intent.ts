@@ -10,17 +10,19 @@ export interface TravelTurn {
   paris?: boolean;
   outside?: boolean;
   unsupportedMode?: boolean;
+  mode?: "car" | "transit";
+  modeAmbiguous?: boolean;
   correction?: boolean;
   reverse?: boolean;
   cancel?: boolean;
   bare?: string;
 }
 const temporalTail = /\s+(?:demain|aujourd['’]hui|après[- ]demain|apres[- ]demain|ce\s+(?:soir|matin)|tomorrow|today|à\s+\d{1,2}(?:h|:)|a\s+\d{1,2}(?:h|:)|pour\s+\d{1,2}(?:h|:)|le\s+\d{1,2}\/|on\s+\d{4}-).*$/i;
-const place = (s: string | undefined) => s?.split(/[?!,;]/)[0]?.replace(temporalTail, "")
+const place = (s: string | undefined) => s?.split(/[?!;]/)[0]?.replace(temporalTail, "")
   .replace(/\s+(?:quel(?:le)?|comment|peux|puis|pourrais)\b.*$/i, "")
   .replace(/\s+(?:et\s+)?je\s+.*$/i, "")
   .replace(/\s+(?:pour\s+(?:aller|me\s+rendre)|vers|en\s+direction\s+de)\s+.*$/i, "")
-  .replace(/\s+en\s+(?:m[eé]tro|bus|train|tram|transports?).*$/i, "")
+  .replace(/\s+(?:en\s+(?:voiture|auto|m[eé]tro|bus|train|tram|transports?)|by\s+car|driving).*$/i, "")
   .replace(/^[\s"'`]+|[\s."’'`]+$/g, "").trim().slice(0, 140) || undefined;
 
 export function travelTurn(input: string): TravelTurn {
@@ -34,21 +36,28 @@ export function travelTurn(input: string): TravelTurn {
     ?? clean.match(/\b(?:service|je\s+travaille)\s+(?:(?:commence|commencera)\s+)?(?:à|a)\s+\d{1,2}(?:h\d{0,2}|:\d{2})\s+(?:à|a|au)\s+(.+)$/i)?.[1]
     ?? clean.match(/\b(?:pour\s+(?:aller|me\s+rendre)|je\s+(?:veux|dois)\s+(?:aller|être|etre)|aller|me\s+rendre|arriver|arriv[eé]e)\s*(?:[:=]\s*|(?:à|a|au|vers)\s+)(?!\d)(.+)$/i)?.[1]
     ?? (request ? clean.match(/\b(?:vers|pour|to)\s+(?!\d)(.+)$/i)?.[1] : undefined));
+  const arrow = request ? clean.match(/^(?:(?:itin[eé]raire|trajet|route|directions)(?:\s+(?:voiture|car|transports?|transit))?\s+)(.+?)\s*(?:→|->)\s*(.*)$/i) : null;
   const pair = request || /^(?:de|from|depuis)\s+/i.test(clean) || /\b(?:m[eé]tro|bus|train|tram)\b/i.test(clean)
     ? clean.match(/\b(?:depuis|au\s+d[eé]part\s+de|from|de)\s+(.+?)\s+(?:vers|à|a|to|→|->)\s+(.+)$/i) : null;
+  const singleFrom = !pair ? clean.match(/(?:^(?:trajet|itin[eé]raire)(?:\s+(?:voiture|transports?|car|en voiture))?|aller|partir|drive)\s+(?:de|from|depuis)\s+(.+)$/i)?.[1] : undefined;
   const line = clean.match(/\b(?:ligne|line)\s*(\d{1,2}(?:bis)?)\b/i)?.[1]?.toLowerCase();
   const stationQuestion = !!line && /\b(?:stations?|arrets?|stops?)\b/.test(n) &&
     /\b(?:combien|nombre|how many|compte|y a|there are|\d+)\b/.test(n);
   const bare = clean.length >= 2 && clean.length <= 140 && !/[?!]/.test(clean) && !isTravelTimeReply(clean) &&
     !/\b(?:merci|salut|bonjour|bonsoir|hello|thanks|oui|non|yes|no|pourquoi|parle|aide|help)\b/.test(n)
     ? place(clean) : undefined;
+  const car = /\b(?:en voiture|en auto|by car|driving|(?:trajet|itineraire|route) (?:voiture|car))\b/.test(n) || /^(?:voiture|auto|car)$/.test(n);
+  const transit = /\b(?:metro|rer|bus|train|tram|transports?|public transit)\b/.test(n) || n === "transit";
+  const modeAmbiguous = car && transit && /\b(?:ou|or)\b/.test(n);
   return {
     request: request || !!(origin && destination) || !!(pair?.[1] && pair?.[2]),
-    origin: origin ?? place(pair?.[1]), destination: destination ?? place(pair?.[2]), service,
+    origin: arrow ? place(arrow[1]) : origin ?? place(pair?.[1] ?? singleFrom), destination: arrow ? place(arrow[2]) : destination ?? place(pair?.[2]), service,
     line, stationQuestion,
     paris: /\b(?:paris|parisien(?:ne)?|ile de france|idf)\b/.test(n),
     outside: /\b(?:quebec|montreal|laval|sherbrooke|gatineau|toronto|london|londres|lyon|marseille|lille|toulouse|amiens|beauvais|breteuil)\b/.test(n.replace(/\bgare de lyon\b/g, "")),
-    unsupportedMode: /\b(?:en voiture|a velo|en velo|a pied|driving|cycling|on foot)\b/.test(n),
+    mode: modeAmbiguous ? undefined : car ? "car" : transit ? "transit" : undefined,
+    modeAmbiguous,
+    unsupportedMode: /\b(?:a velo|en velo|a pied|cycling|on foot)\b/.test(n),
     correction: /\b(?:tu mens|c est faux|ce n est pas vrai|tu t es trompe|reverifie|verifie|wrong|not true|check again)\b/.test(n),
     reverse: /\b(?:inverse|inverser|sens inverse|dans l autre sens|reverse|other way)\b/.test(n),
     cancel: /^(?:stop|annule|annuler|arrete|cancel|forget it)(?: (?:le |ce )?(?:trajet|itineraire|route))?$/.test(n),

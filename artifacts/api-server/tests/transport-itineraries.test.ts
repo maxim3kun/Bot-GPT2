@@ -12,7 +12,7 @@ import { fakeDiscord } from "./fixtures/transport-discord.js";
 
 const FIRST = "je prend mon service à Créteil pointe du lac quelle est le chemin que je dois prendre";
 const SECOND = "Je prend le métro à Dugommier";
-const PAIR = "Quel trajet de Dugommier à Créteil Pointe du Lac ?";
+const PAIR = "Quel trajet de Dugommier à Créteil Pointe du Lac en transports ?";
 function provider() {
   const calls: { places: string[]; journeys: unknown[][]; stations: string[] } = { places: [], journeys: [], stations: [] };
   const api: ItineraryProvider = {
@@ -78,7 +78,7 @@ test("a fuzzy search result is offered as a choice rather than silently substitu
   const { api, calls } = provider();
   api.places = async () => [{ ...origin, name: "Nationale", label: "Nationale (Paris)" }];
   const c = new TransportConversation(api, () => NOW);
-  assert.match(content(await c.reply("s", "Quel trajet de Nation à Créteil ?", "fr")), /Quel départ.*1\. Nationale/s);
+  assert.match(content(await c.reply("s", "Quel trajet de Nation à Créteil en transports ?", "fr")), /Quel départ.*1\. Nationale/s);
   assert.equal(calls.journeys.length, 0);
 });
 test("explicit role correction invalidates the previous resolved place", async () => {
@@ -128,14 +128,14 @@ test("origin/destination clauses and English pair stay in their stated order", (
   assert.equal(travelTurn("Je pars de Dugommier et je dois aller à Créteil").request, true);
   assert.equal(travelTurn("Prochains passages du métro 8 à Bonne Nouvelle").request, false);
 });
-test("non-transit modes are not silently replaced with a metro journey", async () => {
+test("unsupported cycling is not silently replaced with a metro journey", async () => {
   const { api, calls } = provider(), c = new TransportConversation(api, () => NOW);
-  assert.match(content(await c.reply("s", `${PAIR} en voiture`, "fr")), /ne peux pas vérifier/);
+  assert.match(content(await c.reply("s", `${PAIR} à vélo`, "fr")), /pas encore/);
   assert.equal(calls.places.length, 0);
 });
 test("outside coverage never reaches the IDFM route calculator", async () => {
   const { api, calls } = provider(), c = new TransportConversation(api, () => NOW);
-  assert.match(content(await c.reply("s", "Quel trajet de Montréal à Laval ?", "fr")), /pas ce territoire/);
+  assert.match(content(await c.reply("s", "Quel trajet de Montréal à Laval en transports ?", "fr")), /pas ce territoire/);
   assert.equal(calls.places.length + calls.journeys.length, 0);
 });
 test("station counts use official distinct stations and separate nominal count from closures", async () => {

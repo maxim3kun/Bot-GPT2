@@ -25,6 +25,17 @@ export interface VerifiedJourney {
   arrival: number;
   legs: VerifiedLeg[];
   warning: boolean;
+  road?: {
+    distanceMeters: number;
+    steps: Array<{ instruction: string; distanceMeters: number }>;
+    resourceVersion: string;
+  };
+}
+export interface JourneyRequest {
+  mode: "car" | "transit" | null;
+  origin?: string;
+  destination?: string;
+  time?: string;
 }
 export interface ItineraryProvider {
   places(query: string, fresh?: boolean): Promise<OfficialPlace[]>;

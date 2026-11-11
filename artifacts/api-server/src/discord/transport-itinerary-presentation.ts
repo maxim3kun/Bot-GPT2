@@ -2,8 +2,11 @@ import type { APIEmbed } from "discord.js";
 import { addDays, localDate } from "./gtfs-realtime.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 import type { OfficialPlace, VerifiedJourney } from "./transport-planner-types.js";
+import { roadPages } from "./road-presentation.js";
+import { ROAD_SOURCE } from "./ign-road-planner.js";
 
 export const ITINERARY_SOURCE = "https://prim.iledefrance-mobilites.fr/fr/apis/idfm-navitia-general-v2";
+export const itinerarySource = (journey: VerifiedJourney) => journey.road ? ROAD_SOURCE : ITINERARY_SOURCE;
 export interface ItineraryView {
   journey: VerifiedJourney;
   origin: OfficialPlace;
@@ -22,6 +25,7 @@ function reliability(journey: VerifiedJourney, fr: boolean) {
 
 /** Same hierarchy and colour as !metro, but every connection comes from the planner. */
 export function itineraryPages(view: ItineraryView, french: boolean): ItineraryPage[] {
+  if (view.journey.road) return roadPages(view, french);
   const { journey, origin, destination, now } = view, fr = french;
   const tz = "Europe/Paris";
   const clock = new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
@@ -78,6 +82,7 @@ export function itineraryPages(view: ItineraryView, french: boolean): ItineraryP
 
 /** Compatibility text for callers which are not rendering Discord cards. */
 export function formatItinerary(journey: VerifiedJourney, origin: OfficialPlace, destination: OfficialPlace, french: boolean) {
+  if (journey.road) return roadPages({ journey, origin, destination, now: journey.departure }, french)[0]!.content;
   const clock = (at: number) => new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
     timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   }).format(at * 1000);

@@ -18,6 +18,7 @@ import { moduleFallbackMessage, runModuleWithFallback } from "./module-fallback.
 import { RADIO_STATIONS, customStations, radioStates } from "./radio.js";
 import { handleAiMusicCommand } from "./ai-music-commands.js";
 import { handleTransportSearch } from "./transport-menu.js";
+import { handleTransportDialogue } from "./transport-dialogue.js";
 import { commandSafety, completeAiCommand, selectAiCommand, type CommandParameter } from "./ai-command-intent.js";
 import { handlePokemon } from "./pokemon.js";
 import type { Language } from "./responses.js";
@@ -39,7 +40,7 @@ const GAME_FEATURES: Record<string, string> = {
   start_trivia: "trivia", start_guess_logo: "guesslogo",
 };
 
-export function commandExecutor(message: Message, language: Language, openai: OpenAI | null): AiCommandExecutor {
+export function commandExecutor(message: Message, language: Language, openai: OpenAI | null, options: CommandOptions = {}): AiCommandExecutor {
   const french = language === "fr";
   let authorizedVoice: string | null = null;
   const executor: AiCommandExecutor = {
@@ -115,7 +116,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
       }
       const module = isMusicAction(action) ? "music"
         : action.name === "module_diagnostic" ? "admin"
-        : ["show_help", "lookup_pokemon", "search_transport"].includes(action.name) ? "other" : "games";
+        : ["show_help", "lookup_pokemon", "search_transport", "plan_journey"].includes(action.name) ? "other" : "games";
       await runModuleWithFallback(message, module, async () => {
         if (isMusicAction(action)) {
           let expectedVoice = action.name === "search_youtube" ? null : authorizedVoice;
@@ -128,6 +129,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
           return;
         }
         switch (action.name) {
+          case "plan_journey": await handleTransportDialogue(message, "itinéraire", language, { journey: action, personaId: options.personaId }); break;
           case "show_help": await sendHelpPaginator(message, language); break;
           case "lookup_pokemon":
             await handlePokemon(action.query, language, opts => message.reply(opts as Parameters<Message["reply"]>[0])); break;
@@ -155,7 +157,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
   return executor;
 }
 
-export async function dispatchAiCommand(message: Message, action: AiCommandAction, language: Language, openai: OpenAI | null): Promise<void> {
+export async function dispatchAiCommand(message: Message, action: AiCommandAction, language: Language, openai: OpenAI | null, options: CommandOptions = {}): Promise<void> {
   const { name, ...args } = action;
   if (!parseAiCommandTool([{ type: "function", function: { name, arguments: JSON.stringify(args) } }], Object.keys(knownRadioStations()))) {
     await message.reply(language === "fr" ? "Aucune action exécutée : paramètres invalides ou fonction indisponible." : "No action executed: invalid arguments or unavailable function."); return;
@@ -174,7 +176,7 @@ export async function dispatchAiCommand(message: Message, action: AiCommandActio
   }
   activeCommands.add(key);
   try {
-    const executor = commandExecutor(message, language, openai);
+    const executor = commandExecutor(message, language, openai, options);
     if (!await executor.authorize(action)) return;
     // These are ordinary allowlisted actions. Their explicit request and
     // existing AI consent suffice; the handler alone reports the real result.
@@ -214,10 +216,10 @@ async function runCommandRequest(message: Message, text: string, openai: OpenAI 
   activeRequests.add(key);
   try {
     if (intent.kind === "action") {
-      await dispatchAiCommand(message, intent.action, language, openai);
+      await dispatchAiCommand(message, intent.action, language, openai, options);
       return true;
     }
-    const executor = commandExecutor(message, language, openai);
+    const executor = commandExecutor(message, language, openai, options);
     // Clarifications use the same base access checks; they never execute part of a request.
     if (!await executor.authorize({ name: "show_help" })) return true;
     const guidance = intent.parameter ? binding

@@ -9,6 +9,16 @@ import { fixture, fakeMessage, fakeModel, audioState } from "./fixtures/ai-comma
 // The test runner replaces only I/O boundaries (Discord/provider/domain
 // handlers). The real selector, parser, access policy, dispatcher and
 // confirmation lifecycle run together without a Discord token or API call.
+test("Typed road request preserves persona scope and uses the authorized domain handler without the model", async () => {
+  fixture.reset();
+  const request = { name: "plan_journey" as const, mode: "car" as const, origin: "Beauvais", destination: "Amiens" };
+  await dispatchAiCommand(fakeMessage() as unknown as Message, request, "fr", null, { personaId: "persona-test" });
+  assert.deepEqual(JSON.parse(fixture.handlers[0]!.slice("journey:".length)), { journey: request, personaId: "persona-test" });
+  assert.equal(fixture.modelCalls, 0);
+  fixture.reset();fixture.features.ai_chat=false;
+  await dispatchAiCommand(fakeMessage() as unknown as Message, request, "fr", null, { personaId: "persona-test" });
+  assert.deepEqual(fixture.handlers, []);
+});
 test("Persona action route uses the Pokémon domain handler directly, not model prose", async () => {
   fixture.reset();
   const handled = await handleAiActionRequest(fakeMessage() as unknown as Message,

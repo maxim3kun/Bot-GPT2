@@ -2,8 +2,9 @@ import { PermissionFlagsBits, type Message } from "discord.js";
 import { TransportConversation } from "./transport-conversation.js";
 import { ItineraryControls } from "./transport-itinerary-controls.js";
 import { commandSafety, isTimetableSearch, selectAiCommand } from "./ai-command-intent.js";
+import type { JourneyRequest } from "./transport-planner-types.js";
 
-export interface DialogueOptions { personaId?: string; continuationOnly?: boolean }
+export interface DialogueOptions { personaId?: string; continuationOnly?: boolean; journey?: JourneyRequest }
 export const travelScope = (message: Pick<Message, "guildId" | "channelId" | "author">, personaId?: string) =>
   JSON.stringify([message.guildId ?? "dm", message.channelId, message.author.id, personaId ?? "bot"]);
 
@@ -47,14 +48,15 @@ export function createTransportDialogue(
     const existing = attempted.get(message)?.get(scope); if (existing) return existing;
     // Timetables use the existing transport browser; genuine itineraries keep this official planner.
     const command = selectAiCommand(input, {});
-    if (commandSafety(input) === "quoted" || isTimetableSearch(input) || command.kind !== "none") {
+    if (!options.journey && (commandSafety(input) === "quoted" || isTimetableSearch(input) ||
+      command.kind !== "none" && !(command.kind === "action" && command.action.name === "plan_journey"))) {
       if (!options.continuationOnly) { service.clear(scope); cards.invalidate(scope); }
       return false;
     }
     // An ongoing route is not permission to intercept a reply addressed to someone else.
     if (options.continuationOnly && (message.mentions?.users?.some(u => u.id !== message.client.user?.id) ||
       message.mentions?.repliedUser && message.mentions.repliedUser.id !== message.client.user?.id)) return false;
-    if (!service.canHandle(scope, input, options.continuationOnly)) {
+    if (!options.journey && !service.canHandle(scope, input, options.continuationOnly)) {
       if (!options.continuationOnly) { service.clear(scope); cards.invalidate(scope); }
       return false;
     }
@@ -69,7 +71,8 @@ export function createTransportDialogue(
           return true;
         }
         if (message.channel.isSendable()) await message.channel.sendTyping().catch(() => undefined);
-        const result = await service.reply(scope, input, language, options.continuationOnly);
+        const result = await service.reply(scope, input, language, options.continuationOnly, options.journey);
+        if (!await authorize(message, language)) { service.clear(scope); cards.invalidate(scope); return true; }
         if (result?.content) {
           if (result.itinerary) await cards.send(message, scope, result, language);
           else await message.reply({ content: result.content, allowedMentions: { parse: [] } });
@@ -90,3 +93,9 @@ export function createTransportDialogue(
   };
 }
 export const handleTransportDialogue = createTransportDialogue();
+
+/** Native aliases use exactly the same authorization, context and cards as mentions. */
+export async function handleJourneyCommand(message: Message, args: string[], language: string,
+  handle = handleTransportDialogue): Promise<void> {
+  await handle(message, args.length ? `Trajet ${args.join(" ")}` : "Quel trajet prendre ?", language);
+}
