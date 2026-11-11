@@ -181,8 +181,10 @@ export async function handleTransportSearch(
       cities: cities.length && cities.every(c => c.kind === "station")
         ? text("Quelle gare de départ ?", "Which departure station?") : text("Quelle commune de départ ?", "Which departure city?"),
       lines: text("Choisis une ligne", "Choose a route"),
-      origins: text("Choisis ton arrêt de départ", "Choose your departure stop"),
-      arrivals: text("Choisis ton arrêt d’arrivée", "Choose your arrival stop"),
+      origins: selectedMode === "metro" ? text("Choisis ta station de départ", "Choose your departure station")
+        : text("Choisis ton arrêt de départ", "Choose your departure stop"),
+      arrivals: selectedMode === "metro" ? text("Choisis ta station d’arrivée", "Choose your arrival station")
+        : text("Choisis ton arrêt d’arrivée", "Choose your arrival stop"),
     };
     const context = [territory ? TERRITORY_NAMES[territory] : "", region?.name, city?.label,
       network?.title, selectedMode ? modeName(selectedMode, territory) : "", line ? `${text("Ligne", "Route")} ${line.label}` : "",
@@ -217,7 +219,12 @@ export async function handleTransportSearch(
     const regionalNote = region && stage === "networks" ? text(
       "\nSources publiées pour cette région. Les agrégats peuvent recouvrir les réseaux opérateurs. Choisis une source pour voir ses lignes; les passages seront vérifiés après le choix des arrêts.",
       "\nPublished sources for this region. Aggregates may overlap operator networks. Choose a source to see its routes; departures are checked after stop selection.") : "";
-    const countLabel = stage === "lines" ? text("lignes", "routes") : text("choix", "choices");
+    const countLabel = stage === "lines"
+      ? matching.length === 1 ? text("ligne", "route") : text("lignes", "routes")
+      : stage === "origins" || stage === "arrivals" ? selectedMode === "metro"
+        ? matching.length === 1 ? text("station", "station") : text("stations", "stations")
+        : matching.length === 1 ? text("arrêt", "stop") : text("arrêts", "stops")
+        : matching.length === 1 ? text("choix", "choice") : text("choix", "choices");
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
@@ -328,9 +335,11 @@ export async function handleTransportSearch(
     if (!live || (!city && !region) || !selectedMode) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined;
     serviceNote = "";
-    await edit(`${region?.name ?? city!.label}\n${text("Chargement des lignes…", "Loading routes…")}${selectedMode === "metro"
-      ? text("\nLe premier chargement d’un grand réseau peut prendre quelques dizaines de secondes; les données sont ensuite mises en cache.",
-        "\nLoading a large network for the first time may take several tens of seconds; the data is then cached.") : ""}`);
+    const location = region?.name ?? city!.label;
+    const loading = selectedMode === "metro"
+      ? text("Recherche des stations de métro…", "Looking up metro stations…")
+      : text("Chargement des lignes…", "Loading routes…");
+    await edit(`**${location}**${selectedMode === "metro" && lineFilter ? ` · **${modeName(selectedMode, territory)} ${lineFilter}**` : ""}\n${loading}`);
     const result = region && network ? await service.regionLines(network, selectedMode, lineFilter)
       : await service.lines(city!, selectedMode, lineFilter, network?.id);
     if (!live) return;
@@ -370,7 +379,8 @@ export async function handleTransportSearch(
 
   async function loadOrigins() {
     if (!live || !line) return;
-    await edit(`${line.label} · ${text("Chargement des arrêts…", "Loading stops…")}`);
+    await edit(text(`${modeName(line.mode, line.territory)} ${line.label} · Chargement des arrêts…`,
+      `${modeName(line.mode, line.territory)} ${line.label} · Loading stops…`));
     index = await service.index(line);
     if (!live) return;
     origins = originOptions(index, line);

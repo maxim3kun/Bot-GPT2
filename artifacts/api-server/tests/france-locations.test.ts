@@ -37,7 +37,7 @@ test("60 enumerates actual Oise communes, with Beauvais ranked ahead of smaller 
   const { client, calls } = fixture(), cities = await client.municipalities("60");
   assert.equal(cities.length, 8); assert.equal(cities[0]!.name, "Beauvais");
   assert.match(cities[0]!.label, /60, Oise, Hauts-de-France/);
-  assert.ok(cities.every(city => city.label.includes("60000")), "the department menu can also be filtered by postal code");
+  assert.ok(cities.every(city => !city.label.includes("60000")), "postcodes should not bloat city labels");
   assert.equal(calls[0]!.searchParams.get("codeDepartement"), "60"); assert.equal(calls[0]!.searchParams.has("q"), false);
 });
 test("60000 retains its multiple real communes for buses but only the referenced Beauvais station for train", async () => {
@@ -86,7 +86,9 @@ test("French city-to-territory lookups are stored as public Mongo metadata", asy
   }]), Date.now, metadata as any);
   const [paris] = await client.municipalities("Paris");
   assert.equal(paris?.territory, "fr");
+  assert.equal(paris?.label, "Paris — 75, Paris, Île-de-France");
   assert.deepEqual([key.territory, key.provider, key.kind], ["fr", "geo", "locations"]);
+  assert.equal(key.version, "geo-api-v2", "old cached postcode-heavy labels must be invalidated");
   assert.equal(ttl, 24 * 3600_000);
 });
 test("metro shortcut keeps Paris and line 8 intact while omitting optional territory selection", () => {

@@ -95,8 +95,12 @@ export function originOptions(index: JourneyIndex, line: TransportLine): StopGro
   const nearby = new Set(line.nearbyStopIds);
   const nearbyStations = new Set([...index.stops.values()].filter((stop) => nearby.has(stop.id) && stop.parent)
     .map((stop) => stop.parent));
+  // A selected IDFM metro line is a city-wide route, not a set of stops near
+  // the municipality anchor. The selective line index already contains its
+  // complete official stop sequence, so allow every boardable station.
+  const fullMetroLine = line.mode === "metro" && isIdfmGtfs(line.resource);
   const boarding = new Set([...index.visits.values()].flatMap((visits) =>
-    visits.filter((visit, i) => visit.pickup && visits.some((next, j) => j > i && next.dropoff && next.stopId !== visit.stopId) && (line.allStops || nearby.has(visit.stopId) ||
+    visits.filter((visit, i) => visit.pickup && visits.some((next, j) => j > i && next.dropoff && next.stopId !== visit.stopId) && (line.allStops || fullMetroLine || nearby.has(visit.stopId) ||
       nearbyStations.has(index.stops.get(visit.stopId)?.parent ?? ""))).map((visit) => visit.stopId)));
   return groupStops([...index.stops.values()].filter((stop) => boarding.has(stop.id)));
 }

@@ -100,6 +100,16 @@ test("metro lines use actual route types and offer only downstream destinations"
   assert.equal(journeyPairs(index, new Set(["Q"]), new Set(["P"])).length, 0);
 });
 
+test("a selected IDFM metro line offers boarding stations along the whole line", async () => {
+  const { client } = fixture();
+  const city = (await client.cities("Breteuil"))[1]!;
+  const { lines } = await client.lines(city, "metro");
+  const index = await client.index(lines[0]!);
+  const line = { ...lines[0]!, nearbyStopIds: [],
+    resource: { ...lines[0]!.resource, original_url: "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip" } };
+  assert.deepEqual(originOptions(index, line).map(stop => stop.label), ["Capitole"]);
+});
+
 test("fresh cancellations and skipped arrivals cannot become successful realtime journeys", async () => {
   const index = await buildJourneyIndex(zip, "B");
   const pairs = journeyPairs(index, new Set(["O"]), new Set(["D"]));
@@ -461,6 +471,9 @@ test("the generic transport entry chooses metro and accepts a city through its m
   await ui.click("choose", "1");
   await until(() => ui.prompt.content.includes("Choisis une ligne"));
   assert.match(JSON.stringify(ui.prompt.components), /Métro A/);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("station de départ"));
+  assert.match(ui.prompt.content, /1 station/);
   ui.collector.stop("cancelled");
 });
 

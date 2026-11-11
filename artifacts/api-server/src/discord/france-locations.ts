@@ -45,10 +45,8 @@ export class FranceLocations {
       if (!commune.nom || !commune.code || !cityCode(commune.code) || !coordinates(longitude, latitude)) return [];
       const context = [commune.departement?.code ?? commune.codeDepartement, commune.departement?.nom, commune.region?.nom]
         .filter(Boolean).join(", ");
-      const postcodes = Array.isArray(commune.codesPostaux)
-        ? commune.codesPostaux.filter(code => /^\d{5}$/.test(code)).join("/") : "";
       return [{ id: commune.code, name: commune.nom,
-        label: `${commune.nom}${context ? ` — ${context}` : ""}${postcodes ? ` · ${postcodes}` : ""}`,
+        label: `${commune.nom}${context ? ` — ${context}` : ""}`,
         latitude: latitude!, longitude: longitude!, territory: "fr" as const }];
     });
   }
@@ -76,8 +74,7 @@ export class FranceLocations {
         const [lon, lat] = c.centre?.coordinates ?? [];
         if (!c.nom || !c.code || !cityCode(c.code) || !coordinates(lon, lat)) return [];
         const context = [c.departement?.code, c.departement?.nom, c.region?.nom].filter(Boolean).join(", ");
-        const postcodes = Array.isArray(c.codesPostaux) ? c.codesPostaux.filter(code => typeof code === "string" && /^\d{5}$/.test(code)).join("/") : "";
-        return [{ id: c.code, name: c.nom, label: `${c.nom}${context ? ` — ${context}` : ""}${postcodes ? ` · ${postcodes}` : ""}`,
+        return [{ id: c.code, name: c.nom, label: `${c.nom}${context ? ` — ${context}` : ""}`,
           longitude: lon!, latitude: lat!, territory: "fr" as const }];
       });
   }
