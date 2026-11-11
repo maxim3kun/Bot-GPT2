@@ -18,9 +18,12 @@ const shapes = {
   nearby: { features: [{ properties: { resource_id: "number", stop_id: "string", stop_name: "string", location_type: "number" } }] },
   routes: [{ routeId: "string", shortName: "string", longName: "string", mode: "string", stopIds: strings }],
   stops: [{ id: "string", name: "string", parent: "string", latitude: "number", longitude: "number", type: "number" }],
+  locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
+    territory: "string", area: "string" }],
+  patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
-export interface MetadataKey { territory: "fr" | "qc"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MetadataKey { territory: "fr" | "qc" | "en"; provider: string; kind: MetadataKind; source: string; version: string }
 export interface MetadataDocument {
   _id: string; schema: number; territory: string; provider: string; kind: MetadataKind;
   source: string; version: string; value: unknown; fetchedAt: Date; expiresAt: Date;
@@ -53,6 +56,10 @@ export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
       typeof row.longName !== "string" || !Array.isArray(row.stopIds)) ||
     kind === "stops" && rows.some(row => typeof row.id !== "string" || typeof row.name !== "string" ||
       typeof row.latitude !== "number" || typeof row.longitude !== "number") ||
+    kind === "locations" && rows.some(row => typeof row.id !== "string" || typeof row.name !== "string" ||
+      typeof row.label !== "string" || typeof row.latitude !== "number" || typeof row.longitude !== "number") ||
+    kind === "patterns" && rows.some(row => typeof row.id !== "string" || typeof row.routeId !== "string" ||
+      typeof row.direction !== "string" || !Array.isArray(row.stopIds)) ||
     kind === "nearby" && !Array.isArray((result as { features?: unknown }).features))
     throw Error("Incomplete public transport metadata");
   return result;

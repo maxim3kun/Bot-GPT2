@@ -3,8 +3,8 @@ import type { GtfsSelection } from "./gtfs-selective.js";
 import type { ReferenceRoute, ReferenceStop } from "./transport-reference-tables.js";
 import type { TransportMetadataCache } from "./transport-metadata-cache.js";
 
-export type TransportTerritory = "fr" | "qc";
-export const TERRITORY_NAMES: Record<TransportTerritory, string> = { fr: "France", qc: "Québec" };
+export type TransportTerritory = "fr" | "qc" | "en";
+export const TERRITORY_NAMES: Record<TransportTerritory, string> = { fr: "France", qc: "Québec", en: "Angleterre" };
 export interface TransportProvider {
   getCatalog(): Promise<CatalogDataset[]>;
   municipalities(place: string): Promise<TransportLocation[]>;

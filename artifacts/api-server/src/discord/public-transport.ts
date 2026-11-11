@@ -347,7 +347,7 @@ export function sourceButton(source: TransportSource | undefined, language: stri
   try {
     const url = new URL(source.url);
     if (url.protocol !== "https:") return [];
-    if (url.hostname !== "transport.data.gouv.fr") {
+    if (!["transport.data.gouv.fr", "tfl.gov.uk", "data.bus-data.dft.gov.uk"].includes(url.hostname)) {
       try { safeQuebecUrl(url.href); } catch { return []; }
     }
     return [

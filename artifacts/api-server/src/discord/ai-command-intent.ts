@@ -91,8 +91,9 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     const modes = { autobus: "bus", bus: "bus", metro: "metro", tram: "tram", tramway: "tram", train: "rail", rer: "rail" } as const;
     const mode = key ? modes[key as keyof typeof modes] : null;
     const territory = /\b(?:au|du|pour le|en)\s+Qu[eé]bec\b|\bqc\b/i.test(query) ? "qc" :
-      /\b(?:en|de|pour la)\s+France\b|\bfr\b/i.test(query) ? "fr" : undefined;
-    query = query.replace(/\b(?:(?:au|du|pour le|en)\s+Qu[eé]bec|(?:en|de|pour la)\s+France|qc|fr)\b/gi, "")
+      /\b(?:en|de|pour la)\s+France\b|\bfr\b/i.test(query) ? "fr" :
+      /\b(?:Angleterre|England|London|Londres)\b/i.test(query) ? "en" : undefined;
+    query = query.replace(/\b(?:(?:au|du|pour le|en)\s+Qu[eé]bec|(?:en|de|pour la)\s+France|(?:en|d['’]?|in)\s*(?:Angleterre|England)|qc|fr)\b/gi, "")
       .replace(/^\s*(?:[àa]|au|de|du|des|dans|en)\s+/i, "").trim();
     const parsed = parseTransportCommand(query.split(/\s+/));
     // A leading number is commonly the route, not part of the locality.
@@ -100,7 +101,7 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     if (!parsed.line && leading) { parsed.line = leading[1]; parsed.place = leading[2]!; }
     if (!safeSearchText(query, 240) || /\b(?:ligne|line)\s*$/i.test(query)) return clarify("Précise la localité et, si tu la connais, la ligne recherchée.", "Specify the locality and optionally its route.");
     return action({ name: "search_transport", mode, place: parsed.place, ...(parsed.direction ? { direction: parsed.direction } : {}),
-      ...(parsed.line ? { line: parsed.line } : {}), ...(territory ? { territory } : {}) });
+      ...(parsed.line ? { line: parsed.line } : {}), ...(territory ?? parsed.territory ? { territory: territory ?? parsed.territory } : {}) });
   }
   const travel = travelTurn(body);
   if (travel.request && travel.mode === "car" && !travel.unsupportedMode)

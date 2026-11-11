@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:transport:england": "esbuild scripts/check-england-transport-live.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/check-england-transport-live.mjs && node ./node_modules/.cache/check-england-transport-live.mjs",
     "check:transport:live": "esbuild scripts/check-transport-metadata-live.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/check-transport-metadata-live.mjs && node ./node_modules/.cache/check-transport-metadata-live.mjs",
     "test:transport:regions": "esbuild tests/transport-regions-cache.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/transport-regions-cache.test.mjs && node ./node_modules/.cache/transport-regions-cache.test.mjs",
     "check:weather:live": "esbuild scripts/check-weather-live.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/check-weather-live.mjs && node ./node_modules/.cache/check-weather-live.mjs",
@@ -43,6 +44,7 @@
     "discord.js": "^14.26.4",
     "drizzle-orm": "catalog:",
     "express": "^5.3.0",
+    "fast-xml-parser": "^5.12.0",
     "fflate": "^0.8.3",
     "ffmpeg-static": "^5.3.0",
     "geo-tz": "^8.1.11",

@@ -25,6 +25,7 @@ import { isRegionName, regionalNetworks, type TransportRegion } from "./transpor
 import { resourceVersion } from "./transport-metadata-cache.js";
 import { createHash } from "node:crypto";
 import { routeMatchesRequested } from "./transport-query.js";
+import { EnglandTransportClient } from "./england-transport.js";
 
 export interface TransportLine {
   routeId: string;
@@ -52,7 +53,7 @@ export interface TransportDepartureResult {
 }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
-  territory === "qc" && mode === "rail" ? "Train" : territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
+  (territory === "qc" || territory === "en") && mode === "rail" ? "Train" : territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
 
 function publishedRouteCount(resource: CatalogResource): number {
   const stats = resource.metadata?.stats;
@@ -119,9 +120,10 @@ export class TransportBrowserClient {
   private queuedScans = 0;
   private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
 
-  readonly territories = ["fr", "qc"] as const;
+  readonly territories = ["fr", "qc", "en"] as const;
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
-    readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now)) {}
+    readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now),
+    readonly england = new EnglandTransportClient()) {}
 
   private providerFor(territory?: TransportTerritory) { return territory === "qc" ? this.quebec : this.provider; }
 
@@ -164,6 +166,7 @@ export class TransportBrowserClient {
   }
 
   async networks(city: TransportLocation, mode: TransitMode) {
+    if (city.territory === "en") return this.england.networks(city, mode);
     if (city.territory !== "qc") return [];
     return (await this.quebec.getCatalog()).filter(d =>
       (!d.bounds || inBounds(d.bounds, city.latitude, city.longitude)) &&
@@ -171,7 +174,7 @@ export class TransportBrowserClient {
       (d.resources.some(r => isStaticScheduleResource(r) && modeMatches(mode, publishedModes(r))) || !d.resources.length));
   }
 
-  private usesIdfm(line: TransportLine) { return line.territory !== "qc" && isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
+  private usesIdfm(line: TransportLine) { return (!line.territory || line.territory === "fr") && isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
 
   private async traffic(line: TransportLine, index: JourneyIndex): Promise<IdfmTraffic | null> {
     if (this.usesIdfm(line)) return this.idfm.traffic(line.routeId);
@@ -191,6 +194,7 @@ export class TransportBrowserClient {
   }
 
   async availableStops(line: TransportLine, index: JourneyIndex, groups: StopGroup[], language: string) {
+    if (line.territory === "en") return { options: groups, note: index.sourceWarning ?? "" };
     const traffic = await this.traffic(line, index), at = Math.floor(this.now() / 1000), fr = language === "fr";
     if (!traffic) return { options: groups, note: index.sourceWarning ?? "" };
     const unknown = traffic.rules.some(r => r.blocking && !r.tripIds?.size && r.unresolved && ruleActive(r, at));
@@ -222,6 +226,7 @@ export class TransportBrowserClient {
   }
 
   cities(place: string, territory: TransportTerritory = "fr", mode?: TransitMode | null): Promise<TransportLocation[]> {
+    if (territory === "en") return this.england.cities(place, mode);
     if (territory === "fr" && mode === "rail" && this.provider.railLocations) return this.provider.railLocations(place);
     return this.providerFor(territory).municipalities(place);
   }
@@ -242,6 +247,7 @@ export class TransportBrowserClient {
   }
 
   private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string, networkId?: string): Promise<LineListing> {
+    if (city.territory === "en") return this.england.lines(city, mode, requestedLine, networkId);
     const provider = this.providerFor(city.territory);
     let catalogue, nearby, centerFallback = false;
     if (city.territory === "qc") {
@@ -348,6 +354,7 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<JourneyIndex>;
     const work = (async () => {
       const value = await this.scan(async () => {
+        if (line.territory === "en") return this.england.index(line);
         const selection = line.selection?.discoveryStops ? { mode: line.mode, line: line.label } : line.selection ??
           (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
         const zip = await this.providerFor(line.territory).staticFeed(line.resource, selection);
@@ -378,7 +385,7 @@ export class TransportBrowserClient {
         return index;
       });
       if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
-      const deliberateDirectOnly = !!line.selection || line.mode === "metro" && isIdfmGtfs(line.resource);
+      const deliberateDirectOnly = line.territory === "en" || !!line.selection || line.mode === "metro" && isIdfmGtfs(line.resource);
       this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable && !deliberateDirectOnly ? 30_000 : 300_000) });
       return value;
     })().finally(() => this.pending.delete(key));
@@ -395,7 +402,7 @@ export class TransportBrowserClient {
     }));
     const from = identities(arrival), to = identities(origin);
     const matches = (id: string, stop: JourneyStop, keys: Set<string>) => keys.has(id) || !!stop.parent && keys.has(stop.parent);
-    const provider = this.providerFor(line.territory);
+    const provider: Pick<TransportProvider, "referenceRoutes"> = line.territory === "en" ? {} : this.providerFor(line.territory);
     let candidates = [line];
     if (provider.referenceRoutes) {
       const routes = await provider.referenceRoutes(line.resource);
@@ -438,6 +445,7 @@ export class TransportBrowserClient {
   }
 
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {
+    if (line.territory === "en") return this.england.departures(line, index, origin, arrival, language);
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
     const traffic = await this.traffic(line, index);

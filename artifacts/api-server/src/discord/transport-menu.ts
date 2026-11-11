@@ -124,7 +124,12 @@ export async function handleTransportSearch(
 
   async function cityInput() {
     stage = "city";
-    await edit(`**Transport · ${territory ? TERRITORY_NAMES[territory] : ""}**\n` + (territory === "qc"
+    await edit(`**Transport · ${territory ? TERRITORY_NAMES[territory] : ""}**\n` + (territory === "en"
+      ? selectedMode === "rail" ? text("Trains anglais : accès National Rail en attente de validation. Les bus et le métro londonien restent disponibles.",
+          "English trains: National Rail access awaits approval. Buses and the London Underground remain available.")
+        : text("Indique une ville anglaise (ex. London / Londres, Cambridge). Bus BODS hors Londres ; métro et bus TfL à Londres. Les homonymes seront proposés.",
+          "Enter an English town (e.g. London, Cambridge). BODS buses outside London; TfL Underground and buses in London. Matching places will be offered.")
+      : territory === "qc"
       ? text("Indique une localité québécoise. Les homonymes seront proposés avec leur région.", "Enter a Québec locality. Matching places include their region.")
       : selectedMode === "rail"
         ? text("Indique une ville, une gare, un département ou un code postal. Les gares du référentiel voyageurs seront proposées; leurs horaires restent à vérifier.",
@@ -137,7 +142,8 @@ export async function handleTransportSearch(
   }
 
   function choices(): Choice[] {
-    if (stage === "territory") return (service.territories ?? ["fr"]).map(value => ({ value, label: TERRITORY_NAMES[value] }));
+    if (stage === "territory") return (service.territories ?? ["fr"]).map(value => ({ value, label: TERRITORY_NAMES[value],
+      ...(value === "en" ? { description: text("Bus BODS · métro TfL · trains en attente", "BODS buses · TfL Underground · trains pending") } : {}) }));
     if (stage === "mode") return (Object.keys(MODE_NAMES) as TransitMode[]).map((value) => ({ value, label: modeName(value, territory) }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
       description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
@@ -158,7 +164,7 @@ export async function handleTransportSearch(
     const pages = Math.max(1, Math.ceil(matching.length / 25));
     page = Math.max(0, Math.min(page, pages - 1));
     const titles: Partial<Record<Stage, string>> = {
-      territory: text("France ou Québec ?", "France or Québec?"),
+      territory: text("Choisis le territoire", "Choose the territory"),
       mode: text("Choisis un moyen de transport", "Choose a transport mode"),
       networks: text("Choisis un réseau", "Choose a network"),
       cities: cities.length && cities.every(c => c.kind === "station")
@@ -275,16 +281,18 @@ export async function handleTransportSearch(
   }
 
   async function afterCity() {
-    if (territory === "qc") await loadNetworks(); else await loadLines();
+    if (territory === "qc" || territory === "en") await loadNetworks(); else await loadLines();
   }
 
   async function loadNetworks() {
     if (!live || (!city && !region) || !selectedMode) return;
     network = undefined; line = undefined; index = undefined; origin = undefined; arrival = undefined;
     await edit(region ? `${region.name} · ${text("Recherche des réseaux…", "Looking up networks…")}`
-      : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
+      : territory === "en" ? text("Recherche des réseaux anglais…", "Looking up English networks…")
+        : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
     networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
     if (!live) return;
+    if (territory === "en" && networks.length === 1) { await selectNetwork(networks[0]!); return; }
     filter = ""; page = 0; stage = "networks";
     await render();
   }
@@ -430,7 +438,8 @@ export async function handleTransportSearch(
     modalPending = true;
     const cityEntry = action === "city";
     const modalId = `${id}:modal:${randomUUID()}`;
-    const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "qc"
+    const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "en"
+      ? text("Ville ou localité anglaise", "English town or locality") : territory === "qc"
       ? text("Localité du Québec", "Québec locality") : selectedMode === "rail"
         ? text("Ville, gare, département ou code postal", "City, station, department or postal code")
          : text("Région, commune, département ou code postal", "Region, city, department or postal code"))
@@ -494,7 +503,7 @@ export async function handleTransportSearch(
         place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
-      if (action === "networks" && (territory === "qc" || region)) { await loadNetworks(); return; }
+      if (action === "networks" && (territory === "qc" || territory === "en" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "refresh") { await showDepartures(); return; }
@@ -505,7 +514,7 @@ export async function handleTransportSearch(
         if (stage === "result") { await loadArrivals(); return; }
         if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
         if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
-        if (stage === "lines" && (territory === "qc" || region)) { stage = "networks"; network = undefined; await render(); return; }
+        if (stage === "lines" && (territory === "qc" || territory === "en" || region)) { stage = "networks"; network = undefined; await render(); return; }
         if (stage === "networks" && region) { region = undefined; await cityInput(); return; }
         if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
         if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
