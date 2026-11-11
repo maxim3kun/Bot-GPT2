@@ -70,22 +70,15 @@ function specificity(rule: TransferRule): number {
 }
 
 /** Respect GTFS rule precedence, including specific forbidden/unsupported overrides. */
-function transferRule(index: JourneyIndex, first: JourneyPair, second: JourneyPair, rules: TransferRule[]): TransferRule | undefined {
-  const connections = index.connections!;
-  const firstRoute = connections.network.metadata.trips.get(first.tripId)?.routeId;
-  const secondRoute = connections.network.metadata.trips.get(second.tripId)?.routeId;
-  const matching = rules.filter((rule) =>
-    applies(first.destination.stopId, rule.from, connections.network) &&
-    applies(second.origin.stopId, rule.to, connections.network) &&
-    (!rule.fromRoute || rule.fromRoute === firstRoute) && (!rule.toRoute || rule.toRoute === secondRoute) &&
-    (!rule.fromTrip || rule.fromTrip === first.tripId) && (!rule.toTrip || rule.toTrip === second.tripId));
+function preferredTransferRule(matching: TransferRule[]): TransferRule | undefined {
   const rank = Math.max(...matching.map(specificity));
   const best = matching.filter((rule) => specificity(rule) === rank);
   // Ambiguous equal-precedence rules fail closed rather than allowing a prohibited change.
   return best.length === 1 && best[0]!.type === 2 && best[0]!.minimum !== null ? best[0] : undefined;
 }
 
-export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string>, destinations?: ReadonlySet<string>): ConnectionPath[] {
+export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string>, destinations?: ReadonlySet<string>,
+  onPath?: (path: ConnectionPath) => void): ConnectionPath[] {
   const data = index.connections;
   if (!data || data.network === index) return [];
   const network = data.network;
@@ -93,10 +86,14 @@ export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string
   const spend = () => {
     if (++budget > 500_000) throw new Error("Transfer search exceeds the supported work budget");
   };
-  const fromStops = new Set([...index.stops.keys()].filter((id) => data.rules.some((rule) => {
+  const permittedFrom = new Set<string>();
+  for (const rule of data.rules) {
     spend();
-    return rule.type === 2 && rule.minimum !== null && applies(id, rule.from, index);
-  })));
+    if (rule.type === 2 && rule.minimum !== null) permittedFrom.add(rule.from);
+  }
+  const fromStops = new Set([...index.stops.values()]
+    .filter((stop) => permittedFrom.has(stop.id) || permittedFrom.has(stop.parent))
+    .map((stop) => stop.id));
   const firstPairs: JourneyPair[] = [];
   for (const [tripId, visits] of index.visits) {
     for (let position = 0; position < visits.length; position++) {
@@ -113,6 +110,7 @@ export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string
     }
   }
   const paths: ConnectionPath[] = [];
+  const listedDestinations = !destinations && !onPath ? new Set<string>() : undefined;
   const children = new Map<string, string[]>();
   for (const stop of network.stops.values()) {
     if (stop.parent) {
@@ -148,8 +146,19 @@ export function connectionPaths(index: JourneyIndex, origins: ReadonlySet<string
           spend();
           const rule = transferRule(index, first, second, rules);
           if (rule) {
-            paths.push({ first, second, rule });
-            if (paths.length > 10_000) throw new Error("Too many possible transfer paths");
+            const path = { first, second, rule };
+            if (onPath) onPath(path);
+            else if (listedDestinations) {
+              // Arrival pickers need proof that a stop is reachable, not every
+              // timetable combination that reaches that same stop.
+              if (!listedDestinations.has(destination.stopId)) {
+                listedDestinations.add(destination.stopId);
+                paths.push(path);
+              }
+            } else {
+              paths.push(path);
+              if (paths.length > 10_000) throw new Error("Too many possible transfer paths");
+            }
           }
         }
       }

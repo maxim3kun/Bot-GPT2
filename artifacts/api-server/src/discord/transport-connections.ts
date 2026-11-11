@@ -41,7 +41,6 @@ function legTimes(index: JourneyIndex, pair: JourneyPair, feeds: JourneyRealtime
 export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arrival: StopGroup, now: number, feeds: Uint8Array[] = []): ConnectedJourney[] {
   const network = index.connections?.network;
   if (!network) return [];
-  const paths = connectionPaths(index, new Set(origin.ids), new Set(arrival.ids));
   // Decode once for the whole search, not once per candidate leg.
   const decoded = feeds.flatMap((feed) => {
     try { return [decodeJourneyFeed(feed)]; } catch { return []; }
@@ -49,27 +48,32 @@ export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arriva
   const cache = new Map<string, JourneyTime[]>();
   const times = (pair: JourneyPair) => {
     const key = `${pair.tripId}:${pair.origin.sequence}:${pair.destination.sequence}`;
-    let result = cache.get(key);
-    if (!result) { result = legTimes(network, pair, decoded, now); cache.set(key, result); }
+    if (cache.has(key)) return cache.get(key)!;
+    const result = legTimes(network, pair, decoded, now);
+    cache.set(key, result);
     return result;
   };
-  const results: ConnectedJourney[] = [];
-  for (const path of paths) {
+  const results = new Map<string, ConnectedJourney>();
+  const rank = (a: ConnectedJourney, b: ConnectedJourney) =>
+    a.second.arrivalAt! - b.second.arrivalAt! || a.first.departureAt - b.first.departureAt;
+  connectionPaths(index, new Set(origin.ids), new Set(arrival.ids), (path) => {
     for (const first of times(path.first)) {
       if (first.arrivalAt === null || first.departureAt < now) continue;
       for (const second of times(path.second)) {
         if (second.departureAt - first.arrivalAt < path.rule.minimum! ||
           second.arrivalAt === null || second.arrivalAt > now + 24 * 3600) continue;
-        results.push({ path, first, second });
-        if (results.length > 10_000) throw new Error("Too many timed transfer itineraries");
+        const result = { path, first, second };
+        const key = `${first.tripId}:${first.departureAt}:${path.first.destination.stopId}:${second.tripId}:${second.departureAt}`;
+        if (results.has(key)) continue;
+        const best = [...results.values(), result].sort(rank).slice(0, 3);
+        results.clear();
+        for (const candidate of best) {
+          results.set(`${candidate.first.tripId}:${candidate.first.departureAt}:${candidate.path.first.destination.stopId}:${candidate.second.tripId}:${candidate.second.departureAt}`, candidate);
+        }
       }
     }
-  }
-  const unique = new Map(results.map((result) => [
-    `${result.first.tripId}:${result.first.departureAt}:${result.path.first.destination.stopId}:${result.second.tripId}:${result.second.departureAt}`,
-    result,
-  ]));
-  return [...unique.values()].sort((a, b) => a.second.arrivalAt! - b.second.arrivalAt! || a.first.departureAt - b.first.departureAt).slice(0, 3);
+  });
+  return [...results.values()].sort(rank);
 }
 
 export function formatConnections(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup,

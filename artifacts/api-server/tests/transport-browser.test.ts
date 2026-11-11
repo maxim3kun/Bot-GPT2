@@ -559,6 +559,27 @@ test("a published bus to metro transfer exposes the destination and renders both
   assert.ok(result.content.length < 1900);
 });
 
+test("dense train schedules keep one arrival option and stream the best journeys past ten thousand combinations", async () => {
+  const firstCount = 105, secondCount = 100;
+  const trips = [
+    ...Array.from({ length: firstCount }, (_, i) => `B,S,B${i},Amiens`),
+    ...Array.from({ length: secondCount }, (_, i) => `M,S,M${i},Terminus`),
+  ].join("\n");
+  const stopTimes = [
+    ...Array.from({ length: firstCount }, (_, i) => `B${i},08:10:00,08:10:00,O,1\nB${i},08:20:00,08:20:00,X,2`),
+    ...Array.from({ length: secondCount }, (_, i) => `M${i},08:25:00,08:25:00,P,1\nM${i},08:35:00,08:35:00,Q,2`),
+  ].join("\n");
+  const index = await connectionIndex({ extra: {
+    "trips.txt": `route_id,service_id,trip_id,trip_headsign\n${trips}\n`,
+    "stop_times.txt": `trip_id,arrival_time,departure_time,stop_id,stop_sequence\n${stopTimes}\n`,
+  } });
+  const arrival = arrivalOptions(index, connectionOrigin).find((stop) => stop.ids.includes("Q"));
+  assert.ok(arrival?.viaTransfer, "the destination should remain selectable despite 10,500 timetable combinations");
+  const journeys = connectedJourneys(index, connectionOrigin, arrival!, NOW / 1000);
+  assert.equal(journeys.length, 3);
+  assert.ok(journeys.every((journey) => journey.second.departureAt - journey.first.arrivalAt! >= 180));
+});
+
 test("impossible and too-short changes are rejected, the exact published minimum is accepted", async () => {
   for (const [departure, expected] of [["08:15:00", 0], ["08:22:59", 0], ["08:23:00", 1]] as const) {
     const index = await connectionIndex({ departure });
