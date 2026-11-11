@@ -15,6 +15,12 @@ import { withArrivalApproximations } from "./transport-arrivals.js";
 import type { APIEmbed } from "discord.js";
 import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { IdfmLiveClient, idfmLineCode, idfmTimeAllowed, ruleActive, stopAffected, stopClosed, type IdfmTraffic } from "./idfm-live.js";
+import type { TransportProvider, TransportTerritory } from "./transport-provider.js";
+import { QuebecTransportClient } from "./quebec-transport.js";
+import { inBounds, sourceLimitations } from "./quebec-sources.js";
+import { parseGtfsAlerts } from "./gtfs-alerts.js";
+import { localDate } from "./gtfs-realtime.js";
+import { TransportDataError } from "./transport-data-error.js";
 
 export interface TransportLine {
   routeId: string;
@@ -26,9 +32,11 @@ export interface TransportLine {
   realtime: CatalogResource[];
   source: TransportSource;
   selection?: GtfsSelection;
+  territory?: TransportTerritory;
+  alerts?: CatalogResource[];
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
-export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean }
+export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean; issues?: string[] }
 export interface TransportDepartureResult {
   content: string;
   source: TransportSource;
@@ -38,6 +46,8 @@ export interface TransportDepartureResult {
   hasMore?: boolean;
 }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
+export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
+  territory === "qc" && mode === "rail" ? "Train" : territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
 
 function publishedRouteCount(resource: CatalogResource): number {
   const stats = resource.metadata?.stats;
@@ -68,7 +78,7 @@ export function originOptions(index: JourneyIndex, line: TransportLine): StopGro
   const nearbyStations = new Set([...index.stops.values()].filter((stop) => nearby.has(stop.id) && stop.parent)
     .map((stop) => stop.parent));
   const boarding = new Set([...index.visits.values()].flatMap((visits) =>
-    visits.filter((visit) => visit.pickup && (nearby.has(visit.stopId) ||
+    visits.filter((visit, i) => visit.pickup && visits.some((next, j) => j > i && next.dropoff && next.stopId !== visit.stopId) && (nearby.has(visit.stopId) ||
       nearbyStations.has(index.stops.get(visit.stopId)?.parent ?? ""))).map((visit) => visit.stopId)));
   return groupStops([...index.stops.values()].filter((stop) => boarding.has(stop.id)));
 }
@@ -102,16 +112,45 @@ export class TransportBrowserClient {
   private readonly unavailableUntil = new Map<number, number>();
   private scanTail: Promise<unknown> = Promise.resolve();
   private queuedScans = 0;
+  private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
 
-  constructor(readonly provider = new FranceTransportClient(), private readonly now = Date.now,
-    readonly idfm = new IdfmLiveClient(fetch, now)) {}
+  readonly territories = ["fr", "qc"] as const;
+  constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
+    readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now)) {}
 
-  private usesIdfm(line: TransportLine) { return isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
+  private providerFor(territory?: TransportTerritory) { return territory === "qc" ? this.quebec : this.provider; }
+
+  async networks(city: TransportLocation, mode: TransitMode) {
+    if (city.territory !== "qc") return [];
+    return (await this.quebec.getCatalog()).filter(d =>
+      (!d.bounds || inBounds(d.bounds, city.latitude, city.longitude)) &&
+      (!d.modes || modeMatches(mode, d.modes)) &&
+      (d.resources.some(r => isStaticScheduleResource(r) && modeMatches(mode, publishedModes(r))) || !d.resources.length));
+  }
+
+  private usesIdfm(line: TransportLine) { return line.territory !== "qc" && isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
+
+  private async traffic(line: TransportLine, index: JourneyIndex): Promise<IdfmTraffic | null> {
+    if (this.usesIdfm(line)) return this.idfm.traffic(line.routeId);
+    if (!line.alerts?.length) return null;
+    const key = `${line.territory}:${line.resource.id}:${line.routeId}`, old = this.alertCache.get(key), now = this.now();
+    if (old && now - old.checked < 12_000) return old.traffic;
+    let traffic: IdfmTraffic;
+    try {
+      const feeds = await Promise.all(line.alerts.map(async r => parseGtfsAlerts(
+        await this.providerFor(line.territory).realtimeFeed(r), index, Math.floor(now / 1000))));
+      traffic = { available: feeds.every(f => f.available), rules: feeds.flatMap(f => f.rules) };
+    } catch { traffic = { available: false, rules: [] }; }
+    if (!traffic.available && old && now - old.good < 30 * 60_000) traffic.rules = old.traffic.rules;
+    if (this.alertCache.size >= 64) this.alertCache.delete(this.alertCache.keys().next().value!);
+    this.alertCache.set(key, { checked: now, good: traffic.available ? now : old?.good ?? 0, traffic });
+    return traffic;
+  }
 
   async availableStops(line: TransportLine, index: JourneyIndex, groups: StopGroup[], language: string) {
-    if (!this.usesIdfm(line)) return { options: groups, note: "" };
-    const traffic = await this.idfm.traffic(line.routeId), at = Math.floor(this.now() / 1000), fr = language === "fr";
-    const unknown = traffic.rules.some(r => r.blocking && r.unresolved && ruleActive(r, at));
+    const traffic = await this.traffic(line, index), at = Math.floor(this.now() / 1000), fr = language === "fr";
+    if (!traffic) return { options: groups, note: index.sourceWarning ?? "" };
+    const unknown = traffic.rules.some(r => r.blocking && !r.tripIds?.size && r.unresolved && ruleActive(r, at));
     if (unknown) return { options: [], note: fr
       ? "Une interruption est signalée mais son périmètre ne peut pas être vérifié. Aucun trajet n’est confirmé."
       : "A disruption is reported but its scope cannot be verified. No journey is confirmed." };
@@ -126,6 +165,7 @@ export class TransportBrowserClient {
         [...new Set(closed)].join(", ").slice(0, 450) + "." : "",
       !traffic.available ? (fr ? "Alertes de perturbation indisponibles : desserte non confirmée."
         : "Disruption alerts unavailable: service not confirmed.") : "",
+      index.sourceWarning ?? "",
     ].filter(Boolean).join("\n") };
   }
 
@@ -138,15 +178,17 @@ export class TransportBrowserClient {
     try { return await request; } finally { this.queuedScans--; }
   }
 
-  cities(place: string): Promise<TransportLocation[]> { return this.provider.municipalities(place); }
+  cities(place: string, territory: TransportTerritory = "fr"): Promise<TransportLocation[]> {
+    return this.providerFor(territory).municipalities(place);
+  }
 
-  async lines(city: TransportLocation, mode: TransitMode, requestedLine = ""): Promise<LineListing> {
-    const key = `${city.id}:${mode}:${normalizeTransitText(requestedLine)}`;
+  async lines(city: TransportLocation, mode: TransitMode, requestedLine = "", networkId?: string): Promise<LineListing> {
+    const key = `${city.territory ?? "fr"}:${city.id}:${mode}:${normalizeTransitText(requestedLine)}:${networkId ?? "*"}`;
     const cached = this.listings.get(key);
     if (cached && cached.expires > this.now()) return cached.value;
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<LineListing>;
-    const work = this.loadLines(city, mode, requestedLine).then((value) => {
+    const work = this.loadLines(city, mode, requestedLine, networkId).then((value) => {
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
       this.listings.set(key, { value, expires: this.now() + (value.lines.length && (!value.unavailable || requestedLine) ? 300_000 : 30_000) });
       return value;
@@ -155,10 +197,18 @@ export class TransportBrowserClient {
     return work;
   }
 
-  private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string): Promise<LineListing> {
-    const [catalogue, nearby] = await Promise.all([
-      this.provider.getCatalog(), this.provider.nearbyStops(city.latitude, city.longitude, 0.025),
-    ]);
+  private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string, networkId?: string): Promise<LineListing> {
+    const provider = this.providerFor(city.territory);
+    let catalogue, nearby;
+    if (city.territory === "qc") {
+      if (!networkId) throw new Error("Select a Québec transport network");
+      catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
+      if (catalogue.length !== 1) throw new Error("Unknown Québec network");
+      const resources = catalogue.flatMap(d => d.resources.filter(isStaticScheduleResource));
+      nearby = await provider.nearbyStopsForResources!(city.latitude, city.longitude, resources);
+    } else {
+      [catalogue, nearby] = await Promise.all([provider.getCatalog(), provider.nearbyStops(city.latitude, city.longitude, 0.025)]);
+    }
     const stopsByResource = new Map<number, Set<string>>();
     for (const feature of nearby.features ?? []) {
       const stop = feature.properties;
@@ -176,7 +226,8 @@ export class TransportBrowserClient {
         // Try smaller operator feeds before European/national bundles. A local
         // numbered line should not wait for unrelated long-distance operators.
         publishedRouteCount(a.resource) - publishedRouteCount(b.resource));
-    let unavailable = 0;
+    let unavailable = nearby.unavailableResourceIds?.length ?? 0;
+    const issues: string[] = [];
     let networkScoped = false;
     const found: TransportLine[] = [];
     for (const [id, until] of this.unavailableUntil) if (until <= this.now()) this.unavailableUntil.delete(id);
@@ -190,16 +241,22 @@ export class TransportBrowserClient {
         const { dataset, resource, stopIds } = groups[next++]!;
         if ((this.unavailableUntil.get(resource.id) ?? 0) > this.now()) { unavailable++; continue; }
         try {
-          const selection: GtfsSelection | undefined = mode === "metro" && isIdfmGtfs(resource)
+          const selection: GtfsSelection | undefined = city.territory === "qc"
+            ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) }
+            : mode === "metro" && isIdfmGtfs(resource)
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
           const routes = await this.scan(async () =>
-            scanRoutesAtStops(await this.provider.staticFeed(resource, selection), stopIds, requestedLine));
+            scanRoutesAtStops(await provider.staticFeed(resource, selection), stopIds, requestedLine));
           for (const route of routes) {
             if (route.mode !== mode) continue;
             found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
               description: route.longName || dataset.title, nearbyStopIds: route.stopIds, resource,
               realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
-              source: { name: dataset.title, url: dataset.page_url }, ...(selection ? { selection } : {}) });
+              source: { name: dataset.title, url: dataset.page_url, ...(city.territory === "qc" ? {
+                updated: resource.updated, attribution: `${dataset.title} · ${dataset.licence}`, limitations: sourceLimitations(dataset),
+              } : {}) }, ...(city.territory === "qc" ? { territory: "qc" as const,
+                alerts: dataset.resources.filter(r => r.is_available && /alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
+              ...(selection ? { selection } : {}) });
           }
           if (found.length && (requestedLine || selection)) {
             networkScoped = !!selection;
@@ -207,6 +264,7 @@ export class TransportBrowserClient {
           }
         } catch (error) {
           unavailable++;
+          if (error instanceof TransportDataError) issues.push(`${dataset.title} : ${error.message}`);
           if (this.unavailableUntil.size >= 64) this.unavailableUntil.delete(this.unavailableUntil.keys().next().value!);
           this.unavailableUntil.set(resource.id, this.now() + 60_000);
           logger.warn({ resourceId: resource.id, err: error }, "Transport browser source unavailable");
@@ -222,11 +280,11 @@ export class TransportBrowserClient {
     }
     return { lines: [...unique.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
-      unavailable, ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
+       unavailable, ...(issues.length ? { issues } : {}), ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {
-    const key = `index:${line.resource.id}:${line.routeId}`;
+    const key = `index:${line.territory ?? "fr"}:${line.resource.id}:${line.routeId}`;
     const cached = this.indexes.get(key);
     if (cached && cached.expires > this.now()) return cached.value;
     const pending = this.pending.get(key);
@@ -235,8 +293,20 @@ export class TransportBrowserClient {
       const value = await this.scan(async () => {
         const selection = line.selection?.discoveryStops ? { mode: line.mode, line: line.label } : line.selection ??
           (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
-        const zip = await this.provider.staticFeed(line.resource, selection);
+        const zip = await this.providerFor(line.territory).staticFeed(line.resource, selection);
         const index = await buildJourneyIndex(zip, line.routeId);
+        if (line.territory === "qc") {
+          if (!index.metadata.timezone) throw new TransportDataError("Le flux ne précise pas de fuseau horaire utilisable; horaires non confirmés.");
+          new Intl.DateTimeFormat("fr", { timeZone: index.metadata.timezone }).format(0);
+          const services = new Set([...index.metadata.trips.values()].map(t => t.serviceId));
+          const end = [...index.metadata.calendars].filter(([id]) => services.has(id)).map(([, c]) => c.endDate)
+            .concat([...index.metadata.calendarExceptions].filter(([key, type]) => type === 1 && services.has(key.slice(9))).map(([key]) => key.slice(0, 8)))
+            .sort().at(-1);
+          if (end && end < localDate(Math.floor(this.now() / 1000), index.metadata.timezone).replaceAll("-", ""))
+            index.sourceWarning = `Données périmées : calendrier publié jusqu’au ${end.slice(6)}/${end.slice(4, 6)}/${end.slice(0, 4)}. Desserte actuelle non confirmée.`;
+          if ([...index.frequencies?.values() ?? []].some(entries => entries.some(e => !e.exact)))
+            index.sourceWarning = [index.sourceWarning, "Fréquences non exactes publiées : aucun horaire précis n’est inventé à partir d’un intervalle."].filter(Boolean).join(" ");
+        }
         if (selection) {
           // A selective large-network feed intentionally excludes transfers.
           // Do not claim that the whole IDFM network was searched for changes.
@@ -251,7 +321,7 @@ export class TransportBrowserClient {
         return index;
       });
       if (this.indexes.size >= 3) this.indexes.delete(this.indexes.keys().next().value!);
-      const deliberateDirectOnly = line.mode === "metro" && isIdfmGtfs(line.resource);
+      const deliberateDirectOnly = !!line.selection || line.mode === "metro" && isIdfmGtfs(line.resource);
       this.indexes.set(key, { value, expires: this.now() + (value.connectionsUnavailable && !deliberateDirectOnly ? 30_000 : 300_000) });
       return value;
     })().finally(() => this.pending.delete(key));
@@ -262,9 +332,9 @@ export class TransportBrowserClient {
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
-    const traffic: IdfmTraffic | null = this.usesIdfm(line) ? await this.idfm.traffic(line.routeId) : null;
+    const traffic = await this.traffic(line, index);
     const activeRules = traffic?.rules.filter(r => ruleActive(r, now)) ?? [];
-    const uncertain = activeRules.find(r => r.blocking && r.unresolved);
+    const uncertain = activeRules.find(r => r.blocking && !r.tripIds?.size && r.unresolved);
     const endpointsClosed = traffic && [origin, arrival].some(group => group.ids.every(id => stopClosed(traffic, index, id, now)));
     if (uncertain || endpointsClosed) {
       const message = uncertain?.message ?? activeRules.find(r => r.blocking &&
@@ -277,7 +347,7 @@ export class TransportBrowserClient {
     }
     if (arrival.viaTransfer) {
       const feeds = (await Promise.all(line.realtime.map(async (resource) => {
-        try { return await this.provider.realtimeFeed(resource); }
+        try { return await this.providerFor(line.territory).realtimeFeed(resource); }
         catch (error) {
           logger.debug({ resourceId: resource.id, err: error }, "Transport connection realtime unavailable");
           return null;
@@ -295,12 +365,12 @@ export class TransportBrowserClient {
     // Widen only if the ordinary window is empty, retaining the official calendar.
     const laterSchedules = schedules.length ? [] : scheduledJourneys(index, pairs, now, 7);
     const [updates, idfmLive] = await Promise.all([Promise.all(line.realtime.map(async (resource) => {
-      try { return realtimeJourneys(await this.provider.realtimeFeed(resource), pairs, now); }
+      try { return realtimeJourneys(await this.providerFor(line.territory).realtimeFeed(resource), pairs, now); }
       catch (error) {
         logger.debug({ resourceId: resource.id, err: error }, "Transport journey realtime unavailable");
         return null;
       }
-    })), traffic ? this.idfm.passages(line.routeId, index, pairs) : Promise.resolve(null)]);
+    })), this.usesIdfm(line) ? this.idfm.passages(line.routeId, index, pairs) : Promise.resolve(null)]);
     const fresh = updates.filter((update) => update?.fresh);
     const cancelled = new Set(fresh.flatMap((update) => [...update!.cancelled]));
     const estimates = idfmLive?.times.length ? idfmLive.times :
@@ -328,9 +398,15 @@ export class TransportBrowserClient {
       ...activeRules.filter(r => !r.blocking && [...origin.ids, ...arrival.ids].some(id => stopAffected(r, index, id)))
         .slice(0, 2).map(r => r.message),
     ].filter(Boolean) : [];
-    return { ...departureCards({ title: `${MODE_NAMES[line.mode]} ${line.label}`, origin: origin.label, arrival: arrival.label,
+    const attribution = line.source.attribution ? `${french ? "Source" : "Source"} : ${line.source.attribution}${
+      line.source.updated && Number.isFinite(Date.parse(line.source.updated)) ? ` · ${
+        french ? "mise à jour" : "updated"} ${new Intl.DateTimeFormat(french ? "fr-FR" : "en-GB", {
+          timeZone: timezone, day: "2-digit", month: "2-digit", year: "numeric",
+        }).format(new Date(line.source.updated))}` : ""}` : "";
+    return { ...departureCards({ title: `${modeName(line.mode, line.territory)} ${line.label}`, origin: origin.label, arrival: arrival.label,
       multiPlatform: origin.ids.length > 1, stops: index.stops, times: deduped, timezone, now, french,
-      realtime: deduped.some(t => t.realtime) || !!idfmLive?.cancelled, notes: [later, warning, cancellation, ...disruptionNotes].filter(Boolean),
+      realtime: deduped.some(t => t.realtime) || !!idfmLive?.cancelled,
+      notes: [later, warning, cancellation, ...disruptionNotes, index.sourceWarning ?? "", attribution, ...(line.source.limitations ?? [])].filter(Boolean),
       empty: idfmLive?.cancelled || times.length !== allowed.length ? (french
         ? "Aucun passage confirmé pour ce trajet après prise en compte des perturbations."
         : "No confirmed departure for this journey after accounting for disruptions.") : empty }), source: line.source };

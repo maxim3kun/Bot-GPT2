@@ -1,6 +1,10 @@
 # Rechercher un transport dans Discord
 
-Les commandes n’appellent pas l’IA. Elles utilisent le catalogue national et les fichiers publiés par les réseaux de transport.
+Les commandes n’appellent pas l’IA. Elles utilisent les catalogues et les fichiers officiels des réseaux de France et du Québec.
+
+Sans préfixe territorial, choisir **France** ou **Québec** avant la recherche. Les syntaxes françaises restent reconnues; `fr` et `qc` permettent de choisir directement le territoire, par exemple `!bus fr Amiens Beauvais 601` ou `!metro qc Montréal 1`. Au Québec, sélectionner ensuite le réseau évite de charger toute la province. Le bouton **France / Québec** permet de changer de territoire sans conserver les anciens arrêts.
+
+Voir la [couverture québécoise, les licences et les limites par réseau](transport-quebec.md), dont les sources encore indisponibles et les accès temps réel non configurés.
 
 ## Commandes
 

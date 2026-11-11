@@ -170,7 +170,7 @@ test("provider caches isolated selections and browser exposes a complete direct 
   const prompt = { content: "", async edit(value: any) { this.content = value.content; return this; },
     createMessageComponentCollector() { return collector; } };
   const message = { channelId: "metro-test", author: { id: "owner" }, async reply(value: any) { await prompt.edit(value); return prompt; } };
-  await handleTransportCommand(message as unknown as Message, ["ligne", "8", "Paris"], "fr", "!", "metro", client);
+  await handleTransportCommand(message as unknown as Message, ["fr", "ligne", "8", "Paris"], "fr", "!", "metro", client);
   assert.equal(searched, "Paris");
   assert.match(prompt.content, /arrêt de départ/);
   collector.stop("cancelled");

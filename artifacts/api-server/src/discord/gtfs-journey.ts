@@ -3,7 +3,7 @@ import { parse } from "csv-parse";
 import { finished } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
-import { normalizeTransitText } from "./transport-query.js";
+import { routeMatchesRequested } from "./transport-query.js";
 import {
   addDays, localDate, serviceRunsOn, scheduledEpoch, parseGtfsStaticMetadata, routeTypeToMode,
   type GtfsStaticMetadata, type GtfsRouteAtStops,
@@ -30,6 +30,8 @@ export interface JourneyIndex {
   visits: Map<string, Visit[]>;
   stops: Map<string, JourneyStop>;
   connectionsUnavailable?: boolean;
+  sourceWarning?: string;
+  frequencies?: Map<string, Array<{ start: number; end: number; headway: number; exact: boolean }>>;
   connections?: {
     network: JourneyIndex;
     rules: TransferRule[];
@@ -110,7 +112,7 @@ export async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) 
 export async function scanRoutesAtStops(zip: Uint8Array, ids: ReadonlySet<string>, requestedLine = ""): Promise<GtfsRouteAtStops[]> {
   const { routes, trips } = parseGtfsStaticMetadata(zip);
   const wanted = requestedLine ? new Set([...routes].filter(([id, route]) =>
-    normalizeTransitText(route.shortName || id) === normalizeTransitText(requestedLine)).map(([id]) => id)) : null;
+    routeMatchesRequested(id, route.shortName, route.longName, requestedLine)).map(([id]) => id)) : null;
   if (wanted && !wanted.size) return [];
   const selected = new Map<string, Set<string>>();
   await scanRows(zip, "stop_times.txt", (row) => {
@@ -162,7 +164,23 @@ export async function buildJourneyIndex(zip: Uint8Array, routeId: string, extraR
   for (const stop of stops.values()) {
     if (stop.parent && stationNames.has(stop.parent)) stop.stationName = stationNames.get(stop.parent);
   }
-  return { metadata, routeId, visits, stops };
+  const frequencies: NonNullable<JourneyIndex["frequencies"]> = new Map();
+  await scanRows(zip, "frequencies.txt", row => {
+    const id = row.trip_id?.trim() ?? ""; if (!visits.has(id)) return;
+    const start = gtfsSeconds(row.start_time ?? ""), end = gtfsSeconds(row.end_time ?? ""), headway = Number(row.headway_secs);
+    if (start == null || end == null || end <= start || !Number.isInteger(headway) || headway < 1) return;
+    const list = frequencies.get(id) ?? [];
+    list.push({ start, end, headway, exact: row.exact_times === "1" }); frequencies.set(id, list);
+  });
+  return { metadata, routeId, visits, stops, frequencies };
+}
+
+function gtfsSeconds(value: string): number | null {
+  const m = value.match(/^(\d{1,3}):([0-5]\d):([0-5]\d)$/);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
+}
+function gtfsClock(seconds: number) {
+  return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 export function journeyPairs(index: JourneyIndex, origins: ReadonlySet<string>, destinations: ReadonlySet<string>): JourneyPair[] {
@@ -185,15 +203,29 @@ export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now
   for (const pair of pairs) {
     const service = index.metadata.trips.get(pair.tripId)?.serviceId;
     if (!service) continue;
+    const frequencies = index.frequencies?.get(pair.tripId);
+    const base = gtfsSeconds(index.visits.get(pair.tripId)?.[0]?.departure ?? "");
+    const originSeconds = gtfsSeconds(pair.origin.departure), destinationSeconds = gtfsSeconds(pair.destination.arrival);
+    const offsets = !frequencies ? [0] : frequencies.flatMap(f => {
+      // Non-exact headways are intervals, never precise timetable departures.
+      if (!f.exact || base == null) return [];
+      if ((f.end - f.start) / f.headway > 10_000) throw new Error("Transport frequency exceeds its budget");
+      return Array.from({ length: Math.ceil((f.end - f.start) / f.headway) }, (_, i) => f.start + i * f.headway - base);
+    });
     for (const date of dates) {
       if (!serviceRunsOn(index.metadata, service, date)) continue;
-      const departureAt = scheduledEpoch(date, pair.origin.departure, timezone);
+      for (const offset of offsets) {
+      const departureClock = offset && originSeconds != null ? gtfsClock(originSeconds + offset) : pair.origin.departure;
+      const arrivalClock = offset && destinationSeconds != null ? gtfsClock(destinationSeconds + offset) : pair.destination.arrival;
+      const departureAt = scheduledEpoch(date, departureClock, timezone);
       if (departureAt == null || departureAt < now - 20 || departureAt > now + horizon * 24 * 3600) continue;
-      const arrivalAt = scheduledEpoch(date, pair.destination.arrival, timezone);
+      const arrivalAt = scheduledEpoch(date, arrivalClock, timezone);
       results.push({ tripId: pair.tripId, departureAt, departureStopId: pair.origin.stopId,
         arrivalStopId: pair.destination.stopId,
         arrivalAt: arrivalAt != null && arrivalAt >= departureAt ? arrivalAt : null, realtime: false,
         serviceDate: date.replaceAll("-", "") });
+      if (results.length > 50_000) throw new Error("Transport timetable exceeds its budget");
+      }
     }
   }
   return results.sort((a, b) => a.departureAt - b.departureAt);

@@ -291,7 +291,7 @@ async function until(predicate: () => boolean) {
 test("Discord menus distinguish the city, protect ownership, then choose departure and arrival", async () => {
   const { client } = fixture();
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil"], "fr", "!", "bus", client);
   assert.match(ui.prompt.content, /Quelle commune/);
   assert.match(JSON.stringify(ui.prompt.components), /Hauts-de-France/);
   const unauthorized = await ui.click("choose", "1", "other");
@@ -355,7 +355,7 @@ test("more-times toggling reuses the result, refresh reloads, and closing retain
       })), timezone: "Europe/Paris", now: NOW / 1000, french: true, realtime: false, notes: [], empty: "" }), source: line.source };
   };
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");
@@ -384,7 +384,7 @@ test("a server without embed permissions receives readable compact text instead 
     if (options.embeds?.length) throw Object.assign(new Error("Missing Permissions"), { code: 50013 });
     return edit(options);
   };
-  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");
@@ -408,7 +408,7 @@ test("a shorthand destination is prioritized without hiding the intermediate sto
     return cities;
   };
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil", "Amiens", "601"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "Amiens", "601"], "fr", "!", "bus", client);
   await ui.click("choose", "1");
   await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");
@@ -425,7 +425,7 @@ test("a lookup acknowledges immediately, can be cancelled, and never edits after
   let release!: (value: any) => void;
   client.cities = () => new Promise((resolve) => { release = resolve; });
   const ui = discordFixture();
-  const pending = handleTransportCommand(ui.message, ["Breteuil"], "fr", "!", "bus", client);
+  const pending = handleTransportCommand(ui.message, ["fr", "Breteuil"], "fr", "!", "bus", client);
   await until(() => !!release);
   assert.ok(ui.prompt.edits[0].content.includes("Recherche"));
   await ui.click("cancel");
@@ -438,7 +438,7 @@ test("a lookup acknowledges immediately, can be cancelled, and never edits after
 test("the generic transport entry chooses metro and accepts a city through its modal", async () => {
   const { client } = fixture();
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, [], "fr", "!", null, client);
+  await handleTransportCommand(ui.message, ["fr"], "fr", "!", null, client);
   assert.match(ui.prompt.content, /moyen de transport/);
   await ui.click("choose", "metro");
   await until(() => !!ui.find("city"));
@@ -456,7 +456,7 @@ test("long route menus paginate and their search modal preserves original select
   const base = (await client.lines(city, "bus")).lines[0]!;
   client.lines = async () => ({ lines: Array.from({ length: 55 }, (_, i) => ({ ...base, label: `Ligne-${i}` })), unavailable: 0 });
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   assert.equal(ui.find("choose").options.length, 25);
   await ui.click("next");
   assert.equal(ui.find("choose").options[0].value, "25");
@@ -475,7 +475,7 @@ test("timeouts close the menu and late provider results cannot replace the timeo
   const { client } = fixture();
   client.cities = async () => { await delay(50); return []; };
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil"], "fr", "!", "bus", client, 10);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil"], "fr", "!", "bus", client, 10);
   await delay(70);
   assert.match(ui.prompt.content, /dépassé le délai/);
   assert.equal(ui.prompt.components.length, 0);
@@ -619,7 +619,7 @@ test("fresh live delays, cancellations and skipped stops invalidate an otherwise
 test("Discord can select an arrival on a second line and refresh the complete itinerary", async () => {
   const { client } = fixture(false, connectionZip());
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");
@@ -673,7 +673,7 @@ test("oversized transfer tables leave direct journeys available with an explicit
   assert.equal(index.connectionsUnavailable, true);
   assert.deepEqual(arrivalOptions(index, connectionOrigin).map((stop) => stop.label), ["Amiens Gare", "Gare"]);
   const ui = discordFixture();
-  await handleTransportCommand(ui.message, ["Breteuil", "(60)"], "fr", "!", "bus", client);
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
   await ui.click("choose", "0");
   await until(() => ui.prompt.content.includes("arrêt de départ"));
   await ui.click("choose", "0");

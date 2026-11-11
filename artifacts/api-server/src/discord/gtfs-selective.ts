@@ -2,10 +2,11 @@ import { Transform } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { zipSync, strToU8 } from "fflate";
 import { GtfsRangeArchive, type GtfsRow, type RangeRequest } from "./gtfs-range.js";
-import { routeTypeToMode } from "./gtfs-realtime.js";
-import { normalizeTransitText, type TransitMode } from "./transport-query.js";
+import { routeTypeToMode, serviceRunsOn, localDate, addDays, type GtfsStaticMetadata } from "./gtfs-realtime.js";
+import { routeMatchesRequested, type TransitMode } from "./transport-query.js";
+import { TransportDataError } from "./transport-data-error.js";
 
-export interface GtfsSelection { mode: TransitMode; line?: string; discoveryStops?: readonly string[] }
+export interface GtfsSelection { mode: TransitMode; line?: string; discoveryStops?: readonly string[]; serviceWindowFrom?: number }
 const MAX_RETAINED = 48 * 1024 * 1024;
 
 export function isIdfmGtfs(resource: { original_url?: string }): boolean {
@@ -107,13 +108,32 @@ export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelect
   };
   if (!await table("routes.txt", (row) => {
     if (routeTypeToMode(Number(row.route_type)) !== selection.mode ||
-      (selection.line && normalizeTransitText(row.route_short_name || row.route_id || "") !== normalizeTransitText(selection.line))) return false;
+      (selection.line && !routeMatchesRequested(row.route_id || "", row.route_short_name || "", row.route_long_name || "", selection.line))) return false;
     routes.add(row.route_id!.trim());
     return true;
   })) throw new Error("Transport archive has no routes table");
   if (!routes.size) return zipSync(files, { level: 1 });
+  let activeServices: Set<string> | undefined;
+  if (selection.serviceWindowFrom != null) {
+    const metadata: GtfsStaticMetadata = { routes: new Map(), trips: new Map(), calendars: new Map(),
+      calendarExceptions: new Map(), timezone: null };
+    await archive.rows("agency.txt", row => { metadata.timezone ??= row.agency_timezone || null; });
+    if (!metadata.timezone) throw new TransportDataError("Le flux ne précise pas de fuseau horaire utilisable; horaires non confirmés.");
+    await archive.rows("calendar.txt", row => metadata.calendars.set(row.service_id, {
+      startDate: row.start_date!, endDate: row.end_date!,
+      weekdays: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map(d => row[d] === "1"),
+    }));
+    await archive.rows("calendar_dates.txt", row => {
+      if (row.exception_type === "1" || row.exception_type === "2")
+        metadata.calendarExceptions.set(`${row.date}:${row.service_id}`, Number(row.exception_type));
+    });
+    const services = new Set([...metadata.calendars.keys(), ...[...metadata.calendarExceptions.keys()].map(k => k.slice(9))]);
+    const dates = Array.from({ length: 9 }, (_, i) => addDays(localDate(selection.serviceWindowFrom!, metadata.timezone!), i - 1));
+    activeServices = new Set([...services].filter(id => dates.some(d => serviceRunsOn(metadata, id, d))));
+    if (!activeServices.size) throw new TransportDataError("Le calendrier publié ne couvre aucun service dans les 7 prochains jours; données anciennes ou service hors période.");
+  }
   if (!await table("trips.txt", (row) => {
-    if (!routes.has(row.route_id?.trim() ?? "")) return false;
+    if (!routes.has(row.route_id?.trim() ?? "") || activeServices && !activeServices.has(row.service_id?.trim() ?? "")) return false;
     if (trips.size >= 50_000) throw new Error("Too many selected transport trips");
     trips.add(row.trip_id!.trim());
     tripRoutes.set(row.trip_id!.trim(), row.route_id!.trim());
@@ -139,6 +159,7 @@ export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelect
     table("calendar.txt", (row) => services.has(row.service_id?.trim() ?? "")),
     table("calendar_dates.txt", (row) => services.has(row.service_id?.trim() ?? "")),
     table("agency.txt", () => true),
+    table("frequencies.txt", (row) => trips.has(row.trip_id?.trim() ?? "")),
   ]);
   if (!files["stops.txt"] || (!files["calendar.txt"] && !files["calendar_dates.txt"])) {
     throw new Error("Selected transport data has no usable stops or service calendar");

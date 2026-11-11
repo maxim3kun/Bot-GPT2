@@ -21,6 +21,12 @@ export function normalizeTransitText(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+export function routeMatchesRequested(id: string, short: string, long: string, requested: string): boolean {
+  const wanted = normalizeTransitText(requested);
+  return normalizeTransitText(short || id) === wanted ||
+    /^\d+$/.test(wanted) && new RegExp(`^${wanted}(?:\\s*[-–—:]|\\s*$)`).test(normalizeTransitText(long));
+}
+
 export function parsePublicTransportQuery(text: string): PublicTransportQuery | null {
   const clean = text.replace(/<@!?\d+>/g, " ").replace(/<#[\d]+>/g, " ").trim();
   if (!LIVE_INTENT.test(clean) || !MODE_PATTERNS.some(([, pattern]) => pattern.test(clean))) return null;

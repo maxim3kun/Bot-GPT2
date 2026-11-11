@@ -21,6 +21,8 @@ import { normalizeTransitText, parsePublicTransportQuery, type PublicTransportQu
 import { normalizeCityName, resolveBusJourney } from "./bus-journey.js";
 import { isIdfmGtfs, selectiveGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { createHash } from "node:crypto";
+import type { TransportTerritory } from "./transport-provider.js";
+import { safeQuebecUrl, type Bounds } from "./quebec-sources.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -50,6 +52,10 @@ export interface CatalogDataset {
   type: string;
   licence: string;
   resources: CatalogResource[];
+  territory?: TransportTerritory;
+  bounds?: Bounds;
+  modes?: string[];
+  limitations?: string[];
   publisher?: { name?: string } | string;
   covered_area?: Array<{ insee?: string; nom?: string; type?: string }>;
 }
@@ -66,6 +72,7 @@ interface CatalogStop {
 
 export interface StopCollection {
   features?: CatalogStop[];
+  unavailableResourceIds?: number[];
 }
 
 interface GeocodeFeature {
@@ -128,6 +135,9 @@ export interface TransportStopChoice {
 export interface TransportSource {
   name: string;
   url: string;
+  updated?: string;
+  attribution?: string;
+  limitations?: string[];
 }
 
 export interface TransportLocation {
@@ -136,6 +146,7 @@ export interface TransportLocation {
   label: string;
   latitude: number;
   longitude: number;
+  territory?: TransportTerritory;
 }
 
 export type TransportSearchResult =
@@ -327,7 +338,10 @@ export function sourceButton(source: TransportSource | undefined, language: stri
   if (!source) return [];
   try {
     const url = new URL(source.url);
-    if (url.protocol !== "https:" || url.hostname !== "transport.data.gouv.fr") return [];
+    if (url.protocol !== "https:") return [];
+    if (url.hostname !== "transport.data.gouv.fr") {
+      try { safeQuebecUrl(url.href); } catch { return []; }
+    }
     return [
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()

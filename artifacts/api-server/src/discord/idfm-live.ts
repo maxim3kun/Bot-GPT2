@@ -21,6 +21,7 @@ export interface TrafficRule {
   blocking: boolean;
   periods: Array<{ begin: number; end: number }>;
   message: string;
+  tripIds?: Set<string>;
 }
 export interface IdfmTraffic { available: boolean; rules: TrafficRule[] }
 const navitiaTime = (value: unknown) => {
@@ -80,12 +81,13 @@ export function stopAffected(rule: TrafficRule, index: JourneyIndex, id: string)
   return rule.wholeLine || rule.points.has(id) || rule.areas.has(index.stops.get(id)?.parent ?? "");
 }
 export function stopClosed(traffic: IdfmTraffic, index: JourneyIndex, id: string, at: number): boolean {
-  return traffic.rules.some(r => r.blocking && !r.unresolved && ruleActive(r, at) && stopAffected(r, index, id));
+  return traffic.rules.some(r => r.blocking && !r.unresolved && !r.tripIds?.size && ruleActive(r, at) && stopAffected(r, index, id));
 }
 
 export function idfmTimeAllowed(traffic: IdfmTraffic, index: JourneyIndex, time: JourneyTime,
   origins: string[], arrivals: string[]): boolean {
   for (const rule of traffic.rules) {
+    if (rule.tripIds?.size && !rule.tripIds.has(time.tripId)) continue;
     if (!rule.blocking) continue;
     if (rule.unresolved) { if (ruleActive(rule, time.departureAt)) return false; continue; }
     if (stopAffected(rule, index, time.departureStopId ?? origins[0] ?? "") && ruleActive(rule, time.departureAt)) return false;
