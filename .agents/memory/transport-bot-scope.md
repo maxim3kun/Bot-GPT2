@@ -17,6 +17,14 @@ The requested geographic coverage also includes the whole province of Québec, n
 
 **How to apply:** Plan province-wide discovery using real official feeds and disclose missing or inaccessible data per network. Do not reinterpret this as a timezone-only change or silently restrict Québec to the Montréal metropolitan area.
 
+## Persistent transport cache
+
+Le cache MongoDB des transports doit conserver les informations stables des réseaux, lignes et arrêts, pas les horaires ni les estimations de passage.
+
+**Why:** L’utilisateur a demandé de mettre les informations en cache dans MongoDB, « mais pas les horraires mais les infos si possible ».
+
+**How to apply:** Garder cette séparation lors des optimisations et des ajouts de pays. Un catalogue, une ligne ou un arrêt en cache ne prouve pas qu’un départ existe ; consulter les sources de passages pour répondre sur les horaires.
+
 ## Verified conversational journeys
 
 For the new journey features and associated API integrations, select public sources and free APIs.
