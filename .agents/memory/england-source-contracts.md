@@ -15,6 +15,12 @@ TfL recommends registration for its Unified API and documents an app_key for the
 
 **How to apply:** Check the current product and transport-data terms before activation. Do not invent a daily/minute quota from the plan's name. See https://api-portal.tfl.gov.uk/ and https://tfl.gov.uk/corporate/terms-and-conditions/transport-data-service.
 
+TfL may respond with HTTP 429 and the explicit body “Invalid app_key is provided.” An HTTP 429 is therefore not sufficient evidence that a valid key merely exhausted its quota.
+
+**Why:** A live authenticated line-list request returned that combination on 2026-11-11, including after trimming surrounding whitespace.
+
+**How to apply:** Classify the safe provider error as well as the status before choosing retries or asking for a replacement key. Never log credential-bearing request URLs or raw network errors.
+
 National Rail Darwin requires Rail Data Marketplace registration, subscription and human acceptance of its terms. Its public JSON documentation requires licensed credentials using Basic Authentication, not an assumed anonymous JSON endpoint.
 
 **Why:** https://www.nationalrail.co.uk/developers/darwin-data-feeds/ lists JSON products but describes free usage of XML Push and SOAP separately; https://realtime.nationalrail.co.uk/LDBWS/docs/documentation.html explicitly describes authentication.
