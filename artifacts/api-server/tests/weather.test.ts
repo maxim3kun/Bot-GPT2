@@ -52,6 +52,31 @@ test("civil periods use the place timezone, not the server date, and account for
   const spring=weatherPeriod("2027-03-28","Europe/Paris",NOW/1000);assert.equal(spring.end-spring.start,23*3600);
   const autumn=weatherPeriod("2027-10-31","Europe/Paris",NOW/1000);assert.equal(autumn.end-autumn.start,25*3600);
 });
+test("French and ISO date-only requests keep a whole local day through native and natural handlers",async()=>{
+  for(const date of ["15/11/2026","2026-11-15"]){
+    for(const text of [`Météo Beauvais ${date}`,`Quelle météo à Beauvais le ${date} ?`]){
+      const request=weatherTurn(text)!;
+      assert.equal(request.place,"Beauvais");assert.equal(request.when,date);
+      const period=weatherPeriod(request.when,place.timezone,NOW/1000);assert.equal(period.end-period.start,24*3600);
+      const s=setup(),d=fakeDiscord();
+      await createWeatherDialogue(s.service,async()=>true,()=>null)(d.message,text,"fr");
+      assert.match(d.replies[0]!.content!,/15\/11 00:00 → 16\/11 00:00/);
+      assert.equal(s.forecasts,1);
+    }
+    const native=setup(),d=fakeDiscord();
+    await handleWeatherCommand(d.message,["Beauvais",date],"fr",createWeatherDialogue(native.service,async()=>true,()=>null));
+    assert.match(d.replies[0]!.content!,/15\/11 00:00 → 16\/11 00:00/);
+  }
+});
+test("an explicitly marked clock after a complete date changes the period without replacing the town",async()=>{
+  for(const date of ["15/11/2026","2026-11-15"]){
+    const text=`Météo Beauvais le ${date} à 14:00`,request=weatherTurn(text)!;
+    assert.equal(request.place,"Beauvais");assert.equal(request.when,`${date} à 14:00`);
+    const s=setup(),d=fakeDiscord();
+    await createWeatherDialogue(s.service,async()=>true,()=>null)(d.message,text,"fr");
+    assert.match(d.replies[0]!.content!,/15\/11 14:00 → 15\/11 15:00/);assert.equal(s.forecasts,1);
+  }
+});
 test("bad dates, past times, non-existent and ambiguous DST hours are not silently normalized",()=>{
   for(const when of ["2026-02-31","2025-01-01","tomorrow at 25:00","tomorrow at 14:3","date à préciser"])
     assert.throws(()=>weatherPeriod(when,"Europe/Paris",NOW/1000));

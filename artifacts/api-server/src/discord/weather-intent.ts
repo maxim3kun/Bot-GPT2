@@ -6,20 +6,24 @@ export function weatherTurn(input: string): WeatherRequest | null {
   if (!/^(?:(?:quelle?|quels?|what(?: s| is)?|donne[r]?(?: moi)?|affiche|montre(?: moi)?|consulte|show|tell me)(?: sera| est)?(?: la| le| les| the)?\s+)?(?:meteo|weather|temperature|temps)\b|^va t il pleuvoir\b/.test(lead)) return null;
   const atDestination = /\b(?:destination|a l arrivee|at arrival|when i arrive)\b/.test(n);
   const relative = raw.match(/\b(?:apr[eè]s[- ]demain|demain|aujourd['’]hui|today|tomorrow|maintenant|now)\b/i)?.[0];
-  const date = raw.match(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}(?:\/\d{4})?)\b/)?.[0];
-  const time = raw.match(/(?:^|\s)(?:[àa]|at|vers)\s*(\d{1,2}(?::\d{2}|h\d{0,2})?)(?!\w)|\b(\d{1,2}(?::\d{2}|h\d{0,2}))(?!\w)/i);
+  const dateMatch = raw.match(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}(?:\/\d{4})?)\b/);
+  const date = dateMatch?.[0];
+  // Calendar digits must never be reconsidered as a clock, including after "à/at".
+  const timeInput=dateMatch?raw.slice(0,dateMatch.index)+" ".repeat(dateMatch[0].length)+raw.slice(dateMatch.index!+dateMatch[0].length):raw;
+  const time = timeInput.match(/(?:^|\s)(?:[àa]|at|vers)\s*(\d{1,2}(?::\d{2}|h\d{0,2})?)(?!\w)|\b(\d{1,2}(?::\d{2}|h\d{0,2}))(?!\w)/i);
   const clock = time?.[1] ?? time?.[2];
   const unsupported = !date && !relative && /\b(?:semaine|week|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|dans \d+ jours)\b/.test(n);
   const when = [date ?? relative, clock ? `à ${clock}` : ""].filter(Boolean).join(" ") || (unsupported ? "date à préciser" : undefined);
   const territory = /\b(?:France|fr)\b/i.test(raw) ? "fr" : /\b(?:qu[eé]bec|canada|qc)\b/i.test(raw) ? "qc" : undefined;
-  let place = atDestination ? "" : raw.match(/(?:^|\s)(?:[àa]|pour|in|at|sur)\s+(.+)$/i)?.[1] ??
-    raw.replace(/^.*?\b(?:m[eé]t[eé]o|weather|temp[eé]rature)\b\s*/i, "");
-  if (relative) place = place.replace(relative, "");
-  if (date) place = place.replace(date, "");
-  if (time) place = place.replace(time[0], "");
+  let locationText=raw;
+  if(relative)locationText=locationText.replace(relative," ");
+  if(date)locationText=locationText.replace(date," ");
+  if(time)locationText=locationText.replace(time[0]," ");
+  let place = atDestination ? "" : locationText.match(/(?:^|\s)(?:[àa]|pour|in|at|sur)\s+(.+)$/i)?.[1] ??
+    locationText.replace(/^.*?\b(?:m[eé]t[eé]o|weather|temp[eé]rature|temps)\b\s*/i, "");
   place = place.replace(/^(?:[àa]|pour|sur|in|at)\s+/i, "");
   place = place.replace(/\b(?:au Qu[eé]bec|en France|au Canada|qc|fr)\b/gi, "")
-    .replace(/\s+(?:pour le|pour|le)\s*$/i, "").replace(/[?!.,\s]+$/g, "").trim();
+    .replace(/[?!.,\s]+$/g, "").replace(/\s+(?:pour le|pour|le)\s*$/i, "").trim();
   place = place.replace(/\s+(?:Qu[eé]bec|Canada|France)$/i,"").trim();
   return { ...(place ? { place } : {}), ...(territory ? { territory } : {}), ...(when ? { when } : {}), ...(atDestination ? { atDestination: true } : {}) };
 }
