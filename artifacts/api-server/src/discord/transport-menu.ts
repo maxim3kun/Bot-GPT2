@@ -9,7 +9,6 @@ import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOpt
   type TransportDepartureResult, type TransportTimeOptions } from "./transport-browser.js";
 import { sourceButton, lineMatches, type TransportLocation, type CatalogDataset } from "./public-transport.js";
 import { isMobilityTerritory, territoryLabel, type TransportTerritory } from "./transport-provider.js";
-import type { MobilityCountry } from "./mobility-database-transport.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import { journeyPairs, type JourneyIndex } from "./gtfs-journey.js";
 import { connectionPaths } from "./gtfs-connections.js";
@@ -190,7 +189,6 @@ export async function handleTransportSearch(
   let selectedMode = mode;
   const savedPreferences = await bestEffortPreference(preferencesStore.get(message.author.id), null);
   let preferredTerritory = savedPreferences?.preferredTerritory;
-  let mobilityCountries: MobilityCountry[] = [];
   let resumeFavorite = favoriteToResume;
   let territory: TransportTerritory | undefined = parsed.territory ?? (service.territories ? undefined : "fr");
   let stage: Stage = !territory ? "territory" : mode ? "city" : "mode";
@@ -259,15 +257,6 @@ export async function handleTransportSearch(
     }
   };
 
-  async function loadMobilityCountries(timeoutMs = 3_500) {
-    if (typeof service.mobilityCountries !== "function") return;
-    try {
-      mobilityCountries = await transportDeadline(service.mobilityCountries(), timeoutMs);
-    } catch (error) {
-      logger.warn({ err: error }, "Mobility Database country list unavailable");
-    }
-  }
-
   async function cityInput() {
     stage = "city";
     const cityButtons = [
@@ -324,7 +313,6 @@ export async function handleTransportSearch(
     if (stage === "territory") {
       const territories = [
         ...(service.territories ?? ["fr"] as const),
-        ...mobilityCountries.map(country => `mobility:${country.code}` as TransportTerritory),
       ];
       if (preferredTerritory && territories.includes(preferredTerritory)) {
         territories.splice(territories.indexOf(preferredTerritory), 1);
@@ -403,8 +391,6 @@ export async function handleTransportSearch(
     if (stage !== "mode" && stage !== "territory") controls.addComponents(button("back", text("Retour", "Back")));
     if (stage === "territory" || stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals")
       controls.addComponents(button("filter", text("Rechercher", "Search")));
-    if (stage === "territory" && typeof service.mobilityCountries === "function")
-      controls.addComponents(button("countries", text("Autres pays", "More countries")));
     if (stage === "networks" && controls.components.length < 4)
       controls.addComponents(button("networks", text("Actualiser", "Refresh")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
@@ -446,7 +432,11 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    const coverageNote = stage === "territory" && typeof service.mobilityCountries === "function"
+      ? text("\nLes autres pays n’apparaissent qu’après vérification de lignes accessibles dans le mode choisi.",
+        "\nOther countries appear only after routes are confirmed for the selected mode.")
+      : "";
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
   }
 
   async function loadModeChoices() {
@@ -1041,12 +1031,6 @@ export async function handleTransportSearch(
       if (action === "networks" && (isMobilityTerritory(territory) || territory === "qc" || territory === "en" || territory === "ie" ||
         territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
         territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua" || region)) { await loadNetworks(); return; }
-      if (action === "countries") {
-        await loadMobilityCountries(8_000);
-        filter = ""; page = 0;
-        await render();
-        return;
-      }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "zones" && territory === "ie") {
@@ -1150,7 +1134,6 @@ export async function handleTransportSearch(
       territory = await service.inferTerritory(place);
     // Municipality-based shorthand resolution happens once in loadCities.
     if (!territory || !selectedMode) {
-      if (!territory) await loadMobilityCountries();
       if (territory && !selectedMode) await loadModeChoices();
       if (stage !== "error") await render();
     }
