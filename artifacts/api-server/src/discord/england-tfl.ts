@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { TransportLine, StopGroup, LineListing } from "./transport-browser.js";
+import type { TransportLine, StopGroup, LineListing, TransportTimeOptions } from "./transport-browser.js";
 import type { JourneyIndex, JourneyTime } from "./gtfs-journey.js";
 import { journeyPairs } from "./gtfs-journey.js";
 import { departureCards } from "./transport-presentation.js";
@@ -308,8 +308,10 @@ export class TflTransportClient {
     }
     return { times: [] as JourneyTime[], checked, hasPublishedSchedule, hasUsableSchedule };
   }
-  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
+  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string,
+    options: TransportTimeOptions = {}) {
     const french = language === "fr", id = lineId(line), now = Math.floor(this.now() / 1000);
+    const notBefore = Math.max(now, options.departureAfter ?? now);
     const stops = [...new Set([...origin.ids, ...arrival.ids])];
     if (stops.length > 12) throw new TransportDataError("Trop de quais TfL sélectionnés. Précise les arrêts.");
     let traffic: Awaited<ReturnType<TflTransportClient["traffic"]>>;
@@ -325,14 +327,14 @@ export class TflTransportClient {
     const predictions = await Promise.all(stops.map(stop =>
       this.http.json<Prediction[]>(`/Line/${id}/Arrivals/${encoded(stop)}`)));
     const all = predictions.flat();
-    let times = tflTimes(index, origin, arrival, all, all, now);
+    let times = tflTimes(index, origin, arrival, all, all, now).filter(time => time.departureAt >= notBefore);
     const notes = [...new Set([
       ...traffic.statuses.filter(s => s.statusSeverity !== 10).map(s => s.reason || s.statusSeverityDescription),
       ...traffic.disruptions.map(d => d.description ?? ""),
     ].filter(Boolean))].slice(0, 3).map(s => s.slice(0, 350));
     if (!times.length && line.mode === "bus") {
       const fallback = await this.fixedBusTimes(line, index, origin, arrival, now);
-      times = fallback.times;
+      times = fallback.times.filter(time => time.departureAt >= notBefore);
       if (times.length) notes.push(french ? "Horaires fixes publiés par TfL · non temps réel." : "TfL published timetable · not real time.");
       else if (!fallback.checked) notes.push(french
         ? "Horaires fixes TfL indisponibles pour cette recherche." : "TfL fixed timetable unavailable for this search.");

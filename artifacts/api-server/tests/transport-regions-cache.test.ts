@@ -296,7 +296,7 @@ test("result has one Modify control, return is single-flight, outsider and outda
   await choose(card, "0"); await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
   await choose(card, "0"); await settle(() => !!card.last.embeds.length);
   assert.ok(card.custom("return")); assert.ok(card.custom("modify")); assert.equal(card.custom("back"), undefined);
-  assert.equal(card.last.components.flatMap(r => r.components).filter(c => c.label === "Modifier").length, 1);
+  assert.equal(card.last.components.flatMap(r => r.components).filter(c => c.label === "Arrêts").length, 1);
   const other = card.interaction("return", { user: { id: "other" } });
   await card.collector.collect(other.value); await tick(); assert.equal(reverseCalls, 0);
   const click1 = card.interaction("return"), click2 = card.interaction("return");

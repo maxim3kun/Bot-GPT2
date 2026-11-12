@@ -6,6 +6,18 @@ import type { StopGroup, TransportLine } from "./transport-browser.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 
 export interface ConnectedJourney { path: ConnectionPath; first: JourneyTime; second: JourneyTime }
+export interface ConnectionTimeFilters { departureAfter?: number; connectionAfter?: number; minimumWaitSeconds?: number }
+const modeNames = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train" };
+export function connectionRouteLabel(route: { shortName: string; longName: string; type: number | null }) {
+  const mode = routeTypeToMode(route.type);
+  const shortName = route.shortName.trim(), longName = route.longName.trim(), identifier = shortName || longName;
+  if (!mode) return identifier || "Transport";
+  if (mode !== "rail") return `${modeNames[mode]} ${identifier}`.trim();
+  if (/\bRER\b/i.test(shortName)) return shortName.slice(0, 50);
+  const rer = longName.match(/\bRER(?:\s+[A-Z0-9]{1,5})?/i)?.[0];
+  if (rer) return `${rer.toUpperCase()}${shortName && !rer.toUpperCase().endsWith(shortName.toUpperCase()) ? ` · ${shortName}` : ""}`.slice(0, 50);
+  return `Train ${identifier}`.slice(0, 50);
+}
 
 /** Merge estimates per service instance; an unrelated live trip must not hide scheduled services. */
 function legTimes(index: JourneyIndex, pair: JourneyPair, feeds: JourneyRealtimeFeed[], now: number): JourneyTime[] {
@@ -40,7 +52,8 @@ function legTimes(index: JourneyIndex, pair: JourneyPair, feeds: JourneyRealtime
   });
 }
 
-export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arrival: StopGroup, now: number, feeds: Uint8Array[] = []): ConnectedJourney[] {
+export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arrival: StopGroup, now: number,
+  feeds: Uint8Array[] = [], filters: ConnectionTimeFilters = {}): ConnectedJourney[] {
   const network = index.connections?.network;
   if (!network) return [];
   // Decode once for the whole search, not once per candidate leg.
@@ -60,9 +73,10 @@ export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arriva
     a.second.arrivalAt! - b.second.arrivalAt! || a.first.departureAt - b.first.departureAt;
   connectionPaths(index, new Set(origin.ids), new Set(arrival.ids), (path) => {
     for (const first of times(path.first)) {
-      if (first.arrivalAt === null || first.departureAt < now) continue;
+      if (first.arrivalAt === null || first.departureAt < Math.max(now, filters.departureAfter ?? now)) continue;
       for (const second of times(path.second)) {
-        if (second.departureAt - first.arrivalAt < path.rule.minimum! ||
+        if (second.departureAt - first.arrivalAt < Math.max(path.rule.minimum ?? 0, filters.minimumWaitSeconds ?? 0) ||
+          (filters.connectionAfter !== undefined && second.departureAt < filters.connectionAfter) ||
           second.arrivalAt === null || second.arrivalAt > now + 24 * 3600) continue;
         const result = { path, first, second };
         const key = `${first.tripId}:${first.departureAt}:${path.first.destination.stopId}:${second.tripId}:${second.departureAt}`;
@@ -94,12 +108,11 @@ export function connectionCards(line: TransportLine, index: JourneyIndex, origin
   const reliability = (time: JourneyTime) => time.realtime ? (fr ? "temps réel" : "real-time")
     : (fr ? "théorique" : "scheduled");
   const name = (id: string) => (network.stops.get(id)?.name ?? id).slice(0, 80);
-  const modeNames = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
   const leg = (pair: JourneyPair, time: JourneyTime) => {
     const route = network.metadata.routes.get(network.metadata.trips.get(pair.tripId)!.routeId)!;
-    const mode = routeTypeToMode(route.type)!;
-    return `**${modeNames[mode] ?? ""} ${(route.shortName || route.longName).slice(0, 40)}** · ${
-      name(pair.origin.stopId)} → ${name(pair.destination.stopId)}\n${clock(time.departureAt)} → ${clock(time.arrivalAt!)} · ${reliability(time)}`;
+    const label = connectionRouteLabel(route);
+    return `**${label}**\n${name(pair.origin.stopId)} · ${clock(time.departureAt)} → ${
+      name(pair.destination.stopId)} · ${clock(time.arrivalAt!)} · ${reliability(time)}`;
   };
   const scope = journeys.length
     ? fr ? "1 correspondance · même source officielle · autres réseaux et marche non calculés."
@@ -111,10 +124,9 @@ export function connectionCards(line: TransportLine, index: JourneyIndex, origin
     const to = name(path.second.origin.stopId);
     const transferLocation = from === to ? from : `${from} → ${to}`;
     return {
-      name: `${fr ? "Option" : "Option"} ${i + 1} · ${clock(first.departureAt)} → ${clock(second.arrivalAt!)}`.slice(0, 256),
-      value: `${leg(path.first, first)}\n↔ **${fr ? "Changement à" : "Change at"} ${transferLocation}** · ${
-        duration(second.departureAt - first.arrivalAt!)} ${fr ? "d’attente" : "waiting"} · ${
-        fr ? "minimum officiel" : "official minimum"} ${duration(path.rule.minimum!)}\n${leg(path.second, second)}`.slice(0, 1024),
+      name: `${fr ? "Option" : "Option"} ${i + 1} · ${duration(second.arrivalAt! - first.departureAt)}`.slice(0, 256),
+      value: `${leg(path.first, first)}\n\n↔ **${fr ? "Changement à" : "Change at"} ${transferLocation}**\n${
+        fr ? "Attente" : "Waiting"} : ${duration(second.departureAt - first.arrivalAt!)}\n\n${leg(path.second, second)}`.slice(0, 1024),
       inline: false,
     };
   });

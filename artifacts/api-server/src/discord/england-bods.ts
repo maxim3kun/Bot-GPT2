@@ -2,7 +2,7 @@ import { unzipSync, strFromU8 } from "fflate";
 import { setImmediate } from "node:timers/promises";
 import type { CatalogDataset } from "./public-transport.js";
 import type { JourneyIndex } from "./gtfs-journey.js";
-import type { LineListing, StopGroup, TransportLine } from "./transport-browser.js";
+import type { LineListing, StopGroup, TransportLine, TransportTimeOptions } from "./transport-browser.js";
 import type { EnglandLocation } from "./england-locations.js";
 import { TransportMetadataCache } from "./transport-metadata-cache.js";
 import { TransportDataError } from "./transport-data-error.js";
@@ -152,10 +152,12 @@ export class BodsTransportClient {
     return index;
   }
 
-  departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
+  departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string,
+    options: TransportTimeOptions = {}) {
     const now = Math.floor(this.now() / 1000), french = language === "fr";
     const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
-    const times = scheduledJourneys(index, pairs, now, 7).slice(0, 6);
+    const times = scheduledJourneys(index, pairs, now, 7)
+      .filter(time => time.departureAt >= Math.max(now, options.departureAfter ?? now)).slice(0, 6);
     return { ...departureCards({ title: `Bus ${line.label}`, origin: origin.label, arrival: arrival.label,
       multiPlatform: origin.ids.length > 1, stops: index.stops, times, timezone: "Europe/London", now, french, realtime: false,
       notes: [index.sourceWarning ?? "", "Source : Bus Open Data Service · Open Government Licence",

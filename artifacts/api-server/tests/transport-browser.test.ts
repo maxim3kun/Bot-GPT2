@@ -10,7 +10,7 @@ import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/di
 import { buildJourneyIndex, journeyPairs, realtimeJourneys, scheduledJourneys } from "../src/discord/gtfs-journey.js";
 import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
 import { addConnections } from "../src/discord/gtfs-connections.js";
-import { connectedJourneys, formatConnections } from "../src/discord/transport-connections.js";
+import { connectedJourneys, connectionRouteLabel, formatConnections } from "../src/discord/transport-connections.js";
 import { departureCards } from "../src/discord/transport-presentation.js";
 
 const NOW = Date.parse("2026-11-10T07:00:00Z");
@@ -287,6 +287,7 @@ function discordFixture() {
     async reply(options: any) { await prompt.edit(typeof options === "string" ? { content: options } : options); return prompt; },
   } as unknown as Message;
   let modalText = "Breteuil";
+  let modalValues: Record<string, string> = {};
   const find = (suffix: string) => prompt.components.flatMap((row: any) => row.components)
     .find((component: any) => component.custom_id?.endsWith(`:${suffix}`));
   async function click(action: string, value?: string, user = "owner") {
@@ -301,14 +302,15 @@ function discordFixture() {
         assert.ok(json.title.length <= 45);
         assert.ok(json.components[0].components[0].label.length <= 45);
       },
-      async awaitModalSubmit() { return { fields: { getTextInputValue: () => modalText },
+      async awaitModalSubmit() { return { fields: { getTextInputValue: (name: string) => modalValues[name] ?? (name === "value" ? modalText : "") },
         async deferUpdate() {}, async reply(options: any) { replies.push(options); } }; },
       async deferUpdate() { deferred = true; }, async reply(options: any) { replies.push(options); } };
     collector.emit("collect", event);
     await delay(5);
     return { replies, get deferred() { return deferred; } };
   }
-  return { collector, prompt, message, find, click, setModalText(value: string) { modalText = value; } };
+  return { collector, prompt, message, find, click, setModalText(value: string) { modalText = value; },
+    setModalValues(values: Record<string, string>) { modalValues = values; } };
 }
 async function until(predicate: () => boolean) {
   for (let i = 0; i < 100; i++) { if (predicate()) return; await delay(5); }
@@ -547,7 +549,7 @@ test("a published bus to metro transfer exposes the destination and renders both
   const result = await client.departures(line, index, connectionOrigin, arrival, "fr");
   assert.match(result.content, /Bus 601/); assert.match(result.content, /08:10.*08:20/);
   assert.match(result.content, /Métro A/); assert.match(result.content, /08:25.*08:35/);
-  assert.match(result.content, /minimum officiel 3 min/);
+  assert.doesNotMatch(result.content, /minimum officiel/);
   assert.match(result.content, /théorique/);
   assert.match(result.content, /ne garantissent pas/);
   assert.ok(result.embed, "one-transfer journeys should use the same visual card as direct departures");
@@ -556,6 +558,12 @@ test("a published bus to metro transfer exposes the destination and renders both
   assert.doesNotMatch(JSON.stringify(result.embed!.fields), /O → O/);
   assert.equal(result.source.url, line.source.url);
   assert.ok(result.content.length < 1900);
+});
+
+test("rail connections say Train or RER only when the official route names identify it", () => {
+  assert.equal(connectionRouteLabel({ shortName: "C17", longName: "Beauvais Paris Nord", type: 2 }), "Train C17");
+  assert.equal(connectionRouteLabel({ shortName: "K10", longName: "Paris Clermont", type: 2 }), "Train K10");
+  assert.equal(connectionRouteLabel({ shortName: "C", longName: "RER C", type: 2 }), "RER C");
 });
 
 test("a published transfer without compatible service is not presented as a confirmed journey", async () => {
@@ -681,13 +689,41 @@ test("Discord can select an arrival on a second line and refresh the complete it
   const option = ui.find("choose").options.find((choice: any) => choice.label === "Jean Jaurès");
   assert.match(option.description, /correspondance/);
   await ui.click("choose", option.value);
-  await until(() => JSON.stringify(ui.prompt.embeds).includes("minimum officiel"));
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Option 1"));
   assert.match(JSON.stringify(ui.prompt.embeds), /Oise/);
   assert.match(JSON.stringify(ui.prompt.embeds), /Métro A/);
   await ui.click("refresh");
-  await until(() => JSON.stringify(ui.prompt.embeds).includes("minimum officiel"));
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Option 1"));
   await ui.click("modify");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  ui.collector.stop("cancelled");
+});
+
+test("journey options filter start time, second-train time and requested transfer wait", async () => {
+  const { client } = fixture(false, connectionZip());
+  const ui = discordFixture();
+  await handleTransportCommand(ui.message, ["fr", "Breteuil", "(60)"], "fr", "!", "bus", client);
+  await ui.click("choose", "0");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  const destination = ui.find("choose").options.find((choice: any) => choice.label === "Jean Jaurès");
+  assert.ok(destination);
+  await ui.click("choose", destination.value);
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Option 1"));
+  assert.doesNotMatch(JSON.stringify(ui.prompt.embeds), /minimum officiel/);
+  assert.match(JSON.stringify(ui.prompt.embeds), /Attente : 5 min/);
+
+  ui.setModalValues({ departure: "08:11", connection: "", wait: "" });
+  await ui.click("options");
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Aucune correspondance vérifiable"));
+  assert.doesNotMatch(JSON.stringify(ui.prompt.embeds), /Option 1/);
+
+  ui.setModalValues({ departure: "08:05", connection: "08:26", wait: "" });
+  await ui.click("options");
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Aucune correspondance vérifiable"));
+
+  ui.setModalValues({ departure: "08:05", connection: "08:24", wait: "6" });
+  await ui.click("options");
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Aucune correspondance vérifiable"));
   ui.collector.stop("cancelled");
 });
 

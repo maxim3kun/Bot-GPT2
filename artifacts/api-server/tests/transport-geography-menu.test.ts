@@ -39,11 +39,11 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
   assert.deepEqual(s.requests, [["60000", "fr", "bus"]]);
   assert.ok(card.custom("filter"), "department and postcode commune lists must be searchable");
   assert.equal(card.custom("territory"), undefined);
-  for (let i = 0; i < 4; i++) await choose(card, "0"); // commune, line, origin, destination
+  for (let i = 0; i < 3; i++) await choose(card, "0"); // commune, line, destination; the unique origin is automatic
   assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Modifier"], ["Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Arrêts", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -80,14 +80,12 @@ test("selected metro arrivals omit redundant route notes and results use two com
   const card = d.cards[0]!;
   assert.match(card.last.content!, /Choisis une ligne/);
   await choose(card, "0");
-  assert.match(card.last.content!, /Choisis ta station de départ/);
-  await choose(card, "0");
   assert.match(card.last.content!, /Choisis ta station d’arrivée/);
   assert.doesNotMatch(card.last.content!, /Trajets directs sur la ligne choisie|Correspondances non calculées/);
   await choose(card, "0");
   assert.equal(card.last.components.length, 2);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Modifier"], ["Plus d’horaires", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Plus d’horaires", "Arrêts", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 
@@ -164,7 +162,7 @@ test("numbered bus routes sort low to high and a unique search opens it directly
     },
   });
   await card.collector.collect(submitted.value);
-  await wait(() => card.last.content?.includes("departure stop") ?? false);
+  await wait(() => card.last.content?.includes("arrival stop") ?? false);
   assert.equal(indexedLine, "tfl:906");
   assert.match(card.last.content!, /906/);
   assert.doesNotMatch(card.last.content!, /Choose a route/);

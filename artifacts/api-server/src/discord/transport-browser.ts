@@ -52,6 +52,7 @@ export interface TransportDepartureResult {
   expandedContent?: string;
   hasMore?: boolean;
 }
+export interface TransportTimeOptions { departureAfter?: number; connectionAfter?: number; minimumWaitSeconds?: number }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
   (territory === "qc" || territory === "en") && mode === "rail" ? "Train" : territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
@@ -141,6 +142,8 @@ export class TransportBrowserClient {
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
     readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now),
     readonly england = new EnglandTransportClient()) {}
+
+  currentTimeSeconds() { return Math.floor(this.now() / 1000); }
 
   private providerFor(territory?: TransportTerritory) { return territory === "qc" ? this.quebec : this.provider; }
 
@@ -511,10 +514,18 @@ export class TransportBrowserClient {
     return empty;
   }
 
-  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string): Promise<TransportDepartureResult> {
-    if (line.territory === "en") return this.england.departures(line, index, origin, arrival, language);
+  async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string,
+    options: TransportTimeOptions = {}): Promise<TransportDepartureResult> {
+    if (line.territory === "en") return this.england.departures(line, index, origin, arrival, language, options);
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
+    const realtimePromise = arrival.viaTransfer ? Promise.all(line.realtime.map(async (resource) => {
+      try { return await this.providerFor(line.territory).realtimeFeed(resource); }
+      catch (error) {
+        logger.debug({ resourceId: resource.id, err: error }, "Transport connection realtime unavailable");
+        return null;
+      }
+    })) : Promise.resolve([]);
     const traffic = await this.traffic(line, index);
     const activeRules = traffic?.rules.filter(r => ruleActive(r, now)) ?? [];
     const uncertain = activeRules.find(r => r.blocking && !r.tripIds?.size && r.unresolved);
@@ -529,14 +540,8 @@ export class TransportBrowserClient {
         (message ? `\n${message}` : ""), source: line.source };
     }
     if (arrival.viaTransfer) {
-      const feeds = (await Promise.all(line.realtime.map(async (resource) => {
-        try { return await this.providerFor(line.territory).realtimeFeed(resource); }
-        catch (error) {
-          logger.debug({ resourceId: resource.id, err: error }, "Transport connection realtime unavailable");
-          return null;
-        }
-      }))).filter((feed): feed is Uint8Array => feed !== null);
-      const journeys = connectedJourneys(index, origin, arrival, now, feeds);
+      const feeds = (await realtimePromise).filter((feed): feed is Uint8Array => feed !== null);
+      const journeys = connectedJourneys(index, origin, arrival, now, feeds, options);
       return { ...connectionCards(line, index, origin, arrival, journeys, language,
         !journeys.length || journeys.some((journey) => !journey.first.realtime || !journey.second.realtime)), source: line.source };
     }
@@ -558,7 +563,8 @@ export class TransportBrowserClient {
     const cancelled = new Set(fresh.flatMap((update) => [...update!.cancelled]));
     const estimates = idfmLive?.times.length ? idfmLive.times :
       fresh.flatMap((update) => update!.results).filter((time) => !cancelled.has(time.tripId));
-    const times = idfmLive?.cancelled ? [] : estimates.length ? estimates : (schedules.length ? schedules : laterSchedules)
+    const times = idfmLive?.cancelled ? [] : (estimates.length ? estimates : (schedules.length ? schedules : laterSchedules))
+      .filter((time) => time.departureAt >= Math.max(now, options.departureAfter ?? now))
       .filter((time) => time.departureAt > now + 24 * 3600 || !cancelled.has(time.tripId));
     const enriched = withArrivalApproximations(index, pairs, times, cancelled);
     const allowed = enriched.filter(time => !traffic || idfmTimeAllowed(traffic, index, time, origin.ids, arrival.ids));

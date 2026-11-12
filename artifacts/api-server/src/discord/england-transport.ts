@@ -1,5 +1,5 @@
 import type { CatalogDataset, TransportLocation } from "./public-transport.js";
-import type { TransportLine, StopGroup } from "./transport-browser.js";
+import type { TransportLine, StopGroup, TransportTimeOptions } from "./transport-browser.js";
 import type { JourneyIndex } from "./gtfs-journey.js";
 import type { TransitMode } from "./transport-query.js";
 import { TransportDataError } from "./transport-data-error.js";
@@ -32,8 +32,9 @@ export class EnglandTransportClient {
     return this.bods.lines(city as EnglandLocation, networkId, requested);
   }
   index(line: TransportLine) { return line.routeId.startsWith("tfl:") ? this.tfl.index(line) : this.bods.index(line); }
-  departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string) {
-    return line.routeId.startsWith("tfl:") ? this.tfl.departures(line, index, origin, arrival, language)
-      : Promise.resolve(this.bods.departures(line, index, origin, arrival, language));
+  departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string,
+    options: TransportTimeOptions = {}) {
+    return line.routeId.startsWith("tfl:") ? this.tfl.departures(line, index, origin, arrival, language, options)
+      : Promise.resolve(this.bods.departures(line, index, origin, arrival, language, options));
   }
 }

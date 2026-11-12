@@ -277,8 +277,6 @@ test("Discord resolves city homonyms before asking for territory and retains Qu�
   await ui.click("choose", choice.value);
   await wait(() => ui.prompt.content.includes("Choisis une ligne"));
   await ui.click("choose", "0");
-  await wait(() => ui.prompt.content.includes("arrêt de départ"));
-  await ui.click("choose", "0");
   await wait(() => ui.prompt.content.includes("arrêt d’arrivée"));
   await ui.click("choose", "0");
   await wait(() => ui.prompt.embeds.length > 0);

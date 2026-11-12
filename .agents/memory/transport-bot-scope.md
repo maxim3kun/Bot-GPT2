@@ -39,6 +39,12 @@ Les trajets avec correspondance doivent utiliser une carte Discord aussi lisible
 
 **How to apply:** Construire un embed pour les itinéraires vérifiés à une correspondance, inclure une version texte de secours, et éviter les secondes brutes ou les libellés redondants de même gare.
 
+Dans les options d’un trajet avec correspondance, l’utilisateur peut régler l’heure de départ, l’heure à partir de laquelle il veut prendre le second train et le temps d’attente minimal souhaité. Les étapes doivent rester espacées et les libellés ferroviaires disent « RER » seulement si la source officielle l’identifie; sinon utiliser « Train ».
+
+**Why:** L’utilisateur a demandé ces deux réglages de correspondance, une présentation moins tassée et des noms de mode exacts pour ne pas confondre Train et RER.
+
+**How to apply:** Garder ces filtres facultatifs, interpréter les heures dans le fuseau du réseau et ne pas exposer dans le résultat le minimum officiel requis par la source.
+
 ## Regional discovery and return journeys
 
 Une région suffit pour découvrir les sources/réseaux et leurs lignes. Les arrêts précis ne sont nécessaires qu'ensuite pour consulter les passages. Le résultat doit proposer le chemin retour et garder une modification claire des extrémités.

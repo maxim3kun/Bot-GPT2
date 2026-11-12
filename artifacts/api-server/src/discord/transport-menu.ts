@@ -5,7 +5,8 @@ import {
    type APIEmbed,
    type Message, type MessageComponentInteraction, type MessageCreateOptions,
 } from "discord.js";
-import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOptions, type TransportLine, type StopGroup, type TransportDepartureResult } from "./transport-browser.js";
+import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOptions, type TransportLine, type StopGroup,
+  type TransportDepartureResult, type TransportTimeOptions } from "./transport-browser.js";
 import { sourceButton, lineMatches, type TransportLocation, type CatalogDataset } from "./public-transport.js";
 import { TERRITORY_NAMES, type TransportTerritory } from "./transport-provider.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
@@ -15,6 +16,7 @@ import { resolveBusJourney, normalizeCityName } from "./bus-journey.js";
 import { TransportDataError } from "./transport-data-error.js";
 import { parseTransportCommand } from "./transport-command-query.js";
 import type { TransportRegion } from "./transport-regions.js";
+import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
@@ -31,6 +33,24 @@ function compareRouteNumbers(a: TransportLine, b: TransportLine) {
   } else if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
   return left.localeCompare(right, "fr", { numeric: true, sensitivity: "base" }) ||
     a.routeId.localeCompare(b.routeId, "fr", { numeric: true, sensitivity: "base" });
+}
+
+function localTimeOption(value: string, reference: number, timezone: string): number | null | undefined {
+  const input = value.trim();
+  if (!input) return undefined;
+  const match = input.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  const time = `${match[1]}:${match[2]}:00`;
+  const today = localDate(reference, timezone);
+  let result = scheduledEpoch(today, time, timezone);
+  if (result === null) return null;
+  if (result < reference) result = scheduledEpoch(addDays(today, 1), time, timezone);
+  return result;
+}
+
+function displayLocalTime(epoch: number, timezone: string) {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .format(new Date(epoch * 1000));
 }
 
 export async function transportDeadline<T>(work: Promise<T>, milliseconds = 45_000): Promise<T> {
@@ -95,6 +115,7 @@ export async function handleTransportSearch(
   let sequence = 0;
   let lastEmbed: APIEmbed | undefined;
   let lastResult: TransportDepartureResult | undefined;
+  let timeOptions: TransportTimeOptions = {};
   let expanded = false;
   let revision = 0;
   let validControls = new Set<string>();
@@ -419,7 +440,7 @@ export async function handleTransportSearch(
     if (!live || !line || !index || !origin || !arrival) return;
     if (reload || !lastResult) {
       await edit(text("Recherche des prochains départs…", "Looking up upcoming departures…"));
-      lastResult = await service.departures(line, index, origin, arrival, language);
+      lastResult = await service.departures(line, index, origin, arrival, language, timeOptions);
       expanded = false;
     }
     const result = lastResult;
@@ -428,9 +449,10 @@ export async function handleTransportSearch(
     const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
       button("return", text("Retour", "Return journey")),
-      button("modify", text("Modifier", "Modify")));
+      button("options", text("Options", "Options")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times"))] : []),
+      button("modify", text("Arrêts", "Stops")),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));
@@ -454,7 +476,7 @@ export async function handleTransportSearch(
           "No return journey could be confirmed between these stops in the available sources. Outbound departures are not reused."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(
         button("refreshReturn", text("Réessayer le retour", "Retry return")),
-        button("modify", text("Modifier", "Modify")),
+        button("modify", text("Arrêts", "Stops")),
         button("refresh", text("Voir l’aller", "Show outbound")),
         button("cancel", text("Fermer", "Close")))]);
       return;
@@ -465,6 +487,69 @@ export async function handleTransportSearch(
       lines = [line, ...lines.filter(option => option.mode === line!.mode)];
     direction = ""; serviceNote = ""; lastResult = undefined;
     await showDepartures();
+  }
+
+  async function timeOptionsModal(interaction: MessageComponentInteraction) {
+    if (!index || stage !== "result") return;
+    modalPending = true;
+    const modalId = `${id}:modal:${randomUUID()}`;
+    const timezone = index.metadata.timezone || "Europe/Paris";
+    const input = (customId: string, label: string, placeholder: string, current?: string) => {
+      const field = new TextInputBuilder().setCustomId(customId).setLabel(label)
+        .setStyle(TextInputStyle.Short).setMaxLength(5).setRequired(false).setPlaceholder(placeholder);
+      if (current) field.setValue(current);
+      return new ActionRowBuilder<TextInputBuilder>().addComponents(field);
+    };
+    const rows = [
+      input("departure", text("Départ à partir de (HH:MM)", "Departure after (HH:MM)"), "HH:MM",
+        timeOptions.departureAfter ? displayLocalTime(timeOptions.departureAfter, timezone) : undefined),
+    ];
+    if (arrival?.viaTransfer) {
+      rows.push(input("connection", text("Second train après (HH:MM)", "Second train after (HH:MM)"), "HH:MM",
+        timeOptions.connectionAfter ? displayLocalTime(timeOptions.connectionAfter, timezone) : undefined));
+      const wait = new TextInputBuilder().setCustomId("wait").setLabel(text("Attente min souhaitée (min)", "Preferred minimum wait (min)"))
+        .setStyle(TextInputStyle.Short).setMaxLength(3).setRequired(false).setPlaceholder("10");
+      if (timeOptions.minimumWaitSeconds !== undefined) wait.setValue(String(Math.round(timeOptions.minimumWaitSeconds / 60)));
+      rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(wait));
+    }
+    let submitted;
+    try {
+      await interaction.showModal(new ModalBuilder().setCustomId(modalId).setTitle(text("Options du trajet", "Journey options"))
+        .addComponents(...rows));
+      submitted = await interaction.awaitModalSubmit({ time: 60_000,
+        filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
+    } finally { modalPending = false; }
+    if (!submitted) return;
+    if (!live || busy) {
+      await submitted.reply({ content: text("Cette recherche a expiré ou travaille déjà.", "This lookup expired or is already busy."), ephemeral: true });
+      return;
+    }
+    const now = service.currentTimeSeconds();
+    const departureAfter = localTimeOption(submitted.fields.getTextInputValue("departure"), now, timezone);
+    if (departureAfter === null) {
+      await submitted.reply({ content: text("Heure de départ invalide. Utilise le format HH:MM.", "Invalid departure time. Use HH:MM."), ephemeral: true });
+      return;
+    }
+    const connectionText = arrival?.viaTransfer ? submitted.fields.getTextInputValue("connection") : "";
+    const connectionAfter = connectionText ? localTimeOption(connectionText, departureAfter ?? now, timezone) : undefined;
+    if (connectionAfter === null) {
+      await submitted.reply({ content: text("Heure du second train invalide. Utilise le format HH:MM.", "Invalid second-train time. Use HH:MM."), ephemeral: true });
+      return;
+    }
+    const waitText = arrival?.viaTransfer ? submitted.fields.getTextInputValue("wait").trim() : "";
+    const waitMinutes = waitText ? Number(waitText) : undefined;
+    if (waitMinutes !== undefined && (!/^\d{1,3}$/.test(waitText) || !Number.isInteger(waitMinutes) || waitMinutes < 0 || waitMinutes > 360)) {
+      await submitted.reply({ content: text("L’attente doit être un nombre entier entre 0 et 360 minutes.",
+        "Wait must be a whole number from 0 to 360 minutes."), ephemeral: true });
+      return;
+    }
+    await submitted.deferUpdate();
+    timeOptions = {
+      ...(departureAfter ? { departureAfter } : {}),
+      ...(connectionAfter ? { connectionAfter } : {}),
+      ...(waitMinutes !== undefined ? { minimumWaitSeconds: waitMinutes * 60 } : {}),
+    };
+    await run(() => showDepartures());
   }
 
   async function modal(interaction: MessageComponentInteraction, action: string) {
@@ -529,6 +614,7 @@ export async function handleTransportSearch(
       await interaction.reply({ content: text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait a moment."), ephemeral: true });
       return;
     }
+    if (interaction.isButton() && action === "options") { await timeOptionsModal(interaction); return; }
     if (interaction.isButton() && (action === "city" || action === "filter")) { await modal(interaction, action); return; }
     busy = true; // Lock before Discord's asynchronous acknowledgement (double-click race).
     try { await interaction.deferUpdate(); } catch (error) { busy = false; throw error; }
@@ -538,6 +624,7 @@ export async function handleTransportSearch(
       if (action === "restart") {
         territory = undefined; network = undefined; city = undefined; region = undefined; line = undefined; index = undefined;
         origin = undefined; arrival = undefined; lastResult = undefined; filter = ""; page = 0;
+        timeOptions = {};
         place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
