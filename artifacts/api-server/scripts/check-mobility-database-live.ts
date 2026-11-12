@@ -20,7 +20,6 @@ try {
 
   const url = new URL("https://api.mobilitydatabase.org/v1/gtfs_feeds");
   url.searchParams.set("country_code", "FR");
-  url.searchParams.set("status", "active");
   url.searchParams.set("limit", "1");
   const catalogResponse = await fetch(url, {
     headers: { authorization: `Bearer ${tokenBody.access_token}` },
@@ -41,11 +40,11 @@ try {
     } catch { /* Report only whether the published host is the expected storage service. */ }
     console.log(`Sample checks: status=${String(sample.status)}; country=${Array.isArray(sample.locations) &&
       sample.locations.some((location: { country_code?: string }) => location.country_code === "FR")}; ` +
-      `license=${String(sample.license_id)}; bounds=${Boolean(latest?.bounding_box ?? sample.bounding_box)}; hostedStorage=${hostedStorage}.`);
+      `license=${String(sample.source_info?.license_id)}; spdx=${String(sample.source_info?.license_is_spdx)}; ` +
+      `bounds=${Boolean(latest?.bounding_box ?? sample.bounding_box)}; hostedStorage=${hostedStorage}.`);
   }
   const geographicUrl = new URL("https://api.mobilitydatabase.org/v1/gtfs_feeds");
   geographicUrl.searchParams.set("country_code", "FR");
-  geographicUrl.searchParams.set("status", "active");
   geographicUrl.searchParams.set("dataset_latitudes", "48.7966,48.9166");
   geographicUrl.searchParams.set("dataset_longitudes", "2.2422,2.4622");
   geographicUrl.searchParams.set("bounding_filter_method", "partially_enclosed");
@@ -57,8 +56,10 @@ try {
   const geographicRecords = await geographicResponse.json() as unknown;
   if (!Array.isArray(geographicRecords)) throw new Error("Mobility Database returned an unexpected geographic-search response.");
   console.log(`Official API returned ${geographicRecords.length} active feed record(s) for the Paris bounding box.`);
-  for (const item of geographicRecords.slice(0, 5) as Array<Record<string, any>>) {
+  const activeRecord = (geographicRecords as Array<Record<string, any>>).find(item => item.status === "active");
+  for (const item of (activeRecord ? [activeRecord] : [])) {
     const latest = item.latest_dataset;
+    const sourceInfo = item.source_info;
     let hostedHost = "";
     let hostedPath = "";
     try {
@@ -67,9 +68,11 @@ try {
       hostedPath = hosted.pathname.startsWith("/mobilitydata-datasets-prod/") ? "dataset bucket"
         : hosted.pathname.startsWith("/storage/v1/b/mdb-latest/o/") ? "latest bucket" : "other";
     } catch { /* Keep the diagnostic limited to safe host/path classifications. */ }
-    console.log(`Feed metadata: status=${String(item.status)}; licenseId=${String(item.license_id)}; ` +
-      `spdx=${String(item.license_is_spdx)}; bounds=${Boolean(latest?.bounding_box ?? item.bounding_box)}; ` +
-      `latest=${Boolean(latest)}; hosted=${hostedHost || "none"} (${hostedPath || "none"}).`);
+    console.log(`Active feed metadata: keys=${Object.keys(item).sort().join(",")}; ` +
+      `sourceInfoKeys=${Object.keys(sourceInfo ?? {}).sort().join(",")}; ` +
+      `latestKeys=${Object.keys(latest ?? {}).sort().join(",")}; ` +
+      `licenseId=${String(sourceInfo?.license_id)}; spdx=${String(sourceInfo?.license_is_spdx)}; ` +
+      `official=${String(item.official)}; hosted=${hostedHost || "none"} (${hostedPath || "none"}).`);
   }
 
   const nearby = await new MobilityDatabaseTransportClient().catalogForLocation({
