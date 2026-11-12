@@ -20,7 +20,7 @@ const shapes = {
   lineListings: { lines: [{ routeId: "string", label: "string", description: "string", mode: "string",
     nearbyStopIds: strings, resource, realtime: [resource],
     source: { name: "string", url: "string", updated: "string", attribution: "string", limitations: strings },
-    selection: { mode: "string", line: "string", discoveryStops: strings }, territory: "string",
+     selection: { mode: "string", line: "string", routeId: "string", discoveryStops: strings }, territory: "string",
     alerts: [resource], allStops: "boolean" }],
     unavailable: "number", targeted: "boolean", networkScoped: "boolean", issues: strings, centerFallback: "boolean" },
   stops: [{ id: "string", name: "string", parent: "string", latitude: "number", longitude: "number", type: "number", stopLetter: "string" }],
@@ -29,7 +29,7 @@ const shapes = {
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
-export interface MetadataKey { territory: "fr" | "qc" | "en"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu"; provider: string; kind: MetadataKind; source: string; version: string }
 export interface MetadataDocument {
   _id: string; schema: number; territory: string; provider: string; kind: MetadataKind;
   source: string; version: string; value: unknown; fetchedAt: Date; expiresAt: Date; freshUntil?: Date;

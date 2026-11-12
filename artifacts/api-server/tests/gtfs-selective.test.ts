@@ -5,7 +5,7 @@ import { selectiveGtfs, isIdfmGtfs } from "../src/discord/gtfs-selective.js";
 import { GtfsRangeArchive, type RangeRequest } from "../src/discord/gtfs-range.js";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/discord/transport-browser.js";
-import { buildJourneyIndex } from "../src/discord/gtfs-journey.js";
+import { buildJourneyIndex, scanRoutesAtStops } from "../src/discord/gtfs-journey.js";
 import { parseTransportCommand, handleTransportCommand } from "../src/discord/transport-menu.js";
 import { EventEmitter } from "node:events";
 import type { Message } from "discord.js";
@@ -76,6 +76,15 @@ test("extracts only metro 8 and its service calendar, with quoted multiline CSV 
   assert.equal(index.stops.get("O")!.stationName, "Bastille");
 });
 
+test("a large-feed route identifier extracts only that exact route", async () => {
+  const selected = await selectiveGtfs(rangeServer().request, { mode: "metro", routeId: "M8" });
+  const subset = unzipSync(selected);
+  assert.match(strFromU8(subset["routes.txt"]!), /M8/);
+  assert.doesNotMatch(strFromU8(subset["routes.txt"]!), /M9|B8/);
+  assert.match(strFromU8(subset["trips.txt"]!), /T8/);
+  assert.doesNotMatch(strFromU8(subset["trips.txt"]!), /T9/);
+});
+
 test("falls back to normal CSV filtering if trip_id is not the first column", async () => {
   const bytes = zipSync({ ...files,
     "stop_times.txt": strToU8("stop_id,trip_id,arrival_time,departure_time,stop_sequence\nO,T8,08:10:00,08:10:00,1\nUNUSED,T9,08:15:00,08:15:00,1\nD,T8,08:45:00,08:45:00,2\n"),
@@ -100,7 +109,21 @@ test("network discovery retains route-stop evidence rather than every departure"
   const body = strFromU8(unzipSync(selected)["stop_times.txt"]!);
   assert.equal(body.trim().split("\n").length, 2);
   assert.doesNotMatch(body, /UNUSED|08:45|09:10/);
-  await assert.rejects(selectiveGtfs(rangeServer().request, { mode: "metro" }), /requires a line or nearby stops/);
+  await assert.rejects(selectiveGtfs(rangeServer().request, { mode: "metro" }), /requires a route or nearby stops/);
+});
+
+test("national city discovery filters a large mode to trips serving the selected stops", async () => {
+  const unrelated = Array.from({ length: 50_001 }, (_, i) => `B8,S,unrelated-${i},Other`)
+    .join("\n");
+  const bytes = zipSync({ ...files,
+    "trips.txt": strToU8(`route_id,service_id,trip_id,trip_headsign\nB8,S,local,City\n${unrelated}\n`),
+    "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nlocal,08:10:00,08:10:00,O,1\nlocal,08:45:00,08:45:00,D,2\n"),
+  });
+  const selected = await selectiveGtfs(rangeServer(bytes).request, { mode: "bus", discoveryStops: ["O"] });
+  const subset = unzipSync(selected);
+  assert.match(strFromU8(subset["trips.txt"]!), /local/);
+  assert.doesNotMatch(strFromU8(subset["trips.txt"]!), /unrelated-/);
+  assert.deepEqual((await scanRoutesAtStops(selected, new Set(["O"]))).map(route => route.routeId), ["B8"]);
 });
 
 test("refuses ignored ranges, changed revisions, truncated data and unstable versions", async () => {

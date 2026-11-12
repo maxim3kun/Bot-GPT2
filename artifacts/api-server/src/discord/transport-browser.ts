@@ -26,6 +26,7 @@ import { resourceVersion } from "./transport-metadata-cache.js";
 import { createHash } from "node:crypto";
 import { routeMatchesRequested } from "./transport-query.js";
 import { EnglandTransportClient } from "./england-transport.js";
+import { IrelandTransportClient, LuxembourgTransportClient, nationalSourceInfo, nationalTimezone, nationalTimezoneMatches } from "./national-gtfs-transport.js";
 
 export interface TransportLine {
   routeId: string;
@@ -55,7 +56,8 @@ export interface TransportDepartureResult {
 export interface TransportTimeOptions { departureAfter?: number; connectionAfter?: number; minimumWaitSeconds?: number }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
-  (territory === "qc" || territory === "en") && mode === "rail" ? "Train" : territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
+  (["qc", "en", "ie", "lu"].includes(territory ?? "") && mode === "rail") ? "Train" :
+    territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
 
 function publishedRouteCount(resource: CatalogResource): number {
   const stats = resource.metadata?.stats;
@@ -138,14 +140,32 @@ export class TransportBrowserClient {
   private queuedScans = 0;
   private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
 
-  readonly territories = ["fr", "qc", "en"] as const;
+  readonly territories = ["fr", "qc", "en", "ie", "lu"] as const;
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
     readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now),
-    readonly england = new EnglandTransportClient()) {}
+    readonly england = new EnglandTransportClient(), readonly ireland: TransportProvider = new IrelandTransportClient(fetch, now),
+    readonly luxembourg: TransportProvider = new LuxembourgTransportClient(fetch, now)) {}
 
   currentTimeSeconds() { return Math.floor(this.now() / 1000); }
 
-  private providerFor(territory?: TransportTerritory) { return territory === "qc" ? this.quebec : this.provider; }
+  private providerFor(territory?: TransportTerritory) {
+    return territory === "qc" ? this.quebec : territory === "ie" ? this.ireland :
+      territory === "lu" ? this.luxembourg : this.provider;
+  }
+
+  private metadataProvider(territory?: TransportTerritory) {
+    return territory === "qc" ? "donneesquebec" : territory === "ie" ? "nta" :
+      territory === "lu" ? "atp" : "pan";
+  }
+
+  async availableModes(territory: TransportTerritory): Promise<TransitMode[]> {
+    if (territory === "ie" || territory === "lu") {
+      const provider = this.providerFor(territory);
+      if (!provider.availableModes) throw new TransportDataError("Le catalogue des modes de ce territoire est indisponible.");
+      return provider.availableModes();
+    }
+    return Object.keys(MODE_NAMES) as TransitMode[];
+  }
 
   async region(place: string, territory: TransportTerritory = "fr"): Promise<TransportRegion | null> {
     if (territory !== "fr" || !isRegionName(place)) return null;
@@ -188,7 +208,7 @@ export class TransportBrowserClient {
     };
     if (!provider.metadata) return load();
     const result = await provider.metadata.staleWhileRevalidate({
-      territory: network.territory ?? "fr", provider: network.territory === "qc" ? "donneesquebec" : "pan",
+      territory: network.territory ?? "fr", provider: this.metadataProvider(network.territory),
       kind: "lineListings", source: key, version: "region-line-listing-v2",
     }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, refresh => this.scheduleBackgroundRefresh(refresh));
     return result.stale ? { ...result.value, refreshing: true } : result.value;
@@ -196,6 +216,11 @@ export class TransportBrowserClient {
 
   async networks(city: TransportLocation, mode: TransitMode) {
     if (city.territory === "en") return this.england.networks(city, mode);
+    if (city.territory === "ie" || city.territory === "lu") {
+      const provider = this.providerFor(city.territory);
+      if (!provider.networks) throw new TransportDataError("Le catalogue de ce réseau est indisponible.");
+      return provider.networks(city, mode);
+    }
     if (city.territory !== "qc") return [];
     return (await this.quebec.getCatalog()).filter(d =>
       (!d.bounds || inBounds(d.bounds, city.latitude, city.longitude)) &&
@@ -308,7 +333,7 @@ export class TransportBrowserClient {
       const provider = this.providerFor(city.territory);
       if (city.territory !== "en" && provider.metadata) {
         const result = await provider.metadata.staleWhileRevalidate({
-          territory: city.territory ?? "fr", provider: city.territory === "qc" ? "donneesquebec" : "pan",
+          territory: city.territory ?? "fr", provider: this.metadataProvider(city.territory),
           kind: "lineListings", source: key, version: "line-listing-v1",
         }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, (refresh) => this.scheduleBackgroundRefresh(refresh));
         value = result.value;
@@ -332,6 +357,12 @@ export class TransportBrowserClient {
       if (!networkId) throw new Error("Select a Québec transport network");
       catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
       if (catalogue.length !== 1) throw new Error("Unknown Québec network");
+      const resources = catalogue.flatMap(d => d.resources.filter(isStaticScheduleResource));
+      nearby = await provider.nearbyStopsForResources!(city.latitude, city.longitude, resources);
+    } else if (city.territory === "ie" || city.territory === "lu") {
+      if (!networkId) throw new Error("Select a national transport network");
+      catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
+      if (catalogue.length !== 1) throw new Error("Unknown national transport network");
       const resources = catalogue.flatMap(d => d.resources.filter(isStaticScheduleResource));
       nearby = await provider.nearbyStopsForResources!(city.latitude, city.longitude, resources);
     } else {
@@ -377,14 +408,16 @@ export class TransportBrowserClient {
         const { dataset, resource, stopIds } = groups[next++]!;
         if ((this.unavailableUntil.get(resource.id) ?? 0) > this.now()) { unavailable++; continue; }
         try {
-          const selection: GtfsSelection | undefined = city.territory === "qc"
+          const selection: GtfsSelection | undefined = city.territory === "qc" || city.territory === "ie" || city.territory === "lu"
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) }
             : mode === "metro" && isIdfmGtfs(resource)
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
           const load = () => this.scan(async () =>
-            scanRoutesAtStops(await provider.staticFeed(resource, selection), stopIds, requestedLine));
+            provider.discoverRoutesAtStops
+              ? provider.discoverRoutesAtStops(resource, stopIds, mode, requestedLine)
+              : scanRoutesAtStops(await provider.staticFeed(resource, selection), stopIds, requestedLine));
           const routes = provider.metadata ? await provider.metadata.get({
-            territory: city.territory ?? "fr", provider: city.territory === "qc" ? "donneesquebec" : "pan", kind: "routes",
+            territory: city.territory ?? "fr", provider: this.metadataProvider(city.territory), kind: "routes",
             source: `nearby-routes:${resource.id}:${createHash("sha256").update(JSON.stringify([[...stopIds].sort(), requestedLine, mode])).digest("hex")}`,
             version: resourceVersion(resource),
           }, 60 * 60_000, load) : await load();
@@ -395,8 +428,11 @@ export class TransportBrowserClient {
               realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
               source: { name: dataset.title, url: dataset.page_url, ...(city.territory === "qc" ? {
                 updated: resource.updated, attribution: `${dataset.title} · ${dataset.licence}`, limitations: sourceLimitations(dataset),
+              } : city.territory === "ie" || city.territory === "lu" ? {
+                updated: resource.updated, ...nationalSourceInfo(city.territory),
               } : {}) }, ...(city.territory === "qc" ? { territory: "qc" as const,
                 alerts: dataset.resources.filter(r => r.is_available && /alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
+              ...(city.territory === "ie" || city.territory === "lu" ? { territory: city.territory } : {}),
               ...(selection ? { selection } : {}) });
           }
           if (found.length && (requestedLine || selection || selectiveMetro)) {
@@ -433,13 +469,21 @@ export class TransportBrowserClient {
     const work = (async () => {
       const value = await this.scan(async () => {
         if (line.territory === "en") return this.england.index(line);
-        const selection = line.selection?.discoveryStops ? { mode: line.mode, line: line.label } : line.selection ??
+        const selection = line.selection?.discoveryStops
+          ? (line.territory === "ie" || line.territory === "lu"
+            ? { mode: line.mode, routeId: line.routeId } : { mode: line.mode, line: line.label })
+          : line.selection ??
           (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
         const zip = await this.providerFor(line.territory).staticFeed(line.resource, selection);
         const index = await buildJourneyIndex(zip, line.routeId);
-        if (line.territory === "qc") {
+        if (line.territory === "qc" || line.territory === "ie" || line.territory === "lu") {
           if (!index.metadata.timezone) throw new TransportDataError("Le flux ne précise pas de fuseau horaire utilisable; horaires non confirmés.");
           new Intl.DateTimeFormat("fr", { timeZone: index.metadata.timezone }).format(0);
+          if ((line.territory === "ie" || line.territory === "lu") &&
+            !nationalTimezoneMatches(line.territory, index.metadata.timezone)) {
+            throw new TransportDataError(`Le fuseau du flux ne correspond pas à ${nationalTimezone(line.territory)}; horaires non confirmés.`);
+          }
+          if (line.territory === "ie" || line.territory === "lu") index.metadata.timezone = nationalTimezone(line.territory);
           const services = new Set([...index.metadata.trips.values()].map(t => t.serviceId));
           const end = [...index.metadata.calendars].filter(([id]) => services.has(id)).map(([, c]) => c.endDate)
             .concat([...index.metadata.calendarExceptions].filter(([key, type]) => type === 1 && services.has(key.slice(9))).map(([key]) => key.slice(0, 8)))

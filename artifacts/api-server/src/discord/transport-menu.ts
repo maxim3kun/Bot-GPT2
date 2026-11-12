@@ -185,6 +185,7 @@ export async function handleTransportSearch(
   let resumeFavorite = favoriteToResume;
   let territory: TransportTerritory | undefined = parsed.territory ?? (service.territories ? undefined : "fr");
   let stage: Stage = !territory ? "territory" : mode ? "city" : "mode";
+  let availableModes: TransitMode[] | undefined;
   let networks: CatalogDataset[] = [];
   let network: CatalogDataset | undefined;
   let region: TransportRegion | undefined;
@@ -255,6 +256,9 @@ export async function handleTransportSearch(
           "English trains: National Rail access awaits approval. Buses and the London Underground remain available.")
         : text("Indique une ville anglaise (ex. London / Londres, Cambridge). Bus BODS hors Londres ; métro et bus TfL à Londres. Les homonymes seront proposés.",
           "Enter an English town (e.g. London, Cambridge). BODS buses outside London; TfL Underground and buses in London. Matching places will be offered.")
+      : territory === "ie" || territory === "lu"
+      ? text(`Indique une ville de ${TERRITORY_NAMES[territory]}. Horaires du GTFS national; géocodage © OpenStreetMap contributors (openstreetmap.org/copyright).`,
+          `Enter a town in ${TERRITORY_NAMES[territory]}. National GTFS timetables; geocoding © OpenStreetMap contributors (openstreetmap.org/copyright).`)
       : territory === "qc"
       ? text("Indique une localité québécoise. Les homonymes seront proposés avec leur région.", "Enter a Québec locality. Matching places include their region.")
       : text("Indique une région (ex. Normandie), une ville ou gare, un département (ex. 60) ou un code postal (ex. 60000).",
@@ -274,7 +278,8 @@ export async function handleTransportSearch(
       return territories.map(value => ({ value, label: TERRITORY_NAMES[value],
       ...(value === "en" ? { description: text("Bus BODS · métro TfL · trains en attente", "BODS buses · TfL Underground · trains pending") } : {}) }));
     }
-    if (stage === "mode") return (Object.keys(MODE_NAMES) as TransitMode[]).map((value) => ({ value, label: modeName(value, territory) }));
+    if (stage === "mode") return (availableModes ?? Object.keys(MODE_NAMES) as TransitMode[])
+      .map((value) => ({ value, label: modeName(value, territory) }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
       description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
         : d.resources.length ? text("Source officielle · horaires selon disponibilité", "Official source · timetables where available")
@@ -327,7 +332,10 @@ export async function handleTransportSearch(
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
     const note = stage === "arrivals" ? (line?.selection
-      ? ""
+      ? territory === "ie" || territory === "lu"
+        ? text("\nSeuls les trajets directs de cette ligne sont calculés; les correspondances ne sont pas vérifiées.",
+          "\nOnly direct journeys on this route are calculated; transfers are not checked.")
+        : ""
       : text("\nTrajets directs ou avec 1 correspondance publiée, dans la même source officielle. Tous modes à l’arrivée; autres réseaux et marche non calculés. Horaires vérifiés après sélection.",
         "\nDirect journeys or 1 published transfer within the same official source. Any arrival mode; other networks and walking not calculated. Times checked after selection.")) +
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
@@ -345,7 +353,22 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}`, rows);
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (territory === "ie" || territory === "lu") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+  }
+
+  async function loadModeChoices() {
+    availableModes = typeof service.availableModes === "function"
+      ? await service.availableModes(territory!)
+      : Object.keys(MODE_NAMES) as TransitMode[];
+    if (!availableModes.length) {
+      stage = "error";
+      await edit(text("Aucun mode de transport n’est confirmé dans le flux officiel actuellement disponible.",
+        "No transport mode is confirmed in the currently available official feed."),
+      [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        button("retry", text("Réessayer", "Retry")), button("cancel", text("Annuler", "Cancel")))]);
+      return false;
+    }
+    return true;
   }
 
   async function run(work: () => Promise<void>) {
@@ -433,7 +456,8 @@ export async function handleTransportSearch(
   }
 
   async function afterCity() {
-    if (territory === "qc" || territory === "en") await loadNetworks(); else await loadLines();
+    if (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu") await loadNetworks();
+    else await loadLines();
   }
 
   async function loadNetworks() {
@@ -441,6 +465,8 @@ export async function handleTransportSearch(
     network = undefined; line = undefined; index = undefined; origin = undefined; arrival = undefined;
     await edit(region ? `${region.name} · ${text("Recherche des réseaux…", "Looking up networks…")}`
       : territory === "en" ? text("Recherche des réseaux anglais…", "Looking up English networks…")
+        : territory === "ie" || territory === "lu"
+        ? text(`Recherche des réseaux officiels en ${TERRITORY_NAMES[territory]}…`, `Looking up official networks in ${TERRITORY_NAMES[territory]}…`)
         : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
     networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
     if (!live) return;
@@ -456,7 +482,7 @@ export async function handleTransportSearch(
       await selectNetwork(exactNetwork);
       return;
     }
-    if (territory === "en" && networks.length === 1) { await selectNetwork(networks[0]!); return; }
+    if (["en", "ie", "lu"].includes(territory ?? "") && networks.length === 1) { await selectNetwork(networks[0]!); return; }
     filter = ""; page = 0; stage = "networks";
     await render();
   }
@@ -861,7 +887,7 @@ export async function handleTransportSearch(
         place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
-      if (action === "networks" && (territory === "qc" || territory === "en" || region)) { await loadNetworks(); return; }
+      if (action === "networks" && (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "refresh") { showPreviousStops = false; await showDepartures(); return; }
@@ -886,7 +912,7 @@ export async function handleTransportSearch(
         if (stage === "result") { await loadArrivals(); return; }
         if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
         if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
-        if (stage === "lines" && (territory === "qc" || territory === "en" || region)) { stage = "networks"; network = undefined; await render(); return; }
+        if (stage === "lines" && (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu" || region)) { stage = "networks"; network = undefined; await render(); return; }
         if (stage === "networks" && region) { region = undefined; await cityInput(); return; }
         if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
         if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
@@ -900,7 +926,7 @@ export async function handleTransportSearch(
         territory = value as TransportTerritory;
         preferredTerritory = territory;
         await bestEffortPreference(preferencesStore.setPreferredTerritory(message.author.id, territory), false);
-        if (selectedMode) await loadCities(); else { stage = "mode"; await render(); }
+        if (selectedMode) await loadCities(); else { stage = "mode"; if (await loadModeChoices()) await render(); }
       } else if (stage === "mode") {
         if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
         selectedMode = value as TransitMode;
@@ -940,7 +966,10 @@ export async function handleTransportSearch(
     if (!territory && place && selectedMode && typeof service.inferTerritory === "function")
       territory = await service.inferTerritory(place);
     // Municipality-based shorthand resolution happens once in loadCities.
-    if (!territory || !selectedMode) await render();
+    if (!territory || !selectedMode) {
+      if (territory && !selectedMode) await loadModeChoices();
+      if (stage !== "error") await render();
+    }
     else await loadCities();
   });
 }

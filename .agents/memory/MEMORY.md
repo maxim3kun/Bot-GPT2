@@ -27,3 +27,4 @@
 - [Québec source contracts](quebec-source-contracts.md) — Verify catalogue resources and seasonal services; resolve public route numbers from official names, not guessed aliases.
 - [IGN geocoding](ign-geocoding.md) — Towns, addresses and station POIs need distinct searches; plausible geocoding corrections must not silently change a location.
 - [Free weather contracts](weather-source-contracts.md) — MET requires human terms acceptance and shared three-hour caching; Québec timezone polygons can miss legal exceptions.
+- [National GTFS geography and timezones](national-gtfs-contracts.md) — Nominatim city boundaries and verified source-zone aliases need strict checks before canonical display.

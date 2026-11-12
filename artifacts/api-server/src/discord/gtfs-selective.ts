@@ -6,7 +6,7 @@ import { routeTypeToMode, serviceRunsOn, localDate, addDays, type GtfsStaticMeta
 import { routeMatchesRequested, type TransitMode } from "./transport-query.js";
 import { TransportDataError } from "./transport-data-error.js";
 
-export interface GtfsSelection { mode: TransitMode; line?: string; discoveryStops?: readonly string[]; serviceWindowFrom?: number }
+export interface GtfsSelection { mode: TransitMode; line?: string; routeId?: string; discoveryStops?: readonly string[]; serviceWindowFrom?: number }
 const MAX_RETAINED = 48 * 1024 * 1024;
 
 export function isIdfmGtfs(resource: { original_url?: string }): boolean {
@@ -78,7 +78,8 @@ export class GtfsTripFilter extends Transform {
  * original 111+ MiB archive never enter the binary cache.
  */
 export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelection): Promise<Uint8Array> {
-  if (!selection.line && !selection.discoveryStops?.length) throw new Error("A large network lookup requires a line or nearby stops");
+  if (!selection.line && !selection.routeId && !selection.discoveryStops?.length)
+    throw new Error("A large network lookup requires a route or nearby stops");
   const archive = new GtfsRangeArchive(request);
   await archive.open();
   const files: Record<string, Uint8Array> = {};
@@ -108,6 +109,7 @@ export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelect
   };
   if (!await table("routes.txt", (row) => {
     if (routeTypeToMode(Number(row.route_type)) !== selection.mode ||
+      selection.routeId && row.route_id?.trim() !== selection.routeId ||
       (selection.line && !routeMatchesRequested(row.route_id || "", row.route_short_name || "", row.route_long_name || "", selection.line))) return false;
     routes.add(row.route_id!.trim());
     return true;
@@ -132,8 +134,22 @@ export async function selectiveGtfs(request: RangeRequest, selection: GtfsSelect
     activeServices = new Set([...services].filter(id => dates.some(d => serviceRunsOn(metadata, id, d))));
     if (!activeServices.size) throw new TransportDataError("Le calendrier publié ne couvre aucun service dans les 7 prochains jours; données anciennes ou service hors période.");
   }
+  // A national mode may contain far more trips than can fit in a city-level
+  // discovery extract. Find only trips that actually serve the selected stops
+  // before retaining their trip metadata, rather than raising the trip budget.
+  const discoveryTrips = nearby ? new Set<string>() : null;
+  if (discoveryTrips) {
+    if (!await archive.rows("stop_times.txt", row => {
+      if (!nearby!.has(row.stop_id?.trim() ?? "")) return;
+      const trip = row.trip_id?.trim() ?? "";
+      if (!trip) return;
+      discoveryTrips.add(trip);
+      if (discoveryTrips.size > 50_000) throw new Error("Nearby transport discovery exceeds its trip budget");
+    })) throw new Error("Transport archive has no stop times table");
+  }
   if (!await table("trips.txt", (row) => {
     if (!routes.has(row.route_id?.trim() ?? "") || activeServices && !activeServices.has(row.service_id?.trim() ?? "")) return false;
+    if (discoveryTrips && !discoveryTrips.has(row.trip_id?.trim() ?? "")) return false;
     if (trips.size >= 50_000) throw new Error("Too many selected transport trips");
     trips.add(row.trip_id!.trim());
     tripRoutes.set(row.trip_id!.trim(), row.route_id!.trim());
