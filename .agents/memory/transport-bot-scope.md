@@ -166,3 +166,11 @@ Prefer an allowlisted operator URL published in the catalogue, with the catalogu
 **Why:** Live reproduction found catalogue redirect timeouts and HTTP 502 errors while the official Oise operator file remained available. Unrelated large feeds substantially delayed a local 601 lookup.
 
 **How to apply:** Keep URL validation and resource bounds on both paths. Verify the real operator path, not only fixture tests, after changing download selection. A targeted result must not claim to enumerate every network using that number.
+
+## Ireland county index performance
+
+The NTA `stop_times` table takes about 50 seconds to scan cold. Do not repeat that scan independently for each county: build a versioned route-to-stop index once, store stable membership metadata in MongoDB, and serve county filters from that shared index. Prewarm the bus index after the bot connects so the first person searching does not wait for the scan.
+
+**Why:** Live checks took about 53 seconds for Dublin and another 48 seconds for Offaly when each county performed its own full scan; reusing the shared index reduced the second county lookup to about 200 milliseconds.
+
+**How to apply:** Keep schedules and arrival predictions out of this index. Use stale-while-revalidate for unchanged source versions, and build other modes only when requested.
