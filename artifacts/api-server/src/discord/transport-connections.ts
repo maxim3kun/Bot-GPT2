@@ -1,7 +1,7 @@
 import type { APIEmbed } from "discord.js";
 import { connectionPaths, type ConnectionPath } from "./gtfs-connections.js";
 import { decodeJourneyFeed, realtimeJourneys, scheduledJourneys, type JourneyIndex, type JourneyPair, type JourneyTime, type JourneyRealtimeFeed } from "./gtfs-journey.js";
-import { routeTypeToMode } from "./gtfs-realtime.js";
+import { isFreshGtfsRealtimeTimestamp, routeTypeToMode } from "./gtfs-realtime.js";
 import type { StopGroup, TransportLine } from "./transport-browser.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 
@@ -22,7 +22,7 @@ export function connectionRouteLabel(route: { shortName: string; longName: strin
 /** Merge estimates per service instance; an unrelated live trip must not hide scheduled services. */
 function legTimes(index: JourneyIndex, pair: JourneyPair, feeds: JourneyRealtimeFeed[], now: number): JourneyTime[] {
   const scheduled = scheduledJourneys(index, [pair], now);
-  const updates = feeds.map((feed) => realtimeJourneys(feed, [pair], now)).filter((update) => update.fresh);
+  const updates = feeds.map((feed) => realtimeJourneys(feed, [pair], now, index.metadata)).filter((update) => update.fresh);
   if (updates.some((update) => update.cancelled.has(pair.tripId))) return [];
   const estimates = updates.flatMap((update) => update.results);
   const replacements = new Map<JourneyTime, JourneyTime>();
@@ -36,11 +36,21 @@ function legTimes(index: JourneyIndex, pair: JourneyPair, feeds: JourneyRealtime
   // silently confirm a transfer using the original, possibly missed timetable.
   const incompleteDates = feeds.flatMap((feed) => {
     const timestamp = Number(feed.header.timestamp);
-    if (now - timestamp > 480 || now - timestamp < -300 || !Number.isFinite(timestamp)) return [];
+    if (!isFreshGtfsRealtimeTimestamp(timestamp, now)) return [];
     return feed.entity.flatMap((entity) => {
       const update = entity.tripUpdate;
       if (!update || update.trip.tripId !== pair.tripId) return [];
-      if (Object.hasOwn(update, "timestamp") && (now - Number(update.timestamp) > 480 || now - Number(update.timestamp) < -300)) return [];
+      const trip = index.metadata.trips.get(pair.tripId);
+      if (!trip || update.trip.routeId && update.trip.routeId !== trip.routeId) return [];
+      if (Object.hasOwn(update, "timestamp") &&
+        !isFreshGtfsRealtimeTimestamp(Number(update.timestamp), now)) return [];
+      const relevantStop = update.stopTimeUpdate?.some(stop => {
+        const matchesVisit = (visit: typeof pair.origin) => Object.hasOwn(stop, "stopSequence")
+          ? stop.stopSequence === visit.sequence && (!stop.stopId || stop.stopId === visit.stopId)
+          : stop.stopId === visit.stopId;
+        return matchesVisit(pair.origin) || matchesVisit(pair.destination);
+      });
+      if (!relevantStop) return [];
       if (estimates.some((estimate) => !update.trip.startDate || estimate.serviceDate === update.trip.startDate)) return [];
       return [update.trip.startDate || "*"];
     });

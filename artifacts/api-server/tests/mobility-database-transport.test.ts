@@ -3,7 +3,7 @@ import test from "node:test";
 import { strToU8, zipSync } from "fflate";
 import { MobilityDatabaseTransportClient, safeMobilityDatasetUrl } from "../src/discord/mobility-database-transport.js";
 import { TransportMetadataCache } from "../src/discord/transport-metadata-cache.js";
-import type { TransportLocation } from "../src/discord/public-transport.js";
+import type { CatalogResource, TransportLocation } from "../src/discord/public-transport.js";
 
 const city: TransportLocation = {
   id: "75056", name: "Paris", label: "Paris", latitude: 48.8566, longitude: 2.3522, territory: "fr",
@@ -255,4 +255,39 @@ test("a redirected archive cannot escape the approved storage host", async () =>
     url: hosted("mdb-9"), is_available: true,
   }), /redirect is not an approved hosted URL/);
   assert.equal(requests, 1);
+});
+
+test("Mobility Database exposes only public trip updates explicitly linked to the chosen static feed", async () => {
+  const requested: string[] = [];
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    requested.push(url.pathname);
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    assert.equal(url.pathname, "/v1/gtfs_feeds/mdb-42/gtfs_rt_feeds");
+    return Response.json([
+      { id: "mdb-rt-match", data_type: "gtfs_rt", status: "active", entity_types: ["tu"],
+        feed_references: ["mdb-42"],
+        source_info: { producer_url: "https://realtime.example.com/trip-updates", authentication_type: 0 } },
+      { id: "mdb-rt-other-feed", data_type: "gtfs_rt", status: "active", entity_types: ["tu"],
+        feed_references: ["mdb-another"], source_info: { producer_url: "https://realtime.example.com/other" } },
+      { id: "mdb-rt-auth", data_type: "gtfs_rt", status: "active", entity_types: ["tu"],
+        feed_references: ["mdb-42"], source_info: { producer_url: "https://realtime.example.com/auth", authentication_type: 1 } },
+      { id: "mdb-rt-alerts", data_type: "gtfs_rt", status: "active", entity_types: ["sa"],
+        feed_references: ["mdb-42"], source_info: { producer_url: "https://realtime.example.com/alerts" } },
+      { id: "mdb-rt-private", data_type: "gtfs_rt", status: "active", entity_types: ["tu"],
+        feed_references: ["mdb-42"], source_info: { producer_url: "https://127.0.0.1/live" } },
+    ]);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const staticResource: CatalogResource = {
+    id: -42, provider: "mobilitydatabase", title: "GTFS", format: "GTFS",
+    url: hosted("mdb-42"), is_available: true, metadata: { mobilityFeedId: "mdb-42" },
+  };
+  const resources = await client.realtimeResources(staticResource);
+  assert.equal(requested.length, 2);
+  assert.equal(resources.length, 1);
+  assert.equal(resources[0]?.format, "GTFS-RT");
+  assert.equal(resources[0]?.url, "https://realtime.example.com/trip-updates");
+  assert.equal(resources[0]?.type, "mobilitydatabase-gtfs-rt:%5B%22mdb-42%22%2C%22mdb-rt-match%22%5D");
+  assert.deepEqual(await client.realtimeResources(staticResource), resources);
+  assert.equal(requested.length, 2, "the static-feed association is cached");
 });

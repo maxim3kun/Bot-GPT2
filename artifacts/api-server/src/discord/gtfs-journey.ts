@@ -6,7 +6,7 @@ import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { routeMatchesRequested } from "./transport-query.js";
 import {
   addDays, localDate, serviceRunsOn, scheduledEpoch, parseGtfsStaticMetadata, routeTypeToMode,
-  type GtfsStaticMetadata, type GtfsRouteAtStops,
+  isFreshGtfsRealtimeTimestamp, type GtfsStaticMetadata, type GtfsRouteAtStops,
 } from "./gtfs-realtime.js";
 
 type Row = Record<string, string | undefined>;
@@ -340,26 +340,35 @@ export function scheduledJourneys(index: JourneyIndex, pairs: JourneyPair[], now
   return results.sort((a, b) => a.departureAt - b.departureAt);
 }
 
-export function realtimeJourneys(bytes: Uint8Array | JourneyRealtimeFeed, pairs: JourneyPair[], now: number) {
+export function realtimeJourneys(bytes: Uint8Array | JourneyRealtimeFeed, pairs: JourneyPair[], now: number,
+  staticData?: GtfsStaticMetadata) {
   const feed = bytes instanceof Uint8Array ? decodeJourneyFeed(bytes) : bytes;
   const timestamp = Number(feed.header.timestamp);
-  const fresh = Number.isFinite(timestamp) && now - timestamp <= 8 * 60 && now - timestamp >= -300;
+  const fresh = isFreshGtfsRealtimeTimestamp(timestamp, now);
   const cancelled = new Set<string>();
   const results: JourneyTime[] = [];
   if (!fresh) return { fresh, cancelled, results };
   for (const entity of feed.entity) {
     const update = entity.tripUpdate;
     if (!update) continue;
-    if (Object.hasOwn(update, "timestamp") && (now - Number(update.timestamp) > 8 * 60 || now - Number(update.timestamp) < -300)) continue;
+    if (Object.hasOwn(update, "timestamp") &&
+      !isFreshGtfsRealtimeTimestamp(Number(update.timestamp), now)) continue;
     const tripId = update.trip.tripId ?? "";
+    const trip = staticData?.trips.get(tripId);
+    if (staticData && (!trip || update.trip.routeId && update.trip.routeId !== trip.routeId)) continue;
     const matches = pairs.filter((pair) => pair.tripId === tripId);
     if (!matches.length) continue;
     if (update.trip.scheduleRelationship === 3) { cancelled.add(tripId); continue; }
     for (const pair of matches) {
-      const origin = update.stopTimeUpdate?.find((stop) => Object.hasOwn(stop, "stopSequence")
-        ? stop.stopSequence === pair.origin.sequence : stop.stopId === pair.origin.stopId);
-      const destination = update.stopTimeUpdate?.find((stop) => Object.hasOwn(stop, "stopSequence")
-        ? stop.stopSequence === pair.destination.sequence : stop.stopId === pair.destination.stopId);
+      const matchesVisit = (stop: NonNullable<typeof update.stopTimeUpdate>[number], visit: typeof pair.origin) => {
+        const hasSequence = Object.hasOwn(stop, "stopSequence");
+        const hasStopId = typeof stop.stopId === "string" && !!stop.stopId;
+        return hasSequence
+          ? stop.stopSequence === visit.sequence && (!hasStopId || stop.stopId === visit.stopId)
+          : stop.stopId === visit.stopId;
+      };
+      const origin = update.stopTimeUpdate?.find((stop) => matchesVisit(stop, pair.origin));
+      const destination = update.stopTimeUpdate?.find((stop) => matchesVisit(stop, pair.destination));
       if (origin?.scheduleRelationship === 1 || destination?.scheduleRelationship === 1) {
         cancelled.add(tripId);
         continue;

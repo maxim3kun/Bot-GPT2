@@ -433,6 +433,18 @@ export class TransportBrowserClient {
       const displayed = stale ? { ...value, refreshing: true } : value;
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
       this.listings.set(key, { value: displayed, expires: this.now() + (stale ? 10_000 : displayed.lines.length ? 15 * 60_000 : 30_000) });
+      if (mobilityNetwork && this.mobilityDatabase && displayed.lines.length &&
+        displayed.lines.every(line => !line.realtime.length)) {
+        const resource = displayed.lines[0]!.resource;
+        const selectedStaticFeedId = networkId!.slice("mobilitydatabase:".length);
+        void this.mobilityDatabase.realtimeResources(resource, selectedStaticFeedId).then(resources => {
+          const current = this.listings.get(key);
+          if (current?.value !== displayed) return;
+          for (const line of current.value.lines) {
+            if (line.resource.id === resource.id) line.realtime = resources;
+          }
+        }).catch(() => undefined);
+      }
       return displayed;
     })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);
@@ -574,8 +586,25 @@ export class TransportBrowserClient {
       const fingerprint = `${line.mode}:${normalizeTransitText(line.label)}:${normalizeTransitText(line.description)}`;
       if (!unique.has(fingerprint)) unique.set(fingerprint, line);
     }
-    const listing: LineListing = { lines: [...unique.values()].sort((a, b) =>
-      a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
+    const lines = [...unique.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr"));
+    if (mobilityNetwork && lines.length) {
+      const resource = lines[0]!.resource;
+      const selectedStaticFeedId = networkId!.slice("mobilitydatabase:".length);
+      const pendingRealtime = mobility!.realtimeResources(resource, selectedStaticFeedId)
+        .catch(() => [] as CatalogResource[]);
+      const applyRealtime = (resources: CatalogResource[]) => {
+        for (const line of lines) if (line.resource.id === resource.id) line.realtime = resources;
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), 250);
+      });
+      const resources = await Promise.race([pendingRealtime, timeout]);
+      if (timer) clearTimeout(timer);
+      if (resources) applyRealtime(resources);
+    }
+    const listing: LineListing = { lines,
        unavailable, ...(centerFallback ? { centerFallback: true } : {}), ...(issues.length ? { issues } : {}),
        ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
     if (!mobilityNetwork && city.territory === "fr" && !listing.lines.length && this.mobilityDatabase) {
@@ -764,7 +793,7 @@ export class TransportBrowserClient {
     // Widen only if the ordinary window is empty, retaining the official calendar.
     const laterSchedules = schedules.length ? [] : scheduledJourneys(index, pairs, now, 7);
     const [updates, idfmLive] = await Promise.all([Promise.all(line.realtime.map(async (resource) => {
-      try { return realtimeJourneys(await this.providerForLine(line).realtimeFeed(resource), pairs, now); }
+      try { return realtimeJourneys(await this.providerForLine(line).realtimeFeed(resource), pairs, now, index.metadata); }
       catch (error) {
         logger.debug({ resourceId: resource.id, err: error }, "Transport journey realtime unavailable");
         return null;

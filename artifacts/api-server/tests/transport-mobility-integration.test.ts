@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
+import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import { journeyPairs, realtimeJourneys } from "../src/discord/gtfs-journey.js";
 import { MobilityDatabaseTransportClient } from "../src/discord/mobility-database-transport.js";
 import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/discord/transport-browser.js";
 import { TransportMetadataCache } from "../src/discord/transport-metadata-cache.js";
@@ -30,6 +32,29 @@ const archive = zipSync({
   "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT,09:00:00,09:00:00,O,1\nT,09:30:00,09:30:00,D,2\n"),
 });
 
+function realtimeFeed(options: { timestamp?: number; routeId?: string; originStopId?: string } = {}) {
+  const departureAt = Date.parse("2026-11-12T14:05:00Z") / 1000;
+  return GtfsRealtimeBindings.transit_realtime.FeedMessage.encode({
+    header: { gtfsRealtimeVersion: "2.0", timestamp: options.timestamp ?? NOW / 1000 },
+    entity: [{
+      id: "trip-T",
+      tripUpdate: {
+        trip: { tripId: "T", routeId: options.routeId ?? "R", startDate: "20261112" },
+        stopTimeUpdate: [
+          { stopId: options.originStopId ?? "O", stopSequence: 1, departure: { time: departureAt } },
+          { stopId: "D", stopSequence: 2, arrival: { time: departureAt + 1_800 } },
+        ],
+      },
+    }],
+  } as never).finish();
+}
+
+const relatedRealtimeFeed = {
+  id: "mdb-rt-42", data_type: "gtfs_rt", status: "active",
+  entity_types: ["tu"], feed_references: ["mdb-42"],
+  source_info: { producer_url: "https://realtime.example.com/trip-updates", authentication_type: 0 },
+};
+
 function makeBrowser(fetcher: typeof fetch, officialTitle = "Réseau officiel Québec") {
   const metadata = new TransportMetadataCache(() => null, () => NOW);
   const mobility = new MobilityDatabaseTransportClient(fetcher, () => NOW, metadata, () => "test-refresh-token");
@@ -51,11 +76,16 @@ function makeBrowser(fetcher: typeof fetch, officialTitle = "Réseau officiel Qu
   return new TransportBrowserClient(...args);
 }
 
-function apiFetcher(): typeof fetch {
+function apiFetcher(liveBytes?: Uint8Array, realtimeCatalog: unknown[] = [relatedRealtimeFeed]): typeof fetch {
   return async (input, init) => {
     const url = new URL(String(input));
     if (url.pathname === "/v1/tokens/access")
       return Response.json({ access_token: "temporary-access-token", expiration_datetime_utc: "2026-11-12T09:00:00Z" });
+    if (url.pathname === "/v1/gtfs_feeds/mdb-42/gtfs_rt_feeds") return Response.json(realtimeCatalog);
+    if (url.hostname === "realtime.example.com") {
+      if (!liveBytes) return new Response(null, { status: 503 });
+      return new Response(liveBytes);
+    }
     if (url.pathname === "/v1/gtfs_feeds") return Response.json([dataset]);
     if (url.hostname === "storage.googleapis.com") return new Response(archive);
     throw new Error(`Unexpected request ${url.pathname}`);
@@ -92,7 +122,90 @@ test("a selected catalog feed goes through the existing GTFS line and departure 
     departures.content].filter(Boolean).join("\n");
   assert.match(cardText, /09:00/);
   assert.match(departures.source.attribution ?? "", /Mobility Database.*cc-by-4.0/);
-  assert.deepEqual(line.realtime, [], "catalog-discovered realtime entries are not enabled implicitly");
+  assert.equal(line.realtime.length, 1, "only the statically linked trip-update feed is enabled");
+});
+
+test("a fresh, explicitly linked Mobility Database feed updates the selected static trip", async () => {
+  const browser = makeBrowser(apiFetcher(realtimeFeed()));
+  const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+  const line = (await browser.lines(city, "bus", "601", network.id)).lines[0]!;
+  assert.equal(line.realtime[0]?.type,
+    "mobilitydatabase-gtfs-rt:%5B%22mdb-42%22%2C%22mdb-rt-42%22%5D");
+  const liveClient = new MobilityDatabaseTransportClient(apiFetcher(realtimeFeed()), () => NOW,
+    new TransportMetadataCache(() => null, () => NOW), () => "test-refresh-token");
+  assert.ok((await liveClient.realtimeFeed(line.realtime[0]!)).length > 0);
+  const index = await browser.index(line);
+  const origin = originOptions(index, line)[0]!;
+  const arrival = arrivalOptions(index, origin)[0]!;
+  const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));
+  const decoded = realtimeJourneys(realtimeFeed(), pairs, NOW / 1000, index.metadata);
+  assert.equal(decoded.fresh, true);
+  assert.equal(decoded.results.length, 1, JSON.stringify({
+    trips: [...index.metadata.trips], pairs,
+    realtimeResource: line.realtime[0],
+  }));
+  const result = await browser.departures(line, index, origin, arrival, "en");
+  const text = [result.embed?.footer?.text, result.embed?.description,
+    ...(result.embed?.fields ?? []).map(field => field.value), result.content].filter(Boolean).join("\n");
+  assert.match(text, /09:05/);
+  assert.match(text, /Real-time estimates/);
+  assert.doesNotMatch(text, /09:00/);
+});
+
+test("stale or mismatched Mobility Database predictions leave static times intact", async () => {
+  const cases = [
+    ["stale timestamp", realtimeFeed({ timestamp: NOW / 1000 - 9 * 60 })],
+    ["wrong route", realtimeFeed({ routeId: "OTHER" })],
+    ["wrong stop despite matching sequence", realtimeFeed({ originStopId: "OTHER" })],
+  ] as const;
+  for (const [name, bytes] of cases) {
+    const browser = makeBrowser(apiFetcher(bytes));
+    const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+    const line = (await browser.lines(city, "bus", "601", network.id)).lines[0]!;
+    const index = await browser.index(line);
+    const origin = originOptions(index, line)[0]!;
+    const arrival = arrivalOptions(index, origin)[0]!;
+    const result = await browser.departures(line, index, origin, arrival, "en");
+    const text = [result.embed?.footer?.text, result.embed?.description,
+      ...(result.embed?.fields ?? []).map(field => field.value), result.content].filter(Boolean).join("\n");
+    assert.match(text, /09:00/, name);
+    assert.match(text, /Scheduled times · not real-time/, name);
+  }
+});
+
+test("an unrelated or unavailable realtime feed never replaces static departures", async () => {
+  for (const catalog of [
+    [{ ...relatedRealtimeFeed, feed_references: ["mdb-another-static-feed"] }],
+    [],
+  ]) {
+    const browser = makeBrowser(apiFetcher(realtimeFeed(), catalog));
+    const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+    const line = (await browser.lines(city, "bus", "601", network.id)).lines[0]!;
+    assert.deepEqual(line.realtime, []);
+    const index = await browser.index(line);
+    const origin = originOptions(index, line)[0]!;
+    const arrival = arrivalOptions(index, origin)[0]!;
+    const result = await browser.departures(line, index, origin, arrival, "en");
+    assert.match(result.content, /09:00/);
+    assert.match(result.content, /Scheduled times · not real-time/);
+  }
+  let failedRealtimeRequests = 0;
+  const fallbackFetcher = apiFetcher();
+  const browser = makeBrowser(async (input, init) => {
+    if (new URL(String(input)).hostname === "realtime.example.com") failedRealtimeRequests++;
+    return fallbackFetcher(input, init);
+  });
+  const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+  const line = (await browser.lines(city, "bus", "601", network.id)).lines[0]!;
+  const index = await browser.index(line);
+  const origin = originOptions(index, line)[0]!;
+  const arrival = arrivalOptions(index, origin)[0]!;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await browser.departures(line, index, origin, arrival, "en");
+    assert.match(result.content, /09:00/);
+    assert.match(result.content, /Scheduled times · not real-time/);
+  }
+  assert.equal(failedRealtimeRequests, 1, "a short failure cooldown avoids repeating a slow failed request");
 });
 
 test("slow Mobility Database lookup is bounded and leaves the native network visible", async () => {
@@ -111,4 +224,47 @@ test("slow Mobility Database lookup is bounded and leaves the native network vis
   const refreshed = await browser.networks(city, "bus");
   assert.ok(refreshed.some(network => network.id === "mobilitydatabase:mdb-42"),
     "the completed background refresh becomes available on the next menu refresh");
+});
+
+test("a slow realtime association lookup does not hold up the selected static timetable", async () => {
+  let associationCalls = 0;
+  const fetcher: typeof fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.pathname === "/v1/gtfs_feeds") return Response.json([dataset]);
+    if (url.pathname === "/v1/gtfs_feeds/mdb-42/gtfs_rt_feeds") {
+      associationCalls++;
+      return new Promise<Response>(() => undefined);
+    }
+    if (url.hostname === "storage.googleapis.com") return new Response(archive);
+    throw new Error(`Unexpected request ${url.pathname}`);
+  };
+  const browser = makeBrowser(fetcher);
+  const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+  const started = Date.now();
+  const listing = await browser.lines(city, "bus", "601", network.id);
+  assert.ok(Date.now() - started < 1_000, "an unavailable realtime catalog must not delay static lines");
+  assert.equal(listing.lines[0]?.label, "601");
+  assert.equal(associationCalls, 1);
+});
+
+test("a delayed realtime association fills the cached line list after its static result appears", async () => {
+  const fetcher: typeof fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.pathname === "/v1/gtfs_feeds") return Response.json([dataset]);
+    if (url.pathname === "/v1/gtfs_feeds/mdb-42/gtfs_rt_feeds") {
+      await new Promise(resolve => setTimeout(resolve, 325));
+      return Response.json([relatedRealtimeFeed]);
+    }
+    if (url.hostname === "storage.googleapis.com") return new Response(archive);
+    throw new Error(`Unexpected request ${url.pathname}`);
+  };
+  const browser = makeBrowser(fetcher);
+  const network = (await browser.networks(city, "bus")).find(item => item.id === "mobilitydatabase:mdb-42")!;
+  const listing = await browser.lines(city, "bus", "601", network.id);
+  assert.equal(listing.lines[0]?.label, "601");
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(listing.lines[0]?.realtime.length, 1,
+    "the bounded lookup can finish after the static timetable without losing its live feed");
 });

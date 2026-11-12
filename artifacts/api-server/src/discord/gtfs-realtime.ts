@@ -41,6 +41,13 @@ export interface DecodedGtfsRealtime {
   updatedAt: number | null;
 }
 
+/** Header and entity timestamps more than five minutes in the future are not trusted. */
+export function isFreshGtfsRealtimeTimestamp(timestamp: number | null | undefined, nowSeconds: number,
+  maxAgeSeconds = 8 * 60, maxFutureSeconds = 5 * 60): boolean {
+  return typeof timestamp === "number" && Number.isFinite(timestamp) &&
+    nowSeconds - timestamp <= maxAgeSeconds && nowSeconds - timestamp >= -maxFutureSeconds;
+}
+
 type CsvRow = Record<string, string | undefined>;
 type ProtoTime = number | string | { toNumber?: () => number; low?: number; high?: number } | null | undefined;
 type ProtoFeed = {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import type { CatalogDataset, CatalogResource, StopCollection, TransportLocation } from "./public-transport.js";
 import { TransportMetadataCache } from "./transport-metadata-cache.js";
 import { mobilityCountryCodeForTerritory, type TransportTerritory } from "./transport-provider.js";
@@ -10,6 +11,7 @@ import { logger } from "../lib/logger.js";
 const API = "https://api.mobilitydatabase.org";
 const RESOURCE_PROVIDER = "mobilitydatabase";
 const MAX_FEED_BYTES = 80 * 1024 * 1024;
+const MAX_REALTIME_FEED_BYTES = 12 * 1024 * 1024;
 const PAGE_SIZE = 250;
 const MAX_CATALOG_FEEDS = 500;
 const MAX_VISIBLE_FEEDS = 20;
@@ -36,8 +38,10 @@ type MobilityDataset = {
   zipped_folder_size_mb?: unknown; bounding_box?: BoundingBox;
 };
 type MobilityFeed = {
-  id?: unknown; name?: unknown; feed_name?: unknown; provider?: unknown; status?: unknown; official?: unknown;
-  source_info?: { license_id?: unknown; license_is_spdx?: unknown; license_url?: unknown };
+  id?: unknown; data_type?: unknown; name?: unknown; feed_name?: unknown; provider?: unknown;
+  status?: unknown; official?: unknown; entity_types?: unknown; feed_references?: unknown;
+  source_info?: { license_id?: unknown; license_is_spdx?: unknown; license_url?: unknown;
+    producer_url?: unknown; authentication_type?: unknown };
   locations?: Array<{ country_code?: unknown }>;
   bounding_box?: BoundingBox;
   latest_dataset?: MobilityDataset;
@@ -92,6 +96,37 @@ export function safeMobilityDatasetUrl(value: string): URL {
   return url;
 }
 
+function safeMobilityRealtimeUrl(value: string): URL {
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  const ipHostname = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1) : hostname;
+  if (url.protocol !== "https:" || (url.port && url.port !== "443") ||
+    url.username || url.password || url.hash || url.href.length > 2_048 ||
+    !hostname || isIP(ipHostname) || hostname === "localhost" ||
+    hostname.endsWith(".localhost") || hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") || hostname.endsWith(".test")) {
+    throw new Error("Mobility Database returned an unsupported public GTFS-Realtime URL");
+  }
+  return url;
+}
+
+function mobilityRealtimeLink(staticFeedId: string, realtimeFeedId: string): string {
+  return `mobilitydatabase-gtfs-rt:${encodeURIComponent(JSON.stringify([staticFeedId, realtimeFeedId]))}`;
+}
+
+function mobilityRealtimeFeedIds(resource: CatalogResource): [string, string] | undefined {
+  const prefix = "mobilitydatabase-gtfs-rt:";
+  if (!resource.type?.startsWith(prefix)) return undefined;
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(resource.type.slice(prefix.length)));
+    if (!Array.isArray(value) || value.length !== 2 ||
+      typeof value[0] !== "string" || !SAFE_FEED_ID.test(value[0]) ||
+      typeof value[1] !== "string" || !SAFE_FEED_ID.test(value[1])) return undefined;
+    return [value[0], value[1]];
+  } catch { return undefined; }
+}
+
 function numericBounds(value: BoundingBox | undefined): CatalogDataset["bounds"] | undefined {
   const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
   const south = number(value?.minimum_latitude), north = number(value?.maximum_latitude);
@@ -121,6 +156,11 @@ export class MobilityDatabaseTransportClient {
   private tokenPending?: Promise<string>;
   private readonly files = new Map<number, { expiresAt: number; bytes: Uint8Array }>();
   private readonly filePending = new Map<number, Promise<Uint8Array>>();
+  private readonly realtimeResourcesCache = new Map<string, { expiresAt: number; resources: CatalogResource[] }>();
+  private readonly realtimeResourcesPending = new Map<string, Promise<CatalogResource[]>>();
+  private readonly realtimeFiles = new Map<number, { expiresAt: number; bytes: Uint8Array }>();
+  private readonly realtimeFilePending = new Map<number, Promise<Uint8Array>>();
+  private readonly realtimeFailedUntil = new Map<number, number>();
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
@@ -138,12 +178,53 @@ export class MobilityDatabaseTransportClient {
     finally { clearTimeout(timer); }
   }
 
-  private async json<T>(response: Response): Promise<T> {
+  private async readBody(response: Response, maxBytes: number, timeoutMs: number): Promise<Uint8Array> {
+    if (!response.body) throw new Error("Mobility Database response is empty");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    let timedOut = false;
+    const reading = (async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("Mobility Database response is too large");
+        }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      return bytes;
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        void reader.cancel().catch(() => undefined);
+        reject(new Error("Mobility Database response body timed out"));
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    try { return await Promise.race([reading, timeout]); }
+    finally {
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        await reader.cancel().catch(() => undefined);
+        await reading.catch(() => undefined);
+      }
+      reader.releaseLock();
+    }
+  }
+
+  private async json<T>(response: Response, timeoutMs = 5_000): Promise<T> {
     if (!response.ok) throw new Error(`Mobility Database returned HTTP ${response.status}`);
     const length = Number(response.headers.get("content-length"));
     if (Number.isFinite(length) && length > 4 * 1024 * 1024) throw new Error("Mobility Database response is too large");
-    const text = await response.text();
-    if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error("Mobility Database response is too large");
+    const text = new TextDecoder().decode(await this.readBody(response, 4 * 1024 * 1024, timeoutMs));
     try { return JSON.parse(text) as T; } catch { throw new Error("Mobility Database returned invalid JSON"); }
   }
 
@@ -171,10 +252,10 @@ export class MobilityDatabaseTransportClient {
     return pending;
   }
 
-  private async apiJson<T>(url: string): Promise<T> {
+  private async apiJson<T>(url: string, timeoutMs = 5_000): Promise<T> {
     const token = await this.token();
-    const response = await this.request(url, { headers: { authorization: `Bearer ${token}` } });
-    return this.json<T>(response);
+    const response = await this.request(url, { headers: { authorization: `Bearer ${token}` } }, timeoutMs);
+    return this.json<T>(response, timeoutMs);
   }
 
   async countries(): Promise<MobilityCountry[]> {
@@ -351,7 +432,8 @@ export class MobilityDatabaseTransportClient {
     const resource: CatalogResource = {
       id: resourceId(id), provider: RESOURCE_PROVIDER, title: "GTFS · Mobility Database",
       format: "GTFS", type: "static_schedule", url: hostedUrl.href, original_url: hostedUrl.href,
-      is_available: true, ...(typeof latest.downloaded_at === "string" ? { updated: latest.downloaded_at } : {}),
+      is_available: true, metadata: { mobilityFeedId: id },
+      ...(typeof latest.downloaded_at === "string" ? { updated: latest.downloaded_at } : {}),
     };
     return {
       id: `${RESOURCE_PROVIDER}:${id}`,
@@ -361,7 +443,7 @@ export class MobilityDatabaseTransportClient {
       limitations: [
         `Catalogue Mobility Database · licence ${license}.`,
         "GTFS statique; mode et desserte à confirmer dans le flux sélectionné.",
-        "Aucun temps réel n’est annoncé par cette entrée de catalogue.",
+        "Le temps réel n’est utilisé que si Mobility Database le relie explicitement au GTFS sélectionné.",
       ],
     };
   }
@@ -379,6 +461,86 @@ export class MobilityDatabaseTransportClient {
       return bytes;
     }).finally(() => this.filePending.delete(resource.id));
     this.filePending.set(resource.id, work);
+    return work;
+  }
+
+  /** Only use trip-update feeds explicitly associated with this selected static GTFS feed. */
+  async realtimeResources(staticResource: CatalogResource, selectedStaticFeedId?: string): Promise<CatalogResource[]> {
+    if (!isMobilityDatabaseResource(staticResource)) return [];
+    const resourceFeedId = staticResource.metadata?.mobilityFeedId;
+    if (selectedStaticFeedId && typeof resourceFeedId === "string" && resourceFeedId !== selectedStaticFeedId) return [];
+    const feedId = selectedStaticFeedId ?? resourceFeedId;
+    if (typeof feedId !== "string" || !SAFE_FEED_ID.test(feedId)) return [];
+    const cached = this.realtimeResourcesCache.get(feedId);
+    if (cached && cached.expiresAt > this.now()) return cached.resources;
+    const pending = this.realtimeResourcesPending.get(feedId);
+    if (pending) return pending;
+
+    const work = (async () => {
+      const response = await this.apiJson<unknown>(
+        `${API}/v1/gtfs_feeds/${encodeURIComponent(feedId)}/gtfs_rt_feeds`, 2_000);
+      if (!Array.isArray(response)) throw new Error("Mobility Database returned an invalid GTFS-Realtime list");
+      const resources = response.flatMap((entry: MobilityFeed) => {
+        const realtimeId = typeof entry.id === "string" ? entry.id : "";
+        const references = Array.isArray(entry.feed_references) ? entry.feed_references : [];
+        const entityTypes = Array.isArray(entry.entity_types) ? entry.entity_types : [];
+        const auth = entry.source_info?.authentication_type;
+        const producerUrl = entry.source_info?.producer_url;
+        if (!SAFE_FEED_ID.test(realtimeId) || entry.data_type !== "gtfs_rt" ||
+          String(entry.status).toLowerCase() !== "active" ||
+          !references.includes(feedId) || !entityTypes.includes("tu") ||
+          (auth !== undefined && auth !== null && auth !== 0 && auth !== "0") ||
+          typeof producerUrl !== "string") return [];
+        let url: URL;
+        try { url = safeMobilityRealtimeUrl(producerUrl); } catch { return []; }
+        const id = resourceId(`mobilitydatabase-realtime:${realtimeId}`);
+        return [{
+          id, provider: RESOURCE_PROVIDER, title: "GTFS-Realtime · Mobility Database",
+          format: "GTFS-RT", type: mobilityRealtimeLink(feedId, realtimeId), url: url.href, original_url: url.href,
+          is_available: true,
+        } satisfies CatalogResource];
+      }).slice(0, 2);
+      this.realtimeResourcesCache.set(feedId, { resources, expiresAt: this.now() + 15 * 60_000 });
+      return resources;
+    })().finally(() => this.realtimeResourcesPending.delete(feedId));
+    this.realtimeResourcesPending.set(feedId, work);
+    return work;
+  }
+
+  async realtimeFeed(resource: CatalogResource): Promise<Uint8Array> {
+    const [staticFeedId, realtimeFeedId] = mobilityRealtimeFeedIds(resource) ?? [];
+    if (!isMobilityDatabaseResource(resource) || resource.format !== "GTFS-RT" ||
+      !staticFeedId || !realtimeFeedId) {
+      throw new Error("Unsupported Mobility Database GTFS-Realtime resource");
+    }
+    const cached = this.realtimeFiles.get(resource.id);
+    if (cached && cached.expiresAt > this.now()) return cached.bytes;
+    const failedUntil = this.realtimeFailedUntil.get(resource.id) ?? 0;
+    if (failedUntil > this.now()) throw new Error("Mobility Database GTFS-Realtime feed is temporarily unavailable");
+    if (failedUntil) this.realtimeFailedUntil.delete(resource.id);
+    const pending = this.realtimeFilePending.get(resource.id);
+    if (pending) return pending;
+    const work = (async () => {
+      const url = safeMobilityRealtimeUrl(resource.url);
+      const response = await this.request(url.href, { method: "GET" }, 3_000);
+      if (!response.ok) throw new Error(`Mobility Database GTFS-Realtime returned HTTP ${response.status}`);
+      const length = Number(response.headers.get("content-length"));
+      if (Number.isFinite(length) && length > MAX_REALTIME_FEED_BYTES)
+        throw new Error("Mobility Database GTFS-Realtime feed exceeds its size limit");
+      const bytes = await this.readBody(response, MAX_REALTIME_FEED_BYTES, 2_500);
+      if (!bytes.length) throw new Error("Mobility Database GTFS-Realtime response is empty");
+      for (const [id, entry] of this.realtimeFiles) if (entry.expiresAt <= this.now()) this.realtimeFiles.delete(id);
+      while (this.realtimeFiles.size >= 16) this.realtimeFiles.delete(this.realtimeFiles.keys().next().value!);
+      this.realtimeFiles.set(resource.id, { bytes, expiresAt: this.now() + 12_000 });
+      return bytes;
+    })().catch(error => {
+      for (const [id, until] of this.realtimeFailedUntil) if (until <= this.now()) this.realtimeFailedUntil.delete(id);
+      while (this.realtimeFailedUntil.size >= 16)
+        this.realtimeFailedUntil.delete(this.realtimeFailedUntil.keys().next().value!);
+      this.realtimeFailedUntil.set(resource.id, this.now() + 10_000);
+      throw error;
+    }).finally(() => this.realtimeFilePending.delete(resource.id));
+    this.realtimeFilePending.set(resource.id, work);
     return work;
   }
 
@@ -470,7 +632,4 @@ export class MobilityDatabaseTransportClient {
     return scanRoutesAtStops(await this.staticFeed(resource), stopIds, requestedLine);
   }
 
-  async realtimeFeed(): Promise<Uint8Array> {
-    throw new Error("Mobility Database catalog entries are not validated real-time feeds");
-  }
 }
