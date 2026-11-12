@@ -7,7 +7,7 @@ import { logger } from "../lib/logger.js";
 // stop_times, predictions, raw provider metadata or a GTFS archive to MongoDB.
 type Shape = "string" | "number" | "boolean" | { [key: string]: Shape } | readonly [Shape];
 const strings: Shape = ["string"];
-const resource: Shape = { id: "number", title: "string", format: "string", type: "string", url: "string",
+const resource: Shape = { id: "number", provider: "string", title: "string", format: "string", type: "string", url: "string",
   original_url: "string", is_available: "boolean", modes: strings, updated: "string",
   metadata: { modes: strings, stats: { routes_count: "number" } } };
 const shapes = {

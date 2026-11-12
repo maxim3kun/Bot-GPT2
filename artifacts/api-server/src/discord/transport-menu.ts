@@ -22,7 +22,7 @@ import { transportPreferences, type TransportFavorite, type TransportPreferences
 import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode, irelandCountyFromSearch } from "./ireland-regions.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
-const browser = new TransportBrowserClient();
+const browser = new TransportBrowserClient().enableMobilityDatabase();
 const active = new Map<string, () => void>();
 type Stage = "territory" | "mode" | "city" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
@@ -328,7 +328,10 @@ export async function handleTransportSearch(
       value: value.code, label: `${value.name} · ${value.province}`,
     }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
-      description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
+      description: d.id.startsWith("mobilitydatabase:")
+        ? text(`Catalogue Mobility Database · GTFS statique · licence ${d.licence} · mode à confirmer`,
+          `Mobility Database catalog · static GTFS · ${d.licence} license · mode to verify`)
+        : /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
         : d.resources.length ? text("Source officielle · horaires selon disponibilité", "Official source · timetables where available")
         : text("Pas de flux exploitable configuré · lien officiel", "No usable feed configured · official link") }));
     if (stage === "cities") return cities.map((value, i) => ({ value: String(i), label: value.name, description: value.label }));
@@ -376,6 +379,8 @@ export async function handleTransportSearch(
       button("next", "→").setDisabled(page === pages - 1));
     if (stage !== "mode" && stage !== "territory") controls.addComponents(button("back", text("Retour", "Back")));
     if (stage === "cities" || stage === "networks" || stage === "lines" || stage === "origins" || stage === "arrivals") controls.addComponents(button("filter", text("Rechercher", "Search")));
+    if (stage === "networks" && controls.components.length < 4)
+      controls.addComponents(button("networks", text("Actualiser", "Refresh")));
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
     rows.push(controls);
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
@@ -625,6 +630,9 @@ export async function handleTransportSearch(
       const details = irishSourceUnavailable ? unavailableMessage
         : result.issues?.length ? result.issues.join("\n") : result.unavailable
           ? unavailableMessage
+          : network?.id.startsWith("mobilitydatabase:") ? text(
+            "Aucune ligne correspondante n’a été confirmée dans ce flux GTFS. Cela ne confirme pas l’absence de service.",
+            "No matching route was confirmed in this GTFS feed. This does not confirm that no service exists.")
           : region ? text("Aucune ligne correspondante n’a été trouvée dans cette source. Essaie une autre source ou retire le filtre de ligne.",
             "No matching route was found in this source. Try another source or clear the route filter.")
             : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",

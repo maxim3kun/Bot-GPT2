@@ -38,6 +38,7 @@ const MAX_FEED_AGE_SECONDS = 8 * 60;
 
 export interface CatalogResource {
   id: number;
+  provider?: string;
   title: string;
   format: string;
   type?: string;

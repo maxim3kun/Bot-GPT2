@@ -31,6 +31,7 @@ import { IrelandTransportClient, LuxembourgTransportClient, NationalGtfsTranspor
 import { NorwayNetexTransportClient } from "./norway-netex-transport.js";
 import { IcelandGtfsTransportClient } from "./iceland-gtfs-transport.js";
 import { SingaporeDataMallTransportClient } from "./singapore-datamall-transport.js";
+import { isMobilityDatabaseResource, MobilityDatabaseTransportClient } from "./mobility-database-transport.js";
 
 export interface TransportLine {
   routeId: string;
@@ -147,6 +148,7 @@ export class TransportBrowserClient {
   private scanTail: Promise<unknown> = Promise.resolve();
   private queuedScans = 0;
   private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
+  private mobilityDatabase?: MobilityDatabaseTransportClient;
 
   readonly territories = ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"] as const;
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
@@ -161,7 +163,20 @@ export class TransportBrowserClient {
      readonly czechia: NationalGtfsTransportClient = new NationalGtfsTransportClient("cz", fetch, now),
      readonly portugal: NationalGtfsTransportClient = new NationalGtfsTransportClient("pt", fetch, now),
      readonly australia: NationalGtfsTransportClient = new NationalGtfsTransportClient("au", fetch, now),
-     readonly ukraine: NationalGtfsTransportClient = new NationalGtfsTransportClient("ua", fetch, now)) {}
+      readonly ukraine: NationalGtfsTransportClient = new NationalGtfsTransportClient("ua", fetch, now),
+      mobilityDatabase?: MobilityDatabaseTransportClient) {
+    this.mobilityDatabase = mobilityDatabase;
+  }
+
+  enableMobilityDatabase(client = new MobilityDatabaseTransportClient(fetch, this.now)) {
+    this.mobilityDatabase = client;
+    return this;
+  }
+
+  private requiredMobilityDatabase() {
+    if (!this.mobilityDatabase) throw new TransportDataError("Mobility Database is not enabled for this transport client.");
+    return this.mobilityDatabase;
+  }
 
   currentTimeSeconds() { return Math.floor(this.now() / 1000); }
 
@@ -181,6 +196,13 @@ export class TransportBrowserClient {
           territory === "sg" ? "lta-datamall" : territory === "lv" ? "data-gov-lv" :
             territory === "cz" ? "pid" : territory === "pt" ? "dados-pt" :
               territory === "au" ? "translink-qld" : territory === "ua" ? "data-gov-ua" : "pan";
+  }
+
+  private providerForLine(line: TransportLine): TransportProvider {
+    if (isMobilityDatabaseResource(line.resource)) {
+      return this.requiredMobilityDatabase() as unknown as TransportProvider;
+    }
+    return this.providerFor(line.territory);
   }
 
   async availableModes(territory: TransportTerritory): Promise<TransitMode[]> {
@@ -253,17 +275,27 @@ export class TransportBrowserClient {
   }
 
   async networks(city: TransportLocation, mode: TransitMode) {
-    if (city.territory === "en") return this.england.networks(city, mode);
-    if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(city.territory ?? "")) {
-      const provider = this.providerFor(city.territory);
-      if (!provider.networks) throw new TransportDataError("Le catalogue de ce réseau est indisponible.");
-      return provider.networks(city, mode);
-    }
-    if (city.territory !== "qc") return [];
-    return (await this.quebec.getCatalog()).filter(d =>
-      (!d.bounds || inBounds(d.bounds, city.latitude, city.longitude)) &&
-      (!d.modes || modeMatches(mode, d.modes)) &&
-      (d.resources.some(r => isPublicTimetableResource(r) && modeMatches(mode, publishedModes(r))) || !d.resources.length));
+    const officialWork = (async () => {
+      if (city.territory === "en") return this.england.networks(city, mode);
+      if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(city.territory ?? "")) {
+        const provider = this.providerFor(city.territory);
+        if (!provider.networks) throw new TransportDataError("Le catalogue de ce réseau est indisponible.");
+        return provider.networks(city, mode);
+      }
+      if (city.territory !== "qc") return [];
+      return (await this.quebec.getCatalog()).filter(d =>
+        (!d.bounds || inBounds(d.bounds, city.latitude, city.longitude)) &&
+        (!d.modes || modeMatches(mode, d.modes)) &&
+        (d.resources.some(r => isPublicTimetableResource(r) && modeMatches(mode, publishedModes(r))) || !d.resources.length));
+    })().then(value => ({ value }), error => ({ error }));
+    const mobilityWork = this.mobilityDatabase
+      ? this.mobilityDatabase.catalogForLocation(city, 150).catch(() => [] as CatalogDataset[])
+      : Promise.resolve([] as CatalogDataset[]);
+    const [official, mobility] = await Promise.all([officialWork, mobilityWork]);
+    const officialDatasets = "value" in official ? official.value : [];
+    if ("error" in official && !mobility.length) throw official.error;
+    const seen = new Set(officialDatasets.map(dataset => dataset.id));
+    return [...officialDatasets, ...mobility.filter(dataset => !seen.has(dataset.id))];
   }
 
   private usesIdfm(line: TransportLine) { return (!line.territory || line.territory === "fr") && isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
@@ -276,7 +308,7 @@ export class TransportBrowserClient {
     let traffic: IdfmTraffic;
     try {
       const feeds = await Promise.all(line.alerts.map(async r => parseGtfsAlerts(
-        await this.providerFor(line.territory).realtimeFeed(r), index, Math.floor(now / 1000))));
+        await this.providerForLine(line).realtimeFeed(r), index, Math.floor(now / 1000))));
       traffic = { available: feeds.every(f => f.available), rules: feeds.flatMap(f => f.rules) };
     } catch { traffic = { available: false, rules: [] }; }
     if (!traffic.available && old && now - old.good < 30 * 60_000) traffic.rules = old.traffic.rules;
@@ -368,10 +400,12 @@ export class TransportBrowserClient {
       };
       let value: LineListing;
       let stale = false;
-      const provider = this.providerFor(city.territory);
-      if (city.territory !== "en" && provider.metadata) {
+      const mobilityNetwork = networkId?.startsWith("mobilitydatabase:");
+      if (mobilityNetwork && !this.mobilityDatabase) throw new TransportDataError("Mobility Database is not enabled for this transport client.");
+      const provider = mobilityNetwork ? this.requiredMobilityDatabase() as unknown as TransportProvider : this.providerFor(city.territory);
+      if ((city.territory !== "en" || mobilityNetwork) && provider.metadata) {
         const result = await provider.metadata.staleWhileRevalidate({
-          territory: city.territory ?? "fr", provider: this.metadataProvider(city.territory),
+          territory: city.territory ?? "fr", provider: mobilityNetwork ? "mobilitydatabase" : this.metadataProvider(city.territory),
           kind: "lineListings", source: key, version: "line-listing-v1",
         }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, (refresh) => this.scheduleBackgroundRefresh(refresh));
         value = result.value;
@@ -388,10 +422,17 @@ export class TransportBrowserClient {
   }
 
   private async loadLines(city: TransportLocation, mode: TransitMode, requestedLine: string, networkId?: string): Promise<LineListing> {
-    if (city.territory === "en") return this.england.lines(city, mode, requestedLine, networkId);
-    const provider = this.providerFor(city.territory);
+    const mobilityNetwork = networkId?.startsWith("mobilitydatabase:");
+    if (city.territory === "en" && !mobilityNetwork) return this.england.lines(city, mode, requestedLine, networkId);
+    const mobility = mobilityNetwork ? this.requiredMobilityDatabase() : undefined;
+    const provider = mobility ? mobility as unknown as TransportProvider : this.providerFor(city.territory);
     let catalogue, nearby, centerFallback = false;
-    if (city.territory === "qc") {
+    if (mobilityNetwork) {
+      catalogue = (await mobility!.catalogForLocation(city, 5_000)).filter(d => d.id === networkId);
+      if (catalogue.length !== 1) throw new Error("The selected Mobility Database feed is no longer available");
+      const resources = catalogue.flatMap(d => d.resources.filter(isPublicTimetableResource));
+      nearby = await mobility!.nearbyStopsForResources(city.latitude, city.longitude, resources);
+    } else if (city.territory === "qc") {
       if (!networkId) throw new Error("Select a Québec transport network");
       catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
       if (catalogue.length !== 1) throw new Error("Unknown Québec network");
@@ -446,10 +487,10 @@ export class TransportBrowserClient {
         const { dataset, resource, stopIds } = groups[next++]!;
         if ((this.unavailableUntil.get(resource.id) ?? 0) > this.now()) { unavailable++; continue; }
         try {
-          const selection: GtfsSelection | undefined = city.territory === "qc" || city.territory === "ie" ||
+          const selection: GtfsSelection | undefined = !mobilityNetwork && (city.territory === "qc" || city.territory === "ie" ||
             city.territory === "lu" || city.territory === "ch" || city.territory === "no" ||
             city.territory === "is" || city.territory === "sg" || city.territory === "lv" ||
-            city.territory === "cz" || city.territory === "pt" || city.territory === "au" || city.territory === "ua"
+            city.territory === "cz" || city.territory === "pt" || city.territory === "au" || city.territory === "ua")
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) }
             : mode === "metro" && isIdfmGtfs(resource)
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
@@ -458,7 +499,7 @@ export class TransportBrowserClient {
               ? provider.discoverRoutesAtStops(resource, stopIds, mode, requestedLine)
               : scanRoutesAtStops(await provider.staticFeed(resource, selection), stopIds, requestedLine));
           const routes = provider.metadata ? await provider.metadata.get({
-            territory: city.territory ?? "fr", provider: this.metadataProvider(city.territory), kind: "routes",
+            territory: city.territory ?? "fr", provider: mobilityNetwork ? "mobilitydatabase" : this.metadataProvider(city.territory), kind: "routes",
             source: `nearby-routes:${resource.id}:${createHash("sha256").update(JSON.stringify([[...stopIds].sort(), requestedLine, mode])).digest("hex")}`,
             version: city.territory === "sg" ? `lta-route-types-v2:${resourceVersion(resource)}` : resourceVersion(resource),
           }, 60 * 60_000, load) : await load();
@@ -467,7 +508,10 @@ export class TransportBrowserClient {
             found.push({ routeId: route.routeId, mode, label: route.shortName || route.longName || route.routeId,
               description: route.longName || dataset.title, nearbyStopIds: route.stopIds, resource,
               realtime: dataset.resources.filter(isGtfsRealtimeResource).slice(0, 2),
-              source: { name: dataset.title, url: dataset.page_url, ...(city.territory === "qc" ? {
+               source: { name: dataset.title, url: dataset.page_url, ...(isMobilityDatabaseResource(resource) ? {
+                 updated: resource.updated, attribution: `Mobility Database · licence ${dataset.licence}`,
+                 limitations: dataset.limitations,
+               } : city.territory === "qc" ? {
                 updated: resource.updated, attribution: `${dataset.title} · ${dataset.licence}`, limitations: sourceLimitations(dataset),
                } : city.territory === "ie" || city.territory === "lu" || city.territory === "ch" ||
                  city.territory === "is" || city.territory === "lv" || city.territory === "cz" ||
@@ -484,7 +528,7 @@ export class TransportBrowserClient {
                 alerts: dataset.resources.filter(r => r.is_available && /alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
                ...(city.territory === "sg" ? { territory: "sg" as const,
                  alerts: dataset.resources.filter(r => r.is_available && /service alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
-               ...(city.territory === "ie" || city.territory === "lu" || city.territory === "ch" ||
+                ...(city.territory === "en" || city.territory === "ie" || city.territory === "lu" || city.territory === "ch" ||
                  city.territory === "no" || city.territory === "is" || city.territory === "sg" ||
                  city.territory === "lv" || city.territory === "cz" || city.territory === "pt" ||
                  city.territory === "au" || city.territory === "ua"
@@ -512,9 +556,23 @@ export class TransportBrowserClient {
       const fingerprint = `${line.mode}:${normalizeTransitText(line.label)}:${normalizeTransitText(line.description)}`;
       if (!unique.has(fingerprint)) unique.set(fingerprint, line);
     }
-    return { lines: [...unique.values()].sort((a, b) =>
+    const listing: LineListing = { lines: [...unique.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { numeric: true }) || a.source.name.localeCompare(b.source.name, "fr")),
-       unavailable, ...(centerFallback ? { centerFallback: true } : {}), ...(issues.length ? { issues } : {}), ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
+       unavailable, ...(centerFallback ? { centerFallback: true } : {}), ...(issues.length ? { issues } : {}),
+       ...(requestedLine ? { targeted: true } : {}), ...(networkScoped ? { networkScoped: true } : {}) };
+    if (!mobilityNetwork && city.territory === "fr" && !listing.lines.length && this.mobilityDatabase) {
+      const candidates = await this.mobilityDatabase.catalogForLocation(city, 2_500);
+      const candidate = candidates[0];
+      if (candidate) {
+        try {
+          const extra = await this.loadLines(city, mode, requestedLine, candidate.id);
+          if (extra.lines.length) return { ...extra, unavailable: extra.unavailable + listing.unavailable, networkScoped: true };
+        } catch {
+          logger.debug({ cityId: city.id }, "Mobility Database fallback unavailable; original transport result retained");
+        }
+      }
+    }
+    return listing;
   }
 
   async index(line: TransportLine): Promise<JourneyIndex> {
@@ -525,10 +583,13 @@ export class TransportBrowserClient {
     if (pending) return pending as Promise<JourneyIndex>;
     const work = (async () => {
       const value = await this.scan(async () => {
-        if (line.territory === "en") return this.england.index(line);
-        if (line.territory === "no") return this.norway.journeyIndex(line.resource, line.routeId, line.mode);
-        if (line.territory === "is") return this.iceland.journeyIndex(line.resource, line.routeId, line.mode);
-        if (line.territory === "sg") return this.singapore.journeyIndex(line.resource, line.routeId, line.mode);
+        if (line.territory === "en" && !isMobilityDatabaseResource(line.resource)) return this.england.index(line);
+        if (line.territory === "no" && !isMobilityDatabaseResource(line.resource))
+          return this.norway.journeyIndex(line.resource, line.routeId, line.mode);
+        if (line.territory === "is" && !isMobilityDatabaseResource(line.resource))
+          return this.iceland.journeyIndex(line.resource, line.routeId, line.mode);
+        if (line.territory === "sg" && !isMobilityDatabaseResource(line.resource))
+          return this.singapore.journeyIndex(line.resource, line.routeId, line.mode);
         const selection = line.selection?.discoveryStops
           ? (line.territory === "ie" || line.territory === "lu" || line.territory === "ch" ||
             line.territory === "lv" || line.territory === "cz" || line.territory === "pt" ||
@@ -536,7 +597,7 @@ export class TransportBrowserClient {
             ? { mode: line.mode, routeId: line.routeId } : { mode: line.mode, line: line.label })
           : line.selection ??
           (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
-        const zip = await this.providerFor(line.territory).staticFeed(line.resource, selection);
+        const zip = await this.providerForLine(line).staticFeed(line.resource, selection);
         const index = await buildJourneyIndex(zip, line.routeId);
         if (line.territory === "qc" || line.territory === "ie" || line.territory === "lu" ||
           line.territory === "ch" || line.territory === "lv" || line.territory === "cz" ||
@@ -595,7 +656,8 @@ export class TransportBrowserClient {
     }));
     const from = identities(arrival), to = identities(origin);
     const matches = (id: string, stop: JourneyStop, keys: Set<string>) => keys.has(id) || !!stop.parent && keys.has(stop.parent);
-    const provider: Pick<TransportProvider, "referenceRoutes"> = line.territory === "en" ? {} : this.providerFor(line.territory);
+    const provider: Pick<TransportProvider, "referenceRoutes"> = line.territory === "en" &&
+      !isMobilityDatabaseResource(line.resource) ? {} : this.providerForLine(line);
     let candidates = [line];
     if (line.territory === "sg" && line.resource.format === "LTA Bus Routes") {
       const routes = await this.singapore.reverseBusRoutes(line.resource, line.routeId);
@@ -644,13 +706,14 @@ export class TransportBrowserClient {
 
   async departures(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup, language: string,
     options: TransportTimeOptions = {}): Promise<TransportDepartureResult> {
-    if (line.territory === "en") return this.england.departures(line, index, origin, arrival, language, options);
-    if (line.territory === "sg" && line.mode === "bus")
+    if (line.territory === "en" && !isMobilityDatabaseResource(line.resource))
+      return this.england.departures(line, index, origin, arrival, language, options);
+    if (line.territory === "sg" && line.mode === "bus" && !isMobilityDatabaseResource(line.resource))
       return this.singapore.departures(line, index, origin, arrival, language, options);
     const french = language === "fr";
     const now = Math.floor(this.now() / 1000);
     const realtimePromise = arrival.viaTransfer ? Promise.all(line.realtime.map(async (resource) => {
-      try { return await this.providerFor(line.territory).realtimeFeed(resource); }
+      try { return await this.providerForLine(line).realtimeFeed(resource); }
       catch (error) {
         logger.debug({ resourceId: resource.id, err: error }, "Transport connection realtime unavailable");
         return null;
@@ -683,7 +746,7 @@ export class TransportBrowserClient {
     // Widen only if the ordinary window is empty, retaining the official calendar.
     const laterSchedules = schedules.length ? [] : scheduledJourneys(index, pairs, now, 7);
     const [updates, idfmLive] = await Promise.all([Promise.all(line.realtime.map(async (resource) => {
-      try { return realtimeJourneys(await this.providerFor(line.territory).realtimeFeed(resource), pairs, now); }
+      try { return realtimeJourneys(await this.providerForLine(line).realtimeFeed(resource), pairs, now); }
       catch (error) {
         logger.debug({ resourceId: resource.id, err: error }, "Transport journey realtime unavailable");
         return null;
