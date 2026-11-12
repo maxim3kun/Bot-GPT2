@@ -66,6 +66,12 @@ test("New tool contracts reject extra authority, unknown parameters, URLs and mu
     tool("start_guess_number", { maximum: 1000 }), tool("start_trivia", { category: "science" }),
     tool("music_stop", { guildId: "other" }), tool("start_geoguessr", { difficulty: "impossible" }),
   ]) assert.equal(parseAiCommandTool([call], ["nrj"]), null, call.function.arguments);
+  assert.deepEqual(parseAiCommandTool([tool("search_transport",
+    { mode: "rail", place: "Zürich", territory: "ch" })], ["nrj"]),
+    { name: "search_transport", mode: "rail", place: "Zürich", territory: "ch" });
+  assert.deepEqual(parseAiCommandTool([tool("search_transport",
+    { mode: "bus", place: "Drammen", territory: "no" })], ["nrj"]),
+    { name: "search_transport", mode: "bus", place: "Drammen", territory: "no" });
   assert.equal(parseAiCommandTool([tool("music_pause", {}), tool("music_stop", {})], []), null);
 });
 test("Audio state changes require the player's confirmation and retain their old state on failure", () => {

@@ -33,6 +33,34 @@ function service(station = false) {
     departures: async () => ({ content: "Horaires théoriques", source, embed: { title: "Trajet", description: "Horaires théoriques" } }),
   } as unknown as TransportBrowserClient };
 }
+test("Switzerland appears in the territory selector and keeps its country context", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.territories = ["fr", "qc", "en", "ie", "lu", "ch"] as any;
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.label),
+    ["France", "Québec", "Angleterre", "Irlande", "Luxembourg", "Suisse"]);
+  await choose(card, "ch");
+  assert.match(card.last.content!, /Suisse/);
+  assert.match(card.last.content!, /Indique une ville de Suisse/);
+  card.collector.stop("cancelled");
+});
+test("Norway appears in the territory selector and identifies the Entur timetable source", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.territories = ["fr", "qc", "en", "ie", "lu", "ch", "no"] as any;
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.label),
+    ["France", "Québec", "Angleterre", "Irlande", "Luxembourg", "Suisse", "Norvège"]);
+  await choose(card, "no");
+  assert.match(card.last.content!, /Norvège/);
+  assert.match(card.last.content!, /Horaires NeTEx Entur/);
+  card.collector.stop("cancelled");
+});
 test("France, Québec or Angleterre is selected once and the redundant new-search button is hidden", async () => {
   const d = fakeDiscord(), s = service();
   await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value);

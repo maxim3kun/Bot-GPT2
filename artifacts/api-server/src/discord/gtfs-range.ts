@@ -128,6 +128,38 @@ export class GtfsRangeArchive {
     }
   }
 
+  entryNames(): string[] {
+    return [...this.entries.keys()];
+  }
+
+  /** Read one bounded XML member from a public ZIP without downloading its siblings. */
+  async entryBytes(name: string, maximumCompressed = 8 * 1024 * 1024,
+    maximumExpanded = 32 * 1024 * 1024): Promise<Uint8Array | null> {
+    const entry = this.entries.get(name.toLowerCase().split("/").at(-1)!);
+    if (!entry) return null;
+    if (entry.compressed > maximumCompressed || entry.original > maximumExpanded ||
+      ![0, 8].includes(entry.method)) throw new Error("Transport ZIP member exceeds its bounded XML limits");
+    const header = await this.bytes(entry.offset, entry.offset + 29);
+    if (header.readUInt32LE(0) !== 0x04034b50 || header.readUInt16LE(8) !== entry.method) {
+      throw new Error("Invalid transport ZIP member header");
+    }
+    const start = entry.offset + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
+    if (start + entry.compressed > this.total) throw new Error("Transport ZIP member lies outside the archive");
+    const response = await this.response(`bytes=${start}-${start + entry.compressed - 1}`);
+    const chunks: Buffer[] = [];
+    for await (const chunk of this.chunks(response, entry.compressed)) chunks.push(chunk);
+    const compressed = Buffer.concat(chunks, entry.compressed);
+    let bytes: Buffer;
+    try {
+      bytes = entry.method === 8
+        ? zlib.inflateRawSync(compressed, { maxOutputLength: maximumExpanded })
+        : compressed;
+    } catch { throw new Error("Unable to decompress the selected transport ZIP member"); }
+    if (bytes.length !== entry.original || bytes.length > maximumExpanded ||
+      checksum(bytes, 0) !== entry.crc) throw new Error("Transport ZIP member failed its size or checksum validation");
+    return bytes;
+  }
+
   async rows(name: string, onRow: (row: GtfsRow) => void, filter?: Transform): Promise<boolean> {
     const entry = this.entries.get(name);
     if (!entry) return false;

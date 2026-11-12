@@ -151,6 +151,7 @@ export interface TransportLocation {
   id: string;
   name: string;
   label: string;
+  area?: string;
   latitude: number;
   longitude: number;
   territory?: TransportTerritory;

@@ -27,12 +27,12 @@ type GeocodeResult = { lat?: string; lon?: string; name?: string; display_name?:
   category?: string; addresstype?: string; osm_type?: string; osm_id?: number; geojson?: unknown;
   address?: { county?: string; state?: string; region?: string; country_code?: string; city?: string; town?: string; village?: string } };
 type NationalConfig = {
-  territory: "ie" | "lu"; provider: "nta" | "atp"; timezone: string; title: string; page: string;
+  territory: "ie" | "lu" | "ch"; provider: "nta" | "atp" | "odmch"; timezone: string; title: string; page: string;
   licence: string; bounds: Bounds; resourceName: string; feedHost: string; feedPathPrefix: string;
   limitations: string[];
 };
 
-const CONFIG: Record<"ie" | "lu", NationalConfig> = {
+const CONFIG: Record<"ie" | "lu" | "ch", NationalConfig> = {
   ie: {
     territory: "ie", provider: "nta", timezone: "Europe/Dublin", title: "National Transport Authority · Irlande",
     page: "https://data.gov.ie/dataset/nta-gtfs", licence: "CC BY 4.0", bounds: [-11.2, 51.2, -5.2, 55.6],
@@ -50,6 +50,17 @@ const CONFIG: Record<"ie" | "lu", NationalConfig> = {
     limitations: ["Horaires GTFS théoriques uniquement; aucun flux temps réel n’est intégré.",
       "La couverture se limite aux lignes et arrêts publiés dans le GTFS national."],
   },
+  ch: {
+    territory: "ch", provider: "odmch", timezone: "Europe/Zurich",
+    title: "Horaire national · Open Data Mobilité Suisse",
+    page: "https://data.opentransportdata.swiss/dataset/timetable-2026-gtfs2020",
+    licence: "Conditions d’utilisation Open Data Mobilité Suisse (citation de la source requise)",
+    bounds: [5.8, 45.7, 10.6, 47.9],
+    resourceName: "GTFS 2026", feedHost: "data.opentransportdata.swiss",
+    feedPathPrefix: "/dataset/3d2c18f9-9ef1-463f-a249-5c67604efd74/resource/",
+    limitations: ["Horaires GTFS théoriques uniquement; aucun flux temps réel n’est utilisé.",
+      "La couverture est celle des lignes et arrêts publiés dans l’horaire national 2026; le flux est actualisé deux fois par semaine."],
+  },
 };
 const idFor = (territory: TransportTerritory, source: string) =>
   -1 - createHash("sha256").update(`${territory}:${source}`).digest().readUIntBE(0, 6);
@@ -65,6 +76,11 @@ function queueGeocode<T>(load: () => Promise<T>): Promise<T> {
   });
   geocodeQueue = request.catch(() => undefined);
   return request;
+}
+
+function scheduleMetadataRefresh(refresh: () => void) {
+  const timer = setTimeout(refresh, 2_000);
+  timer.unref?.();
 }
 
 function validBoundary(value: unknown): value is GeoJsonBoundary {
@@ -162,7 +178,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
   readonly metadata: TransportMetadataCache;
   private readonly config: NationalConfig;
 
-  constructor(readonly territory: "ie" | "lu", private readonly fetcher: typeof fetch = fetch,
+  constructor(readonly territory: "ie" | "lu" | "ch", private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => number = Date.now, metadata?: TransportMetadataCache) {
     this.config = CONFIG[territory];
     this.metadata = metadata ?? new TransportMetadataCache(undefined, now);
@@ -185,12 +201,31 @@ export class NationalGtfsTransportClient implements TransportProvider {
     catch { throw new TransportDataError("Le catalogue national est illisible."); }
   }
 
+  private async html(url: string, maximum = 2 * 1024 * 1024): Promise<string> {
+    const response = await this.fetcher(url, {
+      headers: { accept: "text/html", "user-agent": "MaximeGPT public transport/1.0" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new TransportDataError(`Le catalogue ${this.config.title} est indisponible (HTTP ${response.status}).`);
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > maximum) {
+      await response.body?.cancel();
+      throw new TransportDataError("Le catalogue national dépasse sa limite de taille.");
+    }
+    const body = await response.text();
+    if (Buffer.byteLength(body) > maximum) throw new TransportDataError("Le catalogue national dépasse sa limite de taille.");
+    return body;
+  }
+
   private safeFeedUrl(value: string): URL {
     let url: URL;
     try { url = new URL(value); } catch { throw new TransportDataError("L’adresse du flux GTFS national est invalide."); }
     if (url.protocol !== "https:" || url.hostname !== this.config.feedHost || url.username || url.password ||
       url.port || !(this.territory === "ie" ? url.pathname === this.config.feedPathPrefix
-        : url.pathname.startsWith(this.config.feedPathPrefix))) {
+        : this.territory === "ch"
+          ? url.pathname.startsWith(this.config.feedPathPrefix) &&
+            /\/download\/gtfs_fp2026_[\d-]+\.zip$/i.test(url.pathname)
+          : url.pathname.startsWith(this.config.feedPathPrefix))) {
       throw new TransportDataError("Le catalogue national a publié une adresse de flux non autorisée.");
     }
     return url;
@@ -198,18 +233,35 @@ export class NationalGtfsTransportClient implements TransportProvider {
 
   private async rangeResponse(resource: CatalogResource, range: string, validator?: Record<string, string>) {
     const url = this.safeFeedUrl(resource.url);
-    const response = await this.fetcher(url.href, {
-      headers: { accept: "application/zip", "user-agent": "MaximeGPT public transport/1.0",
-        range, ...validator },
+    const headers = { accept: "application/zip", "user-agent": "MaximeGPT public transport/1.0",
+      range, ...validator };
+    let response = await this.fetcher(url.href, {
+      headers,
       signal: AbortSignal.timeout(90_000), redirect: "manual",
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
       const location = response.headers.get("location");
-      if (!location || this.safeFeedUrl(new URL(location, url).href).href !== url.href) {
+      let target: URL | undefined;
+      try { if (location) target = new URL(location, url); } catch { /* Reject malformed redirects below. */ }
+      const resourceId = url.pathname.match(/\/resource\/([a-f\d-]{36})\/download\//i)?.[1]?.toLowerCase();
+      const signedSwissDownload = this.territory === "ch" && target?.protocol === "https:" &&
+        /^[a-z\d-]+\.eu\.r2\.cloudflarestorage\.com$/i.test(target.hostname) &&
+        !target.username && !target.password && !target.port && !!resourceId &&
+        target.pathname.includes(`/resources/${resourceId}/`);
+      if (signedSwissDownload) {
+        response = await this.fetcher(target!.href, {
+          headers, signal: AbortSignal.timeout(90_000), redirect: "manual",
+        });
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          await response.body?.cancel();
+          throw new TransportDataError("Le stockage du flux GTFS suisse a redirigé vers une adresse non autorisée.");
+        }
+      } else if (!target || this.safeFeedUrl(target.href).href !== url.href) {
         throw new TransportDataError("Le flux GTFS national a redirigé vers une adresse non autorisée.");
+      } else {
+        throw new TransportDataError("Le flux GTFS national redirige au lieu de répondre aux requêtes par plages.");
       }
-      throw new TransportDataError("Le flux GTFS national redirige au lieu de répondre aux requêtes par plages.");
     }
     const modified = response.headers.get("last-modified");
     if (modified && Number.isFinite(Date.parse(modified))) resource.updated = modified;
@@ -251,7 +303,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
         original_url: url, is_available: true, ...(updated ? { updated } : {}) };
       title = entry.title || title;
       licence = "CC BY 4.0";
-    } else {
+    } else if (this.territory === "lu") {
       const data = await this.json<LuxembourgDataset>(
         "https://data.public.lu/api/1/datasets/horaires-et-arrets-des-transport-publics-gtfs/");
       if (!Array.isArray(data.resources) || !/^cc-by$/i.test(data.license ?? "")) {
@@ -265,18 +317,30 @@ export class NationalGtfsTransportClient implements TransportProvider {
         url, original_url: url, is_available: true };
       title = data.title || title;
       licence = "CC BY";
+    } else {
+      const html = await this.html(this.config.page);
+      const candidates = [...html.matchAll(/href=["'](https:\/\/data\.opentransportdata\.swiss\/dataset\/3d2c18f9-9ef1-463f-a249-5c67604efd74\/resource\/[a-f\d-]{36}\/download\/gtfs_fp2026_([\d-]+)\.zip)["']/gi)]
+        .map(match => ({ url: match[1]!, version: match[2]!.replaceAll("-", "") }))
+        .sort((a, b) => b.version.localeCompare(a.version));
+      const feed = candidates[0];
+      if (!feed) throw new TransportDataError("Le flux GTFS national suisse n’est pas publié dans le catalogue.");
+      const url = this.safeFeedUrl(feed.url).href;
+      updated = feed.version;
+      resource = { id: idFor(this.territory, url), title: `GTFS national 2026 · ${feed.version}`,
+        format: "GTFS", url, original_url: url, is_available: true, updated };
     }
     await this.probe(resource);
     return [{
       id: `${this.territory}:national-gtfs`, title, slug: `${this.territory}-national-gtfs`,
       page_url: this.config.page, type: "public-transit", licence, resources: [resource],
       territory: this.territory, bounds: this.config.bounds, limitations: this.config.limitations,
-      publisher: this.config.provider === "nta" ? "National Transport Authority" : "Administration des transports publics",
+      publisher: this.config.provider === "nta" ? "National Transport Authority" :
+        this.config.provider === "atp" ? "Administration des transports publics" : "Open Data Mobilité Suisse",
     }];
   }
 
   async getCatalog(): Promise<CatalogDataset[]> {
-    const result = await this.metadata.staleWhileRevalidate({
+    const result = await this.metadata.staleWhileRevalidate<CatalogDataset[]>({
       territory: this.territory, provider: this.config.provider, kind: "catalog",
       source: `${this.config.provider}:national-static-gtfs`, version: "catalog-v1",
     }, 60 * 60_000, 7 * 24 * 60 * 60_000, () => this.loadCatalog());
@@ -328,7 +392,8 @@ export class NationalGtfsTransportClient implements TransportProvider {
         const county = result.address?.county || result.address?.state;
         const id = `osm:${this.territory}:${result.type}:${createHash("sha256")
           .update(`${normalizeTransitText(name)}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`).digest("hex").slice(0, 16)}`;
-        return [{ id, name, label: [name, county, this.territory === "ie" ? "Irlande" : "Luxembourg"]
+        const countryName = this.territory === "ie" ? "Irlande" : this.territory === "lu" ? "Luxembourg" : "Suisse";
+        return [{ id, name, label: [name, county, countryName]
           .filter(Boolean).join(" · "), latitude, longitude, territory: this.territory }];
       });
       const exact = places.filter(location => normalizeTransitText(location.name) === query);
@@ -339,16 +404,17 @@ export class NationalGtfsTransportClient implements TransportProvider {
   municipalities(place: string): Promise<TransportLocation[]> { return this.geocode(place); }
 
   private async routeTable(resource: CatalogResource): Promise<ReferenceRoute[]> {
-    return this.metadata.get({
+    const result = await this.metadata.staleWhileRevalidate<ReferenceRoute[]>({
       territory: this.territory, provider: this.config.provider, kind: "routes",
       source: `routes:${resource.id}`, version: resourceVersion(resource),
-    }, 6 * 60 * 60_000, async () => {
+    }, 6 * 60 * 60_000, 7 * 24 * 60 * 60_000, async () => {
       const request = (range: string, validator?: Record<string, string>) =>
         this.rangeResponse(resource, range, validator);
       return referenceTable(resource, "routes.txt", request, async () => {
         throw new TransportDataError("Le catalogue des lignes exige la lecture bornée du flux GTFS.");
       });
-    });
+    }, scheduleMetadataRefresh);
+    return result.value;
   }
 
   async referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> { return this.routeTable(resource); }
@@ -357,11 +423,13 @@ export class NationalGtfsTransportClient implements TransportProvider {
     requestedLine = ""): Promise<GtfsRouteAtStops[]> {
     if (!stopIds.size) return [];
     const stopKey = createHash("sha256").update([...stopIds].sort().join("\n")).digest("hex");
-    return this.metadata.get<GtfsRouteAtStops[]>({
+    const result = await this.metadata.staleWhileRevalidate<GtfsRouteAtStops[]>({
       territory: this.territory, provider: this.config.provider, kind: "routes",
       source: `nearby-routes:${resource.id}:${mode}:${normalizeTransitText(requestedLine)}:${stopKey}`,
       version: resourceVersion(resource),
-    }, 60 * 60_000, () => this.scanRoutesAtStops(resource, stopIds, mode, requestedLine));
+    }, 60 * 60_000, 7 * 24 * 60 * 60_000,
+    () => this.scanRoutesAtStops(resource, stopIds, mode, requestedLine), scheduleMetadataRefresh);
+    return result.value;
   }
 
   private async scanRoutesAtStops(resource: CatalogResource, stopIds: ReadonlySet<string>, mode: TransitMode,
@@ -412,17 +480,18 @@ export class NationalGtfsTransportClient implements TransportProvider {
   }
 
   private async stopTable(resource: CatalogResource): Promise<ReferenceStop[]> {
-    return this.metadata.get<ReferenceStop[]>({
+    const result = await this.metadata.staleWhileRevalidate<ReferenceStop[]>({
       territory: this.territory, provider: this.config.provider, kind: "stops",
       source: `stops:${resource.id}`, version: resourceVersion(resource),
-    }, 6 * 60 * 60_000, async () => {
+    }, 6 * 60 * 60_000, 7 * 24 * 60 * 60_000, async () => {
       const request = (range: string, validator?: Record<string, string>) =>
         this.rangeResponse(resource, range, validator);
       const stops = await referenceTable<ReferenceStop>(resource, "stops.txt", request, async () => {
         throw new TransportDataError("Le catalogue des arrêts exige la lecture bornée du flux GTFS.");
       });
       return stops.filter(stop => inBounds(this.config.bounds, stop.latitude, stop.longitude));
-    });
+    }, scheduleMetadataRefresh);
+    return result.value;
   }
 
   async referenceStops(resource: CatalogResource): Promise<ReferenceStop[]> { return this.stopTable(resource); }
@@ -588,12 +657,18 @@ export class LuxembourgTransportClient extends NationalGtfsTransportClient {
   }
 }
 
-export function nationalTimezone(territory: "ie" | "lu") { return CONFIG[territory].timezone; }
-export function nationalTimezoneMatches(territory: "ie" | "lu", timezone: string) {
+export class SwitzerlandTransportClient extends NationalGtfsTransportClient {
+  constructor(fetcher: typeof fetch = fetch, now: () => number = Date.now, metadata?: TransportMetadataCache) {
+    super("ch", fetcher, now, metadata);
+  }
+}
+
+export function nationalTimezone(territory: "ie" | "lu" | "ch") { return CONFIG[territory].timezone; }
+export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch", timezone: string) {
   const expected = nationalTimezone(territory);
   if (timezone === expected) return true;
-  const verifiedSourceZones: Record<"ie" | "lu", string[]> = {
-    ie: ["Europe/London"], lu: ["Europe/Berlin"],
+  const verifiedSourceZones: Record<"ie" | "lu" | "ch", string[]> = {
+    ie: ["Europe/London"], lu: ["Europe/Berlin"], ch: [],
   };
   if (!verifiedSourceZones[territory].includes(timezone)) return false;
   try {
@@ -604,8 +679,8 @@ export function nationalTimezoneMatches(territory: "ie" | "lu", timezone: string
       [1, 3, 4, 7, 10, 12].every(month => offset(timezone, year, month) === offset(expected, year, month)));
   } catch { return false; }
 }
-export function nationalSourceProvider(territory: "ie" | "lu") { return CONFIG[territory].provider; }
-export function nationalSourceInfo(territory: "ie" | "lu") {
+export function nationalSourceProvider(territory: "ie" | "lu" | "ch") { return CONFIG[territory].provider; }
+export function nationalSourceInfo(territory: "ie" | "lu" | "ch") {
   const config = CONFIG[territory];
   return { name: config.title, url: config.page, attribution: `${config.title} · ${config.licence}`,
     limitations: config.limitations };

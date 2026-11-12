@@ -5,7 +5,9 @@ export function parseTransportCommand(args: string[]) {
     /^(?:fr|france|--fr)$/i.test(words[0] ?? "") ? "fr" as const :
     /^(?:en|--en|angleterre|england)$/i.test(words[0] ?? "") ? "en" as const :
     /^(?:ie|--ie|irlande|ireland)$/i.test(words[0] ?? "") ? "ie" as const :
-    /^(?:lu|--lu|luxembourg)$/i.test(words[0] ?? "") ? "lu" as const : undefined;
+    /^(?:lu|--lu|luxembourg)$/i.test(words[0] ?? "") ? "lu" as const :
+    /^(?:ch|--ch|suisse|switzerland|swiss)$/i.test(words[0] ?? "") ? "ch" as const :
+    /^(?:no|--no|norv[eè]ge|norway)$/i.test(words[0] ?? "") ? "no" as const : undefined;
   if (territory) words.shift();
   const marker = words.findIndex(word => /^(ligne|line)$/i.test(word));
   const explicit = marker >= 0 && /^[a-z0-9][a-z0-9._-]*$/i.test(words[marker + 1] ?? "") ? words[marker + 1] : undefined;

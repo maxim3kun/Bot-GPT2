@@ -5,7 +5,7 @@ import { logger } from "../lib/logger.js";
 
 // Closed public DTOs. In particular, never serialize a JourneyIndex, trips,
 // calendars, stop_times, predictions, raw provider metadata or a GTFS archive.
-type Shape = "string" | "number" | "boolean" | { [key: string]: Shape } | readonly [Shape];
+type Shape = "string" | "blob" | "number" | "boolean" | { [key: string]: Shape } | readonly [Shape];
 const strings: Shape = ["string"];
 const resource: Shape = { id: "number", title: "string", format: "string", type: "string", url: "string",
   original_url: "string", is_available: "boolean", modes: strings, updated: "string",
@@ -27,9 +27,10 @@ const shapes = {
   locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
     territory: "string", area: "string" }],
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
+  journeyIndexes: { payload: "blob" },
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
-export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no"; provider: string; kind: MetadataKind; source: string; version: string }
 export interface MetadataDocument {
   _id: string; schema: number; territory: string; provider: string; kind: MetadataKind;
   source: string; version: string; value: unknown; fetchedAt: Date; expiresAt: Date; freshUntil?: Date;
@@ -39,6 +40,13 @@ const SCHEMA = 1, MAX_BYTES = 4 * 1024 * 1024;
 /** Projection on both write AND read: adding a field upstream cannot persist it accidentally. */
 export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
   function project(shape: Shape, input: unknown): unknown {
+    if (shape === "blob") {
+      if (typeof input !== "string" || input.length > 4 * 1024 * 1024 ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input)) {
+        throw Error("Invalid compressed public transport cache");
+      }
+      return input;
+    }
     if (typeof shape === "string") {
       if (typeof input !== shape || typeof input === "number" && !Number.isFinite(input) ||
         typeof input === "string" && input.length > 4000) throw Error("Invalid public transport metadata");
