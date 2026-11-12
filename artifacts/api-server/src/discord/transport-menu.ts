@@ -10,7 +10,8 @@ import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOpt
 import { sourceButton, lineMatches, type TransportLocation, type CatalogDataset } from "./public-transport.js";
 import { TERRITORY_NAMES, type TransportTerritory } from "./transport-provider.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
-import type { JourneyIndex } from "./gtfs-journey.js";
+import { journeyPairs, type JourneyIndex } from "./gtfs-journey.js";
+import { connectionPaths } from "./gtfs-connections.js";
 import { logger } from "../lib/logger.js";
 import { resolveBusJourney, normalizeCityName } from "./bus-journey.js";
 import { TransportDataError } from "./transport-data-error.js";
@@ -108,7 +109,7 @@ export async function handleTransportSearch(
   let filter = "";
   let page = 0;
   let busy = false;
-  let modalPending = false;
+  let modalGeneration = 0;
   let listingNote = "";
   let serviceNote = "";
   let live = true;
@@ -116,6 +117,7 @@ export async function handleTransportSearch(
   let lastEmbed: APIEmbed | undefined;
   let lastResult: TransportDepartureResult | undefined;
   let timeOptions: TransportTimeOptions = {};
+  let showPreviousStops = false;
   let expanded = false;
   let revision = 0;
   let validControls = new Set<string>();
@@ -449,16 +451,57 @@ export async function handleTransportSearch(
       button("options", text("Options", "Options")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times"))] : []),
-      button("modify", text("Arrêts", "Stops")),
+      button("previousStops", text("Arrêts avant", "Earlier stops")),
+      button("modify", text("Modifier", "Modify")),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));
     const embed = expanded ? result.expandedEmbed ?? result.embed : result.embed;
     const content = expanded ? result.expandedContent ?? result.content : result.content;
-    const cardEmbed = embed && arrival?.viaTransfer && city?.label
+    let cardEmbed = embed && arrival?.viaTransfer && city?.label
       ? { ...embed, description: `${city.label}\n\n${embed.description ?? ""}`.slice(0, 4096) }
       : embed;
-    await edit(city?.label ? `${city.label}\n${content}` : content, [primary, secondary], cardEmbed);
+    let cardContent = city?.label ? `${city.label}\n${content}` : content;
+    if (showPreviousStops) {
+      const names = selectedPreviousStops();
+      const title = text("Arrêts avant le départ", "Stops before departure");
+      const stopText = names === undefined ? text("Le détail des arrêts n’est pas disponible pour ce trajet.",
+        "Stop details are unavailable for this journey.")
+        : names.length ? names.slice(0, 12).map((name, i) => `${i + 1}. ${name.slice(0, 72)}`).join("\n") +
+          (names.length > 12 ? `\n… ${names.length - 12} ${text("autres arrêts", "more stops")}` : "")
+        : text("Aucun arrêt précédent publié avant votre départ.", "No earlier stops are published before your departure.");
+      if (cardEmbed) {
+        cardEmbed = { ...cardEmbed, fields: [...(cardEmbed.fields ?? []).slice(0, 24), { name: title, value: stopText.slice(0, 1024), inline: false }] };
+      } else cardContent += `\n\n**${title}**\n${stopText}`;
+    }
+    await edit(cardContent, [primary, secondary], cardEmbed);
+  }
+
+  function selectedPreviousStops(): string[] | undefined {
+    if (!index || !line || !origin || !arrival) return undefined;
+    const names = (feed: JourneyIndex, visits: Array<{ stopId: string }>) => visits.map(({ stopId }) => {
+      const stop = feed.stops.get(stopId);
+      return stop?.stationName || stop?.name || stopId;
+    }).filter((name, i, all) => i === 0 || name !== all[i - 1]);
+    const direct = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids))
+      .filter(pair => index!.metadata.trips.get(pair.tripId)?.routeId === line!.routeId);
+    const pair = direct[0];
+    if (pair) {
+      const visits = index.visits.get(pair.tripId) ?? [];
+      const from = visits.findIndex(visit => visit.sequence === pair.origin.sequence && origin!.ids.includes(visit.stopId));
+      const to = visits.findIndex(visit => visit.sequence === pair.destination.sequence && arrival!.ids.includes(visit.stopId));
+      if (from >= 0 && to > from) return names(index, visits.slice(0, from));
+    }
+    if (!arrival.viaTransfer || !index.connections) return undefined;
+    try {
+      const path = connectionPaths(index, new Set(origin.ids))
+        .find(candidate => arrival!.ids.includes(candidate.second.destination.stopId));
+      if (!path) return undefined;
+      const firstVisits = index.visits.get(path.first.tripId) ?? [];
+      const firstFrom = firstVisits.findIndex(visit => visit.sequence === path.first.origin.sequence &&
+        origin!.ids.includes(visit.stopId));
+      return firstFrom >= 0 ? names(index, firstVisits.slice(0, firstFrom)) : undefined;
+    } catch { return undefined; }
   }
 
   async function showReturn() {
@@ -488,7 +531,7 @@ export async function handleTransportSearch(
 
   async function timeOptionsModal(interaction: MessageComponentInteraction) {
     if (!index || stage !== "result") return;
-    modalPending = true;
+    const generation = ++modalGeneration, openedAtRevision = revision;
     const modalId = `${id}:modal:${randomUUID()}`;
     const timezone = index.metadata.timezone || "Europe/Paris";
     const input = (customId: string, label: string, placeholder: string, current?: string) => {
@@ -510,15 +553,13 @@ export async function handleTransportSearch(
       rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(wait));
     }
     let submitted;
-    try {
-      await interaction.showModal(new ModalBuilder().setCustomId(modalId).setTitle(text("Options du trajet", "Journey options"))
-        .addComponents(...rows));
-      submitted = await interaction.awaitModalSubmit({ time: 60_000,
-        filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
-    } finally { modalPending = false; }
+    await interaction.showModal(new ModalBuilder().setCustomId(modalId).setTitle(text("Options du trajet", "Journey options"))
+      .addComponents(...rows));
+    submitted = await interaction.awaitModalSubmit({ time: 60_000,
+      filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
     if (!submitted) return;
-    if (!live || busy) {
-      await submitted.reply({ content: text("Cette recherche a expiré ou travaille déjà.", "This lookup expired or is already busy."), ephemeral: true });
+    if (!live || busy || generation !== modalGeneration || openedAtRevision !== revision) {
+      await submitted.reply({ content: text("Ces options ne correspondent plus au menu actuel.", "These options no longer match the current menu."), ephemeral: true });
       return;
     }
     const now = service.currentTimeSeconds();
@@ -540,17 +581,19 @@ export async function handleTransportSearch(
         "Wait must be a whole number from 0 to 360 minutes."), ephemeral: true });
       return;
     }
-    await submitted.deferUpdate();
+    busy = true;
+    try { await submitted.deferUpdate(); } catch (error) { busy = false; throw error; }
     timeOptions = {
       ...(departureAfter ? { departureAfter } : {}),
       ...(connectionAfter ? { connectionAfter } : {}),
       ...(waitMinutes !== undefined ? { minimumWaitSeconds: waitMinutes * 60 } : {}),
     };
+    showPreviousStops = false;
     await run(() => showDepartures());
   }
 
   async function modal(interaction: MessageComponentInteraction, action: string) {
-    modalPending = true;
+    const generation = ++modalGeneration, openedAtRevision = revision;
     const cityEntry = action === "city";
     const modalId = `${id}:modal:${randomUUID()}`;
     const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "en"
@@ -563,20 +606,19 @@ export async function handleTransportSearch(
       .setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
     if (!cityEntry && filter) input.setValue(filter);
     let submitted;
-    try {
-      await interaction.showModal(new ModalBuilder().setCustomId(modalId)
-        .setTitle(cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
-          : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
-        .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)));
-      submitted = await interaction.awaitModalSubmit({ time: 60_000,
-        filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
-    } finally { modalPending = false; }
+    await interaction.showModal(new ModalBuilder().setCustomId(modalId)
+      .setTitle(cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
+        : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
+      .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)));
+    submitted = await interaction.awaitModalSubmit({ time: 60_000,
+      filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
     if (!submitted) return;
-    if (!live || busy) {
-      await submitted.reply({ content: text("Cette recherche a expiré ou travaille déjà.", "This search expired or is already busy."), ephemeral: true });
+    if (!live || busy || generation !== modalGeneration || openedAtRevision !== revision) {
+      await submitted.reply({ content: text("Cette recherche ne correspond plus au menu actuel.", "This search no longer matches the current menu."), ephemeral: true });
       return;
     }
-    await submitted.deferUpdate();
+    busy = true;
+    try { await submitted.deferUpdate(); } catch (error) { busy = false; throw error; }
     if (cityEntry) {
       place = submitted.fields.getTextInputValue("value").trim(); lineFilter = ""; direction = "";
       await run(loadCities);
@@ -607,7 +649,7 @@ export async function handleTransportSearch(
       collector.stop("cancelled");
       return;
     }
-    if (busy || modalPending) {
+    if (busy) {
       await interaction.reply({ content: text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait a moment."), ephemeral: true });
       return;
     }
@@ -622,15 +664,17 @@ export async function handleTransportSearch(
         territory = undefined; network = undefined; city = undefined; region = undefined; line = undefined; index = undefined;
         origin = undefined; arrival = undefined; lastResult = undefined; filter = ""; page = 0;
         timeOptions = {};
+        showPreviousStops = false;
         place = ""; lineFilter = ""; direction = ""; cities = []; lines = []; networks = []; origins = []; arrivals = [];
         stage = "territory"; await render(); return;
       }
       if (action === "networks" && (territory === "qc" || territory === "en" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
-      if (action === "refresh") { await showDepartures(); return; }
-      if (action === "return" || action === "refreshReturn") { await showReturn(); return; }
-      if (action === "modify") { await loadOrigins(); return; }
+      if (action === "refresh") { showPreviousStops = false; await showDepartures(); return; }
+      if (action === "return" || action === "refreshReturn") { showPreviousStops = false; await showReturn(); return; }
+      if (action === "modify") { showPreviousStops = false; await loadOrigins(); return; }
+      if (action === "previousStops") { showPreviousStops = true; await showDepartures(false); return; }
       if (action === "back") {
         filter = ""; page = 0;
         if (stage === "result") { await loadArrivals(); return; }

@@ -8,7 +8,7 @@ import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { TransportBrowserClient, originOptions, arrivalOptions } from "../src/discord/transport-browser.js";
 import { buildJourneyIndex, journeyPairs, realtimeJourneys, scheduledJourneys } from "../src/discord/gtfs-journey.js";
-import { handleTransportCommand, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
+import { handleTransportCommand, handleTransportSearch, parseTransportCommand, transportDeadline } from "../src/discord/transport-menu.js";
 import { addConnections } from "../src/discord/gtfs-connections.js";
 import { connectedJourneys, connectionRouteLabel, formatConnections } from "../src/discord/transport-connections.js";
 import { departureCards } from "../src/discord/transport-presentation.js";
@@ -288,6 +288,7 @@ function discordFixture() {
   } as unknown as Message;
   let modalText = "Breteuil";
   let modalValues: Record<string, string> = {};
+  let holdModalSubmit = false;
   const find = (suffix: string) => prompt.components.flatMap((row: any) => row.components)
     .find((component: any) => component.custom_id?.endsWith(`:${suffix}`));
   async function click(action: string, value?: string, user = "owner") {
@@ -302,15 +303,19 @@ function discordFixture() {
         assert.ok(json.title.length <= 45);
         assert.ok(json.components[0].components[0].label.length <= 45);
       },
-      async awaitModalSubmit() { return { fields: { getTextInputValue: (name: string) => modalValues[name] ?? (name === "value" ? modalText : "") },
-        async deferUpdate() {}, async reply(options: any) { replies.push(options); } }; },
+      async awaitModalSubmit() {
+        if (holdModalSubmit) return await new Promise<any>(() => {});
+        return { fields: { getTextInputValue: (name: string) => modalValues[name] ?? (name === "value" ? modalText : "") },
+          async deferUpdate() {}, async reply(options: any) { replies.push(options); } };
+      },
       async deferUpdate() { deferred = true; }, async reply(options: any) { replies.push(options); } };
     collector.emit("collect", event);
     await delay(5);
     return { replies, get deferred() { return deferred; } };
   }
   return { collector, prompt, message, find, click, setModalText(value: string) { modalText = value; },
-    setModalValues(values: Record<string, string>) { modalValues = values; } };
+    setModalValues(values: Record<string, string>) { modalValues = values; },
+    setHoldModalSubmit(value: boolean) { holdModalSubmit = value; } };
 }
 async function until(predicate: () => boolean) {
   for (let i = 0; i < 100; i++) { if (predicate()) return; await delay(5); }
@@ -341,6 +346,46 @@ test("Discord menus distinguish the city, protect ownership and skip a single de
   await delay(1);
   assert.equal(ui.prompt.components.length, 0);
   assert.match(ui.prompt.content, /expiré/);
+});
+
+test("leaving Options does not lock the menu and Arrêts shows previous stops", async () => {
+  const feed = connectionZip({ mode: 2, extra: {
+    "routes.txt": "route_id,route_short_name,route_long_name,route_type\nB,C17,Train C17,2\nM,K10,Train K10,2\n",
+  } });
+  const { client } = fixture(false, feed);
+  const index = await buildJourneyIndex(feed, "B");
+  const city = { id: "test-station", name: "Beauvais", label: "Gare de Beauvais", latitude: 49.43, longitude: 2.08, kind: "station" as const };
+  client.cities = async () => [city];
+  client.lines = async () => ({ lines: [{ routeId: "B", label: "C17", description: "Train C17", mode: "rail",
+    nearbyStopIds: ["X"], resource: { id: 1, title: "GTFS", format: "GTFS", url: "https://example.test/feed.zip" },
+    realtime: [], source: { name: "Réseau officiel", url: "https://transport.data.gouv.fr/datasets/test" }, territory: "fr" }], unavailable: 0 });
+  client.index = async () => index;
+  client.availableStops = async (_line, _index, options) => ({ options, note: "" });
+  const ui = discordFixture();
+  await handleTransportSearch(ui.message, { place: "Beauvais", territory: "fr", mode: "rail" }, "fr", "!", client);
+  await until(() => ui.prompt.content.includes("Choisis une ligne"));
+  const route = ui.find("choose").options.find((option: any) => option.label.startsWith("C17"));
+  assert.ok(route);
+  await ui.click("choose", route.value);
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  const destination = ui.find("choose").options.find((option: any) => option.label === "Amiens Gare");
+  assert.ok(destination);
+  await ui.click("choose", destination.value);
+  await until(() => !!ui.prompt.embeds[0]?.title);
+
+  ui.setHoldModalSubmit(true);
+  await ui.click("options");
+  await ui.click("previousStops");
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Arrêts avant le départ"));
+  assert.match(JSON.stringify(ui.prompt.embeds), /Breteuil Centre/);
+  assert.doesNotMatch(ui.prompt.content, /La recherche est en cours/);
+  const buttons = ui.prompt.components.flatMap((row: any) => row.components).map((component: any) => component.label);
+  assert.deepEqual(buttons.slice(-2), ["Source", "Fermer"]);
+
+  await ui.click("modify");
+  await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
+  assert.doesNotMatch(ui.prompt.content, /La recherche est en cours/);
+  ui.collector.stop("cancelled");
 });
 
 test("compact mobile cards group days, state the shared platform once and preserve midnight dates", () => {

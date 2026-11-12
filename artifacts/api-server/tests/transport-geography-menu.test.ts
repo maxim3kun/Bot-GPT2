@@ -43,7 +43,7 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
   assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Arrêts", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Arrêts avant", "Modifier", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -99,7 +99,7 @@ test("selected metro arrivals omit redundant route notes and results use two com
   await choose(card, "0");
   assert.equal(card.last.components.length, 2);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Plus d’horaires", "Arrêts", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Plus d’horaires", "Arrêts avant", "Modifier", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 
