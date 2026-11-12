@@ -55,7 +55,29 @@ try {
   if (!geographicResponse.ok) throw new Error(`Mobility Database geographic search returned HTTP ${geographicResponse.status}.`);
   const geographicRecords = await geographicResponse.json() as unknown;
   if (!Array.isArray(geographicRecords)) throw new Error("Mobility Database returned an unexpected geographic-search response.");
-  console.log(`Official API returned ${geographicRecords.length} active feed record(s) for the Paris bounding box.`);
+  console.log(`Official API returned ${geographicRecords.length} feed record(s) for the Paris bounding box.`);
+  const licenseIds = new Set<string>();
+  const hosts = new Map<string, number>();
+  const statuses = new Map<string, number>();
+  let active = 0, openLicensed = 0;
+  for (const item of geographicRecords as Array<Record<string, any>>) {
+    const status = String(item.status ?? "missing").toLowerCase();
+    statuses.set(status, (statuses.get(status) ?? 0) + 1);
+    if (status !== "active") continue;
+    active++;
+    const license = item.source_info?.license_id;
+    if (typeof license === "string" && license.trim()) {
+      licenseIds.add(license.trim());
+      if (item.source_info?.license_is_spdx === true) openLicensed++;
+    }
+    try {
+      const host = new URL(String(item.latest_dataset?.hosted_url ?? "")).hostname || "missing";
+      hosts.set(host, (hosts.get(host) ?? 0) + 1);
+    } catch { hosts.set("invalid", (hosts.get("invalid") ?? 0) + 1); }
+  }
+  console.log(`Paris feed summary: statuses=${JSON.stringify(Object.fromEntries(statuses))}; ` +
+    `active=${active}; active feeds with a license ID=${licenseIds.size ? "yes" : "none"}; ` +
+    `active SPDX-described feeds=${openLicensed}; hosts=${JSON.stringify(Object.fromEntries(hosts))}.`);
   const activeRecord = (geographicRecords as Array<Record<string, any>>).find(item => item.status === "active");
   for (const item of (activeRecord ? [activeRecord] : [])) {
     const latest = item.latest_dataset;
@@ -66,7 +88,8 @@ try {
       const hosted = new URL(String(latest?.hosted_url ?? ""));
       hostedHost = hosted.hostname;
       hostedPath = hosted.pathname.startsWith("/mobilitydata-datasets-prod/") ? "dataset bucket"
-        : hosted.pathname.startsWith("/storage/v1/b/mdb-latest/o/") ? "latest bucket" : "other";
+        : hosted.pathname.startsWith("/storage/v1/b/mdb-latest/o/") ? "latest bucket"
+          : hosted.pathname.toLowerCase().endsWith(".zip") ? "zip file" : "other";
     } catch { /* Keep the diagnostic limited to safe host/path classifications. */ }
     console.log(`Active feed metadata: keys=${Object.keys(item).sort().join(",")}; ` +
       `sourceInfoKeys=${Object.keys(sourceInfo ?? {}).sort().join(",")}; ` +
