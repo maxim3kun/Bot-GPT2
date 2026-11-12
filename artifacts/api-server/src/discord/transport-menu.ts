@@ -612,12 +612,11 @@ export async function handleTransportSearch(
     const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
       button("return", text("Retour", "Return journey")),
-      button("options", text("Options", "Options")));
+      button("options", text("Options", "Options")),
+      ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Agrandir", "Expand"))] : []));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Agrandir", "Expand"))] : []),
       button("stops", showPreviousStops ? text("Masquer les arrêts", "Hide stops") : text("Arrêts", "Stops")),
-      button("modify", text("Modifier", "Modify")));
-    const tertiary = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      button("modify", text("Modifier", "Modify")),
       ...(favorite ? [button("favorite", saved ? text("Retirer ❤️", "Remove ❤️") : text("Ajouter ❤️", "Save ❤️"),
         saved ? ButtonStyle.Success : ButtonStyle.Secondary)] : []),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
@@ -642,7 +641,7 @@ export async function handleTransportSearch(
       } else cardContent += `\n\n**${title}**\n${stopText}`;
     }
     if (favoriteNotice) cardContent = `${favoriteNotice}\n${cardContent}`;
-    await edit(cardContent, [primary, secondary, tertiary], cardEmbed);
+    await edit(cardContent, [primary, secondary], cardEmbed);
   }
 
   function favoriteForCurrentJourney(): TransportFavorite | null {

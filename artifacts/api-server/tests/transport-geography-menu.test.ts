@@ -49,7 +49,7 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
   assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Arrêts", "Modifier"], ["Ajouter ❤️", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Arrêts", "Modifier", "Ajouter ❤️", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -86,7 +86,7 @@ test("a uniquely resolved French metro city skips the territory prompt", async (
   card.collector.stop("cancelled");
 });
 
-test("selected metro arrivals omit redundant route notes and preserve result controls across three rows", async () => {
+test("selected metro arrivals omit redundant route notes and keep result controls in two rows", async () => {
   const d = fakeDiscord(), s = service();
   const city = { id: "75056", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35 };
   const source = { name: "IDFM", url: "https://transport.data.gouv.fr/datasets/test" };
@@ -103,9 +103,9 @@ test("selected metro arrivals omit redundant route notes and preserve result con
   assert.match(card.last.content!, /Choisis ta station d’arrivée/);
   assert.doesNotMatch(card.last.content!, /Trajets directs sur la ligne choisie|Correspondances non calculées/);
   await choose(card, "0");
-  assert.equal(card.last.components.length, 3);
+  assert.equal(card.last.components.length, 2);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Agrandir", "Arrêts", "Modifier"], ["Ajouter ❤️", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options", "Agrandir"], ["Arrêts", "Modifier", "Ajouter ❤️", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 
