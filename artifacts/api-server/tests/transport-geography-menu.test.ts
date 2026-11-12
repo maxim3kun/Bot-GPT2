@@ -328,6 +328,27 @@ test("the complete Mobility country list is paginated and searchable by localize
   card.collector.stop("cancelled");
 });
 
+test("every Mobility country offers commune and zone entry controls", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.territories = ["fr", "qc", "en"] as any;
+  s.value.mobilityCountries = async () => [{ code: "AF", name: "Afghanistan" }];
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  await choose(card, "mobility:AF");
+  assert.deepEqual(card.last.components[0]?.components.map(component => component.label),
+    ["Saisir une commune", "Par zones", "Annuler"]);
+  assert.match(card.last.content!, /Afghanistan · Mobility Database/);
+  let zoneModal: any;
+  await card.collector.collect(card.interaction("zones", {
+    isButton: () => true,
+    async showModal(modal: any) { zoneModal = modal.toJSON(); },
+    async awaitModalSubmit() { return null; },
+  }).value);
+  assert.equal(zoneModal.title, "Rechercher une zone");
+  assert.equal(zoneModal.components[0].components[0].label, "Région, province ou zone");
+  card.collector.stop("cancelled");
+});
+
 test("675 routes are visibly counted across 27 selectable pages", async () => {
   const d = fakeDiscord(), s = service();
   s.value.lines = async () => ({ lines: Array.from({ length: 675 }, (_, i) => ({

@@ -49,7 +49,7 @@ type MobilityLocation = {
 };
 type MobilityLocationPage = { total?: unknown; results?: unknown };
 type OSMResult = {
-  lat?: unknown; lon?: unknown; name?: unknown; display_name?: unknown; class?: unknown; type?: unknown;
+  lat?: unknown; lon?: unknown; name?: unknown; display_name?: unknown; class?: unknown; category?: unknown; type?: unknown;
   address?: { country_code?: unknown; state?: unknown; county?: unknown };
 };
 
@@ -239,10 +239,11 @@ export class MobilityDatabaseTransportClient {
       if (!Array.isArray(body)) throw new Error("OpenStreetMap returned an invalid location list");
       const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
       const places = (body as OSMResult[]).flatMap(result => {
-        const resultClass = result.class;
+        // Nominatim's jsonv2 response uses `category`; older versions used `class`.
+        const resultClass = result.class ?? result.category;
         const isPlace = resultClass === "place" &&
           ["city", "town", "village", "municipality", "hamlet"].includes(String(result.type ?? ""));
-        const isExactBoundary = result.type === "administrative" &&
+        const isExactBoundary = resultClass === "boundary" && result.type === "administrative" &&
           normalizePlace(String(result.name ?? "")) === query;
         if ((!isPlace && !isExactBoundary) ||
           String(result.address?.country_code ?? "").toUpperCase() !== code) return [];

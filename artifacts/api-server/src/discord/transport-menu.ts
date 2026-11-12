@@ -270,13 +270,15 @@ export async function handleTransportSearch(
 
   async function cityInput() {
     stage = "city";
-    const cityButtons = [button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary)];
-    if (territory === "ie") cityButtons.push(button("zones", text("Par zones", "Browse areas")));
+    const cityButtons = [
+      button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
+      button("zones", text("Par zones", "Browse areas")),
+    ];
     cityButtons.push(button("cancel", text("Annuler", "Cancel")));
     await edit(`**Transport · ${territory ? territoryLabel(territory, language === "fr" ? "fr" : "en") : ""}**\n` +
       (territory && isMobilityTerritory(territory)
-      ? text("Indique une ville ou une localité. Les horaires ne seront proposés que si un flux GTFS statique ouvert existe dans cette zone.",
-        "Enter a city or locality. Timetables appear only when an open static GTFS feed exists in that area.")
+      ? text("Indique une ville ou une zone. Les horaires ne seront proposés que si un flux GTFS statique ouvert existe dans cette zone.",
+        "Enter a city or area. Timetables appear only when an open static GTFS feed exists in that area.")
       : territory === "en"
       ? selectedMode === "rail" ? text("Trains anglais : accès National Rail en attente de validation. Les bus et le métro londonien restent disponibles.",
           "English trains: National Rail access awaits approval. Buses and the London Underground remain available.")
@@ -955,8 +957,11 @@ export async function handleTransportSearch(
   async function modal(interaction: MessageComponentInteraction, action: string) {
     const generation = ++modalGeneration, openedAtRevision = revision;
     const cityEntry = action === "city";
+    const zoneEntry = action === "zones" && territory !== "ie";
     const modalId = `${id}:modal:${randomUUID()}`;
-    const input = new TextInputBuilder().setCustomId("value").setLabel(cityEntry ? (territory === "en"
+    const input = new TextInputBuilder().setCustomId("value").setLabel(zoneEntry
+      ? text("Région, province ou zone", "Region, province or area")
+      : cityEntry ? (territory === "en"
       ? text("Ville ou localité anglaise", "English town or locality") : territory === "qc"
       ? text("Localité du Québec", "Québec locality") : selectedMode === "rail"
         ? text("Ville, gare, département ou code postal", "City, station, department or postal code")
@@ -968,8 +973,9 @@ export async function handleTransportSearch(
     if (!cityEntry && filter) input.setValue(filter);
     let submitted;
     await interaction.showModal(new ModalBuilder().setCustomId(modalId)
-      .setTitle(cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
-        : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
+      .setTitle(zoneEntry ? text("Rechercher une zone", "Search for an area")
+        : cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
+          : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
       .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)));
     submitted = await interaction.awaitModalSubmit({ time: 60_000,
       filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);
@@ -980,7 +986,7 @@ export async function handleTransportSearch(
     }
     busy = true;
     try { await submitted.deferUpdate(); } catch (error) { busy = false; throw error; }
-    if (cityEntry) {
+    if (cityEntry || zoneEntry) {
       place = submitted.fields.getTextInputValue("value").trim(); lineFilter = ""; direction = "";
       province = "";
       await run(loadCities);
@@ -1016,7 +1022,8 @@ export async function handleTransportSearch(
       return;
     }
     if (interaction.isButton() && action === "options") { await timeOptionsModal(interaction); return; }
-    if (interaction.isButton() && (action === "city" || action === "filter")) { await modal(interaction, action); return; }
+    if (interaction.isButton() && (action === "city" || action === "filter" ||
+      action === "zones" && territory !== "ie")) { await modal(interaction, action); return; }
     busy = true; // Lock before Discord's asynchronous acknowledgement (double-click race).
     try { await interaction.deferUpdate(); } catch (error) { busy = false; throw error; }
     await run(async () => {

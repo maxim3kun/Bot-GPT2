@@ -170,6 +170,26 @@ test("worldwide town search stays inside its selected country and returns a Mobi
   assert.equal(requested.length, 1);
 });
 
+test("Nominatim jsonv2 category results allow Kabul to be selected in Afghanistan", async () => {
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    assert.equal(url.hostname, "nominatim.openstreetmap.org");
+    assert.equal(url.searchParams.get("countrycodes"), "af");
+    return Response.json([
+      { category: "place", type: "city", name: "کابل", lat: "34.5269503", lon: "69.1850584",
+        address: { country_code: "af", state: "ولایت كابل" } },
+      { category: "boundary", type: "administrative", name: "ولایت كابل", lat: "34.5", lon: "69.416667",
+        address: { country_code: "af", state: "ولایت كابل" } },
+    ]);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const places = await client.municipalities("Kabul", "AF");
+  assert.equal(places.length, 1);
+  assert.equal(places[0]?.name, "کابل");
+  assert.match(places[0]?.label ?? "", /Afghanistan/);
+  assert.equal(places[0]?.mobilityCountryCode, "AF");
+});
+
 test("dynamic country selections query Mobility Database by their ISO country code", async () => {
   const client = new MobilityDatabaseTransportClient(async input => {
     const url = new URL(String(input));
