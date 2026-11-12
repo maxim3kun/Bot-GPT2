@@ -10,7 +10,8 @@ const city = { id: "qc:montreal", name: "Montréal", label: "Montréal · Québe
   latitude: 45.5019, longitude: -73.5674, territory: "qc" as const };
 const dataset = {
   id: "mdb-42", name: "Montréal Local Transit", provider: "Montréal Transit",
-  status: "active", is_official: true, license_id: "CC-BY-4.0", license_is_spdx: true,
+  status: "active", official: true,
+  source_info: { license_id: "CC-BY-4.0", license_is_spdx: true },
   locations: [{ country_code: "CA" }],
   latest_dataset: {
     id: "mdb-42-20261112",
@@ -29,13 +30,13 @@ const archive = zipSync({
   "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT,09:00:00,09:00:00,O,1\nT,09:30:00,09:30:00,D,2\n"),
 });
 
-function makeBrowser(fetcher: typeof fetch) {
+function makeBrowser(fetcher: typeof fetch, officialTitle = "Réseau officiel Québec") {
   const metadata = new TransportMetadataCache(() => null, () => NOW);
   const mobility = new MobilityDatabaseTransportClient(fetcher, () => NOW, metadata, () => "test-refresh-token");
   const official = {
     async getCatalog() {
       return [{
-        id: "official-qc", title: "Réseau officiel Québec", slug: "official-qc",
+        id: "official-qc", title: officialTitle, slug: "official-qc",
         page_url: "https://example.test/official", type: "public-transit", licence: "CC BY",
         territory: "qc" as const, bounds: [-74, 45, -73, 46] as const,
         resources: [{ id: 10, title: "GTFS", format: "GTFS", url: "https://example.test/official.zip",
@@ -66,6 +67,12 @@ test("Mobility Database candidates supplement, but never replace, the existing c
   const networks = await browser.networks(city, "bus");
   assert.deepEqual(networks.map(network => network.id), ["official-qc", "mobilitydatabase:mdb-42"]);
   assert.equal(networks[0]?.title, "Réseau officiel Québec");
+});
+
+test("a Mobility Database copy of an existing network does not appear twice", async () => {
+  const browser = makeBrowser(apiFetcher(), "Montréal Transit");
+  const networks = await browser.networks(city, "bus");
+  assert.deepEqual(networks.map(network => network.id), ["official-qc"]);
 });
 
 test("a selected catalog feed goes through the existing GTFS line and departure flow", async () => {

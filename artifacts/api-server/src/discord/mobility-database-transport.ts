@@ -15,6 +15,7 @@ const MAX_CATALOG_FEEDS = 500;
 const MAX_VISIBLE_FEEDS = 20;
 const CACHE_FRESH_MS = 6 * 60 * 60_000;
 const CACHE_RETAIN_MS = 3 * 24 * 60 * 60_000;
+const SAFE_FEED_ID = /^[a-z0-9][a-z0-9._:-]{0,119}$/i;
 const COUNTRY_CODES: Partial<Record<TransportTerritory, string>> = {
   fr: "FR", qc: "CA", en: "GB", ie: "IE", lu: "LU", ch: "CH", no: "NO",
   is: "IS", sg: "SG", lv: "LV", cz: "CZ", pt: "PT", au: "AU", ua: "UA",
@@ -31,8 +32,8 @@ type MobilityDataset = {
   zipped_folder_size_mb?: unknown; bounding_box?: BoundingBox;
 };
 type MobilityFeed = {
-  id?: unknown; name?: unknown; provider?: unknown; status?: unknown; is_official?: unknown;
-  license_id?: unknown; license_is_spdx?: unknown; license_url?: unknown;
+  id?: unknown; name?: unknown; feed_name?: unknown; provider?: unknown; status?: unknown; official?: unknown;
+  source_info?: { license_id?: unknown; license_is_spdx?: unknown; license_url?: unknown };
   locations?: Array<{ country_code?: unknown }>;
   bounding_box?: BoundingBox;
   latest_dataset?: MobilityDataset;
@@ -46,21 +47,28 @@ export function isMobilityDatabaseResource(resource: CatalogResource): boolean {
 /** MobilityData-hosted archives only; never fetch the producer URL or an arbitrary redirect. */
 export function safeMobilityDatasetUrl(value: string): URL {
   const url = new URL(value);
-  const allowedPath = url.pathname.startsWith("/mobilitydata-datasets-prod/") ||
-    url.pathname.startsWith("/storage/v1/b/mdb-latest/o/");
-  if (url.protocol !== "https:" || url.hostname !== "storage.googleapis.com" || url.port ||
-    url.username || url.password || url.hash || !allowedPath ||
-    [...url.searchParams.keys()].some(key => key !== "alt") ||
-    (url.searchParams.has("alt") && url.searchParams.get("alt") !== "media")) {
+  const filePathParts = url.pathname.split("/").filter(Boolean);
+  const isGoogleDataset = url.hostname === "storage.googleapis.com" &&
+    (url.pathname.startsWith("/mobilitydata-datasets-prod/") ||
+      url.pathname.startsWith("/storage/v1/b/mdb-latest/o/")) &&
+    [...url.searchParams.keys()].every(key => key === "alt") &&
+    (!url.searchParams.has("alt") || url.searchParams.get("alt") === "media");
+  const isMobilityFilesDataset = url.hostname === "files.mobilitydatabase.org" &&
+    filePathParts.length === 3 && filePathParts.every(part => /^[a-z0-9._-]+$/i.test(part)) &&
+    /\.zip$/i.test(filePathParts[2] ?? "") && url.search === "";
+  if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash ||
+    !(isGoogleDataset || isMobilityFilesDataset)) {
     throw new Error("Mobility Database returned an unsupported hosted dataset URL");
   }
   return url;
 }
 
 function numericBounds(value: BoundingBox | undefined): CatalogDataset["bounds"] | undefined {
-  const south = Number(value?.minimum_latitude), north = Number(value?.maximum_latitude);
-  const west = Number(value?.minimum_longitude), east = Number(value?.maximum_longitude);
-  if (![south, north, west, east].every(Number.isFinite) || south < -90 || north > 90 ||
+  const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const south = number(value?.minimum_latitude), north = number(value?.maximum_latitude);
+  const west = number(value?.minimum_longitude), east = number(value?.maximum_longitude);
+  if (south === undefined || north === undefined || west === undefined || east === undefined ||
+    south < -90 || north > 90 ||
     west < -180 || east > 180 || south > north || west > east) return undefined;
   return [west, south, east, north];
 }
@@ -70,8 +78,9 @@ function boxIntersects(a: NonNullable<CatalogDataset["bounds"]>, b: NonNullable<
 }
 
 function licenseId(feed: MobilityFeed): string | undefined {
-  const value = typeof feed.license_id === "string" ? feed.license_id.trim().toLowerCase() : "";
-  return OPEN_LICENSES.has(value) ? value : undefined;
+  const value = typeof feed.source_info?.license_id === "string"
+    ? feed.source_info.license_id.trim().toLowerCase() : "";
+  return feed.source_info?.license_is_spdx === true && OPEN_LICENSES.has(value) ? value : undefined;
 }
 
 function resourceId(id: string): number {
@@ -149,7 +158,7 @@ export class MobilityDatabaseTransportClient {
     const source = `active:${countryCode}:${latCell.toFixed(1)}:${lonCell.toFixed(1)}`;
     const work = this.metadata.staleWhileRevalidate<CatalogDataset[]>({
       territory: city.territory ?? "fr", provider: RESOURCE_PROVIDER, kind: "catalog",
-      source, version: "mobility-gtfs-catalog-v1",
+      source, version: "mobility-gtfs-catalog-v2",
     }, CACHE_FRESH_MS, CACHE_RETAIN_MS, () => this.fetchCatalog(countryCode, city.territory ?? "fr", latCell, lonCell))
       .then(result => result.value)
       .catch(error => {
@@ -185,7 +194,6 @@ export class MobilityDatabaseTransportClient {
     for (let offset = 0; offset < MAX_CATALOG_FEEDS; offset += PAGE_SIZE) {
       const url = new URL(`${API}/v1/gtfs_feeds`);
       url.searchParams.set("country_code", countryCode);
-      url.searchParams.set("status", "active");
       url.searchParams.set("dataset_latitudes", `${south.toFixed(4)},${north.toFixed(4)}`);
       url.searchParams.set("dataset_longitudes", `${west.toFixed(4)},${east.toFixed(4)}`);
       url.searchParams.set("bounding_filter_method", "partially_enclosed");
@@ -207,16 +215,18 @@ export class MobilityDatabaseTransportClient {
     const latest = feed.latest_dataset;
     const bounds = numericBounds(latest?.bounding_box ?? feed.bounding_box);
     const license = licenseId(feed);
-    if (!/^mdb-[a-z0-9-]{1,70}$/i.test(id) || String(feed.status).toLowerCase() !== "active" ||
+    const locations = Array.isArray(feed.locations) ? feed.locations : [];
+    const size = latest?.zipped_folder_size_mb;
+    if (!SAFE_FEED_ID.test(id) || String(feed.status).toLowerCase() !== "active" ||
       !latest || typeof latest.hosted_url !== "string" || !bounds || !license ||
-      typeof latest.zipped_folder_size_mb === "number" && latest.zipped_folder_size_mb > 80 ||
-      feed.locations?.length && !feed.locations.some(location => location.country_code === countryCode)) return null;
+      size !== undefined && (typeof size !== "number" || !Number.isFinite(size) || size <= 0 || size > 80) ||
+      locations.length && !locations.some(location => location.country_code === countryCode)) return null;
     let hostedUrl: URL;
     try { hostedUrl = safeMobilityDatasetUrl(latest.hosted_url); } catch { return null; }
     const title = typeof feed.provider === "string" && feed.provider.trim()
       ? feed.provider.trim().slice(0, 120)
-      : typeof feed.name === "string" && feed.name.trim() ? feed.name.trim().slice(0, 120) : id;
-    const official = feed.is_official === true;
+      : typeof feed.feed_name === "string" && feed.feed_name.trim() ? feed.feed_name.trim().slice(0, 120) : id;
+    const official = feed.official === true;
     const resource: CatalogResource = {
       id: resourceId(id), provider: RESOURCE_PROVIDER, title: "GTFS · Mobility Database",
       format: "GTFS", type: "static_schedule", url: hostedUrl.href, original_url: hostedUrl.href,

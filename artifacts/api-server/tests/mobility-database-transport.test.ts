@@ -12,8 +12,8 @@ const hosted = (id: string) => `https://storage.googleapis.com/mobilitydata-data
 const box = { minimum_latitude: 48.82, maximum_latitude: 48.9, minimum_longitude: 2.3, maximum_longitude: 2.4 };
 function feed(id: string, extra: Record<string, unknown> = {}) {
   return {
-    id, name: `Operator ${id}`, provider: `Transit ${id}`, status: "active", is_official: true,
-    license_id: "CC-BY-4.0", license_is_spdx: true, locations: [{ country_code: "FR" }],
+    id, feed_name: `Operator ${id}`, provider: `Transit ${id}`, status: "active", official: true,
+    source_info: { license_id: "CC-BY-4.0", license_is_spdx: true }, locations: [{ country_code: "FR" }],
     latest_dataset: { id: `${id}-20261112`, hosted_url: hosted(id), downloaded_at: "2026-11-12T08:00:00Z",
       zipped_folder_size_mb: 2, bounding_box: box },
     ...extra,
@@ -49,12 +49,16 @@ test("catalog search pages results and retains only active, licensed feeds in th
     requested.push(url);
     assert.equal(init?.headers && (init.headers as Record<string, string>).authorization, "Bearer temporary-access-token");
     assert.equal(url.searchParams.get("country_code"), "FR");
-    assert.equal(url.searchParams.get("status"), "active");
+    assert.equal(url.searchParams.has("status"), false, "the GTFS endpoint does not support a status filter");
     assert.equal(url.searchParams.get("bounding_filter_method"), "partially_enclosed");
     const offset = Number(url.searchParams.get("offset"));
     if (offset === 0) return Response.json([
-      ...Array.from({ length: 249 }, (_, index) => feed(`mdb-${index + 1}`)),
-      feed("mdb-denied", { license_id: "unknown-license" }),
+      ...Array.from({ length: 248 }, (_, index) => feed(
+        index === 0 ? "tld-fr-feed_1" : `mdb-${index + 1}`,
+        index === 0 ? { provider: "000 Transit" } : {},
+      )),
+      feed("mdb-denied", { source_info: { license_id: "unknown-license", license_is_spdx: true } }),
+      feed("mdb-deprecated", { status: "deprecated" }),
     ]);
     if (offset === 250) return Response.json([feed("mdb-250")]);
     throw new Error(`Unexpected offset ${offset}`);
@@ -69,6 +73,9 @@ test("catalog search pages results and retains only active, licensed feeds in th
   assert.ok(datasets.every(dataset => dataset.territory === "fr"));
   assert.ok(datasets.every(dataset => dataset.resources[0]?.provider === "mobilitydatabase"));
   assert.ok(datasets.every(dataset => dataset.resources[0]?.url.startsWith("https://storage.googleapis.com/")));
+  assert.ok(datasets.some(dataset => dataset.slug === "tld-fr-feed_1"), "valid catalog IDs need not use the mdb- prefix");
+  assert.ok(!datasets.some(dataset => dataset.slug === "mdb-deprecated"), "deprecated feeds are rejected locally");
+  assert.ok(datasets.some(dataset => dataset.title.includes("source officielle")));
   assert.equal(tokenRequests, 1);
   await client.catalogForLocation(city, 1_000);
   assert.equal(requested.length, 2, "the cached catalog avoids another API round trip");
@@ -118,6 +125,10 @@ test("hosted GTFS downloads stay on MobilityData's approved storage host and par
   assert.equal(requested.length, 1, "the bounded in-memory feed cache is reused");
   assert.throws(() => safeMobilityDatasetUrl("https://evil.example/private.zip"));
   assert.throws(() => safeMobilityDatasetUrl("http://storage.googleapis.com/mobilitydata-datasets-prod/x.zip"));
+  assert.equal(safeMobilityDatasetUrl("https://files.mobilitydatabase.org/mdb-42/mdb-42-v1/mdb-42.zip").hostname,
+    "files.mobilitydatabase.org");
+  assert.throws(() => safeMobilityDatasetUrl("https://files.mobilitydatabase.org/redirect?target=https://evil.example"));
+  assert.throws(() => safeMobilityDatasetUrl("https://files.mobilitydatabase.org/a%2fb/c/mdb.zip"));
 });
 
 test("a redirected archive cannot escape the approved storage host", async () => {

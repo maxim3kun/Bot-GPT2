@@ -295,7 +295,16 @@ export class TransportBrowserClient {
     const officialDatasets = "value" in official ? official.value : [];
     if ("error" in official && !mobility.length) throw official.error;
     const seen = new Set(officialDatasets.map(dataset => dataset.id));
-    return [...officialDatasets, ...mobility.filter(dataset => !seen.has(dataset.id))];
+    const primaryNames = new Set(officialDatasets.map(dataset =>
+      normalizeTransitText(dataset.title.replace(/\s*[·•]\s*(?:source officielle|mobility database)$/i, ""))).filter(Boolean));
+    const primaryUrls = new Set(officialDatasets.flatMap(dataset =>
+      dataset.resources.flatMap(resource => [resource.url, resource.original_url].filter((url): url is string => !!url))));
+    return [...officialDatasets, ...mobility.filter(dataset => {
+      if (seen.has(dataset.id) || primaryNames.has(normalizeTransitText(
+        dataset.title.replace(/\s*[·•]\s*(?:source officielle|mobility database)$/i, "")))) return false;
+      return !dataset.resources.some(resource => primaryUrls.has(resource.url) ||
+        !!resource.original_url && primaryUrls.has(resource.original_url));
+    })];
   }
 
   private usesIdfm(line: TransportLine) { return (!line.territory || line.territory === "fr") && isIdfmGtfs(line.resource) && !!idfmLineCode(line.routeId); }
