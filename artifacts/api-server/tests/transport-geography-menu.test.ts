@@ -48,11 +48,25 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
   const d = fakeDiscord(), s = service(true);
+  const originalLines = s.value.lines.bind(s.value);
+  s.value.lines = async (...args: any[]) => ({ ...await originalLines(...args), unavailable: 2, refreshing: true });
   await handleTransportCommand(d.message, ["60000"], "fr", "!", "rail", s.value);
   const card = d.cards[0]!; await choose(card, "fr");
   assert.deepEqual(s.requests, [["60000", "fr", "rail"]]);
   assert.match(card.last.content!, /Gare de Beauvais/); assert.match(card.last.content!, /Choisis une ligne/);
+  assert.match(card.last.content!, /Lignes en cache; actualisation en cours/);
+  assert.equal((card.last.content!.match(/Lignes en cache; actualisation en cours/g) ?? []).length, 1);
+  assert.doesNotMatch(card.last.content!, /Certains réseaux n’ont pas pu être chargés/);
   assert.equal(card.custom("territory"), undefined); card.collector.stop("cancelled");
+});
+
+test("the train city prompt does not show an irrelevant timetable disclaimer", async () => {
+  const d = fakeDiscord(), s = service(true);
+  await handleTransportCommand(d.message, [], "fr", "!", "rail", s.value);
+  const card = d.cards[0]!; await choose(card, "fr");
+  assert.match(card.last.content!, /Indique une région/);
+  assert.doesNotMatch(card.last.content!, /leurs horaires restent à vérifier/);
+  card.collector.stop("cancelled");
 });
 
 test("a uniquely resolved French metro city skips the territory prompt", async () => {

@@ -163,11 +163,8 @@ export async function handleTransportSearch(
           "Enter an English town (e.g. London, Cambridge). BODS buses outside London; TfL Underground and buses in London. Matching places will be offered.")
       : territory === "qc"
       ? text("Indique une localité québécoise. Les homonymes seront proposés avec leur région.", "Enter a Québec locality. Matching places include their region.")
-      : selectedMode === "rail"
-        ? text("Indique une ville, une gare, un département ou un code postal. Les gares du référentiel voyageurs seront proposées; leurs horaires restent à vérifier.",
-          "Enter a city, station, department or postal code. Passenger-station reference results are offered; timetables still need checking.")
-         : text("Indique une région (ex. Normandie), une commune, un département (ex. 60) ou un code postal (ex. 60000).",
-           "Enter a region (e.g. Normandie), city, department (e.g. 60) or postal code (e.g. 60000).")),
+      : text("Indique une région (ex. Normandie), une ville ou gare, un département (ex. 60) ou un code postal (ex. 60000).",
+          "Enter a region (e.g. Normandie), city or station, department (e.g. 60) or postal code (e.g. 60000).")),
      [new ActionRowBuilder<ButtonBuilder>().addComponents(
        button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
        button("cancel", text("Annuler", "Cancel")))]);
@@ -365,19 +362,19 @@ export async function handleTransportSearch(
     lines = [...result.lines].sort(compareRouteNumbers);
     logger.info({ cityId: city?.id, regionCode: region?.code, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
       "Transport routes loaded");
-    listingNote = result.refreshing ? text("\nListe en cache; mise à jour des lignes en arrière-plan.",
-      "\nShowing cached lines while a background update runs.") : "";
-    if (result.unavailable) listingNote += text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
-      "\nSome network sources could not be loaded; this list may be incomplete.");
-    if (result.issues?.length) listingNote += `\n${result.issues.join("\n").slice(0, 500)}`;
-    if (result.centerFallback) listingNote += text("\nRepère du centre-ville indisponible : recherche autour du point géographique de la commune; liste potentiellement incomplète.",
-      "\nTown-centre reference unavailable: searching around the municipality's geographic point; results may be incomplete.");
-    if (result.targeted) listingNote += text("\nRecherche ciblée sur la ligne demandée; les autres réseaux ne sont pas tous parcourus.",
-      "\nTargeted search for the requested line; not all other networks were searched.");
-    else if (result.networkScoped) listingNote += territory === "qc"
-      ? text("\nSeul le réseau sélectionné a été parcouru.", "\nOnly the selected network was searched.")
-      : text(`\nSource : ${lines[0]?.source.name ?? "réseau officiel"}. Liste limitée à ce réseau.`,
-        `\nSource: ${lines[0]?.source.name ?? "official network"}. Results are limited to this network.`);
+    const listingNotices = new Set<string>();
+    if (result.refreshing) listingNotices.add(text("Lignes en cache; actualisation en cours.",
+      "Cached lines; refresh in progress."));
+    for (const issue of result.issues ?? []) listingNotices.add(issue);
+    if (result.centerFallback) listingNotices.add(text("Repère du centre-ville indisponible : recherche autour du point géographique de la commune; liste potentiellement incomplète.",
+      "Town-centre reference unavailable: searching around the municipality's geographic point; results may be incomplete."));
+    if (result.targeted) listingNotices.add(text("Recherche ciblée sur la ligne demandée; les autres réseaux ne sont pas tous parcourus.",
+      "Targeted search for the requested line; not all other networks were searched."));
+    else if (result.networkScoped) listingNotices.add(territory === "qc"
+      ? text("Seul le réseau sélectionné a été parcouru.", "Only the selected network was searched.")
+      : text(`Source : ${lines[0]?.source.name ?? "réseau officiel"}. Liste limitée à ce réseau.`,
+        `Source: ${lines[0]?.source.name ?? "official network"}. Results are limited to this network.`));
+    listingNote = [...listingNotices].map(note => `\n${note}`).join("").slice(0, 700);
     if (!lines.length) {
       stage = "error";
       await edit(`${region?.name ?? city!.label}${network ? `\n${network.title}` : ""}\n${result.issues?.length ? result.issues.join("\n") : result.unavailable
