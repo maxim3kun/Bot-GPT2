@@ -1,17 +1,14 @@
 import type { CatalogResource } from "./public-transport.js";
 import { GtfsRangeArchive, type RangeRequest } from "./gtfs-range.js";
-import { scanRows } from "./gtfs-journey.js";
+import { scanRows, scanRowsStream } from "./gtfs-journey.js";
 import { routeTypeToMode } from "./gtfs-realtime.js";
 import type { TransitMode } from "./transport-query.js";
 
 export interface ReferenceRoute { routeId: string; shortName: string; longName: string; mode: TransitMode | null; stopIds: string[] }
 export interface ReferenceStop { id: string; name: string; parent?: string; latitude: number; longitude: number; type: number }
 
-/** Only the selected network's routes/stops table; schedules are never parsed or returned here. */
-export async function referenceTable<T>(resource: CatalogResource, name: "routes.txt" | "stops.txt",
-  request: RangeRequest, fallback: () => Promise<Uint8Array>): Promise<T[]> {
-  const rows: T[] = [];
-  const add = (row: Record<string, string | undefined>) => {
+function referenceRowAdder<T>(name: "routes.txt" | "stops.txt", rows: T[]) {
+  return (row: Record<string, string | undefined>) => {
     if (rows.length >= 60_000) throw Error("Transport reference table exceeds its budget");
     if (name === "routes.txt") {
       if (!row.route_id) return;
@@ -24,10 +21,21 @@ export async function referenceTable<T>(resource: CatalogResource, name: "routes
         latitude: lat, longitude: lon, type: Number(row.location_type || 0) } as T);
     }
   };
+}
+
+/** Only the selected network's routes/stops table; schedules are never parsed or returned here. */
+export async function referenceTable<T>(resource: CatalogResource, name: "routes.txt" | "stops.txt",
+  request: RangeRequest, fallback: () => Promise<Uint8Array>, streamFallback?: () => Promise<T[]>): Promise<T[]> {
+  const rows: T[] = [];
+  const add = referenceRowAdder(name, rows);
   try {
     const archive = new GtfsRangeArchive(request); await archive.open();
     if (!await archive.rows(name, add)) throw Error(`Missing ${name} in transport source ${resource.id}`);
   } catch (error) {
+    if (streamFallback && error instanceof Error &&
+      /Transport source ignores ZIP ranges and exceeds the safe full-download limit/.test(error.message)) {
+      return streamFallback();
+    }
     // Some otherwise valid public GTFS hosts return a server error to Range
     // requests. Retry once through the existing size-bounded full-feed path.
     // A regular HTTP 200 (range ignored) uses the same fallback.
@@ -38,4 +46,13 @@ export async function referenceTable<T>(resource: CatalogResource, name: "routes
   }
   if (!rows.length) throw Error(`No usable ${name} in transport source ${resource.id}`);
   return rows;
+}
+
+export async function streamedReferenceTable<T>(resource: CatalogResource, name: "routes.txt" | "stops.txt",
+  body: ReadableStream<Uint8Array>): Promise<{ rows: T[]; archiveBytes: number }> {
+  if (name !== "routes.txt") throw Error("Streaming import only supports route metadata");
+  const rows: T[] = [];
+  const { archiveBytes } = await scanRowsStream(body, name, referenceRowAdder(name, rows));
+  if (!rows.length) throw Error(`No usable ${name} in transport source ${resource.id}`);
+  return { rows, archiveBytes };
 }

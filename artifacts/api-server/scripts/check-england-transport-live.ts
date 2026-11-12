@@ -24,14 +24,16 @@ async function main() {
     new EnglandLocations(new EnglandHttp("nptg", fetcher), metadata));
   const browser = new TransportBrowserClient(undefined, Date.now, undefined, undefined, england);
   const line462Only = process.argv.includes("--line462-only");
+  const bodsOnly = process.argv.includes("--bods-only");
   const measure = async <T>(stage: string, work: () => Promise<T>) => {
     const start = performance.now(), before = requests;
     const result = await work();
     console.log(JSON.stringify({ stage, elapsedMs: Math.round(performance.now() - start), sourceRequests: requests - before, persistent }));
     return result;
   };
-  const city = (await measure("London-reference", () => browser.cities("Londres", "en", "metro")))[0]!;
-  if (!line462Only) for (const [mode, requested, from, to] of [
+  const city = bodsOnly ? undefined :
+    (await measure("London-reference", () => browser.cities("Londres", "en", "metro")))[0]!;
+  if (city && !line462Only) for (const [mode, requested, from, to] of [
       ["metro", "bakerloo", "940GZZLUCHX", "940GZZLUWLO"],
       ["bus", "24", "490000135A", "490004695N"],
     ] as const) {
@@ -48,7 +50,7 @@ async function main() {
     console.log(JSON.stringify({ mode, structuralReturnVerified: !!reverse }));
     await measure(`${mode}-warm-routes`, () => browser.lines(city, mode, requested, "tfl"));
   }
-  if (process.argv.includes("--line462") || line462Only) {
+  if (city && (process.argv.includes("--line462") || line462Only)) {
     const listing = await measure("TfL-462-live-inventory", () => browser.lines(city, "bus", "462", "tfl"));
     const line = listing.lines[0];
     if (!line) throw Error("Official TfL 462 route missing");

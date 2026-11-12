@@ -159,30 +159,39 @@ export class TransportBrowserClient {
   async regionLines(network: CatalogDataset, mode: TransitMode, requestedLine = ""): Promise<LineListing> {
     const provider = this.providerFor(network.territory);
     if (!provider.referenceRoutes) throw new TransportDataError("Le catalogue des lignes de cette source est indisponible.");
-    const lines: TransportLine[] = [];
-    let unavailable = 0;
-    // Current operator source before a future snapshot of the same network.
-    const resources = network.resources.filter(r => isStaticScheduleResource(r) && modeMatches(mode, publishedModes(r)))
-      .sort((a, b) => Number(/avenir|future/i.test(a.title)) - Number(/avenir|future/i.test(b.title)) ||
-        (b.updated ?? "").localeCompare(a.updated ?? ""));
-    for (const resource of resources) {
-      try {
-        const routes = await provider.referenceRoutes(resource);
-        for (const route of routes) if (route.mode === mode && (!requestedLine ||
-          routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine))) {
-          lines.push({ routeId: route.routeId, label: route.shortName || route.longName || route.routeId,
-            description: route.longName || network.title, mode, nearbyStopIds: [], allStops: true, resource,
-            realtime: network.resources.filter(isGtfsRealtimeResource).slice(0, 2),
-            source: { name: network.title, url: network.page_url, updated: resource.updated },
-            ...(network.territory ? { territory: network.territory } : {}) });
+    const key = `region:${network.id}:${mode}:${normalizeTransitText(requestedLine)}`;
+    const load = async (): Promise<LineListing> => {
+      const lines: TransportLine[] = [];
+      let unavailable = 0;
+      // Current operator source before a future snapshot of the same network.
+      const resources = network.resources.filter(r => isStaticScheduleResource(r) && modeMatches(mode, publishedModes(r)))
+        .sort((a, b) => Number(/avenir|future/i.test(a.title)) - Number(/avenir|future/i.test(b.title)) ||
+          (b.updated ?? "").localeCompare(a.updated ?? ""));
+      for (const resource of resources) {
+        try {
+          const routes = await provider.referenceRoutes!(resource);
+          for (const route of routes) if (route.mode === mode && (!requestedLine ||
+            routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine))) {
+            lines.push({ routeId: route.routeId, label: route.shortName || route.longName || route.routeId,
+              description: route.longName || network.title, mode, nearbyStopIds: [], allStops: true, resource,
+              realtime: network.resources.filter(isGtfsRealtimeResource).slice(0, 2),
+              source: { name: network.title, url: network.page_url, updated: resource.updated },
+              ...(network.territory ? { territory: network.territory } : {}) });
+          }
+          if (lines.length) break;
+        } catch (error) {
+          unavailable++; logger.warn({ resourceId: resource.id, err: error }, "Transport regional route catalogue unavailable");
         }
-        if (lines.length) break;
-      } catch (error) {
-        unavailable++; logger.warn({ resourceId: resource.id, err: error }, "Transport regional route catalogue unavailable");
       }
-    }
-    return { lines: [...new Map(lines.map(line => [line.routeId, line])).values()]
-      .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true })), unavailable, networkScoped: true };
+      return { lines: [...new Map(lines.map(line => [line.routeId, line])).values()]
+        .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true })), unavailable, networkScoped: true };
+    };
+    if (!provider.metadata) return load();
+    const result = await provider.metadata.staleWhileRevalidate({
+      territory: network.territory ?? "fr", provider: network.territory === "qc" ? "donneesquebec" : "pan",
+      kind: "lineListings", source: key, version: "region-line-listing-v2",
+    }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, refresh => this.scheduleBackgroundRefresh(refresh));
+    return result.stale ? { ...result.value, refreshing: true } : result.value;
   }
 
   async networks(city: TransportLocation, mode: TransitMode) {

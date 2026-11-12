@@ -1,4 +1,4 @@
-import { Unzip, UnzipInflate } from "fflate";
+import { Unzip, UnzipInflate, type AsyncFlateStreamHandler, type UnzipDecoder } from "fflate";
 import { parse } from "csv-parse";
 import { finished } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
@@ -107,6 +107,112 @@ export async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) 
   } catch (error) {
     parser.destroy();
     throw error;
+  }
+}
+
+export const MAX_STREAMED_GTFS_ARCHIVE_BYTES = 128 * 1024 * 1024;
+const MAX_STREAMED_GTFS_TABLE_BYTES = 8 * 1024 * 1024;
+const MAX_STREAMED_GTFS_ROW_COUNT = 60_000;
+
+/** Inflate only the requested table while draining every other ZIP entry without retaining it. */
+class SelectedTableInflate implements UnzipDecoder {
+  static compression = 8;
+  ondata: AsyncFlateStreamHandler = () => undefined;
+  private readonly inflater?: UnzipInflate;
+
+  constructor(filename: string) {
+    if (filename.split("/").at(-1)?.toLowerCase() === "routes.txt") {
+      this.inflater = new UnzipInflate();
+      this.inflater.ondata = (error, data, final) => this.ondata(error, data, final);
+    }
+  }
+
+  push(chunk: Uint8Array, final: boolean) {
+    this.inflater?.push(chunk, final);
+  }
+}
+
+/** Parse one GTFS CSV from a bounded response stream without retaining the ZIP or other tables. */
+export async function scanRowsStream(
+  body: ReadableStream<Uint8Array>, name: string, onRow: (row: Row) => void,
+): Promise<{ archiveBytes: number; tableBytes: number; rows: number }> {
+  if (name.toLowerCase() !== "routes.txt") throw Error("Streaming GTFS import only accepts routes.txt");
+  let archiveBytes = 0, tableBytes = 0, rowCount = 0, found = false, tableEnded = false;
+  let streamError: Error | undefined, parserError: Error | undefined;
+  const parser = parse({
+    columns: true, bom: true, skip_empty_lines: true, relax_column_count: true, max_record_size: 20_000,
+    on_record(row: Row) { countRow(row); return null; },
+  });
+  parser.resume();
+  const parsed = finished(parser);
+  void parsed.catch((error) => { parserError = error instanceof Error ? error : new Error(String(error)); });
+  const unzip = new Unzip((file) => {
+    if (file.compression !== 0 && file.compression !== 8) {
+      streamError = new Error("Unsupported compression in public GTFS archive");
+      return;
+    }
+    if (file.name.split("/").at(-1)?.toLowerCase() === name.toLowerCase()) {
+      if (found) {
+        streamError = new Error("Duplicate GTFS routes.txt entries");
+        return;
+      }
+      found = true;
+      if ((file.size ?? 0) > MAX_STREAMED_GTFS_TABLE_BYTES ||
+        (file.originalSize ?? 0) > MAX_STREAMED_GTFS_TABLE_BYTES) {
+        streamError = new Error("GTFS routes.txt exceeds its streaming size limit");
+        return;
+      }
+      file.ondata = (error, data, final) => {
+        if (error) { streamError = error; return; }
+        if (data?.byteLength) {
+          tableBytes += data.byteLength;
+          if (tableBytes > MAX_STREAMED_GTFS_TABLE_BYTES) {
+            streamError = new Error("GTFS routes.txt exceeds its streaming size limit");
+            return;
+          }
+          parser.write(data);
+        }
+        if (final) { tableEnded = true; parser.end(); }
+      };
+    } else {
+      file.ondata = (error) => { if (error) streamError = error; };
+    }
+    file.start();
+  });
+  // The route table is the only entry inflated; all other entries are drained as compressed bytes.
+  unzip.register(SelectedTableInflate);
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      archiveBytes += value.byteLength;
+      if (archiveBytes > MAX_STREAMED_GTFS_ARCHIVE_BYTES) {
+        throw new Error("Public GTFS archive exceeds its streaming size limit");
+      }
+      unzip.push(value, false);
+      if (streamError) throw streamError;
+      if (parserError) throw parserError;
+      await yieldToLoop();
+    }
+    unzip.push(new Uint8Array(), true);
+    if (streamError) throw streamError;
+    if (!found) throw new Error("Public GTFS archive has no routes.txt");
+    if (!tableEnded) throw new Error("Public GTFS routes.txt ended unexpectedly");
+    await parsed;
+    return { archiveBytes, tableBytes, rows: rowCount };
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    parser.destroy();
+    await parsed.catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  function countRow(row: Row) {
+    rowCount++;
+    if (rowCount > MAX_STREAMED_GTFS_ROW_COUNT) throw new Error("GTFS routes.txt exceeds its row limit");
+    onRow(row);
   }
 }
 

@@ -26,7 +26,8 @@ import { safeQuebecUrl, type Bounds } from "./quebec-sources.js";
 import { FranceLocations } from "./france-locations.js";
 import { TransportMetadataCache, resourceVersion } from "./transport-metadata-cache.js";
 import { regionName, type TransportRegion } from "./transport-regions.js";
-import { referenceTable, type ReferenceRoute, type ReferenceStop } from "./transport-reference-tables.js";
+import { referenceTable, streamedReferenceTable, type ReferenceRoute, type ReferenceStop } from "./transport-reference-tables.js";
+import { MAX_STREAMED_GTFS_ARCHIVE_BYTES } from "./gtfs-journey.js";
 
 const PAN_API = "https://transport.data.gouv.fr/api";
 const GEOCODER_API = "https://api-adresse.data.gouv.fr/search/";
@@ -491,9 +492,36 @@ export class FranceTransportClient {
       return response;
     };
   }
+  private isOuraReferenceFeed(resource: CatalogResource) {
+    try {
+      return !!resource.original_url && new URL(safeUrl(resource.original_url).href).hostname === "api.oura3.cityway.fr";
+    } catch { return false; }
+  }
+  private async streamOuraRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
+    const url = safeUrl(resource.original_url ?? resource.url).href;
+    const response = await this.fetchPublic(url, "application/zip", { timeoutMs: 120_000 });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`Oùra route catalogue request returned ${response.status}`);
+    }
+    const lengthHeader = response.headers.get("content-length");
+    const declaredSize = lengthHeader ? Number(lengthHeader) : NaN;
+    if (Number.isFinite(declaredSize) && declaredSize > MAX_STREAMED_GTFS_ARCHIVE_BYTES) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("Oùra GTFS feed exceeds the streaming size limit");
+    }
+    if (!response.body) throw new Error("Oùra GTFS feed has no readable body");
+    const { rows: routes, archiveBytes } = await streamedReferenceTable<ReferenceRoute>(resource, "routes.txt", response.body);
+    const contentEncoding = response.headers.get("content-encoding");
+    if (!contentEncoding && Number.isFinite(declaredSize) && declaredSize !== archiveBytes) {
+      throw new Error("Oùra GTFS feed ended before its declared size");
+    }
+    return routes;
+  }
   referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
     return this.metadata.get({ territory: "fr", provider: "pan", kind: "routes", source: `routes:${resource.id}`, version: resourceVersion(resource) },
-      6 * 3600_000, () => referenceTable(resource, "routes.txt", this.referenceRequest(resource), () => this.staticFeed(resource)));
+      6 * 3600_000, () => referenceTable(resource, "routes.txt", this.referenceRequest(resource), () => this.staticFeed(resource),
+        this.isOuraReferenceFeed(resource) ? () => this.streamOuraRoutes(resource) : undefined));
   }
   referenceStops(resource: CatalogResource): Promise<ReferenceStop[]> {
     return this.metadata.get({ territory: "fr", provider: "pan", kind: "stops", source: `stops:${resource.id}`, version: resourceVersion(resource) },
