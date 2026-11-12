@@ -575,13 +575,18 @@ export async function handleTransportSearch(
     listingNote = [...listingNotices].map(note => `\n${note}`).join("").slice(0, 700);
     if (!lines.length) {
       stage = "error";
-      await edit(`${region?.name ?? city!.label}${network ? `\n${network.title}` : ""}\n${result.issues?.length ? result.issues.join("\n") : result.unavailable
-        ? text("Les sources de ce réseau n’ont pas pu être chargées. Cela ne signifie pas qu’aucune ligne n’existe.",
-          "The network sources could not be loaded. This does not mean no routes exist.")
-        : region ? text("Aucune ligne correspondante n’a été trouvée dans cette source. Essaie une autre source ou retire le filtre de ligne.",
-          "No matching route was found in this source. Try another source or clear the route filter.")
-          : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",
-          "No routes of this mode were found in open data near this city centre.")}`,
+      const irishSourceUnavailable = territory === "ie" && result.unavailable > 0;
+      const unavailableMessage = text("Les sources de ce réseau n’ont pas pu être chargées. Cela ne signifie pas qu’aucune ligne n’existe.",
+        "The network sources could not be loaded. This does not mean no routes exist.");
+      const details = irishSourceUnavailable ? unavailableMessage
+        : result.issues?.length ? result.issues.join("\n") : result.unavailable
+          ? unavailableMessage
+          : region ? text("Aucune ligne correspondante n’a été trouvée dans cette source. Essaie une autre source ou retire le filtre de ligne.",
+            "No matching route was found in this source. Try another source or clear the route filter.")
+            : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",
+              "No routes of this mode were found in open data near this city centre.");
+      const networkTitle = irishSourceUnavailable ? "" : network ? `\n${network.title}` : "";
+      await edit(`${region?.name ?? city!.label}${networkTitle}\n${details}`,
        [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
           button(region?.territory === "ie" ? "zones" : "city",
             region?.territory === "ie" ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),

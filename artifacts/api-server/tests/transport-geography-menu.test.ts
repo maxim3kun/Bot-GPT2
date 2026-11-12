@@ -106,7 +106,32 @@ test("Ireland keeps city search and adds province then county browsing", async (
   await choose(card, "IE-D");
   assert.match(card.last.content!, /County Dublin/);
   assert.match(card.last.content!, /Choisis une ligne/);
+  assert.match(card.last.content!, /National Transport Authority · Ireland/);
   card.collector.stop("cancelled");
+});
+
+test("an unavailable Irish feed keeps the county but hides technical source names", async () => {
+  const title = "NTA GTFS and GTFS Realtime";
+  const network = { id: "ie:national-gtfs", title, page_url: "https://data.gov.ie/dataset/nta-gtfs",
+    territory: "ie", resources: [{ id: 11, title: "GTFS", format: "GTFS", is_available: true,
+      url: "https://www.transportforireland.ie/transitData/Data/GTFS_All.zip" }] };
+  for (const [language, expected] of [
+    ["fr", "Cela ne signifie pas qu’aucune ligne n’existe."],
+    ["en", "This does not mean no routes exist."],
+  ]) {
+    const d = fakeDiscord(), s = service();
+    s.value.region = async () => ({ code: "IE-D", name: "County Dublin", parentName: "Leinster",
+      territory: "ie", departmentCodes: [], epciCodes: [] }) as any;
+    s.value.regionNetworks = async () => [network] as any;
+    s.value.regionLines = async () => ({ lines: [], unavailable: 1,
+      issues: [`${title} : feed temporarily unavailable`] }) as any;
+    await handleTransportSearch(d.message, { place: "County Dublin", territory: "ie", mode: "bus" }, language, "!", s.value);
+    const card = d.cards[0]!;
+    assert.match(card.last.content!, /County Dublin/);
+    assert.match(card.last.content!, new RegExp(expected));
+    assert.doesNotMatch(card.last.content!, /NTA GTFS and GTFS Realtime/);
+    card.collector.stop("cancelled");
+  }
 });
 
 test("a uniquely resolved French metro city skips the territory prompt", async () => {
