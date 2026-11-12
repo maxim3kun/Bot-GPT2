@@ -175,6 +175,9 @@ export class TransportBrowserClient {
     if (!provider.region) throw new TransportDataError("Référentiel des régions indisponible.");
     return provider.region(place);
   }
+  async prewarmRegionIndex(territory: TransportTerritory, mode: TransitMode): Promise<void> {
+    if (territory === "ie") await (this.ireland as NationalGtfsTransportClient).prewarmRegionIndex(mode);
+  }
   async regionNetworks(region: TransportRegion, mode: TransitMode) {
     if (region.territory === "ie") {
       const provider = this.ireland as NationalGtfsTransportClient;

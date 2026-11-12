@@ -74,7 +74,7 @@ import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabil
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTransportDialogue, handleJourneyCommand } from "./discord/transport-dialogue.js";
 import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
-import { handleTransportCommand, handleTransportFavoritesCommand } from "./discord/transport-menu.js";
+import { handleTransportCommand, handleTransportFavoritesCommand, prewarmIrishBusRouteIndex } from "./discord/transport-menu.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { handleMgButton } from "./discord/milliongame.js";
@@ -532,6 +532,7 @@ export function startBot(): void {
 
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
+    prewarmIrishBusRouteIndex();
     client.user?.setActivity("!help · !music · !join", { type: ActivityType.Listening });
 
     // Update bot presence when a song starts/stops in any guild

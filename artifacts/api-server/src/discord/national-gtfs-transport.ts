@@ -361,39 +361,54 @@ export class NationalGtfsTransportClient implements TransportProvider {
       territory: this.territory, provider: this.config.provider, kind: "routes",
       source: `nearby-routes:${resource.id}:${mode}:${normalizeTransitText(requestedLine)}:${stopKey}`,
       version: resourceVersion(resource),
-    }, 60 * 60_000, async () => {
-      const archive = new GtfsRangeArchive((range, validator) => this.rangeResponse(resource, range, validator));
-      await archive.open();
-      const routes = new Map<string, { shortName: string; longName: string; mode: TransitMode; stopIds: Set<string> }>();
-      if (!await archive.rows("routes.txt", row => {
-        const routeMode = routeTypeToMode(Number(row.route_type));
-        const id = row.route_id?.trim() ?? "";
-        if (!id || routeMode !== mode || requestedLine &&
-          !routeMatchesRequested(id, row.route_short_name ?? "", row.route_long_name ?? "", requestedLine)) return;
-        if (routes.size >= 60_000) throw new TransportDataError("Le catalogue national dépasse sa limite de lignes.");
-        routes.set(id, { shortName: row.route_short_name ?? "", longName: row.route_long_name ?? "",
-          mode, stopIds: new Set() });
-      })) throw new TransportDataError("Le flux national ne contient pas de table de lignes.");
-      if (!routes.size) return [];
+    }, 60 * 60_000, () => this.scanRoutesAtStops(resource, stopIds, mode, requestedLine));
+  }
 
-      const tripRoutes = new Map<string, string>();
-      if (!await archive.rows("trips.txt", row => {
-        const trip = row.trip_id?.trim() ?? "", route = row.route_id?.trim() ?? "";
-        if (!trip || !routes.has(route)) return;
-        if (tripRoutes.size >= 400_000) throw new TransportDataError("Le catalogue national dépasse sa limite de courses.");
-        tripRoutes.set(trip, route);
-      })) throw new TransportDataError("Le flux national ne contient pas de table de courses.");
+  private async scanRoutesAtStops(resource: CatalogResource, stopIds: ReadonlySet<string>, mode: TransitMode,
+    requestedLine = ""): Promise<GtfsRouteAtStops[]> {
+    if (!stopIds.size) return [];
+    const archive = new GtfsRangeArchive((range, validator) => this.rangeResponse(resource, range, validator));
+    await archive.open();
+    const routes = new Map<string, { shortName: string; longName: string; mode: TransitMode; stopIds: Set<string> }>();
+    if (!await archive.rows("routes.txt", row => {
+      const routeMode = routeTypeToMode(Number(row.route_type));
+      const id = row.route_id?.trim() ?? "";
+      if (!id || routeMode !== mode || requestedLine &&
+        !routeMatchesRequested(id, row.route_short_name ?? "", row.route_long_name ?? "", requestedLine)) return;
+      if (routes.size >= 60_000) throw new TransportDataError("Le catalogue national dépasse sa limite de lignes.");
+      routes.set(id, { shortName: row.route_short_name ?? "", longName: row.route_long_name ?? "",
+        mode, stopIds: new Set() });
+    })) throw new TransportDataError("Le flux national ne contient pas de table de lignes.");
+    if (!routes.size) return [];
 
-      if (!await archive.rows("stop_times.txt", row => {
-        const stop = row.stop_id?.trim() ?? "";
-        if (!stopIds.has(stop)) return;
-        const routeId = tripRoutes.get(row.trip_id?.trim() ?? "");
-        if (routeId) routes.get(routeId)?.stopIds.add(stop);
-      })) throw new TransportDataError("Le flux national ne contient pas de table de passages.");
-      return [...routes].flatMap(([routeId, route]) => route.stopIds.size
-        ? [{ routeId, shortName: route.shortName, longName: route.longName, mode: route.mode, stopIds: [...route.stopIds] }]
-        : []);
+    const tripRoutes = new Map<string, string>();
+    if (!await archive.rows("trips.txt", row => {
+      const trip = row.trip_id?.trim() ?? "", route = row.route_id?.trim() ?? "";
+      if (!trip || !routes.has(route)) return;
+      if (tripRoutes.size >= 400_000) throw new TransportDataError("Le catalogue national dépasse sa limite de courses.");
+      tripRoutes.set(trip, route);
+    })) throw new TransportDataError("Le flux national ne contient pas de table de courses.");
+
+    if (!await archive.rows("stop_times.txt", row => {
+      const stop = row.stop_id?.trim() ?? "";
+      if (!stopIds.has(stop)) return;
+      const routeId = tripRoutes.get(row.trip_id?.trim() ?? "");
+      if (routeId) routes.get(routeId)?.stopIds.add(stop);
+    })) throw new TransportDataError("Le flux national ne contient pas de table de passages.");
+    return [...routes].flatMap(([routeId, route]) => route.stopIds.size
+      ? [{ routeId, shortName: route.shortName, longName: route.longName, mode: route.mode, stopIds: [...route.stopIds] }]
+      : []);
+  }
+
+  private async routeStopIndex(resource: CatalogResource, mode: TransitMode): Promise<GtfsRouteAtStops[]> {
+    const result = await this.metadata.staleWhileRevalidate<GtfsRouteAtStops[]>({
+      territory: this.territory, provider: this.config.provider, kind: "routes",
+      source: `route-stop-index:${resource.id}:${mode}`, version: resourceVersion(resource),
+    }, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000, async () => {
+      const stops = await this.stopTable(resource);
+      return this.scanRoutesAtStops(resource, new Set(stops.map(stop => stop.id)), mode);
     });
+    return result.value;
   }
 
   private async stopTable(resource: CatalogResource): Promise<ReferenceStop[]> {
@@ -542,7 +557,22 @@ export class NationalGtfsTransportClient implements TransportProvider {
       territory: this.territory, provider: this.config.provider, kind: "routes",
       source: `county-routes:${resource.id}:${region.code}:${mode}:${normalizeTransitText(requestedLine)}`,
       version: resourceVersion(resource),
-    }, 60 * 60_000, () => this.discoverRoutesAtStops(resource, stopIds, mode, requestedLine));
+    }, 60 * 60_000, async () => {
+      const allRoutes = await this.routeStopIndex(resource, mode);
+      return allRoutes.flatMap(route => {
+        if (requestedLine && !routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine)) return [];
+        const countyStops = route.stopIds.filter(stopId => stopIds.has(stopId));
+        return countyStops.length ? [{ ...route, stopIds: countyStops }] : [];
+      });
+    });
+  }
+
+  async prewarmRegionIndex(mode: TransitMode): Promise<void> {
+    if (this.territory !== "ie") return;
+    const catalog = await this.getCatalog();
+    const resource = catalog.flatMap(dataset => dataset.resources).find(item => item.is_available);
+    if (!resource) throw new TransportDataError("Le flux GTFS irlandais est indisponible.");
+    await this.routeStopIndex(resource, mode);
   }
 }
 

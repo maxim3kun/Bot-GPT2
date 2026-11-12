@@ -49,7 +49,12 @@ export function irelandCountyByCode(code: string): IrelandCounty | undefined {
 
 /** Only full county names resolve here; a bare town such as Cork remains a city search. */
 export function irelandCountyFromSearch(value: string): IrelandCounty | undefined {
-  const query = normalizeTransitText(value);
+  const query = normalizeTransitText(value)
+    .replace(/\s+(?:(?:en|in)\s+)?(?:republique d irlande|irlande|ireland)$/i, "")
+    .trim();
+  if (["county ofaly", "comte de ofaly", "ofaly county"].includes(query)) {
+    return irelandCountyByCode("IE-OY");
+  }
   return IRELAND_COUNTIES.find(county => [county.osmName, `Comté de ${county.name}`]
     .some(name => normalizeTransitText(name) === query));
 }

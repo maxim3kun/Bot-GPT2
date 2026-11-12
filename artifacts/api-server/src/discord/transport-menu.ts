@@ -19,13 +19,19 @@ import { parseTransportCommand } from "./transport-command-query.js";
 import type { TransportRegion } from "./transport-regions.js";
 import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
-import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode } from "./ireland-regions.js";
+import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode, irelandCountyFromSearch } from "./ireland-regions.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
 const active = new Map<string, () => void>();
 type Stage = "territory" | "mode" | "city" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
+
+export function prewarmIrishBusRouteIndex(): void {
+  void browser.prewarmRegionIndex("ie", "bus")
+    .then(() => logger.info("Irish bus route index is ready"))
+    .catch(error => logger.warn({ err: error }, "Irish bus route index prewarm failed"));
+}
 
 function compareRouteNumbers(a: TransportLine, b: TransportLine) {
   const left = a.label.trim(), right = b.label.trim();
@@ -399,11 +405,14 @@ export async function handleTransportSearch(
         if (!permitted) { collector.stop("denied"); return; }
       }
       if (!live || current !== sequence) return;
-      await transportDeadline(work(), lookupTimeoutMs);
+      const deadline = territory === "ie" ? Math.max(lookupTimeoutMs, 90_000) : lookupTimeoutMs;
+      await transportDeadline(work(), deadline);
     } catch (error) {
       if (!live || current !== sequence) return;
+      const failedStage = stage;
       stage = "error";
-      logger.warn({ err: error, mode: selectedMode, cityId: city?.id }, "Transport menu lookup failed");
+      logger.warn({ err: error, mode: selectedMode, cityId: city?.id, stage: failedStage, territory, regionCode: region?.code },
+        "Transport menu lookup failed");
       if (error instanceof Error && error.message === "Transport lookup timed out") {
         collector.stop("timeout");
         return;
@@ -420,6 +429,11 @@ export async function handleTransportSearch(
 
   async function loadCities() {
     if (!live) return;
+    if (territory === "ie" && selectedMode && (!place || irelandCountyFromSearch(place))) {
+      const warmup = service.prewarmRegionIndex?.("ie", selectedMode);
+      if (warmup) void warmup.catch(error =>
+        logger.warn({ err: error, mode: selectedMode }, "Ireland route index prewarm failed"));
+    }
     line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined; region = undefined;
     province = "";
     if (!place) { await cityInput(); return; }

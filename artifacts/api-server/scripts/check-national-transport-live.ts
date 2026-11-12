@@ -13,12 +13,14 @@ for (const territory of ["ie", "lu"] as const) {
   assert.ok(modes.length, `${territory}: the source must contain at least one supported mode`);
   const mode = modes.includes("bus") ? "bus" : modes[0]!;
   if (territory === "ie") {
-    const region = client.region("County Dublin");
-    assert.ok(region, "Ireland: county browsing should resolve Dublin");
-    console.log("ie: checking the live Dublin county boundary and GTFS routes");
-    const regionalRoutes = await client.routesInRegion(catalog[0]!.resources[0]!, region!, mode);
-    assert.ok(regionalRoutes.length, "Ireland: the county view should expose routes with stops in Dublin");
-    console.log(`ie: county ${region!.name} contains ${regionalRoutes.length} published ${mode} routes`);
+    for (const countyName of ["County Dublin", "County Offaly"]) {
+      const region = client.region(countyName);
+      assert.ok(region, `Ireland: county browsing should resolve ${countyName}`);
+      const startedAt = Date.now();
+      const regionalRoutes = await client.routesInRegion(catalog[0]!.resources[0]!, region!, mode);
+      assert.ok(regionalRoutes.length, `Ireland: ${countyName} should have published ${mode} routes`);
+      console.log(`ie: county ${region!.name} contains ${regionalRoutes.length} published ${mode} routes (${Date.now() - startedAt} ms)`);
+    }
   }
   const search = territory === "ie" ? "Dublin" : "Luxembourg";
   const city = (await client.municipalities(search)).find(place =>

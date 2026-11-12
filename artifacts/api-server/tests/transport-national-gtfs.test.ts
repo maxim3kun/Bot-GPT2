@@ -120,6 +120,8 @@ test("Ireland area browsing lists provinces and counties without treating towns 
   assert.deepEqual(IRELAND_PROVINCES.map(province => irelandCounties(province).length), [5, 12, 6, 3]);
   assert.equal(irelandCountyFromSearch("Cork"), undefined, "a city search must remain a city search");
   assert.equal(irelandCountyFromSearch("County Cork")?.code, "IE-CO");
+  assert.equal(irelandCountyFromSearch("County Ofaly en Irlande")?.code, "IE-OY");
+  assert.equal(irelandCountyFromSearch("County Offaly")?.code, "IE-OY");
 });
 
 test("Irish county routes are filtered by stops inside the verified boundary", async () => {
