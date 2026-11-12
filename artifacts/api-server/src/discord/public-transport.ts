@@ -164,11 +164,18 @@ type CacheEntry = { expiresAt: number; value: unknown };
 
 function safeHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  return host === "gouv.fr" || host.endsWith(".gouv.fr") ||
-    host === "api.oisemob.cityway.fr" || host === "geocatalogue.hautsdefrance.fr" ||
-    host === "data.toulouse-metropole.fr" || host === "media.ilevia.fr" ||
-    host === "ressources.data.sncf.com" || host === "chouette.enroute.mobi" || host === "ara-api.enroute.mobi" ||
-    host === "eu.ftp.opendatasoft.com";
+  const approvedHosts = new Set([
+    "api.oisemob.cityway.fr", "geocatalogue.hautsdefrance.fr", "data.toulouse-metropole.fr",
+    "media.ilevia.fr", "ressources.data.sncf.com", "chouette.enroute.mobi", "ara-api.enroute.mobi",
+    "eu.ftp.opendatasoft.com",
+    // Exact public GTFS hosts linked by the national catalogue. Keep this list
+    // host-specific; do not trust arbitrary catalogue URLs or whole provider domains.
+    "api.oura3.cityway.fr", "api.mrn.cityway.fr", "api.grandest2.cityway.fr", "tsi.grandest2.cityway.fr",
+    "www.korrigo.bzh", "mobi-iti-pdl.okina.fr", "ssl.renfe.com", "integration-storage.dm.eurostar.com",
+    "gtfs.gis.flix.tech", "www.datasud.fr", "thello.axelor.com",
+    "app.mecatran.com", "proxy-data.zou.maregionsud.fr",
+  ]);
+  return host === "gouv.fr" || host.endsWith(".gouv.fr") || approvedHosts.has(host);
 }
 
 function safeUrl(value: string): URL {
@@ -473,8 +480,16 @@ export class FranceTransportClient {
   private referenceRequest(resource: CatalogResource) {
     let url = resource.url;
     try { if (resource.original_url) url = safeUrl(resource.original_url).href; } catch { /* Catalogue fallback. */ }
-    return (range: string, validator?: Record<string, string>) => this.fetchPublic(url, "application/zip",
-      { headers: { ...validator, range }, timeoutMs: 20_000 });
+    return async (range: string, validator?: Record<string, string>) => {
+      const response = await this.fetchPublic(url, "application/zip",
+        { headers: { ...validator, range }, timeoutMs: 20_000 });
+      const contentLength = Number(response.headers.get("content-length"));
+      if (response.status === 200 && Number.isFinite(contentLength) && contentLength > MAX_STATIC_FEED_BYTES) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("Transport source ignores ZIP ranges and exceeds the safe full-download limit");
+      }
+      return response;
+    };
   }
   referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
     return this.metadata.get({ territory: "fr", provider: "pan", kind: "routes", source: `routes:${resource.id}`, version: resourceVersion(resource) },

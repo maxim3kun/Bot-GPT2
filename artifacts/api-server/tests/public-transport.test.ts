@@ -19,6 +19,58 @@ test("recognizes the Beauvais Amiens journey without splitting compound city nam
   assert.deepEqual(await resolveBusJourney("Arrêt inconnu", lookup), { place: "Arrêt inconnu" });
 });
 
+test("allows an exact catalogue GTFS host and falls back when its ZIP range endpoint rejects ranges", async () => {
+  const zip = staticFeed("08:03:00", 3, "TAO");
+  for (const status of [406, 500]) {
+    let rangedRequests = 0, fullRequests = 0;
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname === "transport.data.gouv.fr") {
+        return new Response(null, { status: 302, headers: {
+          location: "https://api.oura3.cityway.fr/gtfs.zip",
+        } });
+      }
+      assert.equal(url.hostname, "api.oura3.cityway.fr");
+      if (new Headers(init?.headers).has("range")) {
+        rangedRequests++;
+        return new Response(null, { status });
+      }
+      fullRequests++;
+      return new Response(zip);
+    };
+    const resource = {
+      id: 901 + status, title: "Réseau public GTFS", format: "GTFS", is_available: true, modes: ["bus"],
+      url: `https://transport.data.gouv.fr/resources/${901 + status}/download`,
+      original_url: "https://api.oura3.cityway.fr/gtfs.zip",
+    };
+    const routes = await new FranceTransportClient(fetcher, () => NOW * 1000).referenceRoutes(resource);
+    assert.equal(routes[0]?.shortName, "TAO");
+    assert.ok(rangedRequests > 0);
+    assert.equal(fullRequests, 1);
+  }
+});
+
+test("does not download an oversized full GTFS file when the host ignores ZIP ranges", async () => {
+  let requests = 0;
+  const fetcher: typeof fetch = async (input, init) => {
+    requests++;
+    const url = new URL(String(input));
+    assert.equal(url.hostname, "api.oura3.cityway.fr");
+    assert.ok(new Headers(init?.headers).has("range"));
+    return new Response(null, { status: 200, headers: { "content-length": "111504884" } });
+  };
+  const resource = {
+    id: 78904, title: "Réseau régional GTFS", format: "GTFS", is_available: true, modes: ["rail"],
+    url: "https://transport.data.gouv.fr/resources/78904/download",
+    original_url: "https://api.oura3.cityway.fr/gtfs.zip",
+  };
+  await assert.rejects(
+    new FranceTransportClient(fetcher, () => NOW * 1000).referenceRoutes(resource),
+    /ignores ZIP ranges and exceeds the safe full-download limit/,
+  );
+  assert.equal(requests, 1, "rejects the oversized source immediately without a second full-file request");
+});
+
 test("bus queries locate the municipality instead of a similarly named street", async () => {
   const geocodeCalls: URL[] = [];
   const fetcher: typeof fetch = async (input) => {

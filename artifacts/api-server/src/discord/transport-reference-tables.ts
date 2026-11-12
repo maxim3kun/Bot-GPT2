@@ -28,7 +28,11 @@ export async function referenceTable<T>(resource: CatalogResource, name: "routes
     const archive = new GtfsRangeArchive(request); await archive.open();
     if (!await archive.rows(name, add)) throw Error(`Missing ${name} in transport source ${resource.id}`);
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("usable ZIP range (200)")) throw error;
+    // Some otherwise valid public GTFS hosts return a server error to Range
+    // requests. Retry once through the existing size-bounded full-feed path.
+    // A regular HTTP 200 (range ignored) uses the same fallback.
+    if (!(error instanceof Error) ||
+      !/Transport server does not provide a usable ZIP range \((?:200|403|405|406|416|500|502|503)\)/.test(error.message)) throw error;
     rows.length = 0;
     await scanRows(await fallback(), name, add);
   }
