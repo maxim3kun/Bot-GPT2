@@ -6,7 +6,9 @@ export interface RecordedPayload {
   embeds: any[];
   components: { components: { custom_id?: string; url?: string; label?: string; disabled?: boolean }[] }[];
 }
-const record = (payload: any): RecordedPayload => structuredClone({
+const record = (payload: any): RecordedPayload => structuredClone(typeof payload === "string" ? {
+  content: payload, embeds: [], components: [],
+} : {
   content: payload.content, embeds: payload.embeds ?? [],
   components: (payload.components ?? []).map((row: any) => row.toJSON ? row.toJSON() : row),
 });

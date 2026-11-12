@@ -348,7 +348,7 @@ test("Discord menus distinguish the city, protect ownership and skip a single de
   assert.match(ui.prompt.content, /expiré/);
 });
 
-test("leaving Options does not lock the menu and Arrêts shows previous stops", async () => {
+test("leaving Options does not lock the menu and Arrêts toggles verified intermediate stops", async () => {
   const feed = connectionZip({ mode: 2, extra: {
     "routes.txt": "route_id,route_short_name,route_long_name,route_type\nB,C17,Train C17,2\nM,K10,Train K10,2\n",
   } });
@@ -357,7 +357,7 @@ test("leaving Options does not lock the menu and Arrêts shows previous stops", 
   const city = { id: "test-station", name: "Beauvais", label: "Gare de Beauvais", latitude: 49.43, longitude: 2.08, kind: "station" as const };
   client.cities = async () => [city];
   client.lines = async () => ({ lines: [{ routeId: "B", label: "C17", description: "Train C17", mode: "rail",
-    nearbyStopIds: ["X"], resource: { id: 1, title: "GTFS", format: "GTFS", url: "https://example.test/feed.zip" },
+    nearbyStopIds: ["O"], resource: { id: 1, title: "GTFS", format: "GTFS", url: "https://example.test/feed.zip" },
     realtime: [], source: { name: "Réseau officiel", url: "https://transport.data.gouv.fr/datasets/test" }, territory: "fr" }], unavailable: 0 });
   client.index = async () => index;
   client.availableStops = async (_line, _index, options) => ({ options, note: "" });
@@ -375,12 +375,16 @@ test("leaving Options does not lock the menu and Arrêts shows previous stops", 
 
   ui.setHoldModalSubmit(true);
   await ui.click("options");
-  await ui.click("previousStops");
-  await until(() => JSON.stringify(ui.prompt.embeds).includes("Arrêts avant le départ"));
-  assert.match(JSON.stringify(ui.prompt.embeds), /Breteuil Centre/);
+  await ui.click("stops");
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("Arrêts intermédiaires"));
+  const stopField = ui.prompt.embeds[0].fields.find((field: any) => field.name === "Arrêts intermédiaires");
+  assert.match(stopField.value, /Gare/);
+  assert.doesNotMatch(stopField.value, /Breteuil Centre|Jean Jaurès/);
   assert.doesNotMatch(ui.prompt.content, /La recherche est en cours/);
   const buttons = ui.prompt.components.flatMap((row: any) => row.components).map((component: any) => component.label);
-  assert.deepEqual(buttons.slice(-2), ["Source", "Fermer"]);
+  assert.ok(buttons.includes("Masquer les arrêts"));
+  await ui.click("stops");
+  await until(() => !JSON.stringify(ui.prompt.embeds).includes("Arrêts intermédiaires"));
 
   await ui.click("modify");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));

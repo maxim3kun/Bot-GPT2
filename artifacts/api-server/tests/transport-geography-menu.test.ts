@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleTransportCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
+import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
 import type { TransportBrowserClient } from "../src/discord/transport-browser.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
+import type { TransportFavorite, TransportPreferences, TransportPreferencesStore } from "../src/discord/transport-preferences.js";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 async function choose(card: FakeCard, value: string) {
   await card.collector.collect(card.interaction("choose", { values: [value],
@@ -11,13 +12,18 @@ async function choose(card: FakeCard, value: string) {
 async function click(card: FakeCard, action: string) {
   await card.collector.collect(card.interaction(action).value); await tick();
 }
+async function settle(predicate: () => boolean) {
+  for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
+  assert.fail("Transport state did not settle");
+}
 function service(station = false) {
   const requests: unknown[] = [];
   const place = { id: station ? "sncf:beauvais" : "60057", name: "Beauvais", label: station ? "Gare de Beauvais — Oise" : "Beauvais — Oise",
     latitude: 49.43, longitude: 2.08, ...(station ? { kind: "station" } : {}) };
   const source = { name: "Source officielle", url: "https://transport.data.gouv.fr/datasets/test" };
   const routes = ["1", "2"].map(label => ({ label, routeId: label, description: "Gare → Arrivée",
-    mode: station ? "rail" : "bus", nearbyStopIds: ["O"], source }));
+    mode: station ? "rail" : "bus", nearbyStopIds: ["O"], source,
+    resource: { id: 1, title: "GTFS", format: "GTFS", is_available: true, url: "https://transport.data.gouv.fr/test.zip" } }));
   const index = { stops: new Map([["O", { id: "O", name: "Gare" }], ["D", { id: "D", name: "Arrivée" }]]),
     visits: new Map([["trip", [{ stopId: "O", pickup: true, dropoff: true }, { stopId: "D", pickup: true, dropoff: true }]]]) };
   return { requests, value: {
@@ -43,7 +49,7 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
   assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Arrêts avant", "Modifier", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Arrêts", "Modifier"], ["Ajouter ❤️", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -80,7 +86,7 @@ test("a uniquely resolved French metro city skips the territory prompt", async (
   card.collector.stop("cancelled");
 });
 
-test("selected metro arrivals omit redundant route notes and results use two compact button rows", async () => {
+test("selected metro arrivals omit redundant route notes and preserve result controls across three rows", async () => {
   const d = fakeDiscord(), s = service();
   const city = { id: "75056", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35 };
   const source = { name: "IDFM", url: "https://transport.data.gouv.fr/datasets/test" };
@@ -97,10 +103,95 @@ test("selected metro arrivals omit redundant route notes and results use two com
   assert.match(card.last.content!, /Choisis ta station d’arrivée/);
   assert.doesNotMatch(card.last.content!, /Trajets directs sur la ligne choisie|Correspondances non calculées/);
   await choose(card, "0");
-  assert.equal(card.last.components.length, 2);
+  assert.equal(card.last.components.length, 3);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Plus d’horaires", "Arrêts avant", "Modifier", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Agrandir", "Arrêts", "Modifier"], ["Ajouter ❤️", "Source", "Fermer"]]);
   card.collector.stop("cancelled");
+});
+
+function preferenceStore(initial: TransportPreferences = { favorites: [] }): TransportPreferencesStore {
+  let value = structuredClone(initial);
+  return {
+    async get(userId) { return userId === "owner" ? structuredClone(value) : { favorites: [] }; },
+    async setPreferredTerritory(userId, territory) {
+      if (userId !== "owner") return false;
+      value = { ...value, preferredTerritory: territory }; return true;
+    },
+    async toggleFavorite(userId, favorite) {
+      if (userId !== "owner") return { ok: false, saved: false };
+      const exists = value.favorites.some(item => item.key === favorite.key);
+      value = { ...value, favorites: exists ? value.favorites.filter(item => item.key !== favorite.key)
+        : [...value.favorites, favorite] };
+      return { ok: true, saved: !exists };
+    },
+  };
+}
+
+test("favorite heart stores the exact path and !favoris recalculates current departures", async () => {
+  const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
+  let departureLookups = 0;
+  s.value.departures = async () => {
+    departureLookups++;
+    return { content: "Horaires recalculés", source: { name: "Source", url: "https://transport.data.gouv.fr/test" },
+      embed: { title: "Trajet actuel", description: "Horaires recalculés" } } as any;
+  };
+  await handleTransportSearch(d.message, { place: "Beauvais", territory: "fr", mode: "bus" }, "fr", "!", s.value, 45_000,
+    undefined, store);
+  const card = d.cards[0]!;
+  await choose(card, "0"); // selected municipality
+  await choose(card, "0"); // route
+  await choose(card, "0"); // destination; the unique origin is automatic
+  await settle(() => card.last.embeds.length === 1);
+  assert.equal(departureLookups, 1);
+  await click(card, "favorite");
+  await settle(() => card.last.components.flatMap(row => row.components).some(component => component.label === "Retirer ❤️"));
+  assert.equal(departureLookups, 1, "saving a favorite must not trigger another timetable lookup");
+
+  const next = fakeDiscord({ userId: "owner", channelId: "favorite-reopen" });
+  await handleTransportFavoritesCommand(next.message, "fr", "!", s.value, store);
+  await settle(() => next.cards.length > 0 && next.cards[0]!.last.embeds.length === 1);
+  assert.equal(departureLookups, 2, "opening a favorite performs a fresh timetable lookup");
+  assert.equal(next.cards[0]!.last.embeds[0]!.title, "Trajet actuel");
+  card.collector.stop("cancelled");
+  next.cards[0]!.collector.stop("cancelled");
+});
+
+test("favorite command clearly handles an empty list and offers a chooser for several favorites", async () => {
+  const empty = fakeDiscord(), s = service();
+  await handleTransportFavoritesCommand(empty.message, "fr", "!", s.value, preferenceStore());
+  assert.match(empty.replies[0]!.content!, /Aucun favori transport enregistré/);
+
+  const two: TransportFavorite[] = ["1", "2"].map((routeId, i) => ({
+    key: `favorite-${i}`, territory: "fr", mode: "bus", place: "Beauvais", cityId: "60057",
+    routeId, resourceId: 1, lineLabel: routeId, originIds: ["O"], originLabel: "Gare",
+    arrivalIds: ["D"], arrivalLabel: "Arrivée",
+  }));
+  const selected = fakeDiscord({ userId: "owner" }), stored = preferenceStore({ favorites: two });
+  let openedRoute = "";
+  s.value.departures = async (line: any) => {
+    openedRoute = line.routeId;
+    return { content: "Fresh departures", source: line.source, embed: { title: line.label, description: "Fresh departures" } } as any;
+  };
+  await handleTransportFavoritesCommand(selected.message, "fr", "!", s.value, stored);
+  assert.match(selected.cards[0]!.last.content!, /choisis un trajet favori/i);
+  const selector = selected.cards[0]!.last.components.flatMap(row => row.components)
+    .find((component: any) => component.options) as any;
+  assert.equal(selector.options.length, 2);
+  await choose(selected.cards[0]!, "1");
+  await settle(() => selected.cards.length > 1 && selected.cards[1]!.last.embeds.length === 1);
+  assert.equal(openedRoute, "2", "the selected favorite must restore its exact route");
+  selected.cards.forEach(card => card.collector.stop("cancelled"));
+});
+
+test("saved territory is first but every territory remains selectable", async () => {
+  const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore({ preferredTerritory: "en", favorites: [] });
+  await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value, 45_000, store);
+  const selector = d.cards[0]!.last.components.flatMap(row => row.components)
+    .find((component: any) => component.options) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.label), ["Angleterre", "France", "Québec"]);
+  await choose(d.cards[0]!, "fr");
+  assert.deepEqual(await store.get("owner"), { preferredTerritory: "fr", favorites: [] });
+  d.cards[0]!.collector.stop("cancelled");
 });
 
 test("675 routes are visibly counted across 27 selectable pages", async () => {

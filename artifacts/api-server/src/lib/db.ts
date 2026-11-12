@@ -294,6 +294,9 @@ export function getTransportMetadataCollection(): Collection<import("../discord/
 export function getWeatherCacheCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("public_weather_cache") ?? null;
 }
+export function getTransportPreferencesCollection(): Collection<TransportPreferencesDoc> | null {
+  return transportPreferencesCol;
+}
 export function getConversationMemoryCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("ai_conversation_memory") ?? null;
 }
@@ -306,6 +309,11 @@ export function getBotTelemetryCollection<T extends import("mongodb").Document>(
 interface DailyImageQuotaDoc {
   _id: string;
   count: number;
+  updatedAt: Date;
+}
+interface TransportPreferencesDoc {
+  _id: string; // hashed Discord user id
+  encryptedData: string;
   updatedAt: Date;
 }
 
@@ -322,6 +330,7 @@ export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
 export let aiPersonaSessionsCol: Collection<AiPersonaSessionDoc> | null = null;
 export let aiPersonaPublicProfilesCol: Collection<AiPersonaPublicProfileDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
+let transportPreferencesCol: Collection<TransportPreferencesDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
@@ -388,6 +397,7 @@ export async function connectDb(): Promise<void> {
     aiPersonaSessionsCol = db.collection<AiPersonaSessionDoc>("ai_persona_sessions");
     aiPersonaPublicProfilesCol = db.collection<AiPersonaPublicProfileDoc>("ai_persona_public_profiles");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
+    transportPreferencesCol = db.collection<TransportPreferencesDoc>("transport_preferences");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
@@ -417,6 +427,7 @@ export async function connectDb(): Promise<void> {
     dailyImageQuotaCol = null;
     aiMemoryCol = null;
     aiPersonaPublicProfilesCol = null;
+    transportPreferencesCol = null;
     betaTestersCol = null;
   }
 }

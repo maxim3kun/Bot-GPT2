@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, StringSelectMenuBuilder,
   TextInputBuilder, TextInputStyle,
@@ -18,6 +18,7 @@ import { TransportDataError } from "./transport-data-error.js";
 import { parseTransportCommand } from "./transport-command-query.js";
 import type { TransportRegion } from "./transport-regions.js";
 import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
+import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
@@ -64,11 +65,97 @@ export async function transportDeadline<T>(work: Promise<T>, milliseconds = 45_0
   } finally { if (timer) clearTimeout(timer); }
 }
 
+async function bestEffortPreference<T>(work: Promise<T>, fallback: T, milliseconds = 1_000): Promise<T> {
+  try { return await transportDeadline(work, milliseconds); }
+  catch { return fallback; }
+}
+
 export async function handleTransportCommand(
   message: Message, args: string[], language: string, prefix = "!", mode: TransitMode | null = null,
-  service = browser, lookupTimeoutMs = 45_000,
+  service = browser, lookupTimeoutMs = 45_000, preferencesStore: TransportPreferencesStore = transportPreferences,
 ): Promise<void> {
-  return handleTransportSearch(message, { ...parseTransportCommand(args), mode }, language, prefix, service, lookupTimeoutMs);
+  const parsed = { ...parseTransportCommand(args), mode };
+  if (parsed.territory) await bestEffortPreference(
+    preferencesStore.setPreferredTerritory(message.author.id, parsed.territory), false);
+  return handleTransportSearch(message, parsed, language, prefix, service, lookupTimeoutMs,
+    undefined, preferencesStore);
+}
+
+export async function handleTransportFavoritesCommand(
+  message: Message, language: string, prefix = "!", service = browser,
+  preferencesStore: TransportPreferencesStore = transportPreferences,
+): Promise<void> {
+  const favorites = (await bestEffortPreference(preferencesStore.get(message.author.id), null))?.favorites ?? [];
+  const french = language === "fr";
+  if (!favorites.length) {
+    await message.reply(french ? "Aucun favori transport enregistré. Lance un trajet puis ajoute-le avec le bouton cœur."
+      : "No saved transport favorites. Start a journey, then save it with the heart button.");
+    return;
+  }
+  if (favorites.length === 1) {
+    const favorite = favorites[0]!;
+    await handleTransportSearch(message, { place: favorite.place, territory: favorite.territory, mode: favorite.mode },
+      language, prefix, service, 45_000, undefined, preferencesStore, favorite);
+    return;
+  }
+  const id = `transport-favorites:${randomUUID()}`;
+  const labelFor = (favorite: TransportFavorite) =>
+    `${favorite.lineLabel} · ${favorite.originLabel} → ${favorite.arrivalLabel}`.slice(0, 100);
+  const prompt = await message.reply({
+    content: french ? "Choisis un trajet favori à recalculer avec les horaires actuels."
+      : "Choose a saved journey to look up using current timetables.",
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder()
+        .setCustomId(`${id}:choose`).setPlaceholder(french ? "Choisir un favori" : "Choose a favorite")
+        .addOptions(favorites.map((favorite, index) => ({
+          label: labelFor(favorite), description: `${TERRITORY_NAMES[favorite.territory]} · ${modeName(favorite.mode, favorite.territory)}`.slice(0, 100),
+          value: String(index),
+        })))),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`${id}:cancel`)
+        .setLabel(french ? "Annuler" : "Cancel").setStyle(ButtonStyle.Secondary)),
+    ],
+    allowedMentions: { parse: [] },
+  });
+  const collector = prompt.createMessageComponentCollector({ time: 5 * 60_000 });
+  collector.on("collect", async interaction => {
+    if (!interaction.customId.startsWith(`${id}:`)) return;
+    if (interaction.user.id !== message.author.id) {
+      await interaction.reply({ content: french ? "Cette liste appartient à la personne qui l’a ouverte."
+        : "This list belongs to the person who opened it.", ephemeral: true });
+      return;
+    }
+    if (interaction.customId.endsWith(":cancel")) {
+      await interaction.deferUpdate();
+      collector.stop("cancelled");
+      return;
+    }
+    const index = Number(interaction.isStringSelectMenu() ? interaction.values[0] : NaN);
+    if (!Number.isInteger(index) || !favorites[index]) {
+      await interaction.reply({ content: french ? "Ce favori n’est plus disponible." : "This favorite is no longer available.",
+        ephemeral: true });
+      return;
+    }
+    await interaction.deferUpdate();
+    collector.stop("selected");
+    await prompt.edit({ content: french ? "Trajet favori sélectionné." : "Favorite journey selected.",
+      components: [], allowedMentions: { parse: [] } });
+    const favorite = favorites[index]!;
+    try {
+      await handleTransportSearch(message, { place: favorite.place, territory: favorite.territory, mode: favorite.mode },
+        language, prefix, service, 45_000, undefined, preferencesStore, favorite);
+    } catch (error) {
+      logger.warn({ err: error }, "Could not launch selected transport favorite");
+      await prompt.edit({ content: french ? "Ce favori n’a pas pu être ouvert. Relance la commande pour réessayer."
+        : "This favorite could not be opened. Run the command again to retry.",
+        components: [], allowedMentions: { parse: [] } });
+    }
+  });
+  collector.on("end", (_collected, reason) => {
+    if (reason === "time") void prompt.edit({
+      content: french ? "La sélection des favoris a expiré." : "Favorite selection expired.",
+      components: [], allowedMentions: { parse: [] },
+    }).catch(() => undefined);
+  });
 }
 
 export interface TransportSearch {
@@ -76,7 +163,8 @@ export interface TransportSearch {
 }
 export async function handleTransportSearch(
   message: Message, parsed: TransportSearch, language: string, prefix = "!", service = browser, lookupTimeoutMs = 45_000,
-  authorize?: () => Promise<boolean>,
+  authorize?: () => Promise<boolean>, preferencesStore: TransportPreferencesStore = transportPreferences,
+  favoriteToResume?: TransportFavorite,
 ): Promise<void> {
   const { mode } = parsed;
   logger.info({ mode: mode ?? "choose", runtime: process.version }, "Transport command received");
@@ -92,6 +180,9 @@ export async function handleTransportSearch(
   let direction = parsed.direction ?? "";
   let lineFilter = parsed.line ?? "";
   let selectedMode = mode;
+  const savedPreferences = await bestEffortPreference(preferencesStore.get(message.author.id), null);
+  let preferredTerritory = savedPreferences?.preferredTerritory;
+  let resumeFavorite = favoriteToResume;
   let territory: TransportTerritory | undefined = parsed.territory ?? (service.territories ? undefined : "fr");
   let stage: Stage = !territory ? "territory" : mode ? "city" : "mode";
   let networks: CatalogDataset[] = [];
@@ -118,6 +209,7 @@ export async function handleTransportSearch(
   let lastResult: TransportDepartureResult | undefined;
   let timeOptions: TransportTimeOptions = {};
   let showPreviousStops = false;
+  let favoriteNotice = "";
   let expanded = false;
   let revision = 0;
   let validControls = new Set<string>();
@@ -173,8 +265,15 @@ export async function handleTransportSearch(
   }
 
   function choices(): Choice[] {
-    if (stage === "territory") return (service.territories ?? ["fr"]).map(value => ({ value, label: TERRITORY_NAMES[value],
+    if (stage === "territory") {
+      const territories = [...(service.territories ?? ["fr"])] as TransportTerritory[];
+      if (preferredTerritory && territories.includes(preferredTerritory)) {
+        territories.splice(territories.indexOf(preferredTerritory), 1);
+        territories.unshift(preferredTerritory);
+      }
+      return territories.map(value => ({ value, label: TERRITORY_NAMES[value],
       ...(value === "en" ? { description: text("Bus BODS · métro TfL · trains en attente", "BODS buses · TfL Underground · trains pending") } : {}) }));
+    }
     if (stage === "mode") return (Object.keys(MODE_NAMES) as TransitMode[]).map((value) => ({ value, label: modeName(value, territory) }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
       description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
@@ -307,6 +406,18 @@ export async function handleTransportSearch(
       }
     }
     if (!live) return;
+    if (resumeFavorite) {
+      const favorite = resumeFavorite;
+      city = cities.find(candidate => candidate.id === favorite.cityId);
+      if (!city) {
+        stage = "error";
+        await edit(text("Le lieu exact de ce favori n’est plus disponible. Relance une recherche pour choisir un autre lieu.",
+          "The exact location for this favorite is no longer available. Start a new search to choose another place."));
+        return;
+      }
+      await afterCity();
+      return;
+    }
     if (!cities.length) {
       await cityInput();
       await prompt.edit({ content: selectedMode === "rail" && territory === "fr"
@@ -333,6 +444,18 @@ export async function handleTransportSearch(
         : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
     networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
     if (!live) return;
+    if (resumeFavorite?.networkId) {
+      const favorite = resumeFavorite;
+      const exactNetwork = networks.find(candidate => candidate.id === favorite.networkId);
+      if (!exactNetwork) {
+        stage = "error";
+        await edit(text("Le réseau exact de ce favori n’est plus disponible. Relance une recherche pour choisir un autre réseau.",
+          "The exact network for this favorite is no longer available. Start a new search to choose another network."));
+        return;
+      }
+      await selectNetwork(exactNetwork);
+      return;
+    }
     if (territory === "en" && networks.length === 1) { await selectNetwork(networks[0]!); return; }
     filter = ""; page = 0; stage = "networks";
     await render();
@@ -391,6 +514,19 @@ export async function handleTransportSearch(
           button("cancel", text("Annuler", "Cancel")))]);
       return;
     }
+    if (resumeFavorite) {
+      const favorite = resumeFavorite;
+      line = lines.find(candidate => candidate.routeId === favorite.routeId &&
+        candidate.resource.id === favorite.resourceId);
+      if (!line) {
+        stage = "error";
+        await edit(text("La ligne exacte de ce favori n’est plus publiée dans cette source. Relance une recherche pour choisir une ligne.",
+          "The exact route for this favorite is no longer published in this source. Start a new search to choose a route."));
+        return;
+      }
+      await loadOrigins();
+      return;
+    }
     const matching = lineFilter ? lines.filter((option) => lineMatches(lineFilter, [option.label, option.description, option.routeId])) : [];
     if (matching.length === 1) { line = matching[0]; await loadOrigins(); return; }
     stage = "lines"; filter = lineFilter; page = 0;
@@ -408,6 +544,18 @@ export async function handleTransportSearch(
       const available = await service.availableStops(line, index, origins, language);
       if (!live) return;
       origins = available.options; serviceNote = available.note;
+    }
+    if (resumeFavorite) {
+      const favorite = resumeFavorite;
+      origin = origins.find(group => favorite.originIds.some(id => group.ids.includes(id)));
+      if (!origin) {
+        stage = "error";
+        await edit(text("L’arrêt de départ exact de ce favori n’est plus desservi ou disponible.",
+          "The exact departure stop for this favorite is no longer served or available."));
+        return;
+      }
+      await loadArrivals();
+      return;
     }
     if (origins.length === 1) {
       origin = origins[0]!;
@@ -431,6 +579,19 @@ export async function handleTransportSearch(
       arrivals.sort((a, b) => Number(normalizeTransitText(b.label).includes(wanted)) -
         Number(normalizeTransitText(a.label).includes(wanted)));
     }
+    if (resumeFavorite) {
+      const favorite = resumeFavorite;
+      arrival = arrivals.find(group => favorite.arrivalIds.some(id => group.ids.includes(id)) &&
+        Boolean(group.viaTransfer) === Boolean(favorite.arrivalViaTransfer));
+      if (!arrival) {
+        stage = "error";
+        await edit(text("L’arrêt d’arrivée exact de ce favori n’est plus desservi ou disponible.",
+          "The exact arrival stop for this favorite is no longer served or available."));
+        return;
+      }
+      await showDepartures();
+      return;
+    }
     stage = "arrivals"; arrival = undefined; filter = ""; page = 0;
     await render();
   }
@@ -445,14 +606,20 @@ export async function handleTransportSearch(
     const result = lastResult;
     if (!live) return;
     stage = "result";
+    const favorite = favoriteForCurrentJourney();
+    const saved = favorite ? (await bestEffortPreference(preferencesStore.get(message.author.id), null))
+      ?.favorites.some(item => item.key === favorite.key) ?? false : false;
     const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("refresh", text("Actualiser", "Refresh"), ButtonStyle.Primary),
       button("return", text("Retour", "Return journey")),
       button("options", text("Options", "Options")));
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Plus d’horaires", "More times"))] : []),
-      button("previousStops", text("Arrêts avant", "Earlier stops")),
-      button("modify", text("Modifier", "Modify")),
+      ...(result.hasMore ? [button("more", expanded ? text("Réduire", "Show less") : text("Agrandir", "Expand"))] : []),
+      button("stops", showPreviousStops ? text("Masquer les arrêts", "Hide stops") : text("Arrêts", "Stops")),
+      button("modify", text("Modifier", "Modify")));
+    const tertiary = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      ...(favorite ? [button("favorite", saved ? text("Retirer ❤️", "Remove ❤️") : text("Ajouter ❤️", "Save ❤️"),
+        saved ? ButtonStyle.Success : ButtonStyle.Secondary)] : []),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));
@@ -463,21 +630,37 @@ export async function handleTransportSearch(
       : embed;
     let cardContent = city?.label ? `${city.label}\n${content}` : content;
     if (showPreviousStops) {
-      const names = selectedPreviousStops();
-      const title = text("Arrêts avant le départ", "Stops before departure");
+      const names = selectedIntermediateStops();
+      const title = text("Arrêts intermédiaires", "Intermediate stops");
       const stopText = names === undefined ? text("Le détail des arrêts n’est pas disponible pour ce trajet.",
         "Stop details are unavailable for this journey.")
         : names.length ? names.slice(0, 12).map((name, i) => `${i + 1}. ${name.slice(0, 72)}`).join("\n") +
           (names.length > 12 ? `\n… ${names.length - 12} ${text("autres arrêts", "more stops")}` : "")
-        : text("Aucun arrêt précédent publié avant votre départ.", "No earlier stops are published before your departure.");
+        : text("Aucun arrêt intermédiaire publié sur ce trajet.", "No intermediate stops are published for this journey.");
       if (cardEmbed) {
         cardEmbed = { ...cardEmbed, fields: [...(cardEmbed.fields ?? []).slice(0, 24), { name: title, value: stopText.slice(0, 1024), inline: false }] };
       } else cardContent += `\n\n**${title}**\n${stopText}`;
     }
-    await edit(cardContent, [primary, secondary], cardEmbed);
+    if (favoriteNotice) cardContent = `${favoriteNotice}\n${cardContent}`;
+    await edit(cardContent, [primary, secondary, tertiary], cardEmbed);
   }
 
-  function selectedPreviousStops(): string[] | undefined {
+  function favoriteForCurrentJourney(): TransportFavorite | null {
+    if (!territory || !selectedMode || !line || !origin || !arrival || (!city && !region)) return null;
+    const identity = [territory, selectedMode, city?.id ?? "", region?.code ?? "", network?.id ?? "",
+      line.resource.id, line.routeId, [...origin.ids].sort(), [...arrival.ids].sort(), Boolean(arrival.viaTransfer)];
+    const key = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+    return {
+      key, territory, mode: selectedMode, place: region?.name ?? city?.name ?? place,
+      ...(city ? { cityId: city.id } : {}), ...(region ? { region: region.name } : {}),
+      ...(network ? { networkId: network.id } : {}), routeId: line.routeId, resourceId: line.resource.id,
+      lineLabel: line.label, originIds: [...origin.ids], originLabel: origin.label,
+      arrivalIds: [...arrival.ids], arrivalLabel: arrival.label,
+      ...(arrival.viaTransfer ? { arrivalViaTransfer: true } : {}),
+    };
+  }
+
+  function selectedIntermediateStops(): string[] | undefined {
     if (!index || !line || !origin || !arrival) return undefined;
     const names = (feed: JourneyIndex, visits: Array<{ stopId: string }>) => visits.map(({ stopId }) => {
       const stop = feed.stops.get(stopId);
@@ -490,7 +673,7 @@ export async function handleTransportSearch(
       const visits = index.visits.get(pair.tripId) ?? [];
       const from = visits.findIndex(visit => visit.sequence === pair.origin.sequence && origin!.ids.includes(visit.stopId));
       const to = visits.findIndex(visit => visit.sequence === pair.destination.sequence && arrival!.ids.includes(visit.stopId));
-      if (from >= 0 && to > from) return names(index, visits.slice(0, from));
+      if (from >= 0 && to > from) return names(index, visits.slice(from + 1, to));
     }
     if (!arrival.viaTransfer || !index.connections) return undefined;
     try {
@@ -500,7 +683,17 @@ export async function handleTransportSearch(
       const firstVisits = index.visits.get(path.first.tripId) ?? [];
       const firstFrom = firstVisits.findIndex(visit => visit.sequence === path.first.origin.sequence &&
         origin!.ids.includes(visit.stopId));
-      return firstFrom >= 0 ? names(index, firstVisits.slice(0, firstFrom)) : undefined;
+      if (firstFrom < 0) return undefined;
+      const firstTo = firstVisits.findIndex(visit => visit.sequence === path.first.destination.sequence);
+      const secondVisits = index.connections.network.visits.get(path.second.tripId) ?? [];
+      const secondFrom = secondVisits.findIndex(visit => visit.sequence === path.second.origin.sequence);
+      const secondTo = secondVisits.findIndex(visit => visit.sequence === path.second.destination.sequence);
+      if (firstTo <= firstFrom || secondFrom < 0 || secondTo <= secondFrom) return undefined;
+      return [
+        ...names(index, firstVisits.slice(firstFrom + 1, firstTo)),
+        ...names(index.connections.network, [path.first.destination, path.second.origin]),
+        ...names(index.connections.network, secondVisits.slice(secondFrom + 1, secondTo)),
+      ].filter((name, i, all) => i === 0 || name !== all[i - 1]);
     } catch { return undefined; }
   }
 
@@ -661,6 +854,7 @@ export async function handleTransportSearch(
       if (action === "prev" || action === "next") { page += action === "next" ? 1 : -1; await render(); return; }
       if (action === "clear") { filter = ""; page = 0; await render(); return; }
       if (action === "restart") {
+        resumeFavorite = undefined;
         territory = undefined; network = undefined; city = undefined; region = undefined; line = undefined; index = undefined;
         origin = undefined; arrival = undefined; lastResult = undefined; filter = ""; page = 0;
         timeOptions = {};
@@ -673,8 +867,21 @@ export async function handleTransportSearch(
       if (action === "retry") { await loadCities(); return; }
       if (action === "refresh") { showPreviousStops = false; await showDepartures(); return; }
       if (action === "return" || action === "refreshReturn") { showPreviousStops = false; await showReturn(); return; }
-      if (action === "modify") { showPreviousStops = false; await loadOrigins(); return; }
-      if (action === "previousStops") { showPreviousStops = true; await showDepartures(false); return; }
+      if (action === "modify") { resumeFavorite = undefined; showPreviousStops = false; await loadOrigins(); return; }
+      if (action === "stops") { showPreviousStops = !showPreviousStops; await showDepartures(false); return; }
+      if (action === "favorite") {
+        const favorite = favoriteForCurrentJourney();
+        if (!favorite) return;
+        const result = await bestEffortPreference(preferencesStore.toggleFavorite(message.author.id, favorite),
+          { ok: false, saved: false });
+        favoriteNotice = result.ok
+          ? text(result.saved ? "Trajet ajouté aux favoris." : "Trajet retiré des favoris.",
+            result.saved ? "Journey saved to favorites." : "Journey removed from favorites.")
+          : text("Les favoris ne peuvent pas être enregistrés pour le moment.",
+            "Favorites cannot be saved right now.");
+        await showDepartures(false);
+        return;
+      }
       if (action === "back") {
         filter = ""; page = 0;
         if (stage === "result") { await loadArrivals(); return; }
@@ -692,6 +899,8 @@ export async function handleTransportSearch(
       if (!choices().some((choice) => choice.value === value)) return;
       if (stage === "territory") {
         territory = value as TransportTerritory;
+        preferredTerritory = territory;
+        await bestEffortPreference(preferencesStore.setPreferredTerritory(message.author.id, territory), false);
         if (selectedMode) await loadCities(); else { stage = "mode"; await render(); }
       } else if (stage === "mode") {
         if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
