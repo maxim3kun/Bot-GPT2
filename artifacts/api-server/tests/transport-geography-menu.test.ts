@@ -281,7 +281,7 @@ test("saved territory is first but every territory remains selectable", async ()
   d.cards[0]!.collector.stop("cancelled");
 });
 
-test("Mobility Database countries appear in the searchable selector and persist as the preferred territory", async () => {
+test("unverified Mobility Database countries are hidden from the territory menu", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
   s.value.territories = ["fr", "qc", "en"] as any;
   s.value.mobilityCountries = async () => [{ code: "SG", name: "Singapore" }];
@@ -290,18 +290,14 @@ test("Mobility Database countries appear in the searchable selector and persist 
   const selector = card.last.components.flatMap(row => row.components)
     .find((component: any) => component.options) as any;
   assert.deepEqual(selector.options.map((option: any) => option.value),
-    ["fr", "qc", "en", "mobility:SG"]);
-  assert.match(card.last.content!, /4 choix/);
-  assert.ok(card.custom("filter"), "the expanded country list stays searchable");
-  assert.ok(card.custom("countries"), "the picker can refresh the catalog countries");
-  await choose(card, "mobility:SG");
-  assert.match(card.last.content!, /Singapour · Mobility Database/);
-  assert.match(card.last.content!, /horaires ne seront proposés que si un flux GTFS statique ouvert/i);
-  assert.deepEqual(await store.get("owner"), { preferredTerritory: "mobility:SG", favorites: [] });
+    ["fr", "qc", "en"]);
+  assert.match(card.last.content!, /autres pays n’apparaissent qu’après vérification de lignes accessibles/i);
+  assert.equal(card.custom("countries"), undefined);
+  assert.deepEqual(await store.get("owner"), { favorites: [] });
   card.collector.stop("cancelled");
 });
 
-test("the complete Mobility country list is paginated and searchable by localized country name", async () => {
+test("large unverified Mobility directory entries do not flood country choices", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
   const codes = ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX",
@@ -309,43 +305,21 @@ test("the complete Mobility country list is paginated and searchable by localize
   s.value.mobilityCountries = async () => codes.map(code => ({ code, name: code }));
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
-  assert.match(card.last.content!, /33 choix · 1\/2/);
-  const controls = card.last.components.find(row => row.components.some(component => component.custom_id?.endsWith(":next")));
-  assert.deepEqual(controls?.components.map(component => component.label), ["←", "→", "Rechercher", "Autres pays", "Annuler"]);
-  const submitted = card.interaction("filter", {
-    isButton: () => true,
-    async showModal() {},
-    async awaitModalSubmit() {
-      return { fields: { getTextInputValue: () => "Bangladesh" }, async deferUpdate() {} };
-    },
-  });
-  await card.collector.collect(submitted.value);
-  await settle(() => card.last.content?.includes("1 choix · 1/1") ?? false);
   const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
-  assert.equal(selector.options[0].value, "mobility:BD");
-  await choose(card, "mobility:BD");
-  assert.match(card.last.content!, /Bangladesh · Mobility Database/);
+  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en"]);
+  assert.doesNotMatch(card.last.content!, /AF|Bangladesh|Mobility Database/);
   card.collector.stop("cancelled");
 });
 
-test("every Mobility country offers commune and zone entry controls", async () => {
+test("Afghanistan stays hidden until its lines are confirmed", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
   s.value.mobilityCountries = async () => [{ code: "AF", name: "Afghanistan" }];
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
-  await choose(card, "mobility:AF");
-  assert.deepEqual(card.last.components[0]?.components.map(component => component.label),
-    ["Saisir une commune", "Par zones", "Annuler"]);
-  assert.match(card.last.content!, /Afghanistan · Mobility Database/);
-  let zoneModal: any;
-  await card.collector.collect(card.interaction("zones", {
-    isButton: () => true,
-    async showModal(modal: any) { zoneModal = modal.toJSON(); },
-    async awaitModalSubmit() { return null; },
-  }).value);
-  assert.equal(zoneModal.title, "Rechercher une zone");
-  assert.equal(zoneModal.components[0].components[0].label, "Région, province ou zone");
+  assert.doesNotMatch(card.last.content!, /Afghanistan/);
+  const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en"]);
   card.collector.stop("cancelled");
 });
 

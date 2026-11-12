@@ -5,7 +5,6 @@ import { mobilityCountryCodeForTerritory, type TransportTerritory } from "./tran
 import { scanRoutesAtStops, scanRows } from "./gtfs-journey.js";
 import { parseGtfsStaticMetadata, routeTypeToMode } from "./gtfs-realtime.js";
 import type { ReferenceRoute, ReferenceStop } from "./transport-reference-tables.js";
-import type { TransitMode } from "./transport-query.js";
 import { logger } from "../lib/logger.js";
 
 const API = "https://api.mobilitydatabase.org";
@@ -44,7 +43,7 @@ type MobilityFeed = {
   latest_dataset?: MobilityDataset;
 };
 type TokenResponse = { access_token?: unknown; expiration_datetime_utc?: unknown };
-export interface MobilityCountry { code: string; name: string; modes?: TransitMode[] }
+export interface MobilityCountry { code: string; name: string }
 type MobilityLocation = {
   location_type?: unknown; name?: unknown; country_code?: unknown; country_name?: unknown;
 };

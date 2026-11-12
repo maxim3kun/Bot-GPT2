@@ -311,7 +311,7 @@ export async function handleTransportSearch(
 
   function choices(): Choice[] {
     if (stage === "territory") {
-      const territories = [
+      const territories: TransportTerritory[] = [
         ...(service.territories ?? ["fr"] as const),
       ];
       if (preferredTerritory && territories.includes(preferredTerritory)) {
