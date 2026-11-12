@@ -26,7 +26,8 @@ import { resourceVersion } from "./transport-metadata-cache.js";
 import { createHash } from "node:crypto";
 import { routeMatchesRequested } from "./transport-query.js";
 import { EnglandTransportClient } from "./england-transport.js";
-import { IrelandTransportClient, LuxembourgTransportClient, nationalSourceInfo, nationalTimezone, nationalTimezoneMatches } from "./national-gtfs-transport.js";
+import { IrelandTransportClient, LuxembourgTransportClient, NationalGtfsTransportClient, nationalSourceInfo,
+  nationalTimezone, nationalTimezoneMatches } from "./national-gtfs-transport.js";
 
 export interface TransportLine {
   routeId: string;
@@ -168,18 +169,25 @@ export class TransportBrowserClient {
   }
 
   async region(place: string, territory: TransportTerritory = "fr"): Promise<TransportRegion | null> {
+    if (territory === "ie") return (this.ireland as NationalGtfsTransportClient).region(place);
     if (territory !== "fr" || !isRegionName(place)) return null;
     const provider = this.provider as FranceTransportClient;
     if (!provider.region) throw new TransportDataError("Référentiel des régions indisponible.");
     return provider.region(place);
   }
   async regionNetworks(region: TransportRegion, mode: TransitMode) {
+    if (region.territory === "ie") {
+      const provider = this.ireland as NationalGtfsTransportClient;
+      if (!(await provider.availableModes()).includes(mode)) return [];
+      return (await provider.getCatalog()).filter(dataset => dataset.territory === "ie");
+    }
     return regionalNetworks(await this.provider.getCatalog(), region, mode);
   }
-  async regionLines(network: CatalogDataset, mode: TransitMode, requestedLine = ""): Promise<LineListing> {
+  async regionLines(network: CatalogDataset, mode: TransitMode, requestedLine = "",
+    region?: TransportRegion): Promise<LineListing> {
     const provider = this.providerFor(network.territory);
     if (!provider.referenceRoutes) throw new TransportDataError("Le catalogue des lignes de cette source est indisponible.");
-    const key = `region:${network.id}:${mode}:${normalizeTransitText(requestedLine)}`;
+    const key = `region:${region?.code ?? "fr"}:${network.id}:${mode}:${normalizeTransitText(requestedLine)}`;
     const load = async (): Promise<LineListing> => {
       const lines: TransportLine[] = [];
       let unavailable = 0;
@@ -189,14 +197,17 @@ export class TransportBrowserClient {
           (b.updated ?? "").localeCompare(a.updated ?? ""));
       for (const resource of resources) {
         try {
-          const routes = await provider.referenceRoutes!(resource);
+          const routes = region?.territory === "ie"
+            ? await (provider as NationalGtfsTransportClient).routesInRegion(resource, region, mode, requestedLine)
+            : await provider.referenceRoutes!(resource);
           for (const route of routes) if (route.mode === mode && (!requestedLine ||
             routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine))) {
             lines.push({ routeId: route.routeId, label: route.shortName || route.longName || route.routeId,
               description: route.longName || network.title, mode, nearbyStopIds: [], allStops: true, resource,
               realtime: network.resources.filter(isGtfsRealtimeResource).slice(0, 2),
               source: { name: network.title, url: network.page_url, updated: resource.updated },
-              ...(network.territory ? { territory: network.territory } : {}) });
+              ...(network.territory ? { territory: network.territory } : {}),
+              ...(region?.territory === "ie" ? { selection: { mode, routeId: route.routeId } } : {}) });
           }
           if (lines.length) break;
         } catch (error) {
@@ -209,7 +220,7 @@ export class TransportBrowserClient {
     if (!provider.metadata) return load();
     const result = await provider.metadata.staleWhileRevalidate({
       territory: network.territory ?? "fr", provider: this.metadataProvider(network.territory),
-      kind: "lineListings", source: key, version: "region-line-listing-v2",
+      kind: "lineListings", source: key, version: "region-line-listing-v3",
     }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, refresh => this.scheduleBackgroundRefresh(refresh));
     return result.stale ? { ...result.value, refreshing: true } : result.value;
   }

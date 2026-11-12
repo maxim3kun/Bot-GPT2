@@ -6,7 +6,13 @@ export interface TransportRegion {
   name: string;
   departmentCodes: string[];
   epciCodes: string[];
+  territory?: "ie" | "lu";
+  parentName?: string;
+  boundary?: GeoJsonBoundary;
 }
+export type GeoJsonBoundary =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
 export const regionName = (name: string) => normalizeTransitText(name).replace(/^r[eé]gion\s+/, "")
   .replace(/^(?:en|dans la|dans le)\s+/, "").replace(/[^a-z0-9]/g, "");
 // Recognition only. Membership and identifiers are verified with geo.api.gouv.fr.

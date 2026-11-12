@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
-import { NationalGtfsTransportClient, nationalTimezoneMatches } from "../src/discord/national-gtfs-transport.js";
+import { boundaryContains, NationalGtfsTransportClient, nationalTimezoneMatches } from "../src/discord/national-gtfs-transport.js";
+import { IRELAND_PROVINCES, IRELAND_COUNTIES, irelandCountyFromSearch, irelandCounties } from "../src/discord/ireland-regions.js";
 import { TransportBrowserClient, modeName } from "../src/discord/transport-browser.js";
 import { TransportMetadataCache } from "../src/discord/transport-metadata-cache.js";
 import { parseTransportCommand } from "../src/discord/transport-command-query.js";
@@ -29,6 +30,13 @@ function fixture(territory: "ie" | "lu") {
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input);
     if (url.includes("nominatim.openstreetmap.org/search")) {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.searchParams.get("polygon_geojson") === "1") return Response.json([{
+        name: "County Dublin", category: "boundary", type: "administrative", addresstype: "county",
+        address: { country_code: "ie", region: "Leinster" },
+        geojson: { type: "Polygon", coordinates: [[[-6.27, 53.34], [-6.25, 53.34],
+          [-6.25, 53.355], [-6.27, 53.355], [-6.27, 53.34]]] },
+      }]);
       return Response.json([{ lat: territory === "ie" ? "53.35" : "49.61",
         lon: territory === "ie" ? "-6.26" : "6.13", name: territory === "ie" ? "Dublin" : "Luxembourg",
         display_name: territory === "ie" ? "Dublin, County Dublin, Ireland" : "Luxembourg, Luxembourg",
@@ -104,6 +112,47 @@ test("Ireland's large archive is parsed with HTTP ranges, never downloaded whole
   await client.referenceStops(resource);
   assert.ok(requests.length > 2);
   assert.ok(requests.every(range => range.startsWith("bytes=")));
+});
+
+test("Ireland area browsing lists provinces and counties without treating towns as counties", () => {
+  assert.deepEqual(IRELAND_PROVINCES, ["Connacht", "Leinster", "Munster", "Ulster"]);
+  assert.equal(IRELAND_COUNTIES.length, 26);
+  assert.deepEqual(IRELAND_PROVINCES.map(province => irelandCounties(province).length), [5, 12, 6, 3]);
+  assert.equal(irelandCountyFromSearch("Cork"), undefined, "a city search must remain a city search");
+  assert.equal(irelandCountyFromSearch("County Cork")?.code, "IE-CO");
+});
+
+test("Irish county routes are filtered by stops inside the verified boundary", async () => {
+  const { client } = fixture("ie");
+  const dataset = (await client.getCatalog())[0]!;
+  const region = client.region("County Dublin");
+  assert.equal(region?.parentName, "Leinster");
+  assert.equal(region?.territory, "ie");
+  const routes = await client.routesInRegion(dataset.resources[0]!, region!, "bus");
+  assert.deepEqual(routes.map(route => route.routeId), ["B1"]);
+  assert.deepEqual(routes[0]!.stopIds, ["A"]);
+
+  const browser = new TransportBrowserClient(undefined, () => NOW, undefined, undefined, undefined, client);
+  const networks = await browser.regionNetworks(region!, "bus");
+  const listing = await browser.regionLines(networks[0]!, "bus", "", region!);
+  assert.equal(listing.lines.length, 1);
+  assert.equal(listing.lines[0]!.selection?.routeId, "B1");
+  const index = await browser.index(listing.lines[0]!);
+  assert.ok(index.stops.has("B"), "choosing a county lists the line, but keeps its stops outside the county too");
+});
+
+test("boundary containment handles polygons, holes, and multiple disjoint parts", () => {
+  const polygon = { type: "Polygon" as const, coordinates: [[
+    [0, 0], [10, 0], [10, 10], [0, 10], [0, 0],
+  ], [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]]] };
+  assert.equal(boundaryContains(polygon, 2, 2), true);
+  assert.equal(boundaryContains(polygon, 5, 5), false);
+  assert.equal(boundaryContains(polygon, 12, 5), false);
+  const multi = { type: "MultiPolygon" as const, coordinates: [
+    [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+    [[[3, 3], [4, 3], [4, 4], [3, 4], [3, 3]]],
+  ] };
+  assert.equal(boundaryContains(multi, 3.5, 3.5), true);
 });
 
 test("territory prefixes and mode labels include Ireland and Luxembourg", () => {

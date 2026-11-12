@@ -75,6 +75,40 @@ test("the train city prompt does not show an irrelevant timetable disclaimer", a
   card.collector.stop("cancelled");
 });
 
+test("Ireland keeps city search and adds province then county browsing", async () => {
+  const d = fakeDiscord(), s = service();
+  const network = { id: "ie:national-gtfs", title: "National Transport Authority · Ireland",
+    page_url: "https://data.gov.ie/dataset/nta-gtfs", territory: "ie",
+    resources: [{ id: 11, title: "GTFS", format: "GTFS", is_available: true,
+      url: "https://www.transportforireland.ie/transitData/Data/GTFS_All.zip" }] };
+  const route = { label: "B1", routeId: "B1", description: "City Bus", mode: "bus",
+    nearbyStopIds: [], source: { name: network.title, url: network.page_url }, resource: network.resources[0] };
+  s.value.territories = ["fr", "qc", "en", "ie", "lu"] as any;
+  s.value.region = async (place: string, territory: string) => place === "County Dublin" && territory === "ie"
+    ? { code: "IE-D", name: "County Dublin", parentName: "Leinster", territory: "ie",
+      departmentCodes: [], epciCodes: [] } as any : null;
+  s.value.regionNetworks = async () => [network] as any;
+  s.value.regionLines = async (_network: unknown, _mode: string, _line: string, region: any) => {
+    assert.equal(region.code, "IE-D");
+    return { lines: [{ ...route, territory: "ie" }], unavailable: 0, networkScoped: true } as any;
+  };
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  await choose(card, "ie");
+  assert.ok(card.custom("city"), "the direct place-search path remains available");
+  assert.ok(card.custom("zones"), "the regional-browsing path is available too");
+  await click(card, "zones");
+  assert.match(card.last.content!, /Choisis une province irlandaise/);
+  await choose(card, "Leinster");
+  assert.match(card.last.content!, /Choisis un comté/);
+  const countySelect = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
+  assert.equal(countySelect.options.length, 12);
+  await choose(card, "IE-D");
+  assert.match(card.last.content!, /County Dublin/);
+  assert.match(card.last.content!, /Choisis une ligne/);
+  card.collector.stop("cancelled");
+});
+
 test("a uniquely resolved French metro city skips the territory prompt", async () => {
   const d = fakeDiscord(), s = service();
   s.value.inferTerritory = async (place: string) => place === "Paris" ? "fr" : undefined;

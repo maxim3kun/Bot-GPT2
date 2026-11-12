@@ -10,6 +10,8 @@ import { referenceTable, type ReferenceRoute, type ReferenceStop } from "./trans
 import type { TransportProvider, TransportTerritory } from "./transport-provider.js";
 import type { TransitMode } from "./transport-query.js";
 import { routeTypeToMode, type GtfsRouteAtStops } from "./gtfs-realtime.js";
+import type { TransportRegion, GeoJsonBoundary } from "./transport-regions.js";
+import { irelandCountyFromSearch, irelandCountyByCode } from "./ireland-regions.js";
 
 type IrelandPackage = {
   success?: boolean;
@@ -22,7 +24,8 @@ type LuxembourgDataset = {
   title?: string; license?: string; page?: string; resources?: Array<{ title?: string; url?: string; filesize?: number }>;
 };
 type GeocodeResult = { lat?: string; lon?: string; name?: string; display_name?: string; class?: string; type?: string;
-  category?: string; address?: { county?: string; state?: string; city?: string; town?: string; village?: string } };
+  category?: string; addresstype?: string; osm_type?: string; osm_id?: number; geojson?: unknown;
+  address?: { county?: string; state?: string; region?: string; country_code?: string; city?: string; town?: string; village?: string } };
 type NationalConfig = {
   territory: "ie" | "lu"; provider: "nta" | "atp"; timezone: string; title: string; page: string;
   licence: string; bounds: Bounds; resourceName: string; feedHost: string; feedPathPrefix: string;
@@ -62,6 +65,95 @@ function queueGeocode<T>(load: () => Promise<T>): Promise<T> {
   });
   geocodeQueue = request.catch(() => undefined);
   return request;
+}
+
+function validBoundary(value: unknown): value is GeoJsonBoundary {
+  if (!value || typeof value !== "object") return false;
+  const geometry = value as { type?: unknown; coordinates?: unknown };
+  const polygons = geometry.type === "Polygon" ? [geometry.coordinates] :
+    geometry.type === "MultiPolygon" ? geometry.coordinates : null;
+  if (!Array.isArray(polygons) || polygons.length > 10_000) return false;
+  let points = 0;
+  return polygons.every(polygon => Array.isArray(polygon) && polygon.length > 0 &&
+    polygon.every(ring => Array.isArray(ring) && ring.length >= 4 && ring.every(point => {
+      points++;
+      return points <= 200_000 && Array.isArray(point) && point.length >= 2 &&
+        Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90;
+    })));
+}
+
+type PreparedRing = { points: number[][]; minX: number; maxX: number; minY: number; maxY: number };
+function prepareRing(points: number[][]): PreparedRing {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const point of points) {
+    minX = Math.min(minX, point[0]!); maxX = Math.max(maxX, point[0]!);
+    minY = Math.min(minY, point[1]!); maxY = Math.max(maxY, point[1]!);
+  }
+  return { points, minX, maxX, minY, maxY };
+}
+function insideRing(ring: PreparedRing, longitude: number, latitude: number): boolean {
+  if (longitude < ring.minX || longitude > ring.maxX || latitude < ring.minY || latitude > ring.maxY) return false;
+  let inside = false;
+  const points = ring.points;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [xi, yi] = points[i]!, [xj, yj] = points[j]!;
+    const cross = (longitude - xi!) * (yj! - yi!) - (latitude - yi!) * (xj! - xi!);
+    if (Math.abs(cross) < 1e-10 && longitude >= Math.min(xi!, xj!) && longitude <= Math.max(xi!, xj!) &&
+      latitude >= Math.min(yi!, yj!) && latitude <= Math.max(yi!, yj!)) return true;
+    if ((yi! > latitude) !== (yj! > latitude) &&
+      longitude < (xj! - xi!) * (latitude - yi!) / (yj! - yi!) + xi!) inside = !inside;
+  }
+  return inside;
+}
+
+type PreparedPolygon = { outer: PreparedRing; holes: PreparedRing[] };
+function prepareBoundary(boundary: GeoJsonBoundary): PreparedPolygon[] {
+  const polygons = boundary.type === "Polygon" ? [boundary.coordinates] : boundary.coordinates;
+  return polygons.flatMap(polygon => {
+    const [outer, ...holes] = polygon.map(prepareRing);
+    return outer ? [{ outer, holes }] : [];
+  });
+}
+function insideBoundary(polygons: PreparedPolygon[], latitude: number, longitude: number): boolean {
+  return polygons.some(polygon => insideRing(polygon.outer, longitude, latitude) &&
+    !polygon.holes.some(hole => insideRing(hole, longitude, latitude)));
+}
+
+/** GeoJSON boundaries are used only to scope public stops; no centroid approximation. */
+export function boundaryContains(boundary: GeoJsonBoundary, latitude: number, longitude: number): boolean {
+  return insideBoundary(prepareBoundary(boundary), latitude, longitude);
+}
+
+async function boundedJson<T>(response: Response, maximumBytes: number): Promise<T> {
+  const length = Number(response.headers.get("content-length"));
+  if (Number.isFinite(length) && length > maximumBytes) {
+    await response.body?.cancel();
+    throw new TransportDataError("La limite de taille des limites administratives est dépassée.");
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maximumBytes) throw new TransportDataError("La limite de taille des limites administratives est dépassée.");
+    try { return JSON.parse(text) as T; }
+    catch { throw new TransportDataError("La géométrie administrative est illisible."); }
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel();
+        throw new TransportDataError("La limite de taille des limites administratives est dépassée.");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally { reader.releaseLock(); }
+  try { return JSON.parse(Buffer.concat(chunks, total).toString("utf8")) as T; }
+  catch { throw new TransportDataError("La géométrie administrative est illisible."); }
 }
 
 /** National static GTFS sources only. ZIP entries are read with bounded HTTP ranges;
@@ -385,6 +477,72 @@ export class NationalGtfsTransportClient implements TransportProvider {
       for (const route of await this.routeTable(resource)) if (route.mode) modes.add(route.mode);
     }
     return [...modes].sort((a, b) => a.localeCompare(b));
+  }
+
+  region(place: string): TransportRegion | null {
+    if (this.territory !== "ie") return null;
+    const county = irelandCountyFromSearch(place);
+    return county ? { code: county.code, name: county.osmName, parentName: county.province,
+      territory: "ie", departmentCodes: [], epciCodes: [] } : null;
+  }
+
+  private async countyBoundary(region: TransportRegion): Promise<GeoJsonBoundary> {
+    if (this.territory !== "ie" || region.territory !== "ie") {
+      throw new TransportDataError("Les limites par comté ne sont pas disponibles pour ce territoire.");
+    }
+    const county = irelandCountyByCode(region.code);
+    if (!county) throw new TransportDataError("Le comté choisi n’est pas reconnu dans le référentiel irlandais.");
+    return queueGeocode(async () => {
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("q", `${county.osmName}, Ireland`);
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("polygon_geojson", "1");
+      url.searchParams.set("limit", "3");
+      url.searchParams.set("countrycodes", "ie");
+      const response = await this.fetcher(url.href, {
+        headers: { accept: "application/json", "user-agent": "MaximeGPT public transport/1.0" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new TransportDataError("Les limites du comté sont temporairement indisponibles.");
+      const results = await boundedJson<GeocodeResult[]>(response, 3 * 1024 * 1024);
+      if (!Array.isArray(results)) throw new TransportDataError("Le référentiel des comtés est illisible.");
+      const result = results.find(item => normalizeTransitText(item.name ?? "") === normalizeTransitText(county.osmName) &&
+        (item.category ?? item.class) === "boundary" && item.type === "administrative" &&
+        item.addresstype === "county" && item.address?.country_code === "ie" &&
+        normalizeTransitText(item.address.region ?? "") === normalizeTransitText(county.province));
+      if (!result || !validBoundary(result.geojson)) {
+        throw new TransportDataError(`La limite officielle de ${county.osmName} n’a pas pu être vérifiée.`);
+      }
+      return result.geojson;
+    });
+  }
+
+  async routesInRegion(resource: CatalogResource, region: TransportRegion, mode: TransitMode, requestedLine = ""):
+    Promise<GtfsRouteAtStops[]> {
+    if (region.territory !== this.territory || this.territory !== "ie") {
+      throw new TransportDataError("Le découpage par zones n’est pas disponible pour cette source.");
+    }
+    const stopCollection = await this.metadata.get<StopCollection>({
+      territory: this.territory, provider: this.config.provider, kind: "nearby",
+      source: `county-stops:${resource.id}:${region.code}`, version: resourceVersion(resource),
+    }, 24 * 60 * 60_000, async () => {
+      const boundary = await this.countyBoundary(region);
+      const preparedBoundary = prepareBoundary(boundary);
+      const stops = await this.stopTable(resource);
+      return { features: stops.filter(stop => ![2, 3, 4].includes(stop.type) &&
+        insideBoundary(preparedBoundary, stop.latitude, stop.longitude)).map(stop => ({
+          properties: { resource_id: resource.id, stop_id: stop.id, stop_name: stop.name, location_type: stop.type },
+        })) };
+    });
+    const stopIds = new Set((stopCollection.features ?? []).flatMap(feature =>
+      feature.properties?.stop_id ? [feature.properties.stop_id] : []));
+    if (!stopIds.size) return [];
+    return this.metadata.get<GtfsRouteAtStops[]>({
+      territory: this.territory, provider: this.config.provider, kind: "routes",
+      source: `county-routes:${resource.id}:${region.code}:${mode}:${normalizeTransitText(requestedLine)}`,
+      version: resourceVersion(resource),
+    }, 60 * 60_000, () => this.discoverRoutesAtStops(resource, stopIds, mode, requestedLine));
   }
 }
 

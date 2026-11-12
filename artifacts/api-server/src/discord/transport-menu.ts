@@ -19,11 +19,12 @@ import { parseTransportCommand } from "./transport-command-query.js";
 import type { TransportRegion } from "./transport-regions.js";
 import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
+import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode } from "./ireland-regions.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient();
 const active = new Map<string, () => void>();
-type Stage = "territory" | "mode" | "city" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
+type Stage = "territory" | "mode" | "city" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
 
 function compareRouteNumbers(a: TransportLine, b: TransportLine) {
@@ -189,6 +190,7 @@ export async function handleTransportSearch(
   let networks: CatalogDataset[] = [];
   let network: CatalogDataset | undefined;
   let region: TransportRegion | undefined;
+  let province = "";
   let city: TransportLocation | undefined;
   let cities: TransportLocation[] = [];
   let lines: TransportLine[] = [];
@@ -251,6 +253,9 @@ export async function handleTransportSearch(
 
   async function cityInput() {
     stage = "city";
+    const cityButtons = [button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary)];
+    if (territory === "ie") cityButtons.push(button("zones", text("Par zones", "Browse areas")));
+    cityButtons.push(button("cancel", text("Annuler", "Cancel")));
     await edit(`**Transport · ${territory ? TERRITORY_NAMES[territory] : ""}**\n` + (territory === "en"
       ? selectedMode === "rail" ? text("Trains anglais : accès National Rail en attente de validation. Les bus et le métro londonien restent disponibles.",
           "English trains: National Rail access awaits approval. Buses and the London Underground remain available.")
@@ -263,9 +268,7 @@ export async function handleTransportSearch(
       ? text("Indique une localité québécoise. Les homonymes seront proposés avec leur région.", "Enter a Québec locality. Matching places include their region.")
       : text("Indique une région (ex. Normandie), une ville ou gare, un département (ex. 60) ou un code postal (ex. 60000).",
           "Enter a region (e.g. Normandie), city or station, department (e.g. 60) or postal code (e.g. 60000).")),
-     [new ActionRowBuilder<ButtonBuilder>().addComponents(
-       button("city", text("Saisir une commune", "Enter a city"), ButtonStyle.Primary),
-       button("cancel", text("Annuler", "Cancel")))]);
+      [new ActionRowBuilder<ButtonBuilder>().addComponents(...cityButtons)]);
   }
 
   function choices(): Choice[] {
@@ -280,6 +283,10 @@ export async function handleTransportSearch(
     }
     if (stage === "mode") return (availableModes ?? Object.keys(MODE_NAMES) as TransitMode[])
       .map((value) => ({ value, label: modeName(value, territory) }));
+    if (stage === "provinces") return IRELAND_PROVINCES.map(value => ({ value, label: value }));
+    if (stage === "counties") return irelandCounties(province).map(value => ({
+      value: value.code, label: `${value.name} · ${value.province}`,
+    }));
     if (stage === "networks") return networks.map((d, i) => ({ value: String(i), label: d.title,
       description: /agr[eé]gat/i.test(d.title) ? text("Source agrégée · peut recouvrir les réseaux listés", "Aggregate source · may overlap listed networks")
         : d.resources.length ? text("Source officielle · horaires selon disponibilité", "Official source · timetables where available")
@@ -301,6 +308,8 @@ export async function handleTransportSearch(
     const titles: Partial<Record<Stage, string>> = {
       territory: text("Choisis le territoire", "Choose the territory"),
       mode: text("Choisis un moyen de transport", "Choose a transport mode"),
+      provinces: text("Choisis une province irlandaise", "Choose an Irish province"),
+      counties: text("Choisis un comté", "Choose a county"),
       networks: text("Choisis un réseau", "Choose a network"),
       cities: cities.length && cities.every(c => c.kind === "station")
         ? text("Quelle gare de départ ?", "Which departure station?") : text("Quelle commune de départ ?", "Which departure city?"),
@@ -310,7 +319,7 @@ export async function handleTransportSearch(
       arrivals: selectedMode === "metro" ? text("Choisis ta station d’arrivée", "Choose your arrival station")
         : text("Choisis ton arrêt d’arrivée", "Choose your arrival stop"),
     };
-    const context = [territory ? TERRITORY_NAMES[territory] : "", region?.name, city?.label,
+    const context = [territory ? TERRITORY_NAMES[territory] : "", region?.parentName ?? province, region?.name, city?.label,
       network?.title, selectedMode ? modeName(selectedMode, territory) : "", line ? `${text("Ligne", "Route")} ${line.label}` : "",
       origin ? `${text("Départ", "From")} : ${origin.label}` : ""].filter(Boolean).join(" · ");
     const rows: Array<ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>> = [];
@@ -341,9 +350,17 @@ export async function handleTransportSearch(
       (index?.connections?.limited ? text("\nListe partielle : limite de lignes atteinte.", "\nPartial list: route limit reached.") : "") +
       (index?.connectionsUnavailable && !line?.selection ? text("\nRecherche des correspondances indisponible ou trop volumineuse : seuls les trajets directs sont proposés.",
         "\nTransfer search unavailable or too large: only direct journeys are offered.") : "") : "";
-    const regionalNote = region && stage === "networks" ? text(
-      "\nSources publiées pour cette région. Les agrégats peuvent recouvrir les réseaux opérateurs. Choisis une source pour voir ses lignes; les passages seront vérifiés après le choix des arrêts.",
-      "\nPublished sources for this region. Aggregates may overlap operator networks. Choose a source to see its routes; departures are checked after stop selection.") : "";
+    const regionalNote = region && (stage === "networks" || stage === "lines")
+      ? region.territory === "ie"
+        ? text("\nLignes avec au moins un arrêt dans ce comté; horaires ensuite proposés sur toute la ligne. Limites © OpenStreetMap.",
+          "\nRoutes with at least one stop in this county; the timetable is then available for the whole route. Boundaries © OpenStreetMap.")
+        : text(
+          "\nSources publiées pour cette région. Les agrégats peuvent recouvrir les réseaux opérateurs. Choisis une source pour voir ses lignes; les passages seront vérifiés après le choix des arrêts.",
+          "\nPublished sources for this region. Aggregates may overlap operator networks. Choose a source to see its routes; departures are checked after stop selection.")
+      : "";
+    const zoneNote = stage === "counties" ? text(
+      "\nComtés de la République d’Irlande uniquement · © OpenStreetMap contributors.",
+      "\nRepublic of Ireland counties only · © OpenStreetMap contributors.") : "";
     const countLabel = stage === "lines"
       ? matching.length === 1 ? text("ligne", "route") : text("lignes", "routes")
       : stage === "origins" || stage === "arrivals" ? selectedMode === "metro"
@@ -353,7 +370,7 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (territory === "ie" || territory === "lu") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (territory === "ie" || territory === "lu") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
   }
 
   async function loadModeChoices() {
@@ -395,7 +412,8 @@ export async function handleTransportSearch(
         text("La recherche n’a pas abouti à temps ou une source est indisponible. Tu peux réessayer; aucune ligne ne sera inventée.",
          "The lookup timed out or a source is unavailable. You can retry; routes will not be invented."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("retry", text("Réessayer", "Retry")),
-         button("city", text("Changer de commune", "Change city")),
+          button(region?.territory === "ie" ? "zones" : "city",
+            region?.territory === "ie" ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }
@@ -403,12 +421,14 @@ export async function handleTransportSearch(
   async function loadCities() {
     if (!live) return;
     line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined; region = undefined;
+    province = "";
     if (!place) { await cityInput(); return; }
     if (typeof service.region === "function") {
       const scope = await service.region(place, territory);
       if (!live) return;
       if (scope) {
         region = scope;
+        province = scope.parentName ?? "";
         if (!selectedMode) { stage = "mode"; await render(); return; }
         await loadNetworks(); return;
       }
@@ -470,6 +490,19 @@ export async function handleTransportSearch(
         : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
     networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
     if (!live) return;
+    if (!networks.length && region?.territory === "ie") {
+      stage = "error";
+      await edit(`**${region.name}**\n${text(
+        `Aucune source irlandaise ne publie le mode ${modeName(selectedMode, territory)} pour cette zone.`,
+        `No Irish source publishes ${modeName(selectedMode, territory)} for this area.`,
+      )}`,
+      [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        button("back", text("Changer de mode", "Change mode")),
+        button("zones", text("Changer de zone", "Change area")),
+        button("cancel", text("Annuler", "Cancel")),
+      )]);
+      return;
+    }
     if (resumeFavorite?.networkId) {
       const favorite = resumeFavorite;
       const exactNetwork = networks.find(candidate => candidate.id === favorite.networkId);
@@ -507,7 +540,7 @@ export async function handleTransportSearch(
       ? text("Recherche des stations de métro…", "Looking up metro stations…")
       : text("Chargement des lignes…", "Loading routes…");
     await edit(`**${location}**${selectedMode === "metro" && lineFilter ? ` · **${modeName(selectedMode, territory)} ${lineFilter}**` : ""}\n${loading}`);
-    const result = region && network ? await service.regionLines(network, selectedMode, lineFilter)
+    const result = region && network ? await service.regionLines(network, selectedMode, lineFilter, region)
       : await service.lines(city!, selectedMode, lineFilter, network?.id);
     if (!live) return;
     lines = [...result.lines].sort(compareRouteNumbers);
@@ -535,8 +568,10 @@ export async function handleTransportSearch(
           "No matching route was found in this source. Try another source or clear the route filter.")
           : text("Aucune ligne de ce mode n’a été repérée dans les données ouvertes près du centre de cette commune.",
           "No routes of this mode were found in open data near this city centre.")}`,
-      [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
-         button("city", text("Changer de commune", "Change city")), button("retry", text("Réessayer", "Retry")),
+       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
+          button(region?.territory === "ie" ? "zones" : "city",
+            region?.territory === "ie" ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
+          button("retry", text("Réessayer", "Retry")),
           button("cancel", text("Annuler", "Cancel")))]);
       return;
     }
@@ -839,6 +874,7 @@ export async function handleTransportSearch(
     try { await submitted.deferUpdate(); } catch (error) { busy = false; throw error; }
     if (cityEntry) {
       place = submitted.fields.getTextInputValue("value").trim(); lineFilter = ""; direction = "";
+      province = "";
       await run(loadCities);
     } else {
       filter = submitted.fields.getTextInputValue("value").trim(); page = 0;
@@ -890,6 +926,9 @@ export async function handleTransportSearch(
       if (action === "networks" && (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
+      if (action === "zones" && territory === "ie") {
+        province = ""; filter = ""; page = 0; stage = "provinces"; await render(); return;
+      }
       if (action === "refresh") { showPreviousStops = false; await showDepartures(); return; }
       if (action === "return" || action === "refreshReturn") { showPreviousStops = false; await showReturn(); return; }
       if (action === "modify") { resumeFavorite = undefined; showPreviousStops = false; await loadOrigins(); return; }
@@ -912,8 +951,15 @@ export async function handleTransportSearch(
         if (stage === "result") { await loadArrivals(); return; }
         if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
         if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
+        if (stage === "counties") { stage = "provinces"; province = ""; await render(); return; }
+        if (stage === "provinces") { await cityInput(); return; }
         if (stage === "lines" && (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu" || region)) { stage = "networks"; network = undefined; await render(); return; }
-        if (stage === "networks" && region) { region = undefined; await cityInput(); return; }
+        if (stage === "networks" && region) {
+          region = undefined;
+          if (territory === "ie" && province) { stage = "counties"; await render(); }
+          else await cityInput();
+          return;
+        }
         if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
         if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
         if (stage === "lines" && cities.length > 1) { stage = "cities"; city = undefined; line = undefined; await render(); return; }
@@ -924,6 +970,7 @@ export async function handleTransportSearch(
       if (!choices().some((choice) => choice.value === value)) return;
       if (stage === "territory") {
         territory = value as TransportTerritory;
+        province = "";
         preferredTerritory = territory;
         await bestEffortPreference(preferencesStore.setPreferredTerritory(message.author.id, territory), false);
         if (selectedMode) await loadCities(); else { stage = "mode"; if (await loadModeChoices()) await render(); }
@@ -931,6 +978,17 @@ export async function handleTransportSearch(
         if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
         selectedMode = value as TransitMode;
         await loadCities();
+      } else if (stage === "provinces") {
+        province = value;
+        filter = ""; page = 0; stage = "counties"; await render();
+      } else if (stage === "counties") {
+        const county = irelandCountyByCode(value);
+        if (!county) throw new TransportDataError("Le comté sélectionné n’est plus disponible.");
+        place = county.osmName;
+        lineFilter = ""; direction = "";
+        region = await service.region?.(county.osmName, "ie") ?? undefined;
+        if (!region) throw new TransportDataError("La limite de ce comté n’a pas pu être vérifiée.");
+        await loadNetworks();
       } else if (stage === "cities") {
         city = cities[Number(value)]; await afterCity();
       } else if (stage === "networks") {
