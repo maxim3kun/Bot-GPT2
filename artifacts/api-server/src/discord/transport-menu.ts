@@ -344,8 +344,10 @@ export async function handleTransportSearch(
     lines = [...result.lines].sort(compareRouteNumbers);
     logger.info({ cityId: city?.id, regionCode: region?.code, mode: selectedMode, routes: lines.length, unavailable: result.unavailable },
       "Transport routes loaded");
-    listingNote = result.unavailable ? text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
-      "\nSome network sources could not be loaded; this list may be incomplete.") : "";
+    listingNote = result.refreshing ? text("\nListe en cache; mise à jour des lignes en arrière-plan.",
+      "\nShowing cached lines while a background update runs.") : "";
+    if (result.unavailable) listingNote += text("\nCertains réseaux n’ont pas pu être chargés; cette liste peut être incomplète.",
+      "\nSome network sources could not be loaded; this list may be incomplete.");
     if (result.issues?.length) listingNote += `\n${result.issues.join("\n").slice(0, 500)}`;
     if (result.centerFallback) listingNote += text("\nRepère du centre-ville indisponible : recherche autour du point géographique de la commune; liste potentiellement incomplète.",
       "\nTown-centre reference unavailable: searching around the municipality's geographic point; results may be incomplete.");
@@ -434,7 +436,10 @@ export async function handleTransportSearch(
       button("cancel", text("Fermer", "Close")));
     const embed = expanded ? result.expandedEmbed ?? result.embed : result.embed;
     const content = expanded ? result.expandedContent ?? result.content : result.content;
-    await edit(embed ? content : `${city?.label ?? ""}\n${content}`, [primary, secondary], embed);
+    const cardEmbed = embed && arrival?.viaTransfer && city?.label
+      ? { ...embed, description: `${city.label}\n\n${embed.description ?? ""}`.slice(0, 4096) }
+      : embed;
+    await edit(city?.label ? `${city.label}\n${content}` : content, [primary, secondary], cardEmbed);
   }
 
   async function showReturn() {

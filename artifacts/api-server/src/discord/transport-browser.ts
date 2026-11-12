@@ -9,7 +9,7 @@ import {
 } from "./gtfs-journey.js";
 import { logger } from "../lib/logger.js";
 import { addConnections, connectionPaths } from "./gtfs-connections.js";
-import { connectedJourneys, formatConnections } from "./transport-connections.js";
+import { connectedJourneys, connectionCards } from "./transport-connections.js";
 import { departureCards } from "./transport-presentation.js";
 import { withArrivalApproximations } from "./transport-arrivals.js";
 import type { APIEmbed } from "discord.js";
@@ -42,7 +42,8 @@ export interface TransportLine {
   allStops?: boolean;
 }
 export interface StopGroup { label: string; ids: string[]; viaTransfer?: boolean }
-export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean; issues?: string[]; centerFallback?: boolean }
+export interface LineListing { lines: TransportLine[]; unavailable: number; targeted?: boolean; networkScoped?: boolean;
+  issues?: string[]; centerFallback?: boolean; refreshing?: boolean }
 export interface TransportDepartureResult {
   content: string;
   source: TransportSource;
@@ -241,6 +242,19 @@ export class TransportBrowserClient {
     try { return await request; } finally { this.queuedScans--; }
   }
 
+  private scheduleBackgroundRefresh(refresh: () => void) {
+    const attempt = () => {
+      if (this.queuedScans > 0) {
+        const retry = setTimeout(attempt, 5_000);
+        retry.unref?.();
+        return;
+      }
+      refresh();
+    };
+    const timer = setTimeout(attempt, 2_000);
+    timer.unref?.();
+  }
+
   cities(place: string, territory: TransportTerritory = "fr", mode?: TransitMode | null): Promise<TransportLocation[]> {
     if (territory === "en") return this.england.cities(place, mode);
     if (territory === "fr" && mode === "rail" && this.provider.railLocations) return this.provider.railLocations(place);
@@ -268,11 +282,32 @@ export class TransportBrowserClient {
     if (cached && cached.expires > this.now()) return cached.value;
     const pending = this.pending.get(key);
     if (pending) return pending as Promise<LineListing>;
-    const work = this.loadLines(city, mode, requestedLine, networkId).then((value) => {
+    const work = (async () => {
+      let previous: LineListing | undefined;
+      const load = async () => {
+        const value = await this.loadLines(city, mode, requestedLine, networkId);
+        if (!previous || !value.unavailable) return value;
+        const known = new Set(value.lines.map((line) => `${line.resource.id}:${line.routeId}`));
+        return { ...value, lines: [...value.lines,
+          ...previous.lines.filter((line) => !known.has(`${line.resource.id}:${line.routeId}`))] };
+      };
+      let value: LineListing;
+      let stale = false;
+      const provider = this.providerFor(city.territory);
+      if (city.territory !== "en" && provider.metadata) {
+        const result = await provider.metadata.staleWhileRevalidate({
+          territory: city.territory ?? "fr", provider: city.territory === "qc" ? "donneesquebec" : "pan",
+          kind: "lineListings", source: key, version: "line-listing-v1",
+        }, 15 * 60_000, 7 * 24 * 60 * 60_000, load, (refresh) => this.scheduleBackgroundRefresh(refresh));
+        value = result.value;
+        stale = result.stale;
+        previous = value;
+      } else value = await load();
+      const displayed = stale ? { ...value, refreshing: true } : value;
       if (this.listings.size >= 20) this.listings.delete(this.listings.keys().next().value!);
-      this.listings.set(key, { value, expires: this.now() + (value.lines.length ? 15 * 60_000 : 30_000) });
-      return value;
-    }).finally(() => this.pending.delete(key));
+      this.listings.set(key, { value: displayed, expires: this.now() + (stale ? 10_000 : displayed.lines.length ? 15 * 60_000 : 30_000) });
+      return displayed;
+    })().finally(() => this.pending.delete(key));
     this.pending.set(key, work);
     return work;
   }
@@ -502,7 +537,7 @@ export class TransportBrowserClient {
         }
       }))).filter((feed): feed is Uint8Array => feed !== null);
       const journeys = connectedJourneys(index, origin, arrival, now, feeds);
-      return { content: formatConnections(line, index, origin, arrival, journeys, language,
+      return { ...connectionCards(line, index, origin, arrival, journeys, language,
         !journeys.length || journeys.some((journey) => !journey.first.realtime || !journey.second.realtime)), source: line.source };
     }
     const pairs = journeyPairs(index, new Set(origin.ids), new Set(arrival.ids));

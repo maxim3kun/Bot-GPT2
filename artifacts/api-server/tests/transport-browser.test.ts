@@ -545,11 +545,15 @@ test("a published bus to metro transfer exposes the destination and renders both
   assert.equal(journeys.length, 1);
   assert.equal(journeys[0]!.second.departureAt - journeys[0]!.first.arrivalAt!, 300);
   const result = await client.departures(line, index, connectionOrigin, arrival, "fr");
-  assert.match(result.content, /Bus 601.*08:10.*08:20/);
-  assert.match(result.content, /Métro A.*08:25.*08:35/);
-  assert.match(result.content, /minimum officiel 180 s/);
+  assert.match(result.content, /Bus 601/); assert.match(result.content, /08:10.*08:20/);
+  assert.match(result.content, /Métro A/); assert.match(result.content, /08:25.*08:35/);
+  assert.match(result.content, /minimum officiel 3 min/);
   assert.match(result.content, /théorique/);
   assert.match(result.content, /ne garantissent pas/);
+  assert.ok(result.embed, "one-transfer journeys should use the same visual card as direct departures");
+  assert.match(result.embed!.title!, /Breteuil Centre → Jean Jaurès/);
+  assert.match(JSON.stringify(result.embed!.fields), /Changement à/);
+  assert.doesNotMatch(JSON.stringify(result.embed!.fields), /O → O/);
   assert.equal(result.source.url, line.source.url);
   assert.ok(result.content.length < 1900);
 });
@@ -677,11 +681,11 @@ test("Discord can select an arrival on a second line and refresh the complete it
   const option = ui.find("choose").options.find((choice: any) => choice.label === "Jean Jaurès");
   assert.match(option.description, /correspondance/);
   await ui.click("choose", option.value);
-  await until(() => ui.prompt.content.includes("minimum officiel"));
-  assert.match(ui.prompt.content, /Oise/);
-  assert.match(ui.prompt.content, /Métro A/);
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("minimum officiel"));
+  assert.match(JSON.stringify(ui.prompt.embeds), /Oise/);
+  assert.match(JSON.stringify(ui.prompt.embeds), /Métro A/);
   await ui.click("refresh");
-  await until(() => ui.prompt.content.includes("minimum officiel"));
+  await until(() => JSON.stringify(ui.prompt.embeds).includes("minimum officiel"));
   await ui.click("modify");
   await until(() => ui.prompt.content.includes("arrêt d’arrivée"));
   ui.collector.stop("cancelled");
@@ -709,8 +713,10 @@ test("a transfer with a fresh second leg retains and labels the first leg as the
   line.realtime = [{ ...line.resource, id: 3, format: "gtfs-rt" }];
   client.provider.realtimeFeed = async () => liveConnections({ onlySecond: true });
   const result = await client.departures(line, index, connectionOrigin, connectionArrival, "fr");
-  assert.match(result.content, /Bus 601.*\[théorique\]/);
-  assert.match(result.content, /Métro A.*\[temps réel\]/);
+  assert.match(result.content, /Bus 601/);
+  assert.match(result.content, /08:10.*théorique/);
+  assert.match(result.content, /Métro A/);
+  assert.match(result.content, /08:25.*temps réel/);
   assert.match(result.content, /ne garantissent pas/);
 });
 

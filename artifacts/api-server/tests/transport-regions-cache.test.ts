@@ -52,6 +52,46 @@ test("shared cache survives a fresh instance, coalesces loads, expires and inval
   await create().get({ ...key, version: "v2" }, 60_000, load); assert.equal(loads, 3);
   await create().get({ ...key, territory: "qc" }, 60_000, load); assert.equal(loads, 4);
 });
+
+test("line listings survive restart and stale entries refresh in the background", async () => {
+  const db = store(); let now = 1_000, loads = 0;
+  const listingKey: MetadataKey = { ...key, kind: "lineListings", source: "line-listing:beauvais:rail", version: "v1" };
+  const create = () => new TransportMetadataCache(() => db.value, () => now);
+  const initial = { lines: [], unavailable: 0 };
+  await create().staleWhileRevalidate(listingKey, 1_000, 86_400_000, async () => { loads++; return initial; }, (refresh) => refresh());
+  now += 2_000;
+  let refresh: (() => void) | undefined;
+  const stale = await create().staleWhileRevalidate(listingKey, 1_000, 86_400_000,
+    async () => { loads++; return { lines: [], unavailable: 0, networkScoped: true }; }, (task) => { refresh = task; });
+  assert.equal(stale.stale, true);
+  assert.equal(loads, 1, "an expired listing is returned without waiting for a source scan");
+  refresh!();
+  await settle(() => [...db.documents.values()].some((doc) => (doc.value as any).networkScoped === true));
+  assert.equal(loads, 2);
+  const cached = await create().staleWhileRevalidate(listingKey, 1_000, 86_400_000,
+    async () => { loads++; return initial; }, (task) => task());
+  assert.equal(cached.stale, false);
+  assert.equal((cached.value as any).networkScoped, true);
+  assert.equal(loads, 2);
+});
+
+test("a failed background listing refresh keeps the last good Mongo result", async () => {
+  const db = store(); let now = 1_000;
+  const listingKey: MetadataKey = { ...key, kind: "lineListings", source: "line-listing:creil:rail", version: "v1" };
+  const create = () => new TransportMetadataCache(() => db.value, () => now);
+  await create().staleWhileRevalidate(listingKey, 1_000, 86_400_000,
+    async () => ({ lines: [], unavailable: 0 }), (task) => task());
+  now += 2_000;
+  const stale = await create().staleWhileRevalidate(listingKey, 1_000, 86_400_000,
+    async () => { throw Error("temporary source failure"); }, (task) => task());
+  assert.equal(stale.stale, true);
+  await settle(() => true);
+  const doc = [...db.documents.values()][0]!;
+  assert.deepEqual((doc.value as any).lines, []);
+  assert.equal(doc.freshUntil?.getTime(), 2_000);
+  assert.equal(doc.expiresAt.getTime(), 86_401_000);
+});
+
 test("closed projections exclude every schedule, identity, binary and arbitrary raw metadata field", async () => {
   const db = store();
   const dangerous = { ...routes[0], departureAt: 123, arrivalAt: 456, calendar: { date: "20261111" },
@@ -188,8 +228,8 @@ test("natural regional command uses the same paginated source → line → stop 
   await handleTransportSearch(d.message, { ...action.action, territory: "fr" }, "fr", "!", f.browser());
   const card = d.cards[0]!; await choose(card, "0");
   await settle(() => /Choisis une ligne/.test(card.last.content ?? ""));
-  await choose(card, "0"); await settle(() => /arrêt de départ/.test(card.last.content ?? ""));
-  assert.match(JSON.stringify(card.last.components), /Station A/); card.collector.stop("cancelled");
+  await choose(card, "0"); await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
+  assert.match(card.last.content!, /Départ : Station A/); card.collector.stop("cancelled");
 });
 test("return journey resolves separate route IDs and opposite official platforms, never reversed outbound hours", async () => {
   const f = fixture(), b = f.browser(), network = (await b.regionNetworks(region, "bus"))[0]!;
@@ -223,13 +263,13 @@ test("train results also recalculate a return journey and allow modifying both e
   await handleTransportCommand(d.message, ["fr", "Normandie"], "fr", "!", "rail", b);
   const card = d.cards[0]!; await choose(card, "0");
   await settle(() => /Choisis une ligne/.test(card.last.content ?? "")); await choose(card, "0");
-  await settle(() => /arrêt de départ/.test(card.last.content ?? "")); await choose(card, "0");
-  await settle(() => /arrêt d’arrivée/.test(card.last.content ?? "")); await choose(card, "0");
+  await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
+  await choose(card, "0");
   await settle(() => !!card.last.embeds.length);
   await click(card, "return"); await settle(() => /09:00/.test(JSON.stringify(card.last)));
   assert.match(card.last.embeds[0].title, /Train/);
-  await click(card, "modify"); await settle(() => /arrêt de départ/.test(card.last.content ?? ""));
-  assert.match(JSON.stringify(card.last.components), /Station B/);
+  await click(card, "modify"); await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
+  assert.match(card.last.content!, /Départ : Station B/);
   card.collector.stop("cancelled");
 });
 test("a closed reverse platform is not served and an expired service calendar does not invent departures", async () => {
@@ -253,7 +293,6 @@ test("result has one Modify control, return is single-flight, outsider and outda
   await choose(card, "0"); await settle(() => /Choisis une ligne/.test(card.last.content ?? ""));
   await card.collector.collect(old.value); await tick();
   assert.match(JSON.stringify(old.replies), /plus à jour/); assert.match(card.last.content!, /Choisis une ligne/);
-  await choose(card, "0"); await settle(() => /arrêt de départ/.test(card.last.content ?? ""));
   await choose(card, "0"); await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
   await choose(card, "0"); await settle(() => !!card.last.embeds.length);
   assert.ok(card.custom("return")); assert.ok(card.custom("modify")); assert.equal(card.custom("back"), undefined);
@@ -264,7 +303,7 @@ test("result has one Modify control, return is single-flight, outsider and outda
   await Promise.all([card.collector.collect(click1.value), card.collector.collect(click2.value)]);
   await settle(() => reverseCalls === 1 && /09:00/.test(JSON.stringify(card.last)));
   assert.equal(reverseCalls, 1);
-  await click(card, "modify"); await settle(() => /arrêt de départ/.test(card.last.content ?? ""));
+  await click(card, "modify"); await settle(() => /arrêt d’arrivée/.test(card.last.content ?? ""));
   assert.equal(card.last.embeds.length, 0);
   card.collector.stop("cancelled"); await card.collector.endWork;
   await card.collector.collect(click1.value, true); await tick(); assert.equal(reverseCalls, 1);

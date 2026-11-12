@@ -1,7 +1,9 @@
+import type { APIEmbed } from "discord.js";
 import { connectionPaths, type ConnectionPath } from "./gtfs-connections.js";
 import { decodeJourneyFeed, realtimeJourneys, scheduledJourneys, type JourneyIndex, type JourneyPair, type JourneyTime, type JourneyRealtimeFeed } from "./gtfs-journey.js";
 import { routeTypeToMode } from "./gtfs-realtime.js";
 import type { StopGroup, TransportLine } from "./transport-browser.js";
+import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 
 export interface ConnectedJourney { path: ConnectionPath; first: JourneyTime; second: JourneyTime }
 
@@ -76,14 +78,19 @@ export function connectedJourneys(index: JourneyIndex, origin: StopGroup, arriva
   return [...results.values()].sort(rank);
 }
 
-export function formatConnections(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup,
-  journeys: ConnectedJourney[], language: string, realtimeUnavailable: boolean): string {
+export function connectionCards(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup,
+  journeys: ConnectedJourney[], language: string, realtimeUnavailable: boolean): { embed: APIEmbed; content: string } {
   const fr = language === "fr";
   const data = index.connections!;
   const network = data.network;
+  const timezone = network.metadata.timezone || "Europe/Paris";
   const clock = (at: number) => new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
-    timeZone: network.metadata.timezone || "Europe/Paris", weekday: "short", hour: "2-digit", minute: "2-digit",
+    timeZone: timezone, weekday: "short", hour: "2-digit", minute: "2-digit",
   }).format(new Date(at * 1000));
+  const duration = (seconds: number) => {
+    const mins = Math.max(0, Math.round(seconds / 60));
+    return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")}`;
+  };
   const reliability = (time: JourneyTime) => time.realtime ? (fr ? "temps réel" : "real-time")
     : (fr ? "théorique" : "scheduled");
   const name = (id: string) => (network.stops.get(id)?.name ?? id).slice(0, 80);
@@ -91,25 +98,47 @@ export function formatConnections(line: TransportLine, index: JourneyIndex, orig
   const leg = (pair: JourneyPair, time: JourneyTime) => {
     const route = network.metadata.routes.get(network.metadata.trips.get(pair.tripId)!.routeId)!;
     const mode = routeTypeToMode(route.type)!;
-    return `${modeNames[mode] ?? ""} ${(route.shortName || route.longName).slice(0, 40)}: ${name(pair.origin.stopId)} ${clock(time.departureAt)} → ${name(pair.destination.stopId)} ${clock(time.arrivalAt!)} [${reliability(time)}]`;
+    return `**${modeNames[mode] ?? ""} ${(route.shortName || route.longName).slice(0, 40)}** · ${
+      name(pair.origin.stopId)} → ${name(pair.destination.stopId)}\n${clock(time.departureAt)} → ${clock(time.arrivalAt!)} · ${reliability(time)}`;
   };
-  const heading = `**${origin.label.slice(0, 80)} → ${arrival.label.slice(0, 80)} · ${
-    journeys.length ? fr ? "1 correspondance" : "1 transfer" : fr ? "trajet non confirmé" : "journey unconfirmed"}**`;
   const scope = journeys.length
-    ? fr ? "Même source officielle, une correspondance avec délai publié. Autres réseaux et marche non calculés."
-      : "Same official source, one transfer with a published minimum. Other networks and walking not calculated."
+    ? fr ? "1 correspondance · même source officielle · autres réseaux et marche non calculés."
+      : "1 transfer · same official source · other networks and walking not calculated."
     : fr ? "Une correspondance publiée existe, mais aucun horaire compatible n’a confirmé ce trajet."
       : "A published transfer exists, but no compatible timetable confirms this journey.";
-  const rows = journeys.slice(0, 2).map(({ path, first, second }, i) =>
-    `${i + 1}. ${leg(path.first, first)}\n${fr ? "Changement" : "Change"}: ${name(path.first.destination.stopId)} → ${name(path.second.origin.stopId)}, ${second.departureAt - first.arrivalAt!} s (${fr ? "minimum officiel" : "official minimum"} ${path.rule.minimum} s).\n${leg(path.second, second)}`);
+  const rows = journeys.slice(0, 2).map(({ path, first, second }, i) => {
+    const from = name(path.first.destination.stopId);
+    const to = name(path.second.origin.stopId);
+    const transferLocation = from === to ? from : `${from} → ${to}`;
+    return {
+      name: `${fr ? "Option" : "Option"} ${i + 1} · ${clock(first.departureAt)} → ${clock(second.arrivalAt!)}`.slice(0, 256),
+      value: `${leg(path.first, first)}\n↔ **${fr ? "Changement à" : "Change at"} ${transferLocation}** · ${
+        duration(second.departureAt - first.arrivalAt!)} ${fr ? "d’attente" : "waiting"} · ${
+        fr ? "minimum officiel" : "official minimum"} ${duration(path.rule.minimum!)}\n${leg(path.second, second)}`.slice(0, 1024),
+      inline: false,
+    };
+  });
   const empty = fr ? "Aucune correspondance vérifiable dans les prochaines 24 h : horaires incompatibles, délai insuffisant ou desserte indisponible."
     : "No verifiable transfer in the next 24 hours: incompatible times, insufficient transfer time or unavailable service.";
-  const warning = !journeys.length ? "" : realtimeUnavailable ? (fr ? "\nTemps réel absent, périmé ou incomplet : les étapes théoriques ne garantissent pas la correspondance."
-    : "\nLive data absent, stale or incomplete: scheduled legs do not guarantee the transfer.") : (fr
-      ? "\nEstimations susceptibles de changer; correspondance non garantie." : "\nEstimates may change; transfer not guaranteed.");
-  const limit = data.limited ? (fr ? "\nRecherche partielle : limite de lignes atteinte." : "\nPartial search: route limit reached.") : "";
-  // Keep complete itineraries rather than cutting off the second leg at Discord's limit.
-  let body = rows.join("\n\n") || empty;
-  if (`${heading}\n${scope}\n${body}${warning}${limit}`.length > 1850) body = rows[0] || empty;
-  return `${heading}\n${scope}\n${body}${warning}${limit}`;
+  const warning = !journeys.length ? "" : realtimeUnavailable ? (fr ? "Temps réel absent, périmé ou incomplet : ces horaires théoriques ne garantissent pas la correspondance."
+    : "Live data absent, stale or incomplete: these scheduled times do not guarantee the transfer.") : (fr
+      ? "Estimations susceptibles de changer; correspondance non garantie." : "Estimates may change; transfer not guaranteed.");
+  const limit = data.limited ? (fr ? "Recherche partielle : limite de lignes atteinte." : "Partial search: route limit reached.") : "";
+  const fields: NonNullable<APIEmbed["fields"]> = rows.length ? rows
+    : [{ name: fr ? "Départs" : "Departures", value: empty, inline: false }];
+  if (warning || limit) fields.push({ name: fr ? "À savoir" : "Please note",
+    value: [warning, limit].filter(Boolean).join("\n").slice(0, 1024), inline: false });
+  const title = `${origin.label.slice(0, 68)} → ${arrival.label.slice(0, 68)}${
+    journeys.length ? "" : fr ? " · trajet non confirmé" : " · unconfirmed"}`;
+  const description = `**${fr ? "Départ" : "From"}**  ${origin.label.slice(0, 100)}\n**${fr ? "Arrivée" : "To"}**  ${
+    arrival.label.slice(0, 100)}\n${scope}`;
+  const footer = `${fr ? "Horaires théoriques · correspondance non garantie" : "Scheduled times · transfer not guaranteed"} · ${timezone}`;
+  const embed: APIEmbed = { color: TRANSPORT_CARD_COLOR, title, description, fields, footer: { text: footer.slice(0, 2048) } };
+  const content = [`**${title}**`, description, ...fields.map((field) => `**${field.name}**\n${field.value}`), footer].join("\n\n");
+  return { embed, content: content.length <= 1850 ? content : `${content.slice(0, 1800)}…` };
+}
+
+export function formatConnections(line: TransportLine, index: JourneyIndex, origin: StopGroup, arrival: StopGroup,
+  journeys: ConnectedJourney[], language: string, realtimeUnavailable: boolean): string {
+  return connectionCards(line, index, origin, arrival, journeys, language, realtimeUnavailable).content;
 }

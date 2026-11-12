@@ -27,11 +27,17 @@ L’Angleterre est le premier territoire supplémentaire demandé après France 
 
 ## Persistent transport cache
 
-Le cache MongoDB des transports doit conserver les informations stables des réseaux, lignes et arrêts, pas les horaires ni les estimations de passage.
+Le cache MongoDB des transports doit conserver les informations stables des réseaux, lignes et arrêts, pas les horaires ni les estimations de passage. Afficher rapidement la dernière liste connue et actualiser les données stables en arrière-plan; une panne temporaire ne doit pas effacer une liste valide.
 
-**Why:** L’utilisateur a demandé de mettre les informations en cache dans MongoDB, « mais pas les horraires mais les infos si possible ».
+**Why:** L’utilisateur a demandé la mise en cache MongoDB pour gagner du temps, sans horaires, puis a précisé que l’actualisation devait tourner en arrière-plan afin de ne pas ralentir les recherches.
 
-**How to apply:** Garder cette séparation lors des optimisations et des ajouts de pays. Un catalogue, une ligne ou un arrêt en cache ne prouve pas qu’un départ existe ; consulter les sources de passages pour répondre sur les horaires.
+**How to apply:** Garder cette séparation lors des optimisations et des ajouts de pays. Utiliser une actualisation en arrière-plan avec conservation de la dernière bonne valeur. Un catalogue, une ligne ou un arrêt en cache ne prouve pas qu’un départ existe ; consulter les sources de passages et perturbations pour répondre sur les horaires.
+
+Les trajets avec correspondance doivent utiliser une carte Discord aussi lisible que les résultats directs, avec les étapes séparées, les heures, le lieu de changement et une attente exprimée en minutes.
+
+**Why:** L’utilisateur ne comprenait pas le résultat Beauvais–Clermont affiché en texte brut et les durées en secondes.
+
+**How to apply:** Construire un embed pour les itinéraires vérifiés à une correspondance, inclure une version texte de secours, et éviter les secondes brutes ou les libellés redondants de même gare.
 
 ## Regional discovery and return journeys
 
