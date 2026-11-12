@@ -268,7 +268,7 @@ test("Discord resolves city homonyms before asking for territory and retains Qu�
   };
   await handleTransportCommand(ui.message as never, ["Montréal"], "fr", "!", "bus", service);
   assert.match(ui.prompt.content, /Choisis le territoire/);
-  assert.deepEqual(ui.find("choose").options.map((option: any) => option.value), ["fr", "qc", "en", "ie", "lu", "ch", "no"]);
+  assert.deepEqual(ui.find("choose").options.map((option: any) => option.value), ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"]);
   assert.deepEqual(calls, ["fr", "qc"], "only the two public place gazetteers are queried to resolve a homonym");
   await ui.click("choose", "qc");
   assert.match(ui.prompt.content, /Choisis un réseau/);

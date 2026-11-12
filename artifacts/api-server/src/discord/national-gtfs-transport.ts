@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { deflateSync, inflateSync } from "node:zlib";
 import type { CatalogDataset, CatalogResource, StopCollection, TransportLocation } from "./public-transport.js";
 import { normalizeTransitText, routeMatchesRequested } from "./transport-query.js";
 import { selectiveGtfs, type GtfsSelection } from "./gtfs-selective.js";
@@ -10,6 +11,8 @@ import { referenceTable, type ReferenceRoute, type ReferenceStop } from "./trans
 import type { TransportProvider, TransportTerritory } from "./transport-provider.js";
 import type { TransitMode } from "./transport-query.js";
 import { routeTypeToMode, type GtfsRouteAtStops } from "./gtfs-realtime.js";
+import { localDate } from "./gtfs-realtime.js";
+import { buildJourneyIndex, type JourneyIndex } from "./gtfs-journey.js";
 import type { TransportRegion, GeoJsonBoundary } from "./transport-regions.js";
 import { irelandCountyFromSearch, irelandCountyByCode } from "./ireland-regions.js";
 
@@ -27,12 +30,12 @@ type GeocodeResult = { lat?: string; lon?: string; name?: string; display_name?:
   category?: string; addresstype?: string; osm_type?: string; osm_id?: number; geojson?: unknown;
   address?: { county?: string; state?: string; region?: string; country_code?: string; city?: string; town?: string; village?: string } };
 type NationalConfig = {
-  territory: "ie" | "lu" | "ch"; provider: "nta" | "atp" | "odmch"; timezone: string; title: string; page: string;
+  territory: "ie" | "lu" | "ch" | "is"; provider: "nta" | "atp" | "odmch" | "straeto"; timezone: string; title: string; page: string;
   licence: string; bounds: Bounds; resourceName: string; feedHost: string; feedPathPrefix: string;
   limitations: string[];
 };
 
-const CONFIG: Record<"ie" | "lu" | "ch", NationalConfig> = {
+const CONFIG: Record<"ie" | "lu" | "ch" | "is", NationalConfig> = {
   ie: {
     territory: "ie", provider: "nta", timezone: "Europe/Dublin", title: "National Transport Authority · Irlande",
     page: "https://data.gov.ie/dataset/nta-gtfs", licence: "CC BY 4.0", bounds: [-11.2, 51.2, -5.2, 55.6],
@@ -61,9 +64,46 @@ const CONFIG: Record<"ie" | "lu" | "ch", NationalConfig> = {
     limitations: ["Horaires GTFS théoriques uniquement; aucun flux temps réel n’est utilisé.",
       "La couverture est celle des lignes et arrêts publiés dans l’horaire national 2026; le flux est actualisé deux fois par semaine."],
   },
+  is: {
+    territory: "is", provider: "straeto", timezone: "Atlantic/Reykjavik",
+    title: "Strætó · autobus d’Islande", page: "https://www.straeto.is/en/about-straeto/open-data",
+    licence: "Licence non précisée sur la page open data Strætó",
+    bounds: [-25, 63, -13, 67.5], resourceName: "GTFS",
+    feedHost: "opendata.straeto.is", feedPathPrefix: "/data/gtfs/gtfs.zip",
+    limitations: ["Horaires théoriques GTFS Strætó uniquement; aucun temps réel islandais n’est utilisé.",
+      "La couverture se limite aux bus, arrêts et horaires présents dans le flux Strætó."],
+  },
 };
 const idFor = (territory: TransportTerritory, source: string) =>
   -1 - createHash("sha256").update(`${territory}:${source}`).digest().readUIntBE(0, 6);
+type PackedNationalJourney = { payload: string };
+
+function packNationalJourney(index: JourneyIndex): PackedNationalJourney {
+  const payload = deflateSync(Buffer.from(JSON.stringify({
+    routeId: index.routeId, sourceWarning: index.sourceWarning,
+    metadata: { routes: [...index.metadata.routes], trips: [...index.metadata.trips],
+      calendars: [...index.metadata.calendars], calendarExceptions: [...index.metadata.calendarExceptions],
+      timezone: index.metadata.timezone },
+    visits: [...index.visits], stops: [...index.stops],
+    frequencies: index.frequencies ? [...index.frequencies] : [],
+  }))).toString("base64");
+  if (payload.length > 3_800_000) throw new TransportDataError("L’horaire GTFS national dépasse la taille maximale du cache réutilisable.");
+  return { payload };
+}
+
+function unpackNationalJourney(value: PackedNationalJourney): JourneyIndex {
+  try {
+    const dto = JSON.parse(inflateSync(Buffer.from(value.payload, "base64"),
+      { maxOutputLength: 32 * 1024 * 1024 }).toString("utf8"));
+    const metadata = dto.metadata;
+    return { routeId: dto.routeId, metadata: {
+      routes: new Map(metadata.routes), trips: new Map(metadata.trips), calendars: new Map(metadata.calendars),
+      calendarExceptions: new Map(metadata.calendarExceptions), timezone: metadata.timezone,
+    }, visits: new Map(dto.visits), stops: new Map(dto.stops), connectionsUnavailable: true,
+    frequencies: new Map(dto.frequencies ?? []),
+    ...(typeof dto.sourceWarning === "string" ? { sourceWarning: dto.sourceWarning } : {}) };
+  } catch { throw new TransportDataError("Le cache GTFS national du trajet est illisible."); }
+}
 
 let geocodeQueue: Promise<unknown> = Promise.resolve();
 let lastGeocodeAt = 0;
@@ -178,7 +218,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
   readonly metadata: TransportMetadataCache;
   private readonly config: NationalConfig;
 
-  constructor(readonly territory: "ie" | "lu" | "ch", private readonly fetcher: typeof fetch = fetch,
+  constructor(readonly territory: "ie" | "lu" | "ch" | "is", private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => number = Date.now, metadata?: TransportMetadataCache) {
     this.config = CONFIG[territory];
     this.metadata = metadata ?? new TransportMetadataCache(undefined, now);
@@ -221,7 +261,8 @@ export class NationalGtfsTransportClient implements TransportProvider {
     let url: URL;
     try { url = new URL(value); } catch { throw new TransportDataError("L’adresse du flux GTFS national est invalide."); }
     if (url.protocol !== "https:" || url.hostname !== this.config.feedHost || url.username || url.password ||
-      url.port || !(this.territory === "ie" ? url.pathname === this.config.feedPathPrefix
+      url.port || !(this.territory === "ie" || this.territory === "is"
+        ? url.pathname === this.config.feedPathPrefix
         : this.territory === "ch"
           ? url.pathname.startsWith(this.config.feedPathPrefix) &&
             /\/download\/gtfs_fp2026_[\d-]+\.zip$/i.test(url.pathname)
@@ -317,7 +358,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
         url, original_url: url, is_available: true };
       title = data.title || title;
       licence = "CC BY";
-    } else {
+    } else if (this.territory === "ch") {
       const html = await this.html(this.config.page);
       const candidates = [...html.matchAll(/href=["'](https:\/\/data\.opentransportdata\.swiss\/dataset\/3d2c18f9-9ef1-463f-a249-5c67604efd74\/resource\/[a-f\d-]{36}\/download\/gtfs_fp2026_([\d-]+)\.zip)["']/gi)]
         .map(match => ({ url: match[1]!, version: match[2]!.replaceAll("-", "") }))
@@ -328,6 +369,10 @@ export class NationalGtfsTransportClient implements TransportProvider {
       updated = feed.version;
       resource = { id: idFor(this.territory, url), title: `GTFS national 2026 · ${feed.version}`,
         format: "GTFS", url, original_url: url, is_available: true, updated };
+    } else {
+      const url = this.safeFeedUrl(`https://${this.config.feedHost}${this.config.feedPathPrefix}`).href;
+      resource = { id: idFor(this.territory, url), title: this.config.resourceName, format: "GTFS",
+        url, original_url: url, is_available: true };
     }
     await this.probe(resource);
     return [{
@@ -335,7 +380,8 @@ export class NationalGtfsTransportClient implements TransportProvider {
       page_url: this.config.page, type: "public-transit", licence, resources: [resource],
       territory: this.territory, bounds: this.config.bounds, limitations: this.config.limitations,
       publisher: this.config.provider === "nta" ? "National Transport Authority" :
-        this.config.provider === "atp" ? "Administration des transports publics" : "Open Data Mobilité Suisse",
+        this.config.provider === "atp" ? "Administration des transports publics" :
+          this.config.provider === "odmch" ? "Open Data Mobilité Suisse" : "Strætó",
     }];
   }
 
@@ -392,7 +438,8 @@ export class NationalGtfsTransportClient implements TransportProvider {
         const county = result.address?.county || result.address?.state;
         const id = `osm:${this.territory}:${result.type}:${createHash("sha256")
           .update(`${normalizeTransitText(name)}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`).digest("hex").slice(0, 16)}`;
-        const countryName = this.territory === "ie" ? "Irlande" : this.territory === "lu" ? "Luxembourg" : "Suisse";
+        const countryName = this.territory === "ie" ? "Irlande" : this.territory === "lu" ? "Luxembourg" :
+          this.territory === "ch" ? "Suisse" : "Islande";
         return [{ id, name, label: [name, county, countryName]
           .filter(Boolean).join(" · "), latitude, longitude, territory: this.territory }];
       });
@@ -524,6 +571,38 @@ export class NationalGtfsTransportClient implements TransportProvider {
     return selectiveGtfs((range, validator) => this.rangeResponse(resource, range, validator), {
       ...selection, serviceWindowFrom: Math.floor(this.now() / 1000),
     });
+  }
+
+  async journeyIndex(resource: CatalogResource, routeId: string, mode: TransitMode): Promise<JourneyIndex> {
+    const result = await this.metadata.staleWhileRevalidate<PackedNationalJourney>({
+      territory: this.territory, provider: this.config.provider, kind: "journeyIndexes",
+      source: `gtfs-journey:${resource.id}:${routeId}:${mode}`, version: resourceVersion(resource),
+    }, 6 * 60 * 60_000, 7 * 24 * 60 * 60_000, async () => {
+      const index = await buildJourneyIndex(await this.staticFeed(resource, { mode, routeId }), routeId);
+      if (!index.metadata.timezone) throw new TransportDataError("Le flux ne précise pas de fuseau horaire utilisable; horaires non confirmés.");
+      new Intl.DateTimeFormat("fr", { timeZone: index.metadata.timezone }).format(0);
+      if (!nationalTimezoneMatches(this.territory, index.metadata.timezone)) {
+        throw new TransportDataError(`Le fuseau du flux ne correspond pas à ${nationalTimezone(this.territory)}; horaires non confirmés.`);
+      }
+      index.metadata.timezone = nationalTimezone(this.territory);
+      const services = new Set([...index.metadata.trips.values()].map(trip => trip.serviceId));
+      const end = [...index.metadata.calendars].filter(([id]) => services.has(id)).map(([, calendar]) => calendar.endDate)
+        .concat([...index.metadata.calendarExceptions].filter(([key, type]) =>
+          type === 1 && services.has(key.slice(9))).map(([key]) => key.slice(0, 8))).sort().at(-1);
+      const today = localDate(Math.floor(this.now() / 1000), index.metadata.timezone).replaceAll("-", "");
+      if (end && end < today) {
+        index.sourceWarning = `Données périmées : calendrier publié jusqu’au ${end.slice(6)}/${end.slice(4, 6)}/${end.slice(0, 4)}. Desserte actuelle non confirmée.`;
+      }
+      if ([...(index.frequencies?.values() ?? [])].some(entries => entries.some(entry => !entry.exact))) {
+        index.sourceWarning = [index.sourceWarning,
+          "Fréquences non exactes publiées : aucun horaire précis n’est inventé à partir d’un intervalle."].filter(Boolean).join(" ");
+      }
+      return packNationalJourney(index);
+    }, scheduleMetadataRefresh);
+    const index = unpackNationalJourney(result.value);
+    if (result.stale) index.sourceWarning = [index.sourceWarning,
+      "La copie d’horaire en cache est conservée pendant l’actualisation de la source."].filter(Boolean).join(" ");
+    return index;
   }
 
   async realtimeFeed(): Promise<Uint8Array> {
@@ -663,12 +742,12 @@ export class SwitzerlandTransportClient extends NationalGtfsTransportClient {
   }
 }
 
-export function nationalTimezone(territory: "ie" | "lu" | "ch") { return CONFIG[territory].timezone; }
-export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch", timezone: string) {
+export function nationalTimezone(territory: "ie" | "lu" | "ch" | "is") { return CONFIG[territory].timezone; }
+export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch" | "is", timezone: string) {
   const expected = nationalTimezone(territory);
   if (timezone === expected) return true;
-  const verifiedSourceZones: Record<"ie" | "lu" | "ch", string[]> = {
-    ie: ["Europe/London"], lu: ["Europe/Berlin"], ch: [],
+  const verifiedSourceZones: Record<"ie" | "lu" | "ch" | "is", string[]> = {
+    ie: ["Europe/London"], lu: ["Europe/Berlin"], ch: [], is: [],
   };
   if (!verifiedSourceZones[territory].includes(timezone)) return false;
   try {
@@ -679,8 +758,8 @@ export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch", timezone:
       [1, 3, 4, 7, 10, 12].every(month => offset(timezone, year, month) === offset(expected, year, month)));
   } catch { return false; }
 }
-export function nationalSourceProvider(territory: "ie" | "lu" | "ch") { return CONFIG[territory].provider; }
-export function nationalSourceInfo(territory: "ie" | "lu" | "ch") {
+export function nationalSourceProvider(territory: "ie" | "lu" | "ch" | "is") { return CONFIG[territory].provider; }
+export function nationalSourceInfo(territory: "ie" | "lu" | "ch" | "is") {
   const config = CONFIG[territory];
   return { name: config.title, url: config.page, attribution: `${config.title} · ${config.licence}`,
     limitations: config.limitations };

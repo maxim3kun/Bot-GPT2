@@ -13,7 +13,7 @@ export type AiCommandAction =
   | { name: "start_connect4" }
   | { name: "start_geoguessr" | "start_guess_logo"; difficulty: "easy" | "medium" | "hard" }
   | { name: "start_trivia" | "start_guess_number" }
-   | { name: "search_transport"; mode: "bus" | "metro" | "tram" | "rail" | null; place: string; line?: string; direction?: string; territory?: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" }
+   | { name: "search_transport"; mode: "bus" | "metro" | "tram" | "rail" | null; place: string; line?: string; direction?: string; territory?: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg" }
   | { name: "play_youtube" | "search_youtube"; query: string }
   | { name: "music_pause" | "music_resume" | "music_skip" | "music_stop" | "music_queue" | "music_current" }
   | { name: "play_radio"; station: string }
@@ -70,7 +70,7 @@ export function parseAiCommandTool(
     && [null, "bus", "metro", "tram", "rail"].includes(args.mode as string | null) && safeSearchText(args.place, 100)
     && (args.line === undefined || typeof args.line === "string" && /^[\p{L}\p{N}][\p{L}\p{N}._ -]{0,19}$/u.test(args.line))
     && (args.direction === undefined || safeSearchText(args.direction, 100) && args.direction.trim().length > 0)
-     && (args.territory === undefined || ["fr", "qc", "en", "ie", "lu", "ch", "no"].includes(args.territory as string)))
+      && (args.territory === undefined || ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"].includes(args.territory as string)))
     return { name, mode: args.mode, place: args.place.trim(), ...(args.line === undefined ? {} : { line: args.line }),
       ...(args.direction === undefined ? {} : { direction: args.direction.trim() }), ...(args.territory === undefined ? {} : { territory: args.territory }) } as AiCommandAction;
   return null;
@@ -109,7 +109,7 @@ export function buildAiCommandTools(stationKeys: string[]) {
     tool("module_diagnostic", "Read module health. Only server administrators can access this; never change settings."),
     tool("search_transport", "Open the real timetable search, not a transfer itinerary calculator.", {
       mode: { enum: ["bus", "metro", "tram", "rail", null] }, place: { type: "string", maxLength: 100 },
-      line: { type: "string", maxLength: 20 }, direction: { type: "string", maxLength: 100 }, territory: { enum: ["fr", "qc", "en", "ie", "lu", "ch", "no"] },
+      line: { type: "string", maxLength: 20 }, direction: { type: "string", maxLength: 100 }, territory: { enum: ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"] },
     }, ["mode", "place"]),
     tool("play_youtube", "Search YouTube using the user's exact title or artist; the real player reports success.", {
       query: { type: "string", minLength: 1, maxLength: 200 },

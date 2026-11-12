@@ -16,7 +16,16 @@ const shapes = {
     covered_area: [{ insee: "string", nom: "string", type: "string" }] }],
   areas: [{ code: "string", nom: "string", codesRegions: strings, codesDepartements: strings }],
   nearby: { features: [{ properties: { resource_id: "number", stop_id: "string", stop_name: "string", location_type: "number" } }] },
-  routes: [{ routeId: "string", shortName: "string", longName: "string", mode: "string", stopIds: strings }],
+  routes: [{ routeId: "string", shortName: "string", longName: "string", mode: "string", stopIds: strings,
+    serviceNo: "string", direction: "string", operator: "string", stopSequence: "number", busStopCode: "string",
+    category: "string", wdFirstBus: "string", wdLastBus: "string", satFirstBus: "string", satLastBus: "string",
+    sunFirstBus: "string", sunLastBus: "string", amPeakFrequency: "string", amOffpeakFrequency: "string",
+    pmPeakFrequency: "string", pmOffpeakFrequency: "string" }],
+  busRoutePages: { records: [{ routeId: "string", shortName: "string", longName: "string", mode: "string", stopIds: strings,
+    serviceNo: "string", direction: "string", operator: "string", stopSequence: "number", busStopCode: "string",
+    category: "string", wdFirstBus: "string", wdLastBus: "string", satFirstBus: "string", satLastBus: "string",
+    sunFirstBus: "string", sunLastBus: "string", amPeakFrequency: "string", amOffpeakFrequency: "string",
+    pmPeakFrequency: "string", pmOffpeakFrequency: "string" }], count: "number" },
   lineListings: { lines: [{ routeId: "string", label: "string", description: "string", mode: "string",
     nearbyStopIds: strings, resource, realtime: [resource],
     source: { name: "string", url: "string", updated: "string", attribution: "string", limitations: strings },
@@ -30,7 +39,7 @@ const shapes = {
   journeyIndexes: { payload: "blob" },
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
-export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg"; provider: string; kind: MetadataKind; source: string; version: string }
 export interface MetadataDocument {
   _id: string; schema: number; territory: string; provider: string; kind: MetadataKind;
   source: string; version: string; value: unknown; fetchedAt: Date; expiresAt: Date; freshUntil?: Date;

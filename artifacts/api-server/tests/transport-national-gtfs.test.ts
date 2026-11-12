@@ -358,7 +358,7 @@ test("territory prefixes and mode labels include the national additions", () => 
   assert.equal(modeName("rail", "lu"), "Train");
   assert.equal(modeName("rail", "ch"), "Train");
   assert.equal(modeName("rail", "no"), "Train");
-  assert.deepEqual(new TransportBrowserClient().territories, ["fr", "qc", "en", "ie", "lu", "ch", "no"]);
+  assert.deepEqual(new TransportBrowserClient().territories, ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"]);
   assert.equal(nationalTimezoneMatches("ie", "Europe/London"), true);
   assert.equal(nationalTimezoneMatches("lu", "Europe/Berlin"), true);
   assert.equal(nationalTimezoneMatches("lu", "Europe/Paris"), false);
