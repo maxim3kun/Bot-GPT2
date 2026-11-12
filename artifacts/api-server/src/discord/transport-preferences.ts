@@ -47,7 +47,8 @@ type RepositoryOptions = {
   decrypt: (ciphertext: string) => string;
 };
 
-const territories = new Set<TransportTerritory>(["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"]);
+const territories = new Set<TransportTerritory>(["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg",
+  "lv", "cz", "pt", "au", "ua"]);
 const modes = new Set<TransitMode>(["bus", "metro", "tram", "rail"]);
 const MAX_FAVORITES = 20;
 

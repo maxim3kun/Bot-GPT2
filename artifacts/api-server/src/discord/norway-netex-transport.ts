@@ -463,7 +463,7 @@ export class NorwayNetexTransportClient implements TransportProvider {
   }
 
   async journeyIndex(resource: CatalogResource, routeId: string, mode: TransitMode): Promise<JourneyIndex> {
-    const result = await this.metadata.staleWhileRevalidate<PackedJourneyIndex>({
+    const result = await this.metadata.staleWhileRevalidateMemory<PackedJourneyIndex>({
       territory: "no", provider: "entur-netex", kind: "journeyIndexes",
       source: `netex-journey:${resource.id}:${routeId}`, version: "netex-journey-index-v1",
     }, 24 * HOURS, 7 * 24 * HOURS,

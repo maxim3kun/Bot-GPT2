@@ -5,10 +5,11 @@ import type { GtfsRouteAtStops } from "./gtfs-realtime.js";
 import type { TransportMetadataCache } from "./transport-metadata-cache.js";
 import type { TransitMode } from "./transport-query.js";
 
-export type TransportTerritory = "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg";
+export type TransportTerritory = "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg" | "lv" | "cz" | "pt" | "au" | "ua";
 export const TERRITORY_NAMES: Record<TransportTerritory, string> = {
   fr: "France", qc: "Québec", en: "Angleterre", ie: "Irlande", lu: "Luxembourg", ch: "Suisse",
-  no: "Norvège", is: "Islande", sg: "Singapour",
+  no: "Norvège", is: "Islande", sg: "Singapour", lv: "Lettonie", cz: "Tchéquie", pt: "Portugal",
+  au: "Australie", ua: "Ukraine",
 };
 export interface TransportProvider {
   getCatalog(): Promise<CatalogDataset[]>;

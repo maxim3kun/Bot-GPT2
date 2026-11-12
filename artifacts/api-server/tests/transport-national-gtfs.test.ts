@@ -354,11 +354,17 @@ test("territory prefixes and mode labels include the national additions", () => 
   assert.equal(parseTransportCommand(["Luxembourg", "Esch-sur-Alzette"]).territory, "lu");
   assert.equal(parseTransportCommand(["Suisse", "Zürich", "S12"]).territory, "ch");
   assert.equal(parseTransportCommand(["Norvège", "Drammen"]).territory, "no");
+  assert.equal(parseTransportCommand(["Lettonie", "Rīga"]).territory, "lv");
+  assert.equal(parseTransportCommand(["Tchéquie", "Praha"]).territory, "cz");
+  assert.equal(parseTransportCommand(["Portugal", "Lisboa"]).territory, "pt");
+  assert.equal(parseTransportCommand(["Australie", "Brisbane"]).territory, "au");
+  assert.equal(parseTransportCommand(["Ukraine", "Lviv"]).territory, "ua");
   assert.equal(modeName("rail", "ie"), "Train");
   assert.equal(modeName("rail", "lu"), "Train");
   assert.equal(modeName("rail", "ch"), "Train");
   assert.equal(modeName("rail", "no"), "Train");
-  assert.deepEqual(new TransportBrowserClient().territories, ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"]);
+  assert.deepEqual(new TransportBrowserClient().territories,
+    ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"]);
   assert.equal(nationalTimezoneMatches("ie", "Europe/London"), true);
   assert.equal(nationalTimezoneMatches("lu", "Europe/Berlin"), true);
   assert.equal(nationalTimezoneMatches("lu", "Europe/Paris"), false);

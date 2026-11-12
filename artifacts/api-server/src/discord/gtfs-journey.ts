@@ -72,7 +72,8 @@ export function decodeJourneyFeed(bytes: Uint8Array): JourneyRealtimeFeed {
 /** Inflate and parse CSV incrementally; never retain a national stop_times table or shapes. */
 export async function scanRows(zip: Uint8Array, name: string, onRow: (row: Row) => void): Promise<void> {
   const parser = parse({
-    columns: true, bom: true, skip_empty_lines: true, relax_column_count: true, max_record_size: 20_000,
+    columns: true, bom: true, skip_empty_lines: true, relax_column_count: true,
+    relax_quotes: true, ltrim: true, max_record_size: 20_000,
     on_record(row: Row) { onRow(row); return null; },
   });
   parser.resume();
@@ -140,7 +141,8 @@ export async function scanRowsStream(
   let archiveBytes = 0, tableBytes = 0, rowCount = 0, found = false, tableEnded = false;
   let streamError: Error | undefined, parserError: Error | undefined;
   const parser = parse({
-    columns: true, bom: true, skip_empty_lines: true, relax_column_count: true, max_record_size: 20_000,
+    columns: true, bom: true, skip_empty_lines: true, relax_column_count: true,
+    relax_quotes: true, ltrim: true, max_record_size: 20_000,
     on_record(row: Row) { countRow(row); return null; },
   });
   parser.resume();

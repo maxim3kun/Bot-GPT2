@@ -549,7 +549,7 @@ export class SingaporeDataMallTransportClient implements TransportProvider {
 
   async journeyIndex(resource: CatalogResource, routeId: string, mode: TransitMode): Promise<JourneyIndex> {
     if (resource.format === "LTA Bus Routes") {
-      const result = await this.metadata.staleWhileRevalidate({
+      const result = await this.metadata.staleWhileRevalidateMemory({
         territory: "sg", provider: "lta-datamall", kind: "journeyIndexes",
         source: `bus-route-index:${routeId}`, version: "lta-bus-route-index-v1",
       }, 24 * HOUR, 7 * DAY, async () => {
@@ -563,7 +563,7 @@ export class SingaporeDataMallTransportClient implements TransportProvider {
       });
       return decodeIndex(result.value);
     }
-    const result = await this.metadata.staleWhileRevalidate({
+    const result = await this.metadata.staleWhileRevalidateMemory({
       territory: "sg", provider: "lta-datamall", kind: "journeyIndexes",
       source: `train-journey-index:${resource.id}:${routeId}:${mode}`, version: resourceVersion(resource),
     }, 6 * HOUR, 7 * DAY, async () => encodeIndex(await buildJourneyIndex(await this.trainFeed(), routeId)));

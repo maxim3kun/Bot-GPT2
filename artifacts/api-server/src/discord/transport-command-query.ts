@@ -9,7 +9,12 @@ export function parseTransportCommand(args: string[]) {
     /^(?:ch|--ch|suisse|switzerland|swiss)$/i.test(words[0] ?? "") ? "ch" as const :
     /^(?:no|--no|norv[eè]ge|norway)$/i.test(words[0] ?? "") ? "no" as const :
     /^(?:is|--is|islande|iceland)$/i.test(words[0] ?? "") ? "is" as const :
-    /^(?:sg|--sg|singapour|singapore)$/i.test(words[0] ?? "") ? "sg" as const : undefined;
+    /^(?:sg|--sg|singapour|singapore)$/i.test(words[0] ?? "") ? "sg" as const :
+    /^(?:lv|--lv|lettonie|latvia)$/i.test(words[0] ?? "") ? "lv" as const :
+    /^(?:cz|--cz|tch[eé]quie|r[eé]publique\s+tch[eè]que|czechia|czech\s+republic)$/i.test(words[0] ?? "") ? "cz" as const :
+    /^(?:pt|--pt|portugal)$/i.test(words[0] ?? "") ? "pt" as const :
+    /^(?:au|--au|australie|australia)$/i.test(words[0] ?? "") ? "au" as const :
+    /^(?:ua|--ua|ukraine)$/i.test(words[0] ?? "") ? "ua" as const : undefined;
   if (territory) words.shift();
   const marker = words.findIndex(word => /^(ligne|line)$/i.test(word));
   const explicit = marker >= 0 && /^[a-z0-9][a-z0-9._-]*$/i.test(words[marker + 1] ?? "") ? words[marker + 1] : undefined;

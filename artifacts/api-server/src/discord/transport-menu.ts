@@ -268,7 +268,8 @@ export async function handleTransportSearch(
         : text("Indique une ville anglaise (ex. London / Londres, Cambridge). Bus BODS hors Londres ; métro et bus TfL à Londres. Les homonymes seront proposés.",
           "Enter an English town (e.g. London, Cambridge). BODS buses outside London; TfL Underground and buses in London. Matching places will be offered.")
       : territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" ||
-        territory === "is" || territory === "sg"
+        territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" ||
+        territory === "pt" || territory === "au" || territory === "ua"
       ? territory === "no"
         ? text("Indique une ville norvégienne. Horaires NeTEx Entur; géocodage © OpenStreetMap contributors (openstreetmap.org/copyright).",
           "Enter a Norwegian town. Entur NeTEx timetables; geocoding © OpenStreetMap contributors (openstreetmap.org/copyright).")
@@ -278,6 +279,21 @@ export async function handleTransportSearch(
         : territory === "sg"
         ? text("Indique une localité de Singapour. Bus LTA et horaires GTFS des trains; estimations temps réel selon disponibilité.",
           "Enter a Singapore locality. LTA buses and train GTFS timetables; real-time estimates where available.")
+        : territory === "lv"
+        ? text("Indique une ville lettone. Autobus ATD et trains Vivi; horaires théoriques.",
+          "Enter a Latvian town. ATD buses and Vivi trains; scheduled times.")
+        : territory === "cz"
+        ? text("Indique une ville de Prague ou de sa région. Le réseau PID ne couvre pas tous les opérateurs tchèques.",
+          "Enter a town in Prague or its region. PID does not cover every Czech operator.")
+        : territory === "pt"
+        ? text("Indique une station desservie par le métro de Lisbonne; les autres réseaux portugais ne sont pas inclus.",
+          "Enter a place served by Lisbon Metro; other Portuguese networks are not included.")
+        : territory === "au"
+        ? text("Indique Brisbane/SEQ, Bowen, Bundaberg ou Cairns. Seules ces zones du Queensland sont couvertes.",
+          "Enter Brisbane/SEQ, Bowen, Bundaberg or Cairns. Only these Queensland areas are covered.")
+        : territory === "ua"
+        ? text("Indique une localité de la région de Lviv. Autobus et tram; horaires théoriques.",
+          "Enter a place in the Lviv area. Buses and trams; scheduled times.")
         : text(`Indique une ville de ${TERRITORY_NAMES[territory]}. Horaires du GTFS national; géocodage © OpenStreetMap contributors (openstreetmap.org/copyright).`,
           `Enter a town in ${TERRITORY_NAMES[territory]}. National GTFS timetables; geocoding © OpenStreetMap contributors (openstreetmap.org/copyright).`)
       : territory === "qc"
@@ -298,7 +314,12 @@ export async function handleTransportSearch(
       ...(value === "en" ? { description: text("Bus BODS · métro TfL · trains en attente", "BODS buses · TfL Underground · trains pending") }
         : value === "no" ? { description: text("Entur NeTEx · bus, métro, tram et train", "Entur NeTEx · buses, metro, tram and rail") }
         : value === "is" ? { description: text("GTFS Strætó · bus uniquement", "Strætó GTFS · buses only") }
-        : value === "sg" ? { description: text("Bus LTA · GTFS et temps réel train", "LTA buses · train GTFS and real-time") } : {}) }));
+        : value === "sg" ? { description: text("Bus LTA · GTFS et temps réel train", "LTA buses · train GTFS and real-time") }
+        : value === "lv" ? { description: text("Bus nationaux et trains · CC0", "National buses and trains · CC0") }
+        : value === "cz" ? { description: text("Prague et région · bus, métro, tram, train", "Prague and region · bus, metro, tram, rail") }
+        : value === "pt" ? { description: text("Métro de Lisbonne uniquement", "Lisbon Metro only") }
+        : value === "au" ? { description: text("Queensland · SEQ, Bowen, Bundaberg, Cairns", "Queensland · SEQ, Bowen, Bundaberg, Cairns") }
+        : value === "ua" ? { description: text("Bus et tram à Lviv uniquement", "Lviv buses and trams only") } : {}) }));
     }
     if (stage === "mode") return (availableModes ?? Object.keys(MODE_NAMES) as TransitMode[])
       .map((value) => ({ value, label: modeName(value, territory) }));
@@ -361,7 +382,8 @@ export async function handleTransportSearch(
     const empty = text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
     const note = stage === "arrivals" ? (line?.selection
       ? territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" ||
-        territory === "is" || territory === "sg"
+        territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" ||
+        territory === "pt" || territory === "au" || territory === "ua"
         ? text("\nSeuls les trajets directs de cette ligne sont calculés; les correspondances ne sont pas vérifiées.",
           "\nOnly direct journeys on this route are calculated; transfers are not checked.")
         : ""
@@ -390,7 +412,7 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
   }
 
   async function loadModeChoices() {
@@ -420,7 +442,8 @@ export async function handleTransportSearch(
       }
       if (!live || current !== sequence) return;
       const deadline = territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" ||
-        territory === "is" || territory === "sg"
+        territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" ||
+        territory === "pt" || territory === "au" || territory === "ua"
         ? Math.max(lookupTimeoutMs, 90_000) : lookupTimeoutMs;
       await transportDeadline(work(), deadline);
     } catch (error) {
@@ -507,7 +530,8 @@ export async function handleTransportSearch(
 
   async function afterCity() {
     if (territory === "qc" || territory === "en" || territory === "ie" || territory === "lu" ||
-      territory === "ch" || territory === "no" || territory === "is" || territory === "sg") await loadNetworks();
+      territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
+      territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") await loadNetworks();
     else await loadLines();
   }
 
@@ -517,7 +541,8 @@ export async function handleTransportSearch(
     await edit(region ? `${region.name} · ${text("Recherche des réseaux…", "Looking up networks…")}`
       : territory === "en" ? text("Recherche des réseaux anglais…", "Looking up English networks…")
         : territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" ||
-          territory === "is" || territory === "sg"
+          territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" ||
+          territory === "pt" || territory === "au" || territory === "ua"
         ? text(`Recherche des réseaux officiels en ${TERRITORY_NAMES[territory]}…`, `Looking up official networks in ${TERRITORY_NAMES[territory]}…`)
         : text("Recherche des réseaux québécois…", "Looking up Québec networks…"));
     networks = region ? await service.regionNetworks(region, selectedMode) : await service.networks(city!, selectedMode);
@@ -547,7 +572,8 @@ export async function handleTransportSearch(
       await selectNetwork(exactNetwork);
       return;
     }
-    if (["en", "ie", "lu", "ch", "no", "is", "sg"].includes(territory ?? "") && networks.length === 1) { await selectNetwork(networks[0]!); return; }
+    if (["en", "ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory ?? "") &&
+      networks.length === 1) { await selectNetwork(networks[0]!); return; }
     filter = ""; page = 0; stage = "networks";
     await render();
   }
@@ -961,7 +987,8 @@ export async function handleTransportSearch(
         stage = "territory"; await render(); return;
       }
       if (action === "networks" && (territory === "qc" || territory === "en" || territory === "ie" ||
-        territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || region)) { await loadNetworks(); return; }
+        territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
+        territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua" || region)) { await loadNetworks(); return; }
       if (action === "more" && stage === "result") { expanded = !expanded; await showDepartures(false); return; }
       if (action === "retry") { await loadCities(); return; }
       if (action === "zones" && territory === "ie") {
@@ -992,7 +1019,8 @@ export async function handleTransportSearch(
         if (stage === "counties") { stage = "provinces"; province = ""; await render(); return; }
         if (stage === "provinces") { await cityInput(); return; }
         if (stage === "lines" && (territory === "qc" || territory === "en" || territory === "ie" ||
-          territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || region)) { stage = "networks"; network = undefined; await render(); return; }
+          territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
+          territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua" || region)) { stage = "networks"; network = undefined; await render(); return; }
         if (stage === "networks" && region) {
           region = undefined;
           if (territory === "ie" && province) { stage = "counties"; await render(); }

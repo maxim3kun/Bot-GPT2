@@ -60,7 +60,8 @@ export interface TransportDepartureResult {
 export interface TransportTimeOptions { departureAfter?: number; connectionAfter?: number; minimumWaitSeconds?: number }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
-  (["qc", "en", "ie", "lu", "ch", "no", "sg"].includes(territory ?? "") && mode === "rail") ? "Train" :
+  (["qc", "en", "ie", "lu", "ch", "no", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory ?? "") &&
+    mode === "rail") ? "Train" :
     territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
 const isPublicTimetableResource = (resource: CatalogResource) =>
   isStaticScheduleResource(resource) || resource.is_available &&
@@ -147,15 +148,20 @@ export class TransportBrowserClient {
   private queuedScans = 0;
   private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
 
-  readonly territories = ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg"] as const;
+  readonly territories = ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"] as const;
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
     readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now),
     readonly england = new EnglandTransportClient(), readonly ireland: TransportProvider = new IrelandTransportClient(fetch, now),
     readonly luxembourg: TransportProvider = new LuxembourgTransportClient(fetch, now),
     readonly switzerland: TransportProvider = new SwitzerlandTransportClient(fetch, now),
     readonly norway: NorwayNetexTransportClient = new NorwayNetexTransportClient(fetch, now),
-    readonly iceland: IcelandGtfsTransportClient = new IcelandGtfsTransportClient(fetch, now),
-    readonly singapore: SingaporeDataMallTransportClient = new SingaporeDataMallTransportClient(fetch, now)) {}
+     readonly iceland: IcelandGtfsTransportClient = new IcelandGtfsTransportClient(fetch, now),
+     readonly singapore: SingaporeDataMallTransportClient = new SingaporeDataMallTransportClient(fetch, now),
+     readonly latvia: NationalGtfsTransportClient = new NationalGtfsTransportClient("lv", fetch, now),
+     readonly czechia: NationalGtfsTransportClient = new NationalGtfsTransportClient("cz", fetch, now),
+     readonly portugal: NationalGtfsTransportClient = new NationalGtfsTransportClient("pt", fetch, now),
+     readonly australia: NationalGtfsTransportClient = new NationalGtfsTransportClient("au", fetch, now),
+     readonly ukraine: NationalGtfsTransportClient = new NationalGtfsTransportClient("ua", fetch, now)) {}
 
   currentTimeSeconds() { return Math.floor(this.now() / 1000); }
 
@@ -163,18 +169,22 @@ export class TransportBrowserClient {
     return territory === "qc" ? this.quebec : territory === "ie" ? this.ireland :
       territory === "lu" ? this.luxembourg : territory === "ch" ? this.switzerland :
         territory === "no" ? this.norway : territory === "is" ? this.iceland :
-          territory === "sg" ? this.singapore : this.provider;
+          territory === "sg" ? this.singapore : territory === "lv" ? this.latvia :
+            territory === "cz" ? this.czechia : territory === "pt" ? this.portugal :
+              territory === "au" ? this.australia : territory === "ua" ? this.ukraine : this.provider;
   }
 
   private metadataProvider(territory?: TransportTerritory) {
     return territory === "qc" ? "donneesquebec" : territory === "ie" ? "nta" :
       territory === "lu" ? "atp" : territory === "ch" ? "odmch" :
         territory === "no" ? "entur-netex" : territory === "is" ? "straeto" :
-          territory === "sg" ? "lta-datamall" : "pan";
+          territory === "sg" ? "lta-datamall" : territory === "lv" ? "data-gov-lv" :
+            territory === "cz" ? "pid" : territory === "pt" ? "dados-pt" :
+              territory === "au" ? "translink-qld" : territory === "ua" ? "data-gov-ua" : "pan";
   }
 
   async availableModes(territory: TransportTerritory): Promise<TransitMode[]> {
-    if (["ie", "lu", "ch", "no", "is", "sg"].includes(territory)) {
+    if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory)) {
       const provider = this.providerFor(territory);
       if (!provider.availableModes) throw new TransportDataError("Le catalogue des modes de ce territoire est indisponible.");
       return provider.availableModes();
@@ -244,7 +254,7 @@ export class TransportBrowserClient {
 
   async networks(city: TransportLocation, mode: TransitMode) {
     if (city.territory === "en") return this.england.networks(city, mode);
-    if (["ie", "lu", "ch", "no", "is", "sg"].includes(city.territory ?? "")) {
+    if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(city.territory ?? "")) {
       const provider = this.providerFor(city.territory);
       if (!provider.networks) throw new TransportDataError("Le catalogue de ce réseau est indisponible.");
       return provider.networks(city, mode);
@@ -387,7 +397,7 @@ export class TransportBrowserClient {
       if (catalogue.length !== 1) throw new Error("Unknown Québec network");
       const resources = catalogue.flatMap(d => d.resources.filter(isPublicTimetableResource));
       nearby = await provider.nearbyStopsForResources!(city.latitude, city.longitude, resources);
-    } else if (["ie", "lu", "ch", "no", "is", "sg"].includes(city.territory ?? "")) {
+    } else if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(city.territory ?? "")) {
       if (!networkId) throw new Error("Select a national transport network");
       catalogue = (await provider.getCatalog()).filter(d => d.id === networkId);
       if (catalogue.length !== 1) throw new Error("Unknown national transport network");
@@ -438,7 +448,8 @@ export class TransportBrowserClient {
         try {
           const selection: GtfsSelection | undefined = city.territory === "qc" || city.territory === "ie" ||
             city.territory === "lu" || city.territory === "ch" || city.territory === "no" ||
-            city.territory === "is" || city.territory === "sg"
+            city.territory === "is" || city.territory === "sg" || city.territory === "lv" ||
+            city.territory === "cz" || city.territory === "pt" || city.territory === "au" || city.territory === "ua"
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) }
             : mode === "metro" && isIdfmGtfs(resource)
             ? { mode, ...(requestedLine ? { line: requestedLine } : { discoveryStops: [...stopIds] }) } : undefined;
@@ -459,7 +470,8 @@ export class TransportBrowserClient {
               source: { name: dataset.title, url: dataset.page_url, ...(city.territory === "qc" ? {
                 updated: resource.updated, attribution: `${dataset.title} · ${dataset.licence}`, limitations: sourceLimitations(dataset),
                } : city.territory === "ie" || city.territory === "lu" || city.territory === "ch" ||
-                 city.territory === "is" ? {
+                 city.territory === "is" || city.territory === "lv" || city.territory === "cz" ||
+                 city.territory === "pt" || city.territory === "au" || city.territory === "ua" ? {
                 updated: resource.updated, ...nationalSourceInfo(city.territory),
                } : city.territory === "no" ? {
                  updated: resource.updated, attribution: "Entur · export NeTEx · licence NLOD",
@@ -473,7 +485,9 @@ export class TransportBrowserClient {
                ...(city.territory === "sg" ? { territory: "sg" as const,
                  alerts: dataset.resources.filter(r => r.is_available && /service alerts?/i.test(r.title) && /gtfs.rt/i.test(r.format)) } : {}),
                ...(city.territory === "ie" || city.territory === "lu" || city.territory === "ch" ||
-                 city.territory === "no" || city.territory === "is" || city.territory === "sg"
+                 city.territory === "no" || city.territory === "is" || city.territory === "sg" ||
+                 city.territory === "lv" || city.territory === "cz" || city.territory === "pt" ||
+                 city.territory === "au" || city.territory === "ua"
                 ? { territory: city.territory } : {}),
               ...(city.territory === "no" ? { allStops: true } : {}),
               ...(selection ? { selection } : {}) });
@@ -516,21 +530,28 @@ export class TransportBrowserClient {
         if (line.territory === "is") return this.iceland.journeyIndex(line.resource, line.routeId, line.mode);
         if (line.territory === "sg") return this.singapore.journeyIndex(line.resource, line.routeId, line.mode);
         const selection = line.selection?.discoveryStops
-          ? (line.territory === "ie" || line.territory === "lu" || line.territory === "ch"
+          ? (line.territory === "ie" || line.territory === "lu" || line.territory === "ch" ||
+            line.territory === "lv" || line.territory === "cz" || line.territory === "pt" ||
+            line.territory === "au" || line.territory === "ua"
             ? { mode: line.mode, routeId: line.routeId } : { mode: line.mode, line: line.label })
           : line.selection ??
           (line.mode === "metro" && isIdfmGtfs(line.resource) ? { mode: line.mode, line: line.label } : undefined);
         const zip = await this.providerFor(line.territory).staticFeed(line.resource, selection);
         const index = await buildJourneyIndex(zip, line.routeId);
         if (line.territory === "qc" || line.territory === "ie" || line.territory === "lu" ||
-          line.territory === "ch") {
+          line.territory === "ch" || line.territory === "lv" || line.territory === "cz" ||
+          line.territory === "pt" || line.territory === "au" || line.territory === "ua") {
           if (!index.metadata.timezone) throw new TransportDataError("Le flux ne précise pas de fuseau horaire utilisable; horaires non confirmés.");
           new Intl.DateTimeFormat("fr", { timeZone: index.metadata.timezone }).format(0);
-          if ((line.territory === "ie" || line.territory === "lu" || line.territory === "ch") &&
+          if ((line.territory === "ie" || line.territory === "lu" || line.territory === "ch" ||
+            line.territory === "lv" || line.territory === "cz" || line.territory === "pt" ||
+            line.territory === "au" || line.territory === "ua") &&
             !nationalTimezoneMatches(line.territory, index.metadata.timezone)) {
             throw new TransportDataError(`Le fuseau du flux ne correspond pas à ${nationalTimezone(line.territory)}; horaires non confirmés.`);
           }
-          if (line.territory === "ie" || line.territory === "lu" || line.territory === "ch")
+          if (line.territory === "ie" || line.territory === "lu" || line.territory === "ch" ||
+            line.territory === "lv" || line.territory === "cz" || line.territory === "pt" ||
+            line.territory === "au" || line.territory === "ua")
             index.metadata.timezone = nationalTimezone(line.territory);
           const services = new Set([...index.metadata.trips.values()].map(t => t.serviceId));
           const end = [...index.metadata.calendars].filter(([id]) => services.has(id)).map(([, c]) => c.endDate)

@@ -29,13 +29,15 @@ type LuxembourgDataset = {
 type GeocodeResult = { lat?: string; lon?: string; name?: string; display_name?: string; class?: string; type?: string;
   category?: string; addresstype?: string; osm_type?: string; osm_id?: number; geojson?: unknown;
   address?: { county?: string; state?: string; region?: string; country_code?: string; city?: string; town?: string; village?: string } };
+type NationalTerritory = "ie" | "lu" | "ch" | "is" | "lv" | "cz" | "pt" | "au" | "ua";
 type NationalConfig = {
-  territory: "ie" | "lu" | "ch" | "is"; provider: "nta" | "atp" | "odmch" | "straeto"; timezone: string; title: string; page: string;
+  territory: NationalTerritory; provider: string; timezone: string; title: string; page: string;
   licence: string; bounds: Bounds; resourceName: string; feedHost: string; feedPathPrefix: string;
-  limitations: string[];
+  feedAllowlist?: Array<{ host: string; pathPrefix: string }>;
+  limitations: string[]; modes?: TransitMode[];
 };
 
-const CONFIG: Record<"ie" | "lu" | "ch" | "is", NationalConfig> = {
+const CONFIG: Record<NationalTerritory, NationalConfig> = {
   ie: {
     territory: "ie", provider: "nta", timezone: "Europe/Dublin", title: "National Transport Authority · Irlande",
     page: "https://data.gov.ie/dataset/nta-gtfs", licence: "CC BY 4.0", bounds: [-11.2, 51.2, -5.2, 55.6],
@@ -72,6 +74,57 @@ const CONFIG: Record<"ie" | "lu" | "ch" | "is", NationalConfig> = {
     feedHost: "opendata.straeto.is", feedPathPrefix: "/data/gtfs/gtfs.zip",
     limitations: ["Horaires théoriques GTFS Strætó uniquement; aucun temps réel islandais n’est utilisé.",
       "La couverture se limite aux bus, arrêts et horaires présents dans le flux Strætó."],
+  },
+  lv: {
+    territory: "lv", provider: "data-gov-lv", timezone: "Europe/Riga", title: "Transports publics · Lettonie",
+    page: "https://data.gov.lv/dati/en/dataset/atd-gtfs", licence: "CC0 1.0",
+    bounds: [20.8, 55.6, 28.3, 58.1], resourceName: "GTFS", feedHost: "www.atd.lv", feedPathPrefix: "/sites/default/files/GTFS/",
+    feedAllowlist: [
+      { host: "www.atd.lv", pathPrefix: "/sites/default/files/GTFS/gtfs-latvia-lv.zip" },
+      { host: "vivi.lv", pathPrefix: "/uploads/GTFS.zip" },
+    ],
+    modes: ["bus", "rail"],
+    limitations: ["Bus interurbains et trains Vivi publiés en GTFS; horaires théoriques, sans temps réel intégré.",
+      "Les lignes affichées sont celles des deux flux officiels lettons."],
+  },
+  cz: {
+    territory: "cz", provider: "pid", timezone: "Europe/Prague", title: "PID · Prague et région",
+    page: "https://pid.cz/en/opendata/", licence: "CC BY 4.0",
+    bounds: [12.0, 48.7, 15.7, 51.1], resourceName: "GTFS PID", feedHost: "data.pid.cz", feedPathPrefix: "/PID_GTFS.zip",
+    feedAllowlist: [{ host: "data.pid.cz", pathPrefix: "/PID_GTFS.zip" }],
+    modes: ["bus", "metro", "tram", "rail"],
+    limitations: ["Réseau PID de Prague et de sa région; ce flux ne couvre pas tous les opérateurs tchèques.",
+      "Horaires théoriques GTFS; aucun flux temps réel n’est intégré."],
+  },
+  pt: {
+    territory: "pt", provider: "dados-pt", timezone: "Europe/Lisbon", title: "Métro de Lisbonne",
+    page: "https://dados.gov.pt/datasets/gtfs-do-metropolitano-de-lisboa/", licence: "CC BY 4.0",
+    bounds: [-9.35, 38.45, -8.85, 38.95], resourceName: "GTFS Metropolitano de Lisboa",
+    feedHost: "dados.gov.pt", feedPathPrefix: "/s/resources/gtfs-do-metropolitano-de-lisboa/",
+    feedAllowlist: [{ host: "dados.gov.pt", pathPrefix: "/s/resources/gtfs-do-metropolitano-de-lisboa/" }],
+    modes: ["metro"],
+    limitations: ["Métro de Lisbonne uniquement; les bus et les trains portugais ne sont pas inclus.",
+      "Horaires théoriques GTFS; aucun flux temps réel n’est intégré."],
+  },
+  au: {
+    territory: "au", provider: "translink-qld", timezone: "Australia/Brisbane", title: "Translink · Queensland",
+    page: "https://www.data.qld.gov.au/dataset/general-transit-feed-specification-gtfs-translink",
+    licence: "CC BY 4.0", bounds: [137.5, -29.2, 154.2, -9.0], resourceName: "GTFS Translink",
+    feedHost: "gtfsrt.api.translink.com.au", feedPathPrefix: "/GTFS/",
+    feedAllowlist: [{ host: "gtfsrt.api.translink.com.au", pathPrefix: "/GTFS/" }],
+    modes: ["bus", "rail", "tram"],
+    limitations: ["Couverture partielle du Queensland : South East Queensland, Bowen, Bundaberg et Cairns.",
+      "Les horaires statiques sont théoriques; le temps réel n’est pas intégré à cette recherche."],
+  },
+  ua: {
+    territory: "ua", provider: "data-gov-ua", timezone: "Europe/Kyiv", title: "Transports publics · Lviv",
+    page: "https://data.gov.ua/dataset/7748f981-dd93-41f0-80e0-243c66790077", licence: "CC BY",
+    bounds: [23.55, 49.65, 24.5, 50.25], resourceName: "GTFS statique de Lviv",
+    feedHost: "track.ua-gis.com", feedPathPrefix: "/gtfs/lviv/",
+    feedAllowlist: [{ host: "track.ua-gis.com", pathPrefix: "/gtfs/lviv/static.zip" }],
+    modes: ["bus", "tram"],
+    limitations: ["Couverture limitée au réseau urbain de Lviv.",
+      "Horaires théoriques GTFS; les positions de véhicules publiées séparément ne sont pas utilisées."],
   },
 };
 const idFor = (territory: TransportTerritory, source: string) =>
@@ -217,8 +270,9 @@ async function boundedJson<T>(response: Response, maximumBytes: number): Promise
 export class NationalGtfsTransportClient implements TransportProvider {
   readonly metadata: TransportMetadataCache;
   private readonly config: NationalConfig;
+  private rangeQueue: Promise<void> = Promise.resolve();
 
-  constructor(readonly territory: "ie" | "lu" | "ch" | "is", private readonly fetcher: typeof fetch = fetch,
+  constructor(readonly territory: NationalTerritory, private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => number = Date.now, metadata?: TransportMetadataCache) {
     this.config = CONFIG[territory];
     this.metadata = metadata ?? new TransportMetadataCache(undefined, now);
@@ -260,26 +314,65 @@ export class NationalGtfsTransportClient implements TransportProvider {
   private safeFeedUrl(value: string): URL {
     let url: URL;
     try { url = new URL(value); } catch { throw new TransportDataError("L’adresse du flux GTFS national est invalide."); }
-    if (url.protocol !== "https:" || url.hostname !== this.config.feedHost || url.username || url.password ||
-      url.port || !(this.territory === "ie" || this.territory === "is"
-        ? url.pathname === this.config.feedPathPrefix
+    const configuredAllowlist = this.config.feedAllowlist;
+    const allowedByConfig = configuredAllowlist?.some(item =>
+      url.hostname === item.host && url.pathname.startsWith(item.pathPrefix));
+    if (url.protocol !== "https:" || url.username || url.password ||
+      url.port || !(configuredAllowlist ? allowedByConfig : this.territory === "ie" || this.territory === "is"
+        ? url.hostname === this.config.feedHost && url.pathname === this.config.feedPathPrefix
         : this.territory === "ch"
-          ? url.pathname.startsWith(this.config.feedPathPrefix) &&
+          ? url.hostname === this.config.feedHost && url.pathname.startsWith(this.config.feedPathPrefix) &&
             /\/download\/gtfs_fp2026_[\d-]+\.zip$/i.test(url.pathname)
-          : url.pathname.startsWith(this.config.feedPathPrefix))) {
+          : url.hostname === this.config.feedHost && url.pathname.startsWith(this.config.feedPathPrefix))) {
       throw new TransportDataError("Le catalogue national a publié une adresse de flux non autorisée.");
     }
     return url;
   }
 
+  private async rangeFetch(url: string, init: RequestInit): Promise<Response> {
+    if (this.territory !== "pt") return this.fetcher(url, init);
+    const previous = this.rangeQueue;
+    let release!: () => void;
+    this.rangeQueue = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      const response = await this.fetcher(url, init);
+      const length = Number(response.headers.get("content-length"));
+      if (Number.isFinite(length) && length > 16 * 1024 * 1024) {
+        await response.body?.cancel();
+        throw new TransportDataError("Une plage du flux du métro de Lisbonne dépasse la limite de lecture.");
+      }
+      const body = await response.arrayBuffer();
+      if (body.byteLength > 16 * 1024 * 1024) {
+        throw new TransportDataError("Une plage du flux du métro de Lisbonne dépasse la limite de lecture.");
+      }
+      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    }
+    finally { release(); }
+  }
+
   private async rangeResponse(resource: CatalogResource, range: string, validator?: Record<string, string>) {
     const url = this.safeFeedUrl(resource.url);
-    const headers = { accept: "application/zip", "user-agent": "MaximeGPT public transport/1.0",
+    // Several official GTFS hosts reject a narrow ZIP Accept value with HTTP 406.
+    const headers = { accept: "*/*", "user-agent": "MaximeGPT public transport/1.0",
       range, ...validator };
-    let response = await this.fetcher(url.href, {
-      headers,
-      signal: AbortSignal.timeout(90_000), redirect: "manual",
-    });
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await this.rangeFetch(url.href, {
+          headers,
+          signal: AbortSignal.timeout(90_000), redirect: "manual",
+        });
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
+        continue;
+      }
+      if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) break;
+      await response.body?.cancel();
+      await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+    if (!response) throw new TransportDataError("Le flux GTFS national est temporairement injoignable.");
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
       const location = response.headers.get("location");
@@ -291,7 +384,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
         !target.username && !target.password && !target.port && !!resourceId &&
         target.pathname.includes(`/resources/${resourceId}/`);
       if (signedSwissDownload) {
-        response = await this.fetcher(target!.href, {
+        response = await this.rangeFetch(target!.href, {
           headers, signal: AbortSignal.timeout(90_000), redirect: "manual",
         });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -309,6 +402,52 @@ export class NationalGtfsTransportClient implements TransportProvider {
     return response;
   }
 
+  private async downloadSmallLisbonFeed(resource: CatalogResource): Promise<Uint8Array> {
+    const limit = 4 * 1024 * 1024;
+    const url = this.safeFeedUrl(resource.url);
+    const response = await this.fetcher(url.href, {
+      headers: { accept: "*/*", "user-agent": "MaximeGPT public transport/1.0" },
+      signal: AbortSignal.timeout(30_000), redirect: "manual",
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new TransportDataError(`Le flux du métro de Lisbonne est indisponible (HTTP ${response.status}).`);
+    }
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > limit) {
+      await response.body?.cancel();
+      throw new TransportDataError("Le flux du métro de Lisbonne dépasse la limite de téléchargement sécurisé.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new TransportDataError("Le flux du métro de Lisbonne est vide.");
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > limit) {
+          await reader.cancel();
+          throw new TransportDataError("Le flux du métro de Lisbonne dépasse la limite de téléchargement sécurisé.");
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally { reader.releaseLock(); }
+    if (!total) throw new TransportDataError("Le flux du métro de Lisbonne est vide.");
+    return Buffer.concat(chunks, total);
+  }
+
+  private async smallLisbonFeed(resource: CatalogResource): Promise<Uint8Array> {
+    const result = await this.metadata.staleWhileRevalidateMemory<{ payload: string }>({
+      territory: "pt", provider: this.config.provider, kind: "small-static-feed",
+      source: `lisbon-static-feed:${resource.id}`, version: resourceVersion(resource),
+    }, 15 * 60_000, 6 * 60 * 60_000, async () => ({
+      payload: Buffer.from(await this.downloadSmallLisbonFeed(resource)).toString("base64"),
+    }), scheduleMetadataRefresh);
+    return Buffer.from(result.value.payload, "base64");
+  }
+
   private async probe(resource: CatalogResource): Promise<void> {
     const response = await this.rangeResponse(resource, "bytes=-1");
     if (response.status !== 206 || !/^bytes \d+-\d+\/\d+$/.test(response.headers.get("content-range") ?? "")) {
@@ -324,6 +463,7 @@ export class NationalGtfsTransportClient implements TransportProvider {
   }
 
   private async loadCatalog(): Promise<CatalogDataset[]> {
+    if (["lv", "cz", "pt", "au", "ua"].includes(this.territory)) return this.loadAddedCatalog();
     let resource: CatalogResource;
     let title = this.config.title;
     let licence = this.config.licence;
@@ -385,6 +525,101 @@ export class NationalGtfsTransportClient implements TransportProvider {
     }];
   }
 
+  private async loadAddedCatalog(): Promise<CatalogDataset[]> {
+    const makeResource = (title: string, rawUrl: string, modes: TransitMode[], updated?: string) => {
+      const url = this.safeFeedUrl(rawUrl).href;
+      return { id: idFor(this.territory, url), title, format: "GTFS", url, original_url: url,
+        is_available: true, modes, ...(updated ? { updated } : {}) } satisfies CatalogResource;
+    };
+    const makeDataset = (slug: string, title: string, page: string, licence: string,
+      bounds: Bounds, resource: CatalogResource, limitations = this.config.limitations): CatalogDataset => ({
+      id: `${this.territory}:${slug}`, slug, title, page_url: page, type: "public-transit", licence,
+      resources: [resource], territory: this.territory, bounds, modes: resource.modes, limitations,
+      publisher: this.config.provider,
+    });
+    if (this.territory === "lv") {
+      const [bus, rail] = await Promise.all([
+        this.json<IrelandPackage>("https://data.gov.lv/dati/api/3/action/package_show?id=atd-gtfs"),
+        this.json<IrelandPackage>("https://data.gov.lv/dati/api/3/action/package_show?id=iekszemes-dzelzcela-vilcienu-kustibas-saraksts-gtfs-formata"),
+      ]);
+      const busEntry = bus.success && bus.result, railEntry = rail.success && rail.result;
+      if (!busEntry || !railEntry || !/CC0\s*1\.0/i.test(busEntry.license_title ?? "") ||
+        !/CC0\s*1\.0/i.test(railEntry.license_title ?? "")) {
+        throw new TransportDataError("Le catalogue letton ne confirme pas la licence CC0 des horaires.");
+      }
+      const busUrl = busEntry.resources?.find(item => /gtfs-latvia-lv\.zip$/i.test(item.url ?? ""))?.url;
+      const railUrl = railEntry.resources?.find(item => /\/uploads\/GTFS\.zip$/i.test(item.url ?? ""))?.url;
+      if (!busUrl || !railUrl) throw new TransportDataError("Les flux GTFS lettons ne sont pas publiés.");
+      return [
+        makeDataset("atd-bus", "Autobus lettons · ATD", this.config.page, "CC0 1.0", this.config.bounds,
+          makeResource("GTFS national · bus", busUrl, ["bus"], busEntry.metadata_modified)),
+        makeDataset("vivi-rail", "Trains lettons · Vivi", "https://data.gov.lv/dati/en/dataset/iekszemes-dzelzcela-vilcienu-kustibas-saraksts-gtfs-formata",
+          "CC0 1.0", this.config.bounds, makeResource("GTFS national · trains", railUrl, ["rail"], railEntry.metadata_modified)),
+      ];
+    }
+    if (this.territory === "cz") {
+      const url = this.safeFeedUrl("https://data.pid.cz/PID_GTFS.zip").href;
+      return [makeDataset("pid", this.config.title, this.config.page, this.config.licence, this.config.bounds,
+        makeResource(this.config.resourceName, url, this.config.modes ?? []),
+        ["PID couvre Prague et sa région, pas tous les opérateurs tchèques.",
+          "Horaires théoriques GTFS; aucun flux temps réel n’est intégré."])];
+    }
+    if (this.territory === "pt") {
+      const data = await this.json<{ title?: string; license?: string; resources?: Array<{ title?: string; url?: string }> }>(
+        "https://dados.gov.pt/api/1/datasets/gtfs-do-metropolitano-de-lisboa/");
+      if (!/^cc-by$/i.test(data.license ?? "")) {
+        throw new TransportDataError("Le catalogue portugais ne confirme pas actuellement la licence CC BY.");
+      }
+      const feeds = (data.resources ?? []).flatMap(item => item.url && /\.zip(?:\?|$)/i.test(item.url) &&
+        item.url.includes("/s/resources/gtfs-do-metropolitano-de-lisboa/")
+        ? [{ url: item.url, version: item.url.match(/\/(\d{8})[-/]/)?.[1] ?? "" }] : [])
+        .sort((a, b) => b.version.localeCompare(a.version));
+      const feed = feeds[0];
+      if (!feed) throw new TransportDataError("Le flux GTFS du métro de Lisbonne n’est pas publié.");
+      return [makeDataset("lisbon-metro", data.title || this.config.title, this.config.page, "CC BY 4.0",
+        this.config.bounds, makeResource(this.config.resourceName, feed.url, ["metro"], feed.version))];
+    }
+    if (this.territory === "au") {
+      const data = await this.json<IrelandPackage>(
+        "https://www.data.qld.gov.au/api/3/action/package_show?id=general-transit-feed-specification-gtfs-translink");
+      const entry = data.success && data.result;
+      if (!entry || !/Creative Commons Attribution 4\.0/i.test(entry.license_title ?? "")) {
+        throw new TransportDataError("Le catalogue Translink ne confirme pas actuellement la licence CC BY 4.0.");
+      }
+      const regions: Array<{ code: string; matches: RegExp; title: string; bounds: Bounds; modes: TransitMode[] }> = [
+        { code: "SEQ", matches: /South East Queensland/i, title: "South East Queensland",
+          bounds: [151.0, -28.5, 153.7, -25.1], modes: ["bus", "rail", "tram"] },
+        { code: "BOW", matches: /^Bowen/i, title: "Bowen", bounds: [147.4, -20.4, 148.0, -19.8], modes: ["bus"] },
+        { code: "BUN", matches: /^Bundaberg/i, title: "Bundaberg", bounds: [151.7, -25.4, 152.8, -24.5], modes: ["bus"] },
+        { code: "CNS", matches: /^Cairns/i, title: "Cairns", bounds: [144.6, -17.3, 146.0, -16.3], modes: ["bus"] },
+      ];
+      const available = entry.resources ?? [];
+      return regions.flatMap(region => {
+        const feed = available.find(item => region.matches.test(item.name ?? "") &&
+          new URL(item.url ?? "https://invalid.example").pathname === `/GTFS/${region.code}_GTFS.zip`);
+        if (!feed?.url) return [];
+        const page = "https://www.data.qld.gov.au/dataset/general-transit-feed-specification-gtfs-translink";
+        return [makeDataset(`translink-${region.code.toLowerCase()}`, `Translink · ${region.title}`, page,
+          "CC BY 4.0", region.bounds, makeResource(`GTFS · ${region.title}`, feed.url, region.modes, entry.metadata_modified))];
+      });
+    }
+    if (this.territory === "ua") {
+      const data = await this.json<IrelandPackage>(
+        "https://data.gov.ua/api/3/action/package_show?id=7748f981-dd93-41f0-80e0-243c66790077");
+      const entry = data.success && data.result;
+      if (!entry || !/Creative Commons Attribution/i.test(entry.license_title ?? "")) {
+        throw new TransportDataError("Le catalogue de Lviv ne confirme pas actuellement sa licence CC BY.");
+      }
+      const rawUrl = entry.resources?.find(item => /static\.zip$/i.test(item.url ?? ""))?.url;
+      if (!rawUrl) throw new TransportDataError("Le flux GTFS statique de Lviv n’est pas publié.");
+      const url = new URL(rawUrl);
+      if (url.hostname === "track.ua-gis.com" && url.protocol === "http:") url.protocol = "https:";
+      return [makeDataset("lviv", this.config.title, this.config.page, this.config.licence, this.config.bounds,
+        makeResource(this.config.resourceName, url.href, this.config.modes ?? [], entry.metadata_modified))];
+    }
+    return [];
+  }
+
   async getCatalog(): Promise<CatalogDataset[]> {
     const result = await this.metadata.staleWhileRevalidate<CatalogDataset[]>({
       territory: this.territory, provider: this.config.provider, kind: "catalog",
@@ -394,14 +629,16 @@ export class NationalGtfsTransportClient implements TransportProvider {
   }
 
   private async geocode(place: string): Promise<TransportLocation[]> {
-    const query = normalizeTransitText(place);
+    const searchPlace = this.territory === "ua" && /^(?:lviv|lvov|lwow)$/.test(normalizeTransitText(place))
+      ? "Львів" : place;
+    const query = normalizeTransitText(searchPlace);
     if (query.length < 2 || query.length > 100) return [];
     return this.metadata.get<TransportLocation[]>({
       territory: this.territory, provider: "nominatim", kind: "locations",
       source: `settlements:${query}`, version: "nominatim-settlements-v1",
     }, 24 * 60 * 60_000, () => queueGeocode(async () => {
       const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("q", place);
+      url.searchParams.set("q", searchPlace);
       url.searchParams.set("format", "jsonv2");
       url.searchParams.set("addressdetails", "1");
       url.searchParams.set("limit", "15");
@@ -428,7 +665,8 @@ export class NationalGtfsTransportClient implements TransportProvider {
           ["city", "town", "village", "municipality", "hamlet"].includes(result.type ?? "");
         // Nominatim sometimes represents major cities as administrative boundary
         // relations rather than `place=city` nodes (e.g. Dublin and Luxembourg).
-        const cityBoundary = resultClass === "boundary" && result.type === "administrative" && normalizedName === query;
+        const cityBoundary = result.type === "administrative" && normalizedName === query &&
+          (resultClass === "boundary" || this.territory === "ua" && result.address?.country_code === "ua");
         if (!place && !cityBoundary) return [];
         const latitude = Number(result.lat), longitude = Number(result.lon);
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
@@ -439,7 +677,9 @@ export class NationalGtfsTransportClient implements TransportProvider {
         const id = `osm:${this.territory}:${result.type}:${createHash("sha256")
           .update(`${normalizeTransitText(name)}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`).digest("hex").slice(0, 16)}`;
         const countryName = this.territory === "ie" ? "Irlande" : this.territory === "lu" ? "Luxembourg" :
-          this.territory === "ch" ? "Suisse" : "Islande";
+          this.territory === "ch" ? "Suisse" : this.territory === "is" ? "Islande" :
+            this.territory === "lv" ? "Lettonie" : this.territory === "cz" ? "Tchéquie" :
+              this.territory === "pt" ? "Portugal" : this.territory === "au" ? "Australie" : "Ukraine";
         return [{ id, name, label: [name, county, countryName]
           .filter(Boolean).join(" · "), latitude, longitude, territory: this.territory }];
       });
@@ -568,13 +808,30 @@ export class NationalGtfsTransportClient implements TransportProvider {
     if (!selection) {
       throw new TransportDataError("Une ligne doit être sélectionnée pour extraire un horaire national sans télécharger l’archive complète.");
     }
+    if (this.territory === "pt") {
+      const bytes = await this.smallLisbonFeed(resource);
+      const validator = `"${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}"`;
+      const localRange = async (range: string, headers?: Record<string, string>) => {
+        if (headers?.["if-match"] && headers["if-match"] !== validator) return new Response(null, { status: 412 });
+        const suffix = range.match(/^bytes=-(\d+)$/);
+        const explicit = range.match(/^bytes=(\d+)-(\d+)$/);
+        if (!suffix && !explicit) return new Response(null, { status: 416 });
+        const start = suffix ? Math.max(0, bytes.length - Number(suffix[1])) : Number(explicit![1]);
+        const end = suffix ? bytes.length - 1 : Math.min(bytes.length - 1, Number(explicit![2]));
+        if (start >= bytes.length || end < start) return new Response(null, { status: 416 });
+        return new Response(bytes.slice(start, end + 1), { status: 206, headers: {
+          "content-range": `bytes ${start}-${end}/${bytes.length}`, etag: validator,
+        } });
+      };
+      return selectiveGtfs(localRange, { ...selection, serviceWindowFrom: Math.floor(this.now() / 1000) });
+    }
     return selectiveGtfs((range, validator) => this.rangeResponse(resource, range, validator), {
       ...selection, serviceWindowFrom: Math.floor(this.now() / 1000),
     });
   }
 
   async journeyIndex(resource: CatalogResource, routeId: string, mode: TransitMode): Promise<JourneyIndex> {
-    const result = await this.metadata.staleWhileRevalidate<PackedNationalJourney>({
+    const result = await this.metadata.staleWhileRevalidateMemory<PackedNationalJourney>({
       territory: this.territory, provider: this.config.provider, kind: "journeyIndexes",
       source: `gtfs-journey:${resource.id}:${routeId}:${mode}`, version: resourceVersion(resource),
     }, 6 * 60 * 60_000, 7 * 24 * 60 * 60_000, async () => {
@@ -611,30 +868,50 @@ export class NationalGtfsTransportClient implements TransportProvider {
 
   async networks(city: TransportLocation, mode: TransitMode): Promise<CatalogDataset[]> {
     const catalog = await this.getCatalog();
-    const supported = new Set<(typeof mode)>();
-    for (const dataset of catalog) {
+    const inArea = catalog.filter(dataset => dataset.territory === city.territory && dataset.bounds &&
+      inBounds(dataset.bounds, city.latitude, city.longitude));
+    if (!inArea.length) {
+      throw new TransportDataError(`Cette source ne couvre pas ${city.name}. Choisis une ville dans la zone indiquée.`);
+    }
+    const datasets: CatalogDataset[] = [];
+    const supported = new Set<TransitMode>();
+    for (const dataset of inArea) {
+      const modes = new Set<TransitMode>();
+      const resources: CatalogResource[] = [];
       for (const resource of dataset.resources.filter(item => item.is_available)) {
-        for (const route of await this.routeTable(resource)) if (route.mode) supported.add(route.mode);
+        const declared = resource.modes ?? dataset.modes;
+        let resourceModes: TransitMode[];
+        if (declared?.length) {
+          resourceModes = declared.filter((value): value is TransitMode =>
+            ["bus", "metro", "tram", "rail"].includes(value));
+        } else {
+          resourceModes = [...new Set((await this.routeTable(resource)).flatMap(route => route.mode ? [route.mode] : []))];
+        }
+        for (const value of resourceModes) modes.add(value);
+        if (resourceModes.includes(mode)) resources.push({ ...resource, modes: resourceModes });
       }
+      for (const value of modes) supported.add(value);
+      if (!modes.has(mode)) continue;
+      datasets.push({ ...dataset, modes: [...modes], resources });
     }
     if (!supported.has(mode)) {
       const names = [...supported].map(value => ({ bus: "bus", metro: "métro", tram: "tram", rail: "train" })[value]);
       throw new TransportDataError(names.length
-        ? `Ce mode n’est pas publié par cette source. Modes confirmés : ${names.join(", ")}.`
-        : "Aucun mode exploitable n’est actuellement confirmé dans le GTFS national.");
+        ? `Ce mode n’est pas publié près de ${city.name}. Modes confirmés : ${names.join(", ")}.`
+        : `Aucun mode exploitable n’est confirmé près de ${city.name} dans les zones couvertes.`);
     }
-    const datasets = catalog.flatMap(dataset => {
-      if (dataset.territory !== city.territory || !dataset.bounds ||
-        !inBounds(dataset.bounds, city.latitude, city.longitude)) return [];
-      const modes = [...supported];
-      if (!modes.includes(mode) || !dataset.resources.some(resource => resource.is_available)) return [];
-      return [{ ...dataset, modes, resources: dataset.resources.map(resource => ({ ...resource, modes })) }];
-    });
     return datasets;
   }
 
   async availableModes(): Promise<TransitMode[]> {
     const catalog = await this.getCatalog();
+    const declared = new Set<TransitMode>();
+    for (const dataset of catalog) for (const resource of dataset.resources) {
+      for (const value of resource.modes ?? dataset.modes ?? []) {
+        if (["bus", "metro", "tram", "rail"].includes(value)) declared.add(value as TransitMode);
+      }
+    }
+    if (declared.size) return [...declared].sort((a, b) => a.localeCompare(b));
     const modes = new Set<TransitMode>();
     for (const dataset of catalog) for (const resource of dataset.resources) {
       for (const route of await this.routeTable(resource)) if (route.mode) modes.add(route.mode);
@@ -742,14 +1019,14 @@ export class SwitzerlandTransportClient extends NationalGtfsTransportClient {
   }
 }
 
-export function nationalTimezone(territory: "ie" | "lu" | "ch" | "is") { return CONFIG[territory].timezone; }
-export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch" | "is", timezone: string) {
+export function nationalTimezone(territory: NationalTerritory) { return CONFIG[territory].timezone; }
+export function nationalTimezoneMatches(territory: NationalTerritory, timezone: string) {
   const expected = nationalTimezone(territory);
   if (timezone === expected) return true;
-  const verifiedSourceZones: Record<"ie" | "lu" | "ch" | "is", string[]> = {
-    ie: ["Europe/London"], lu: ["Europe/Berlin"], ch: [], is: [],
+  const verifiedSourceZones: Partial<Record<NationalTerritory, string[]>> = {
+    ie: ["Europe/London"], lu: ["Europe/Berlin"], ua: ["Europe/Kiev"],
   };
-  if (!verifiedSourceZones[territory].includes(timezone)) return false;
+  if (!verifiedSourceZones[territory]?.includes(timezone)) return false;
   try {
     const offset = (zone: string, year: number, month: number) => new Intl.DateTimeFormat("en", {
       timeZone: zone, timeZoneName: "longOffset",
@@ -758,8 +1035,8 @@ export function nationalTimezoneMatches(territory: "ie" | "lu" | "ch" | "is", ti
       [1, 3, 4, 7, 10, 12].every(month => offset(timezone, year, month) === offset(expected, year, month)));
   } catch { return false; }
 }
-export function nationalSourceProvider(territory: "ie" | "lu" | "ch" | "is") { return CONFIG[territory].provider; }
-export function nationalSourceInfo(territory: "ie" | "lu" | "ch" | "is") {
+export function nationalSourceProvider(territory: NationalTerritory) { return CONFIG[territory].provider; }
+export function nationalSourceInfo(territory: NationalTerritory) {
   const config = CONFIG[territory];
   return { name: config.title, url: config.page, attribution: `${config.title} · ${config.licence}`,
     limitations: config.limitations };

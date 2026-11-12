@@ -3,9 +3,9 @@ import type { Collection } from "mongodb";
 import { getTransportMetadataCollection } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 
-// Closed public DTOs. In particular, never serialize a JourneyIndex, trips,
-// calendars, stop_times, predictions, raw provider metadata or a GTFS archive.
-type Shape = "string" | "blob" | "number" | "boolean" | { [key: string]: Shape } | readonly [Shape];
+// Closed public DTOs. Never serialize a JourneyIndex, trips, calendars,
+// stop_times, predictions, raw provider metadata or a GTFS archive to MongoDB.
+type Shape = "string" | "number" | "boolean" | { [key: string]: Shape } | readonly [Shape];
 const strings: Shape = ["string"];
 const resource: Shape = { id: "number", title: "string", format: "string", type: "string", url: "string",
   original_url: "string", is_available: "boolean", modes: strings, updated: "string",
@@ -36,10 +36,10 @@ const shapes = {
   locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
     territory: "string", area: "string" }],
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
-  journeyIndexes: { payload: "blob" },
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
-export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MetadataKey { territory: "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg" | "lv" | "cz" | "pt" | "au" | "ua"; provider: string; kind: MetadataKind; source: string; version: string }
+export interface MemoryMetadataKey extends Omit<MetadataKey, "kind"> { kind: string }
 export interface MetadataDocument {
   _id: string; schema: number; territory: string; provider: string; kind: MetadataKind;
   source: string; version: string; value: unknown; fetchedAt: Date; expiresAt: Date; freshUntil?: Date;
@@ -49,13 +49,6 @@ const SCHEMA = 1, MAX_BYTES = 4 * 1024 * 1024;
 /** Projection on both write AND read: adding a field upstream cannot persist it accidentally. */
 export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
   function project(shape: Shape, input: unknown): unknown {
-    if (shape === "blob") {
-      if (typeof input !== "string" || input.length > 4 * 1024 * 1024 ||
-        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input)) {
-        throw Error("Invalid compressed public transport cache");
-      }
-      return input;
-    }
     if (typeof shape === "string") {
       if (typeof input !== shape || typeof input === "number" && !Number.isFinite(input) ||
         typeof input === "string" && input.length > 4000) throw Error("Invalid public transport metadata");
@@ -71,7 +64,9 @@ export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
       return v == null ? [] : [[key, project(field, v)]];
     }));
   }
-  const result = project(shapes[kind], value);
+  const shape = shapes[kind];
+  if (!shape) throw Error("Unsupported persistent transport metadata kind");
+  const result = project(shape, value);
   const rows = Array.isArray(result) ? result as Array<Record<string, unknown>> : [];
   if (kind === "catalog" && rows.some(row => typeof row.id !== "string" || !Array.isArray(row.resources)) ||
     kind === "areas" && rows.some(row => typeof row.code !== "string" || typeof row.nom !== "string") ||
@@ -153,6 +148,54 @@ export class TransportMetadataCache {
     const work = this.loadAndStore(id, key, freshFor, retainFor, load, col).finally(() => this.pending.delete(id));
     this.pending.set(id, work);
     return { value: structuredClone(await work) as T, stale: false };
+  }
+  /** Schedule indexes are useful within one bot process but must never be written to MongoDB. */
+  async staleWhileRevalidateMemory<T>(key: MemoryMetadataKey, freshFor: number, retainFor: number,
+    load: () => Promise<T>, schedule: (refresh: () => void) => void = refresh => {
+      const timer = setTimeout(refresh, 2_000);
+      timer.unref?.();
+    }): Promise<{ value: T; stale: boolean }> {
+    const id = createHash("sha256").update(JSON.stringify([SCHEMA, key.territory, key.provider, key.kind,
+      key.source, key.version])).digest("hex");
+    const now = this.now();
+    const old = this.memory.get(id);
+    if (old && old.expires > now) {
+      if (old.freshUntil > now) return { value: structuredClone(old.value) as T, stale: false };
+      this.scheduleMemoryRefresh(id, key, freshFor, retainFor, load, schedule);
+      return { value: structuredClone(old.value) as T, stale: true };
+    }
+    if (old) this.memory.delete(id);
+    const pending = this.pending.get(id);
+    if (pending) return { value: structuredClone(await pending) as T, stale: false };
+    const work = this.loadAndRememberMemory(id, freshFor, retainFor, load).finally(() => this.pending.delete(id));
+    this.pending.set(id, work);
+    return { value: structuredClone(await work) as T, stale: false };
+  }
+  private scheduleMemoryRefresh<T>(id: string, key: MemoryMetadataKey, freshFor: number, retainFor: number,
+    load: () => Promise<T>, schedule: (refresh: () => void) => void) {
+    if (this.pending.has(id) || this.refreshScheduled.has(id) || (this.refreshRetryAfter.get(id) ?? 0) > this.now()) return;
+    this.refreshScheduled.add(id);
+    schedule(() => {
+      this.refreshScheduled.delete(id);
+      if (this.pending.has(id)) return;
+      const work = this.loadAndRememberMemory(id, freshFor, retainFor, load)
+        .catch(error => {
+          this.refreshRetryAfter.set(id, this.now() + 30_000);
+          logger.debug({ err: error, kind: key.kind }, "Background in-memory transport schedule refresh failed; keeping the last good copy");
+        }).finally(() => this.pending.delete(id));
+      this.pending.set(id, work);
+    });
+  }
+  private async loadAndRememberMemory<T>(id: string, freshFor: number, retainFor: number, load: () => Promise<T>) {
+    const value = await load();
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined || Buffer.byteLength(serialized) > MAX_BYTES) {
+      throw Error("In-memory transport schedule exceeds its cache budget");
+    }
+    const now = this.now();
+    this.remember(id, value, now + retainFor, now + freshFor);
+    this.refreshRetryAfter.delete(id);
+    return value;
   }
   private scheduleRefresh<T>(id: string, key: MetadataKey, freshFor: number, retainFor: number, load: () => Promise<T>,
     schedule: (refresh: () => void) => void) {

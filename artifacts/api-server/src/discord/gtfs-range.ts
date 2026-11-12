@@ -180,6 +180,7 @@ export class GtfsRangeArchive {
       callback(expanded > entry.original || expanded > MAX_EXPANDED ? new Error("Transport table expanded beyond its size limit") : null, chunk);
     } });
     const csv = parse({ columns: true, bom: true, skip_empty_lines: true, relax_column_count: true,
+      relax_quotes: true, ltrim: true,
       max_record_size: 20_000, on_record(row: GtfsRow) { onRow(row); return null; } });
     csv.resume();
     await pipeline(Readable.from(this.chunks(response, entry.compressed)),
