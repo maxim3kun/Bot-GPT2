@@ -21,3 +21,17 @@ mtime_ms = 1794137817544
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:dd07494f-f428-4bfa-a395-a0f83f7aa2d5/c3b612a8-c71f-4543-b6ba-83d0f0fd9658/40f38c62-5399-4f7c-aab4-eb1d85a7c510"
 storage_version_token = "1794137843765401"
 content_type = "audio/wav"
+
+[[outputs]]
+id = "w7Kix9Iie0f7vfs7_Vlwc"
+uri = "file://generated-artifacts/france-transport-catalogue-2026-11-12.csv"
+type = "table"
+title = "Inventaire des flux de transport français"
+description = "Export des ressources GTFS du catalogue public officiel, avec territoires, modes déclarés, disponibilité catalogue et liens de source. Les horaires et les archives GTFS ne sont pas inclus."
+logical_id = "680ab547-2916-4c7c-b84a-0a34d15d4158"
+content_hash = "sha256:ad0f341e8b8fbb802048209e507ce1eeec45d68df5e2c8caebdd064aad6db564"
+size = 180330
+mtime_ms = 1794450799933
+storage_uri = "gcs://replit-rams-assets-kira/rams/assets/repl:611b98a4-0f73-43fc-a0eb-c610e829c804/680ab547-2916-4c7c-b84a-0a34d15d4158/b5e7e82d-71da-41da-8bc9-bdb221125461"
+storage_version_token = "1794450800994284"
+content_type = "text/csv"
