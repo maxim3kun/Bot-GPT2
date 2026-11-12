@@ -65,6 +65,20 @@ test("transport preferences never write clear data without encryption readiness 
   }
 });
 
+test("Mobility Database country preferences and favorites round-trip through encryption", async () => {
+  const db = repository();
+  const mobilityFavorite: TransportFavorite = {
+    ...favorite, key: "mobility-sg-journey", territory: "mobility:SG",
+    place: "Singapore", cityId: "osm:mobility:SG:station",
+  };
+  assert.equal(await db.store.setPreferredTerritory("discord-user", "mobility:SG"), true);
+  assert.deepEqual(await db.store.toggleFavorite("discord-user", mobilityFavorite), { ok: true, saved: true });
+  assert.deepEqual(await db.store.get("discord-user"), {
+    preferredTerritory: "mobility:SG", favorites: [mobilityFavorite],
+  });
+  assert.equal(await db.store.setPreferredTerritory("discord-user", "mobility:SGP"), false);
+});
+
 test("serialized concurrent favorite changes do not overwrite one another", async () => {
   const db = repository();
   const second = { ...favorite, key: "other", routeId: "route-other", lineLabel: "A2" };

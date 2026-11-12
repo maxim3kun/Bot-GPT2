@@ -1,7 +1,7 @@
 import type { Collection } from "mongodb";
 import { decrypt, encrypt, getTransportPreferencesCollection, hashUserId, isDbReady } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
-import type { TransportTerritory } from "./transport-provider.js";
+import { isMobilityTerritory, type TransportTerritory } from "./transport-provider.js";
 import type { TransitMode } from "./transport-query.js";
 
 export interface TransportFavorite {
@@ -49,13 +49,16 @@ type RepositoryOptions = {
 
 const territories = new Set<TransportTerritory>(["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg",
   "lv", "cz", "pt", "au", "ua"]);
+const validTerritory = (value: unknown): value is TransportTerritory =>
+  typeof value === "string" && (territories.has(value as TransportTerritory) ||
+    isMobilityTerritory(value as TransportTerritory));
 const modes = new Set<TransitMode>(["bus", "metro", "tram", "rail"]);
 const MAX_FAVORITES = 20;
 
 function isFavorite(value: unknown): value is TransportFavorite {
   if (!value || typeof value !== "object") return false;
   const favorite = value as Partial<TransportFavorite>;
-  return typeof favorite.key === "string" && territories.has(favorite.territory as TransportTerritory) &&
+  return typeof favorite.key === "string" && validTerritory(favorite.territory) &&
     modes.has(favorite.mode as TransitMode) && typeof favorite.place === "string" &&
     typeof favorite.routeId === "string" && Number.isSafeInteger(favorite.resourceId) &&
     typeof favorite.lineLabel === "string" && Array.isArray(favorite.originIds) &&
@@ -69,7 +72,7 @@ function parsePreferences(serialized: string): TransportPreferences {
   const value: unknown = JSON.parse(serialized);
   if (!value || typeof value !== "object") throw new Error("Invalid transport preferences");
   const data = value as Partial<TransportPreferences>;
-  if (data.preferredTerritory !== undefined && !territories.has(data.preferredTerritory)) {
+  if (data.preferredTerritory !== undefined && !validTerritory(data.preferredTerritory)) {
     throw new Error("Invalid preferred transport territory");
   }
   if (!Array.isArray(data.favorites) || data.favorites.length > MAX_FAVORITES ||
@@ -127,7 +130,7 @@ export function createTransportPreferencesStore(options: RepositoryOptions): Tra
       return value ?? null;
     },
     async setPreferredTerritory(discordId, territory) {
-      if (!territories.has(territory)) return false;
+      if (!validTerritory(territory)) return false;
       return update(discordId, current => ({ ...current, preferredTerritory: territory }));
     },
     async toggleFavorite(discordId, favorite) {

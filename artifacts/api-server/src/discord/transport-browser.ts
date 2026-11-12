@@ -15,7 +15,7 @@ import { withArrivalApproximations } from "./transport-arrivals.js";
 import type { APIEmbed } from "discord.js";
 import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { IdfmLiveClient, idfmLineCode, idfmTimeAllowed, ruleActive, stopAffected, stopClosed, type IdfmTraffic } from "./idfm-live.js";
-import type { TransportProvider, TransportTerritory } from "./transport-provider.js";
+import { isMobilityTerritory, mobilityCountryCodeForTerritory, type TransportProvider, type TransportTerritory } from "./transport-provider.js";
 import { QuebecTransportClient } from "./quebec-transport.js";
 import { inBounds, sourceLimitations } from "./quebec-sources.js";
 import { parseGtfsAlerts } from "./gtfs-alerts.js";
@@ -61,8 +61,8 @@ export interface TransportDepartureResult {
 export interface TransportTimeOptions { departureAfter?: number; connectionAfter?: number; minimumWaitSeconds?: number }
 export const MODE_NAMES: Record<TransitMode, string> = { bus: "Bus", metro: "Métro", tram: "Tram", rail: "Train / RER" };
 export const modeName = (mode: TransitMode, territory?: TransportTerritory) =>
-  (["qc", "en", "ie", "lu", "ch", "no", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory ?? "") &&
-    mode === "rail") ? "Train" :
+  ((["qc", "en", "ie", "lu", "ch", "no", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory ?? "") ||
+    isMobilityTerritory(territory)) && mode === "rail") ? "Train" :
     territory === "qc" && mode === "tram" ? "Train léger / tram" : MODE_NAMES[mode];
 const isPublicTimetableResource = (resource: CatalogResource) =>
   isStaticScheduleResource(resource) || resource.is_available &&
@@ -173,6 +173,10 @@ export class TransportBrowserClient {
     return this;
   }
 
+  async mobilityCountries() {
+    return this.mobilityDatabase?.countries() ?? [];
+  }
+
   private requiredMobilityDatabase() {
     if (!this.mobilityDatabase) throw new TransportDataError("Mobility Database is not enabled for this transport client.");
     return this.mobilityDatabase;
@@ -206,6 +210,7 @@ export class TransportBrowserClient {
   }
 
   async availableModes(territory: TransportTerritory): Promise<TransitMode[]> {
+    if (isMobilityTerritory(territory)) return Object.keys(MODE_NAMES) as TransitMode[];
     if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory)) {
       const provider = this.providerFor(territory);
       if (!provider.availableModes) throw new TransportDataError("Le catalogue des modes de ce territoire est indisponible.");
@@ -372,6 +377,10 @@ export class TransportBrowserClient {
   }
 
   cities(place: string, territory: TransportTerritory = "fr", mode?: TransitMode | null): Promise<TransportLocation[]> {
+    if (isMobilityTerritory(territory)) {
+      const countryCode = mobilityCountryCodeForTerritory(territory);
+      return countryCode ? this.requiredMobilityDatabase().municipalities(place, countryCode) : Promise.resolve([]);
+    }
     if (territory === "en") return this.england.cities(place, mode);
     if (territory === "fr" && mode === "rail" && this.provider.railLocations) return this.provider.railLocations(place);
     return this.providerFor(territory).municipalities(place);

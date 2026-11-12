@@ -153,6 +153,7 @@ export interface TransportLocation {
   name: string;
   label: string;
   area?: string;
+  mobilityCountryCode?: string;
   latitude: number;
   longitude: number;
   territory?: TransportTerritory;

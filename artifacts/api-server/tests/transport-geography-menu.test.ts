@@ -281,6 +281,53 @@ test("saved territory is first but every territory remains selectable", async ()
   d.cards[0]!.collector.stop("cancelled");
 });
 
+test("Mobility Database countries appear in the searchable selector and persist as the preferred territory", async () => {
+  const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
+  s.value.territories = ["fr", "qc", "en"] as any;
+  s.value.mobilityCountries = async () => [{ code: "SG", name: "Singapore" }];
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, store);
+  const card = d.cards[0]!;
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.options) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.value),
+    ["fr", "qc", "en", "mobility:SG"]);
+  assert.match(card.last.content!, /4 choix/);
+  assert.ok(card.custom("filter"), "the expanded country list stays searchable");
+  assert.ok(card.custom("countries"), "the picker can refresh the catalog countries");
+  await choose(card, "mobility:SG");
+  assert.match(card.last.content!, /Singapour · Mobility Database/);
+  assert.match(card.last.content!, /horaires ne seront proposés que si un flux GTFS statique ouvert/i);
+  assert.deepEqual(await store.get("owner"), { preferredTerritory: "mobility:SG", favorites: [] });
+  card.collector.stop("cancelled");
+});
+
+test("the complete Mobility country list is paginated and searchable by localized country name", async () => {
+  const d = fakeDiscord(), s = service();
+  s.value.territories = ["fr", "qc", "en"] as any;
+  const codes = ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX",
+    "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BM", "BN", "BO", "BQ", "BR"];
+  s.value.mobilityCountries = async () => codes.map(code => ({ code, name: code }));
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  assert.match(card.last.content!, /33 choix · 1\/2/);
+  const controls = card.last.components.find(row => row.components.some(component => component.custom_id?.endsWith(":next")));
+  assert.deepEqual(controls?.components.map(component => component.label), ["←", "→", "Rechercher", "Autres pays", "Annuler"]);
+  const submitted = card.interaction("filter", {
+    isButton: () => true,
+    async showModal() {},
+    async awaitModalSubmit() {
+      return { fields: { getTextInputValue: () => "Bangladesh" }, async deferUpdate() {} };
+    },
+  });
+  await card.collector.collect(submitted.value);
+  await settle(() => card.last.content?.includes("1 choix · 1/1") ?? false);
+  const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
+  assert.equal(selector.options[0].value, "mobility:BD");
+  await choose(card, "mobility:BD");
+  assert.match(card.last.content!, /Bangladesh · Mobility Database/);
+  card.collector.stop("cancelled");
+});
+
 test("675 routes are visibly counted across 27 selectable pages", async () => {
   const d = fakeDiscord(), s = service();
   s.value.lines = async () => ({ lines: Array.from({ length: 675 }, (_, i) => ({

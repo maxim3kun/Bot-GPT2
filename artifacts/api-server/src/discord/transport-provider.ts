@@ -5,12 +5,29 @@ import type { GtfsRouteAtStops } from "./gtfs-realtime.js";
 import type { TransportMetadataCache } from "./transport-metadata-cache.js";
 import type { TransitMode } from "./transport-query.js";
 
-export type TransportTerritory = "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg" | "lv" | "cz" | "pt" | "au" | "ua";
-export const TERRITORY_NAMES: Record<TransportTerritory, string> = {
+export type BuiltInTransportTerritory = "fr" | "qc" | "en" | "ie" | "lu" | "ch" | "no" | "is" | "sg" | "lv" | "cz" | "pt" | "au" | "ua";
+export type TransportTerritory = BuiltInTransportTerritory | `mobility:${string}`;
+export const TERRITORY_NAMES: Record<BuiltInTransportTerritory, string> = {
   fr: "France", qc: "Québec", en: "Angleterre", ie: "Irlande", lu: "Luxembourg", ch: "Suisse",
   no: "Norvège", is: "Islande", sg: "Singapour", lv: "Lettonie", cz: "Tchéquie", pt: "Portugal",
   au: "Australie", ua: "Ukraine",
 };
+export function mobilityCountryCodeForTerritory(territory?: TransportTerritory): string | undefined {
+  const match = territory?.match(/^mobility:([a-z]{2})$/i);
+  return match?.[1]?.toUpperCase();
+}
+export function isMobilityTerritory(territory?: TransportTerritory): boolean {
+  return mobilityCountryCodeForTerritory(territory) !== undefined;
+}
+export function territoryLabel(territory: TransportTerritory, language: "fr" | "en" = "fr"): string {
+  const code = mobilityCountryCodeForTerritory(territory);
+  if (!code) return TERRITORY_NAMES[territory as BuiltInTransportTerritory] ?? territory;
+  try {
+    const name = new Intl.DisplayNames([language === "fr" ? "fr" : "en"], { type: "region" }).of(code);
+    if (name && name !== code) return `${name} · Mobility Database`;
+  } catch { /* The ISO code below remains an unambiguous label. */ }
+  return `${code} · Mobility Database`;
+}
 export interface TransportProvider {
   getCatalog(): Promise<CatalogDataset[]>;
   municipalities(place: string): Promise<TransportLocation[]>;

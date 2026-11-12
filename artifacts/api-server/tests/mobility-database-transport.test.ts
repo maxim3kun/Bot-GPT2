@@ -30,6 +30,13 @@ const fakeMetadata = () => {
       cache.set(id, value);
       return { value, stale: false };
     },
+    async get<T>(key: unknown, _ttl: number, load: () => Promise<T>) {
+      const id = JSON.stringify(key);
+      if (cache.has(id)) return structuredClone(cache.get(id)) as T;
+      const value = await load();
+      cache.set(id, value);
+      return structuredClone(value) as T;
+    },
   } as unknown as TransportMetadataCache;
 };
 
@@ -97,6 +104,91 @@ test("catalog cold misses return quickly while the refresh continues in the back
   assert.deepEqual(datasets, []);
   assert.ok(Date.now() - started < 350, "a cache miss must not wait for the remote catalog");
   assert.equal(feedQueryStarted, true);
+});
+
+test("the country directory is paged, deduplicated and cached", async () => {
+  let tokenRequests = 0;
+  const offsets: string[] = [];
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") {
+      tokenRequests++;
+      return Response.json({ access_token: "temporary-access-token" });
+    }
+    assert.equal(url.pathname, "/v1/locations");
+    assert.equal(url.searchParams.get("location_type"), "country");
+    assert.equal(url.searchParams.get("limit"), "100");
+    offsets.push(url.searchParams.get("offset") ?? "");
+    if (url.searchParams.get("offset") === "0") return Response.json({
+      total: 101,
+      results: [
+        { location_type: "country", country_code: "FR", country_name: "France" },
+        { location_type: "country", country_code: "CA", country_name: "Canada" },
+        { location_type: "subdivision", country_code: "CA", country_name: "Canada" },
+        ...Array.from({ length: 97 }, () => ({ location_type: "country", country_code: "FR", country_name: "France" })),
+      ],
+    });
+    if (url.searchParams.get("offset") === "100") return Response.json({
+      total: 101,
+      results: [{ location_type: "country", country_code: "FR", country_name: "France" }],
+    });
+    throw new Error("Unexpected location page");
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const countries = await client.countries();
+  assert.deepEqual(offsets, ["0", "100"]);
+  assert.deepEqual(countries, [
+    { code: "CA", name: "Canada" }, { code: "FR", name: "France" },
+  ]);
+  assert.deepEqual(await client.countries(), countries);
+  assert.equal(offsets.length, 2, "the cached country list avoids another catalog request");
+  assert.equal(tokenRequests, 1);
+});
+
+test("worldwide town search stays inside its selected country and returns a Mobility location", async () => {
+  const requested: URL[] = [];
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    requested.push(url);
+    assert.equal(url.hostname, url.pathname === "/v1/tokens/access" ? "api.mobilitydatabase.org" : "nominatim.openstreetmap.org");
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    assert.equal(url.searchParams.get("countrycodes"), "sg");
+    assert.equal(url.searchParams.get("format"), "jsonv2");
+    return Response.json([
+      { class: "place", type: "city", name: "Singapore", lat: "1.29", lon: "103.85",
+        address: { country_code: "sg", state: "Central Region" } },
+      { class: "place", type: "town", name: "Wrong country", lat: "1.2", lon: "103.8",
+        address: { country_code: "my" } },
+      { class: "highway", type: "residential", name: "Not a city", lat: "1.3", lon: "103.9",
+        address: { country_code: "sg" } },
+    ]);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const places = await client.municipalities("Singapore", "SG");
+  assert.equal(places.length, 1);
+  assert.equal(places[0]?.name, "Singapore");
+  assert.equal(places[0]?.territory, "mobility:SG");
+  assert.equal(places[0]?.mobilityCountryCode, "SG");
+  assert.equal(requested.length, 1);
+});
+
+test("dynamic country selections query Mobility Database by their ISO country code", async () => {
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    assert.equal(url.searchParams.get("country_code"), "SG");
+    return Response.json([feed("mdb-sg", {
+      locations: [{ country_code: "SG" }],
+      latest_dataset: { id: "mdb-sg-v1", hosted_url: hosted("mdb-sg"), downloaded_at: "2026-11-12T08:00:00Z",
+        zipped_folder_size_mb: 2, bounding_box: {
+          minimum_latitude: 1, maximum_latitude: 2, minimum_longitude: 103, maximum_longitude: 104,
+        } },
+    })]);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const datasets = await client.catalogForLocation({
+    id: "sg", name: "Singapore", label: "Singapore", latitude: 1.29, longitude: 103.85,
+    territory: "mobility:SG", mobilityCountryCode: "SG",
+  }, 1_000);
+  assert.equal(datasets.length, 1);
+  assert.equal(datasets[0]?.territory, "mobility:SG");
 });
 
 test("hosted GTFS downloads stay on MobilityData's approved storage host and parse route data", async () => {

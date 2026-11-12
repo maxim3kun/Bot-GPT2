@@ -30,13 +30,26 @@ try {
   if (!apiResponse.ok) throw new Error(`Mobility Database geographic search returned HTTP ${apiResponse.status}.`);
   const sample = await apiResponse.json() as unknown;
   if (!Array.isArray(sample)) throw new Error("Mobility Database returned an unexpected feed-list response.");
+  const countriesUrl = new URL("https://api.mobilitydatabase.org/v1/locations");
+  countriesUrl.searchParams.set("location_type", "country");
+  countriesUrl.searchParams.set("limit", "100");
+  const countriesResponse = await fetch(countriesUrl, {
+    headers: { authorization: `Bearer ${tokenBody.access_token}` }, signal: controller.signal, redirect: "error",
+  });
+  if (!countriesResponse.ok) throw new Error(`Mobility Database country list returned HTTP ${countriesResponse.status}.`);
+  const countryPage = await countriesResponse.json() as { total?: unknown; results?: unknown };
+  if (!Array.isArray(countryPage.results) || typeof countryPage.total !== "number")
+    throw new Error("Mobility Database returned an unexpected country-list response.");
 
-  const nearby = await new MobilityDatabaseTransportClient().catalogForLocation({
+  const mobility = new MobilityDatabaseTransportClient();
+  const countries = await mobility.countries();
+  const nearby = await mobility.catalogForLocation({
     id: "paris-live-check", name: "Paris", label: "Paris",
     latitude: 48.8566, longitude: 2.3522, territory: "fr",
   }, 15_000);
-  console.log(`Mobility Database OAuth and Paris-area catalog are reachable; ` +
-    `${sample.length} sample API record and ${nearby.length} eligible GTFS feed(s) found.`);
+  console.log(`Mobility Database OAuth and catalog are reachable; ${sample.length} Paris sample record, ` +
+    `${countryPage.total} country entries (${countries.length} selectable ISO country codes) and ` +
+    `${nearby.length} eligible GTFS feed(s) near Paris.`);
   const sampleUrl = nearby[0]?.resources[0]?.url;
   if (sampleUrl) {
     const probeController = new AbortController();
