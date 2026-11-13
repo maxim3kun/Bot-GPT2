@@ -268,3 +268,85 @@ test("a delayed realtime association fills the cached line list after its static
   assert.equal(listing.lines[0]?.realtime.length, 1,
     "the bounded lookup can finish after the static timetable without losing its live feed");
 });
+
+test("Japan area browsing exposes only prefectures with GTFS routes and lists only served lines", async () => {
+  const japanFeed = {
+    id: "jp-regional-feed", feed_name: "Japan Sample", provider: "Japan Transit", status: "active", official: true,
+    source_info: { license_id: "CC-BY-4.0", license_is_spdx: true },
+    locations: [{ country_code: "JP" }],
+    latest_dataset: {
+      id: "jp-regional-feed-v1",
+      hosted_url: "https://storage.googleapis.com/mobilitydata-datasets-prod/jp-regional-feed/v1/feed.zip",
+      downloaded_at: "2026-11-12T06:00:00Z", zipped_folder_size_mb: 1,
+      bounding_box: { minimum_latitude: 0, maximum_latitude: 6, minimum_longitude: 0, maximum_longitude: 6 },
+    },
+  };
+  const japanArchive = zipSync({
+    "agency.txt": strToU8("agency_id,agency_name,agency_timezone\nA,Test,Asia/Tokyo\n"),
+    "routes.txt": strToU8("route_id,route_short_name,route_long_name,route_type\nR-TOKYO,101,Tokyo Bus,3\nR-REMOTE,202,Remote Bus,3\n"),
+    "trips.txt": strToU8("route_id,service_id,trip_id\nR-TOKYO,S,T-TOKYO\nR-REMOTE,S,T-REMOTE\n"),
+    "calendar.txt": strToU8("service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nS,1,1,1,1,1,1,1,20200101,20991231\n"),
+    "stops.txt": strToU8("stop_id,stop_name,stop_lat,stop_lon,location_type\nTOKYO,Tokyo,0.5,0.5,0\nREMOTE,Remote,5.5,5.5,0\n"),
+    "stop_times.txt": strToU8("trip_id,stop_id,stop_sequence,arrival_time,departure_time\nT-TOKYO,TOKYO,1,08:00:00,08:00:00\nT-REMOTE,REMOTE,1,08:00:00,08:00:00\n"),
+  });
+  const metadataValues = new Map<string, unknown>();
+  const metadata = {
+    async staleWhileRevalidate<T>(key: unknown, _fresh: number, _retain: number, load: () => Promise<T>) {
+      const id = JSON.stringify(key);
+      if (metadataValues.has(id)) return { value: structuredClone(metadataValues.get(id)) as T, stale: false };
+      const value = await load(); metadataValues.set(id, value); return { value, stale: false };
+    },
+    async get<T>(key: unknown, _ttl: number, load: () => Promise<T>) {
+      const id = JSON.stringify(key);
+      if (metadataValues.has(id)) return structuredClone(metadataValues.get(id)) as T;
+      const value = await load(); metadataValues.set(id, value); return structuredClone(value);
+    },
+  } as unknown as TransportMetadataCache;
+  const fetcher: typeof fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({
+      access_token: "temporary-access-token", expiration_datetime_utc: "2026-11-12T09:00:00Z",
+    });
+    if (url.pathname === "/v1/gtfs_feeds" && url.searchParams.get("country_code") === "JP") {
+      return Response.json([japanFeed]);
+    }
+    if (url.hostname === "storage.googleapis.com") return new Response(japanArchive);
+    if (url.hostname === "www.geoboundaries.org") return Response.json({
+      boundaryID: "JPN-ADM1-live-test", boundaryType: "ADM1", boundaryYearRepresented: "2025",
+      boundaryCanonical: "Prefecture", boundaryLicense: "Public Domain",
+      boundarySource: "Test GeoBoundaries", boundarySourceURL: "https://www.geoboundaries.org/",
+      simplifiedGeometryGeoJSON:
+        "https://github.com/wmgeolab/geoBoundaries/raw/test/releaseData/gbOpen/JPN/ADM1/geoBoundaries-JPN-ADM1_simplified.geojson",
+    });
+    if (url.hostname === "github.com") {
+      const response = Response.json({
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: { shapeName: "Tokyo", shapeISO: "JP-13", shapeID: "tokyo" },
+            geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] } },
+          { type: "Feature", properties: { shapeName: "Osaka", shapeISO: "JP-27", shapeID: "osaka" },
+            geometry: { type: "Polygon", coordinates: [[[2, 2], [3, 2], [3, 3], [2, 3], [2, 2]]] } },
+        ],
+      });
+      Object.defineProperty(response, "url", {
+        value: "https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/test/releaseData/gbOpen/JPN/ADM1/geoBoundaries-JPN-ADM1_simplified.geojson",
+      });
+      return response;
+    }
+    throw new Error(`Unexpected Japan region request ${url.hostname}${url.pathname}`);
+  };
+  const mobility = new MobilityDatabaseTransportClient(fetcher, () => NOW, metadata, () => "test-refresh-token");
+  const browser = new TransportBrowserClient(undefined, () => NOW, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, mobility);
+  const territory = "mobility:JP" as const;
+  const regions = await browser.coveredRegions(territory, "bus");
+  assert.deepEqual(regions, ["Tokyo"]);
+  const region = await browser.region("Tokyo", territory);
+  assert.ok(region?.boundary);
+  const networks = await browser.regionNetworks(region!, "bus");
+  assert.equal(networks.length, 1);
+  const listing = await browser.regionLines(networks[0]!, "bus", "", region!);
+  assert.deepEqual(listing.lines.map(line => line.label), ["101"]);
+  assert.equal(listing.unavailable, 0);
+});

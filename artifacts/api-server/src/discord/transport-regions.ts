@@ -1,14 +1,20 @@
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import { modeMatches, isStaticScheduleResource, type CatalogDataset } from "./public-transport.js";
+import type { TransportTerritory } from "./transport-provider.js";
 
 export interface TransportRegion {
   code: string;
   name: string;
   departmentCodes: string[];
   epciCodes: string[];
-  territory?: "ie" | "lu";
+  territory?: TransportTerritory;
   parentName?: string;
   boundary?: GeoJsonBoundary;
+  boundaryId?: string;
+  boundaryLicense?: string;
+  boundarySource?: string;
+  boundarySourceUrl?: string;
+  countryCode?: string;
 }
 export type GeoJsonBoundary =
   | { type: "Polygon"; coordinates: number[][][] }

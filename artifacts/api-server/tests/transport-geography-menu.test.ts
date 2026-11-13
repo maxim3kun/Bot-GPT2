@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
 import { TransportBrowserClient } from "../src/discord/transport-browser.js";
+import { administrativeRegionCountryCode, administrativeRegionWithinTerritory } from "../src/discord/transport-provider.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
 import type { TransportFavorite, TransportPreferences, TransportPreferencesStore } from "../src/discord/transport-preferences.js";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -160,6 +161,58 @@ test("French area browsing opens a covered-region list instead of a text prompt"
   assert.match(card.last.content!, /Choisis un réseau/);
   assert.match(card.last.content!, /Normandie/);
   card.collector.stop("cancelled");
+});
+
+test("Japan's Mobility entry opens its verified prefecture picker from the zone button", async () => {
+  const d = fakeDiscord(), s = service();
+  const territory = "mobility:JP";
+  s.value.coveredRegions = async (selectedTerritory: string, mode: string) => {
+    assert.equal(selectedTerritory, territory);
+    assert.equal(mode, "bus");
+    return ["Tokyo"];
+  };
+  s.value.region = async (name: string, selectedTerritory: string) => name === "Tokyo" && selectedTerritory === territory
+    ? { code: "JP-13", name: "Tokyo", territory, countryCode: "JP", departmentCodes: [], epciCodes: [],
+      boundaryId: "JPN-ADM1-test", boundary: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] } } as any
+    : null;
+  s.value.regionNetworks = async (selectedRegion: any) => {
+    assert.equal(selectedRegion.code, "JP-13");
+    return [{ id: "mobilitydatabase:jp-feed", title: "Japan Transit", page_url: "https://example.test/japan",
+      territory, resources: [{ id: 1, provider: "mobilitydatabase", title: "GTFS", format: "GTFS",
+        url: "https://example.test/japan.zip", is_available: true }] }];
+  };
+  s.value.regionLines = async () => ({ lines: [{ routeId: "R", label: "101", description: "Tokyo Bus",
+    mode: "bus", nearbyStopIds: [], allStops: true,
+    source: { name: "Japan Transit", url: "https://example.test/japan" } }], unavailable: 0, networkScoped: true });
+  await handleTransportSearch(d.message, { place: "", territory, mode: "bus" } as any, "fr", "!", s.value);
+  const card = d.cards[0]!;
+  assert.ok(card.custom("zones"));
+  await click(card, "zones");
+  assert.match(card.last.content!, /Choisis une région desservie/);
+  const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.label), ["Tokyo"]);
+  await choose(card, "Tokyo");
+  assert.match(card.last.content!, /Choisis une ligne/);
+  const lineSelector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
+  assert.deepEqual(lineSelector.options.map((option: any) => option.label), ["101 · Tokyo Bus"]);
+  card.collector.stop("cancelled");
+});
+
+test("administrative region browsing stays inside the existing France, England, Quebec and regional scopes", () => {
+  assert.equal(administrativeRegionCountryCode("qc"), "CA");
+  assert.equal(administrativeRegionCountryCode("en"), "GB");
+  assert.equal(administrativeRegionWithinTerritory("qc", "Québec"), true);
+  assert.equal(administrativeRegionWithinTerritory("qc", "Ontario"), false);
+  assert.equal(administrativeRegionWithinTerritory("en", "England"), true);
+  assert.equal(administrativeRegionWithinTerritory("en", "Scotland"), false);
+  assert.equal(administrativeRegionWithinTerritory("au", "Queensland"), true);
+  assert.equal(administrativeRegionWithinTerritory("au", "New South Wales"), false);
+  assert.equal(administrativeRegionWithinTerritory("pt", "Lisbon Metropolitan Area"), true);
+  assert.equal(administrativeRegionWithinTerritory("pt", "Porto"), false);
+  assert.equal(administrativeRegionWithinTerritory("ua", "Lviv Oblast"), true);
+  assert.equal(administrativeRegionWithinTerritory("ua", "Kyiv"), false);
+  assert.equal(administrativeRegionWithinTerritory("mobility:GB", "England"), true);
+  assert.equal(administrativeRegionWithinTerritory("mobility:GB", "Wales"), false);
 });
 
 test("countries without a verified region index do not replace zone browsing with a text modal", async () => {
@@ -348,6 +401,7 @@ test("only Mobility Database countries with usable static timetables appear", as
     countries: [
       { code: "DE", name: "Germany", covered: false },
       { code: "SG", name: "Singapore", covered: true },
+      { code: "GB", name: "United Kingdom", covered: true },
     ],
   });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, store);

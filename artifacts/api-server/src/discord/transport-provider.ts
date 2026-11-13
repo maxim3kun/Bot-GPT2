@@ -19,6 +19,29 @@ export function mobilityCountryCodeForTerritory(territory?: TransportTerritory):
 export function isMobilityTerritory(territory?: TransportTerritory): boolean {
   return mobilityCountryCodeForTerritory(territory) !== undefined;
 }
+const ADMIN_REGION_COUNTRY_CODES: Record<BuiltInTransportTerritory, string> = {
+  fr: "FR", qc: "CA", en: "GB", ie: "IE", lu: "LU", ch: "CH", no: "NO",
+  is: "IS", sg: "SG", lv: "LV", cz: "CZ", pt: "PT", au: "AU", ua: "UA",
+};
+export function administrativeRegionCountryCode(territory?: TransportTerritory): string | undefined {
+  return mobilityCountryCodeForTerritory(territory) ??
+    (territory ? ADMIN_REGION_COUNTRY_CODES[territory as BuiltInTransportTerritory] : undefined);
+}
+export function supportsAdministrativeRegionBrowsing(territory?: TransportTerritory): boolean {
+  return !!administrativeRegionCountryCode(territory) && territory !== "fr" && territory !== "ie";
+}
+export function administrativeRegionWithinTerritory(territory: TransportTerritory, name: string): boolean {
+  const normalized = name.toLocaleLowerCase("und").normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+  const scope: Partial<Record<BuiltInTransportTerritory, string[]>> = {
+    qc: ["quebec"], en: ["england"], au: ["queensland"],
+    pt: ["lisbon", "lisboa"], ua: ["lviv"], cz: ["prague", "praha"],
+    is: ["capital region", "reykjavik", "hofudborgarsvaedid"],
+  };
+  const dynamicCode = mobilityCountryCodeForTerritory(territory);
+  const allowedNames = scope[territory as BuiltInTransportTerritory] ?? (dynamicCode === "GB" ? ["england"] : undefined);
+  return !allowedNames || allowedNames.some(value => normalized === value || normalized.includes(value));
+}
 export function territoryLabel(territory: TransportTerritory, language: "fr" | "en" = "fr"): string {
   const code = mobilityCountryCodeForTerritory(territory);
   if (!code) return TERRITORY_NAMES[territory as BuiltInTransportTerritory] ?? territory;

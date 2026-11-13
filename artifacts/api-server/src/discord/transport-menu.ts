@@ -8,7 +8,7 @@ import {
 import { TransportBrowserClient, MODE_NAMES, modeName, originOptions, arrivalOptions, type TransportLine, type StopGroup,
   type TransportDepartureResult, type TransportTimeOptions } from "./transport-browser.js";
 import { sourceButton, lineMatches, type TransportLocation, type CatalogDataset } from "./public-transport.js";
-import { isMobilityTerritory, territoryLabel, type TransportTerritory } from "./transport-provider.js";
+import { isMobilityTerritory, supportsAdministrativeRegionBrowsing, territoryLabel, type TransportTerritory } from "./transport-provider.js";
 import { normalizeTransitText, type TransitMode } from "./transport-query.js";
 import { journeyPairs, type JourneyIndex } from "./gtfs-journey.js";
 import { connectionPaths } from "./gtfs-connections.js";
@@ -315,11 +315,17 @@ export async function handleTransportSearch(
 
   async function showZonesUnavailable() {
     stage = "city";
-    await edit(text(
-      "Aucune liste de zones avec lignes vérifiées n’est disponible pour ce pays. Choisis « Saisir une commune » pour continuer.",
-      "No area list with verified routes is available for this country. Choose “Enter a town” to continue.",
-    ), [new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const building = !!territory && supportsAdministrativeRegionBrowsing(territory) && selectedMode &&
+      service.regionIndexStatus?.(territory, selectedMode) === "building";
+    const message = building
+      ? text("La liste des zones vérifiées se prépare en arrière-plan. Saisis une commune ou réessaie dans un instant.",
+        "The verified area list is being prepared in the background. Enter a town or try again shortly.")
+      : text("Aucune liste de zones avec lignes vérifiées n’est disponible pour ce pays. Choisis « Saisir une commune » pour continuer.",
+        "No area list with verified routes is available for this country. Choose “Enter a town” to continue.");
+    await edit(message, [new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
+      ...(territory && supportsAdministrativeRegionBrowsing(territory)
+        ? [button("zones", text("Réessayer", "Try again"))] : []),
       button("cancel", text("Annuler", "Cancel")),
     )]);
   }
@@ -346,7 +352,7 @@ export async function handleTransportSearch(
         : value === "pt" ? { description: text("Métro de Lisbonne uniquement", "Lisbon Metro only") }
         : value === "au" ? { description: text("Queensland · SEQ, Bowen, Bundaberg, Cairns", "Queensland · SEQ, Bowen, Bundaberg, Cairns") }
         : value === "ua" ? { description: text("Bus et tram à Lviv uniquement", "Lviv buses and trams only") } : {}) }));
-      const discovered = (mobilityCoverage?.countries ?? []).filter(country => country.covered).map(country => ({
+      const discovered = (mobilityCoverage?.countries ?? []).filter(country => country.covered && country.code !== "GB").map(country => ({
         value: `mobility:${country.code}`,
         label: `${territoryLabel(`mobility:${country.code}`, language === "fr" ? "fr" : "en")} · ${
           text("GTFS ouvert", "open GTFS")}`,
@@ -461,19 +467,23 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
+    const visibleMobilityCoverage = mobilityCoverage?.countries.filter(country => country.code !== "GB") ?? [];
     const coverageNote = stage !== "territory" || typeof service.mobilityCountries !== "function" ? ""
       : !mobilityCoverage ? text("\nCouverture Mobility Database non vérifiée; les recherches déjà disponibles restent accessibles.",
         "\nMobility Database coverage could not be verified; existing searches remain available.")
       : mobilityCoverage.complete
-        ? text(`\nGTFS statique actif et licence autorisée : ${mobilityCoverage.countries.filter(country => country.covered).length} pays · sans flux exploitable : ${mobilityCoverage.countries.filter(country => !country.covered).length}.`,
-          `\nActive static GTFS with a permitted license: ${mobilityCoverage.countries.filter(country => country.covered).length} countries · no usable feed: ${mobilityCoverage.countries.filter(country => !country.covered).length}.`)
+        ? text(`\nGTFS statique actif et licence autorisée : ${visibleMobilityCoverage.filter(country => country.covered).length} pays · sans flux exploitable : ${visibleMobilityCoverage.filter(country => !country.covered).length}.`,
+          `\nActive static GTFS with a permitted license: ${visibleMobilityCoverage.filter(country => country.covered).length} countries · no usable feed: ${visibleMobilityCoverage.filter(country => !country.covered).length}.`)
         : text("\nRépertoire ou couverture incomplet; seuls les flux confirmés sont marqués disponibles.",
           "\nCountry directory or coverage is incomplete; only confirmed feeds are marked available.");
     const regionListNote = stage === "regions" ? text(
       "\nRégions où une source publie des horaires pour ce mode; les lignes sont vérifiées à l’étape suivante.",
       "\nRegions where a source publishes timetables for this mode; routes are verified in the next step.",
     ) : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${regionListNote}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    const boundaryAttribution = stage === "regions" && territory && supportsAdministrativeRegionBrowsing(territory) &&
+      typeof service.regionBoundaryAttribution === "function"
+      ? `\n${await service.regionBoundaryAttribution(territory)}` : "";
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${regionListNote}${boundaryAttribution}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
   }
 
   async function loadModeChoices() {
@@ -538,7 +548,7 @@ export async function handleTransportSearch(
     line = undefined; index = undefined; origin = undefined; arrival = undefined; city = undefined; network = undefined; region = undefined;
     province = "";
     if (!place) { await cityInput(); return; }
-    if (typeof service.region === "function") {
+    if (typeof service.region === "function" && (stage === "regions" || territory === "fr" || territory === "ie")) {
       const scope = await service.region(place, territory);
       if (!live) return;
       if (scope) {
@@ -1074,7 +1084,8 @@ export async function handleTransportSearch(
       if (action === "zones" && territory === "ie") {
         province = ""; filter = ""; page = 0; stage = "provinces"; await render(); return;
       }
-      if (action === "zones" && territory === "fr") {
+      if (action === "zones" && territory && (territory === "fr" || supportsAdministrativeRegionBrowsing(territory))) {
+        await edit(text("Vérification des zones desservies…", "Checking areas with service…"));
         regions = typeof service.coveredRegions === "function"
           ? await service.coveredRegions(territory, selectedMode ?? "bus")
           : [];
@@ -1139,7 +1150,7 @@ export async function handleTransportSearch(
       } else if (stage === "regions") {
         place = value;
         lineFilter = ""; direction = ""; filter = ""; page = 0;
-        region = await service.region?.(place, "fr") ?? undefined;
+        region = await service.region?.(place, territory ?? "fr") ?? undefined;
         if (!region) throw new TransportDataError("La limite de cette région n’a pas pu être vérifiée.");
         await loadNetworks();
       } else if (stage === "provinces") {

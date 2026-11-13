@@ -15,7 +15,9 @@ import { withArrivalApproximations } from "./transport-arrivals.js";
 import type { APIEmbed } from "discord.js";
 import { isIdfmGtfs, type GtfsSelection } from "./gtfs-selective.js";
 import { IdfmLiveClient, idfmLineCode, idfmTimeAllowed, ruleActive, stopAffected, stopClosed, type IdfmTraffic } from "./idfm-live.js";
-import { isMobilityTerritory, mobilityCountryCodeForTerritory, type TransportProvider, type TransportTerritory } from "./transport-provider.js";
+import { administrativeRegionCountryCode, administrativeRegionWithinTerritory, isMobilityTerritory,
+  mobilityCountryCodeForTerritory, supportsAdministrativeRegionBrowsing, type TransportProvider,
+  type TransportTerritory } from "./transport-provider.js";
 import { QuebecTransportClient } from "./quebec-transport.js";
 import { inBounds, sourceLimitations } from "./quebec-sources.js";
 import { parseGtfsAlerts } from "./gtfs-alerts.js";
@@ -32,6 +34,7 @@ import { NorwayNetexTransportClient } from "./norway-netex-transport.js";
 import { IcelandGtfsTransportClient } from "./iceland-gtfs-transport.js";
 import { SingaporeDataMallTransportClient } from "./singapore-datamall-transport.js";
 import { isMobilityDatabaseResource, MobilityDatabaseTransportClient, type MobilityCountryCoverage } from "./mobility-database-transport.js";
+import { administrativeRegions } from "./administrative-region-boundaries.js";
 
 export interface TransportLine {
   routeId: string;
@@ -221,17 +224,49 @@ export class TransportBrowserClient {
 
   async region(place: string, territory: TransportTerritory = "fr"): Promise<TransportRegion | null> {
     if (territory === "ie") return (this.ireland as NationalGtfsTransportClient).region(place);
+    if (supportsAdministrativeRegionBrowsing(territory)) {
+      const countryCode = administrativeRegionCountryCode(territory);
+      if (!countryCode) return null;
+      const set = await administrativeRegions(countryCode);
+      const match = set.regions.find(item => administrativeRegionWithinTerritory(territory, item.name) &&
+        normalizeTransitText(item.name) === normalizeTransitText(place));
+      return match ? {
+        code: match.code, name: match.name, territory, countryCode,
+        departmentCodes: [], epciCodes: [], boundary: match.boundary,
+        boundaryId: set.boundaryId, boundaryLicense: set.license,
+        boundarySource: set.sourceName, boundarySourceUrl: set.sourceUrl,
+      } : null;
+    }
     if (territory !== "fr" || !isRegionName(place)) return null;
     const provider = this.provider as FranceTransportClient;
     if (!provider.region) throw new TransportDataError("Référentiel des régions indisponible.");
     return provider.region(place);
   }
   async coveredRegions(territory: TransportTerritory, mode: TransitMode): Promise<string[]> {
-    if (territory !== "fr") return [];
-    return coveredFrenchRegions(await this.provider.getCatalog(), mode);
+    if (territory === "fr") return coveredFrenchRegions(await this.provider.getCatalog(), mode);
+    if (supportsAdministrativeRegionBrowsing(territory)) {
+      const countryCode = administrativeRegionCountryCode(territory);
+      if (!countryCode) return [];
+      const index = await this.requiredMobilityDatabase().countryRegionalIndex(
+        countryCode, mode, territory, refresh => this.scheduleBackgroundRefresh(refresh),
+        name => administrativeRegionWithinTerritory(territory, name));
+      return index.regions.map(region => region.name);
+    }
+    return [];
+  }
+  regionIndexStatus(territory: TransportTerritory, mode: TransitMode) {
+    const countryCode = supportsAdministrativeRegionBrowsing(territory) ? administrativeRegionCountryCode(territory) : undefined;
+    return countryCode ? this.requiredMobilityDatabase().regionIndexStatus(countryCode, mode, territory) : "unavailable";
+  }
+  async regionBoundaryAttribution(territory: TransportTerritory) {
+    const countryCode = supportsAdministrativeRegionBrowsing(territory) ? administrativeRegionCountryCode(territory) : undefined;
+    if (!countryCode) return "";
+    const boundarySet = await administrativeRegions(countryCode);
+    return `GeoBoundaries · ${boundarySet.license}`;
   }
   async prewarmRegionIndex(territory: TransportTerritory, mode: TransitMode): Promise<void> {
     if (territory === "ie") await (this.ireland as NationalGtfsTransportClient).prewarmRegionIndex(mode);
+    else if (supportsAdministrativeRegionBrowsing(territory)) await this.coveredRegions(territory, mode);
   }
   async regionNetworks(region: TransportRegion, mode: TransitMode) {
     if (region.territory === "ie") {
@@ -239,12 +274,25 @@ export class TransportBrowserClient {
       if (!(await provider.availableModes()).includes(mode)) return [];
       return (await provider.getCatalog()).filter(dataset => dataset.territory === "ie");
     }
+    if (region.territory && supportsAdministrativeRegionBrowsing(region.territory)) {
+      const countryCode = administrativeRegionCountryCode(region.territory);
+      if (!countryCode) return [];
+      const mobility = this.requiredMobilityDatabase();
+      const index = await mobility.countryRegionalIndex(
+        countryCode, mode, region.territory, refresh => this.scheduleBackgroundRefresh(refresh),
+        name => administrativeRegionWithinTerritory(region.territory!, name));
+      const networkIds = new Set(index.regions.find(value => value.code === region.code)?.networkIds ?? []);
+      if (!networkIds.size) return [];
+      const catalog = await mobility.catalogForCountry(countryCode, region.territory);
+      return catalog.filter(dataset => networkIds.has(dataset.id));
+    }
     return regionalNetworks(await this.provider.getCatalog(), region, mode);
   }
   async regionLines(network: CatalogDataset, mode: TransitMode, requestedLine = "",
     region?: TransportRegion): Promise<LineListing> {
     const provider = this.providerFor(network.territory);
-    if (!provider.referenceRoutes) throw new TransportDataError("Le catalogue des lignes de cette source est indisponible.");
+    if (!provider.referenceRoutes && !network.resources.some(isMobilityDatabaseResource))
+      throw new TransportDataError("Le catalogue des lignes de cette source est indisponible.");
     const key = `region:${region?.code ?? "fr"}:${network.id}:${mode}:${normalizeTransitText(requestedLine)}`;
     const load = async (): Promise<LineListing> => {
       const lines: TransportLine[] = [];
@@ -255,8 +303,14 @@ export class TransportBrowserClient {
           (b.updated ?? "").localeCompare(a.updated ?? ""));
       for (const resource of resources) {
         try {
+          const regionCountryCode = region?.countryCode ??
+            (region?.territory ? administrativeRegionCountryCode(region.territory) : undefined);
           const routes = region?.territory === "ie"
             ? await (provider as NationalGtfsTransportClient).routesInRegion(resource, region, mode, requestedLine)
+            : isMobilityDatabaseResource(resource) && region?.territory && region.boundary && region.boundaryId &&
+              regionCountryCode
+              ? await this.requiredMobilityDatabase().routesForRegion(resource, regionCountryCode,
+                { code: region.code, boundary: region.boundary }, mode, region.territory, region.boundaryId)
             : await provider.referenceRoutes!(resource);
           for (const route of routes) if (route.mode === mode && (!requestedLine ||
             routeMatchesRequested(route.routeId, route.shortName, route.longName, requestedLine))) {

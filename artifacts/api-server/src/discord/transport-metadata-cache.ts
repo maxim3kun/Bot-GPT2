@@ -38,6 +38,8 @@ const shapes = {
   mobilityCountries: [{ code: "string", name: "string" }],
   mobilityCountryDirectory: { countries: [{ code: "string", name: "string" }], complete: "boolean" },
   mobilityCoverage: { countries: [{ code: "string", name: "string", covered: "boolean" }], complete: "boolean" },
+  regionIndex: { boundaryId: "string", incomplete: "boolean",
+    regions: [{ code: "string", name: "string", networkIds: strings }] },
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
@@ -92,6 +94,13 @@ export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
         typeof (result as { complete?: unknown }).complete !== "boolean" ||
         ((result as { countries: Array<Record<string, unknown>> }).countries)
           .some(row => typeof row.code !== "string" || typeof row.name !== "string" || typeof row.covered !== "boolean")) ||
+    kind === "regionIndex" &&
+      (typeof (result as { boundaryId?: unknown }).boundaryId !== "string" ||
+        typeof (result as { incomplete?: unknown }).incomplete !== "boolean" ||
+        !Array.isArray((result as { regions?: unknown }).regions) ||
+        ((result as { regions: Array<Record<string, unknown>> }).regions)
+          .some(row => typeof row.code !== "string" || typeof row.name !== "string" || !Array.isArray(row.networkIds) ||
+            !(row.networkIds as unknown[]).every(value => typeof value === "string"))) ||
     kind === "patterns" && rows.some(row => typeof row.id !== "string" || typeof row.routeId !== "string" ||
       typeof row.direction !== "string" || !Array.isArray(row.stopIds)) ||
     kind === "nearby" && !Array.isArray((result as { features?: unknown }).features))

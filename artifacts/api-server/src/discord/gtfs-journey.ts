@@ -8,6 +8,8 @@ import {
   addDays, localDate, serviceRunsOn, scheduledEpoch, parseGtfsStaticMetadata, routeTypeToMode,
   isFreshGtfsRealtimeTimestamp, type GtfsStaticMetadata, type GtfsRouteAtStops,
 } from "./gtfs-realtime.js";
+import { prepareAdministrativeBoundary } from "./administrative-region-boundaries.js";
+import type { GeoJsonBoundary } from "./transport-regions.js";
 
 type Row = Record<string, string | undefined>;
 interface Visit {
@@ -238,6 +240,56 @@ export async function scanRoutesAtStops(zip: Uint8Array, ids: ReadonlySet<string
     return route ? [{ routeId, shortName: route.shortName, longName: route.longName,
       mode: routeTypeToMode(route.type), stopIds: [...stopIds] }] : [];
   });
+}
+
+/** One bounded GTFS scan maps real route-stop service into multiple administrative areas. */
+export async function scanRoutesInRegions(
+  zip: Uint8Array,
+  regions: Array<{ code: string; boundary: GeoJsonBoundary }>,
+): Promise<Array<{ code: string; routes: GtfsRouteAtStops[] }>> {
+  if (!regions.length || regions.length > 1_000) throw new Error("Administrative region count exceeds its limit");
+  const prepared = regions.map(region => ({ code: region.code, contains: prepareAdministrativeBoundary(region.boundary) }));
+  const stopRegions = new Map<string, string[]>();
+  await scanRows(zip, "stops.txt", row => {
+    const stopId = row.stop_id?.trim() ?? "";
+    const type = Number(row.location_type || 0);
+    if (!stopId || [2, 3, 4].includes(type)) return;
+    const latitude = Number(row.stop_lat), longitude = Number(row.stop_lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+    const matches = prepared.filter(region => region.contains(latitude, longitude)).map(region => region.code);
+    if (!matches.length) return;
+    if (!stopRegions.has(stopId) && stopRegions.size >= 60_000) {
+      throw new Error("GTFS stop table exceeds the regional indexing limit");
+    }
+    stopRegions.set(stopId, matches);
+  });
+  if (!stopRegions.size) return prepared.map(region => ({ code: region.code, routes: [] }));
+
+  const metadata = parseGtfsStaticMetadata(zip);
+  const matchedRoutes = new Map<string, Map<string, Set<string>>>();
+  await scanRows(zip, "stop_times.txt", row => {
+    const stopId = row.stop_id?.trim() ?? "";
+    const regionCodes = stopRegions.get(stopId);
+    if (!regionCodes) return;
+    const routeId = metadata.trips.get(row.trip_id?.trim() ?? "")?.routeId;
+    if (!routeId || !metadata.routes.has(routeId)) return;
+    for (const code of regionCodes) {
+      let routeStops = matchedRoutes.get(code);
+      if (!routeStops) { routeStops = new Map(); matchedRoutes.set(code, routeStops); }
+      const stops = routeStops.get(routeId) ?? new Set<string>();
+      stops.add(stopId);
+      routeStops.set(routeId, stops);
+    }
+  });
+  return prepared.map(({ code }) => ({
+    code,
+    routes: [...(matchedRoutes.get(code) ?? [])].flatMap(([routeId, stopIds]) => {
+      const route = metadata.routes.get(routeId);
+      const mode = route ? routeTypeToMode(route.type) : undefined;
+      return route && mode ? [{ routeId, shortName: route.shortName, longName: route.longName, mode, stopIds: [...stopIds] }] : [];
+    }),
+  }));
 }
 
 export async function buildJourneyIndex(zip: Uint8Array, routeId: string, extraRoutes: ReadonlySet<string> = new Set(),

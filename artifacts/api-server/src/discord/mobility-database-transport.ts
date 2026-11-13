@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import type { CatalogDataset, CatalogResource, StopCollection, TransportLocation } from "./public-transport.js";
+import { isStaticScheduleResource, type CatalogDataset, type CatalogResource, type StopCollection, type TransportLocation } from "./public-transport.js";
 import { TransportMetadataCache } from "./transport-metadata-cache.js";
 import { mobilityCountryCodeForTerritory, type TransportTerritory } from "./transport-provider.js";
 import { scanRoutesAtStops, scanRows } from "./gtfs-journey.js";
 import { parseGtfsStaticMetadata, routeTypeToMode } from "./gtfs-realtime.js";
 import type { ReferenceRoute, ReferenceStop } from "./transport-reference-tables.js";
 import { logger } from "../lib/logger.js";
+import { administrativeRegions, type AdministrativeRegionBoundary } from "./administrative-region-boundaries.js";
+import { scanRoutesInRegions } from "./gtfs-journey.js";
+import { resourceVersion } from "./transport-metadata-cache.js";
+import type { GeoJsonBoundary } from "./transport-regions.js";
+import type { TransitMode } from "./transport-query.js";
 
 const API = "https://api.mobilitydatabase.org";
 const RESOURCE_PROVIDER = "mobilitydatabase";
@@ -56,6 +61,12 @@ export interface MobilityCountryCoverage {
   countries: Array<MobilityCountry & { covered: boolean }>;
   complete: boolean;
 }
+export interface MobilityRegionalIndex {
+  boundaryId: string;
+  incomplete: boolean;
+  regions: Array<{ code: string; name: string; networkIds: string[] }>;
+}
+export type MobilityRegionIndexStatus = "building" | "ready" | "unavailable";
 type MobilityLocation = {
   location_type?: unknown; name?: unknown; country_code?: unknown; country_name?: unknown;
 };
@@ -169,6 +180,7 @@ export class MobilityDatabaseTransportClient {
   private readonly realtimeFiles = new Map<number, { expiresAt: number; bytes: Uint8Array }>();
   private readonly realtimeFilePending = new Map<number, Promise<Uint8Array>>();
   private readonly realtimeFailedUntil = new Map<number, number>();
+  private readonly regionIndexStatuses = new Map<string, MobilityRegionIndexStatus>();
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
@@ -447,6 +459,161 @@ export class MobilityDatabaseTransportClient {
       .sort((a, b) => Number(!/source officielle/i.test(a.title)) - Number(!/source officielle/i.test(b.title)) ||
         a.title.localeCompare(b.title, "fr", { numeric: true }))
       .slice(0, MAX_VISIBLE_FEEDS);
+  }
+
+  /** Country-wide candidate feeds are public metadata; schedules remain in the source archive. */
+  async catalogForCountry(countryCode: string, territory: TransportTerritory = `mobility:${countryCode.toUpperCase()}`): Promise<CatalogDataset[]> {
+    const code = countryCode.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code)) return [];
+    const cached = await this.metadata.staleWhileRevalidate<CatalogDataset[]>({
+      territory, provider: RESOURCE_PROVIDER, kind: "catalog",
+      source: `country-feeds:${code}`, version: "mobility-country-open-gtfs-v1",
+    }, CACHE_FRESH_MS, CACHE_RETAIN_MS, () => this.fetchCountryCatalog(code, territory));
+    return cached.value;
+  }
+
+  private async fetchCountryCatalog(countryCode: string, territory: TransportTerritory): Promise<CatalogDataset[]> {
+    const output: CatalogDataset[] = [];
+    for (let offset = 0; offset < MAX_CATALOG_FEEDS; offset += PAGE_SIZE) {
+      const url = new URL(`${API}/v1/gtfs_feeds`);
+      url.searchParams.set("country_code", countryCode);
+      url.searchParams.set("limit", String(PAGE_SIZE));
+      url.searchParams.set("offset", String(offset));
+      const page = await this.apiJson<unknown>(url.href);
+      if (!Array.isArray(page)) throw new Error("Mobility Database feed list has an unexpected format");
+      for (const item of page) {
+        const dataset = this.toCatalogDataset(item as MobilityFeed, countryCode, territory);
+        if (dataset) output.push(dataset);
+      }
+      if (page.length < PAGE_SIZE) break;
+    }
+    const seen = new Set<string>();
+    return output.filter(dataset => {
+      if (seen.has(dataset.id)) return false;
+      seen.add(dataset.id); return true;
+    });
+  }
+
+  async countryRegionalIndex(
+    countryCode: string,
+    mode: TransitMode,
+    territory: TransportTerritory = `mobility:${countryCode.toUpperCase()}`,
+    schedule: (refresh: () => void) => void = refresh => {
+      const timer = setTimeout(refresh, 2_000);
+      timer.unref?.();
+    },
+    regionNameFilter: (name: string) => boolean = () => true,
+  ): Promise<MobilityRegionalIndex> {
+    const code = countryCode.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code)) return { boundaryId: "", incomplete: true, regions: [] };
+    const statusKey = `${territory}:${mode}`;
+    let boundaries: Awaited<ReturnType<typeof administrativeRegions>>;
+    try { boundaries = await administrativeRegions(code, this.fetcher, this.now); }
+    catch {
+      this.regionIndexStatuses.set(statusKey, "unavailable");
+      return { boundaryId: "", incomplete: true, regions: [] };
+    }
+    const key = {
+      territory, provider: RESOURCE_PROVIDER, kind: "regionIndex" as const,
+      source: `administrative-routes:${code}:${mode}`, version: boundaries.boundaryId,
+    };
+    const empty: MobilityRegionalIndex = { boundaryId: boundaries.boundaryId, incomplete: true, regions: [] };
+    if (this.regionIndexStatuses.get(statusKey) === "building") return empty;
+    const scopedBoundaries = boundaries.regions.filter(region => regionNameFilter(region.name));
+    const load = async () => {
+      this.regionIndexStatuses.set(statusKey, "building");
+      try {
+        const result = await this.buildCountryRegionalIndex(code, territory, mode, scopedBoundaries, boundaries.boundaryId);
+        this.regionIndexStatuses.set(statusKey, result.regions.length || !result.incomplete ? "ready" : "unavailable");
+        return result;
+      } catch (error) {
+        this.regionIndexStatuses.set(statusKey, "unavailable");
+        throw error;
+      }
+    };
+    const result = await this.metadata.staleWhileRevalidate<MobilityRegionalIndex>(
+      key, 12 * 60 * 60_000, 7 * 24 * 60 * 60_000, load, schedule, empty,
+    );
+    if (result.stale && !result.value.regions.length) this.regionIndexStatuses.set(statusKey, "building");
+    else this.regionIndexStatuses.set(statusKey, result.value.regions.length || !result.value.incomplete ? "ready" : "unavailable");
+    return result.value;
+  }
+
+  regionIndexStatus(countryCode: string, mode: TransitMode, territory = `mobility:${countryCode.toUpperCase()}`) {
+    return this.regionIndexStatuses.get(`${territory}:${mode}`) ?? "building";
+  }
+
+  private async buildCountryRegionalIndex(
+    countryCode: string,
+    territory: TransportTerritory,
+    mode: TransitMode,
+    boundaries: AdministrativeRegionBoundary[],
+    boundaryId: string,
+  ): Promise<MobilityRegionalIndex> {
+    const catalog = await this.catalogForCountry(countryCode, territory);
+    const regions = new Map(boundaries.map(region => [region.code, { code: region.code, name: region.name, networkIds: [] as string[] }]));
+    let failedFeeds = 0;
+    for (const dataset of catalog) {
+      for (const resource of dataset.resources.filter(isStaticScheduleResource)) {
+        try {
+          const routesByRegion = await this.routesInRegions(resource, boundaries);
+          for (const [regionCode, routes] of routesByRegion) {
+            const selected = routes.filter(route => route.mode === mode);
+            if (!selected.length) continue;
+            const region = regions.get(regionCode);
+            if (!region) continue;
+            if (!region.networkIds.includes(dataset.id)) region.networkIds.push(dataset.id);
+            const cachedRoutes = selected.map(route => ({
+              routeId: route.routeId, shortName: route.shortName, longName: route.longName,
+              mode: route.mode, stopIds: [],
+            }));
+            await this.metadata.get({
+              territory, provider: RESOURCE_PROVIDER, kind: "routes",
+              source: `region-routes:${countryCode}:${resource.id}:${regionCode}:${mode}`,
+              version: `${resourceVersion(resource)}:${boundaryId}`,
+            }, 7 * 24 * 60 * 60_000, async () => cachedRoutes);
+          }
+        } catch (error) {
+          failedFeeds++;
+          logger.debug({ territory, resourceId: resource.id, err: error }, "Mobility regional route scan failed");
+        }
+      }
+    }
+    return {
+      boundaryId,
+      incomplete: failedFeeds > 0 || catalog.length >= MAX_CATALOG_FEEDS,
+      regions: [...regions.values()].filter(region => region.networkIds.length)
+        .map(region => ({ ...region, networkIds: [...new Set(region.networkIds)] }))
+        .sort((a, b) => a.name.localeCompare(b.name, "fr")),
+    };
+  }
+
+  async routesInRegions(
+    resource: CatalogResource,
+    regions: Array<Pick<AdministrativeRegionBoundary, "code" | "boundary">>,
+  ): Promise<Map<string, Awaited<ReturnType<typeof scanRoutesInRegions>>[number]["routes"]>> {
+    const routes = await scanRoutesInRegions(await this.staticFeed(resource), regions);
+    return new Map(routes.map(area => [area.code, area.routes]));
+  }
+
+  async routesForRegion(
+    resource: CatalogResource,
+    countryCode: string,
+    region: { code: string; boundary: GeoJsonBoundary },
+    mode: TransitMode,
+    territory: TransportTerritory,
+    boundaryId: string,
+  ): Promise<ReferenceRoute[]> {
+    const source = `region-routes:${countryCode}:${resource.id}:${region.code}:${mode}`;
+    return this.metadata.get({
+      territory, provider: RESOURCE_PROVIDER, kind: "routes", source,
+      version: `${resourceVersion(resource)}:${boundaryId}`,
+    }, 7 * 24 * 60 * 60_000, async () => {
+      const routes = await this.routesInRegions(resource, [region]);
+      return (routes.get(region.code) ?? []).filter(route => route.mode === mode)
+        .map(route => ({ routeId: route.routeId, shortName: route.shortName, longName: route.longName,
+          mode: route.mode, stopIds: [] }));
+    });
   }
 
   private async fetchCatalog(countryCode: string, territory: TransportTerritory,
