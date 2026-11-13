@@ -21,7 +21,7 @@ import { inBounds, sourceLimitations } from "./quebec-sources.js";
 import { parseGtfsAlerts } from "./gtfs-alerts.js";
 import { localDate } from "./gtfs-realtime.js";
 import { TransportDataError } from "./transport-data-error.js";
-import { isRegionName, regionalNetworks, type TransportRegion } from "./transport-regions.js";
+import { coveredFrenchRegions, isRegionName, regionalNetworks, type TransportRegion } from "./transport-regions.js";
 import { resourceVersion } from "./transport-metadata-cache.js";
 import { createHash } from "node:crypto";
 import { routeMatchesRequested } from "./transport-query.js";
@@ -150,7 +150,7 @@ export class TransportBrowserClient {
   private alertCache = new Map<string, { checked: number; good: number; traffic: IdfmTraffic }>();
   private mobilityDatabase?: MobilityDatabaseTransportClient;
 
-  readonly territories = ["fr", "qc", "en", "ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"] as const;
+  readonly territories = ["fr", "qc", "en", "ie", "lu", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"] as const;
   constructor(readonly provider: TransportProvider = new FranceTransportClient(), private readonly now = Date.now,
     readonly idfm = new IdfmLiveClient(fetch, now), readonly quebec: TransportProvider = new QuebecTransportClient(fetch, now),
     readonly england = new EnglandTransportClient(), readonly ireland: TransportProvider = new IrelandTransportClient(fetch, now),
@@ -225,6 +225,10 @@ export class TransportBrowserClient {
     const provider = this.provider as FranceTransportClient;
     if (!provider.region) throw new TransportDataError("Référentiel des régions indisponible.");
     return provider.region(place);
+  }
+  async coveredRegions(territory: TransportTerritory, mode: TransitMode): Promise<string[]> {
+    if (territory !== "fr") return [];
+    return coveredFrenchRegions(await this.provider.getCatalog(), mode);
   }
   async prewarmRegionIndex(territory: TransportTerritory, mode: TransitMode): Promise<void> {
     if (territory === "ie") await (this.ireland as NationalGtfsTransportClient).prewarmRegionIndex(mode);

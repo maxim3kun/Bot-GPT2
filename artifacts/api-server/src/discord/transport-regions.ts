@@ -16,10 +16,22 @@ export type GeoJsonBoundary =
 export const regionName = (name: string) => normalizeTransitText(name).replace(/^r[eé]gion\s+/, "")
   .replace(/^(?:en|dans la|dans le)\s+/, "").replace(/[^a-z0-9]/g, "");
 // Recognition only. Membership and identifiers are verified with geo.api.gouv.fr.
-const names = ["Île-de-France", "Centre-Val de Loire", "Bourgogne-Franche-Comté", "Normandie", "Hauts-de-France",
+export const FRENCH_REGIONS = ["Île-de-France", "Centre-Val de Loire", "Bourgogne-Franche-Comté", "Normandie", "Hauts-de-France",
   "Grand Est", "Pays de la Loire", "Bretagne", "Nouvelle-Aquitaine", "Occitanie", "Auvergne-Rhône-Alpes",
-  "Provence-Alpes-Côte d'Azur", "Corse", "Guadeloupe", "Martinique", "Guyane", "La Réunion", "Mayotte"];
-export const isRegionName = (value: string) => names.some(name => regionName(name) === regionName(value));
+  "Provence-Alpes-Côte d'Azur", "Corse", "Guadeloupe", "Martinique", "Guyane", "La Réunion", "Mayotte"] as const;
+export const isRegionName = (value: string) => FRENCH_REGIONS.some(name => regionName(name) === regionName(value));
+
+/** Region names explicitly covered by an available schedule resource for the selected mode. */
+export function coveredFrenchRegions(catalog: CatalogDataset[], mode: TransitMode): string[] {
+  const covered = new Set(catalog.filter(dataset => dataset.type === "public-transit" &&
+    dataset.resources.some(resource => isStaticScheduleResource(resource) &&
+      modeMatches(mode, resource.modes ??
+        (Array.isArray(resource.metadata?.modes) ? resource.metadata.modes as string[] : undefined))))
+    .flatMap(dataset => (dataset.covered_area ?? [])
+      .filter(area => area.type === "region" && area.nom)
+      .map(area => regionName(area.nom!))));
+  return FRENCH_REGIONS.filter(name => covered.has(regionName(name)));
+}
 
 /** Official administrative memberships, not a region centroid or a name substring. */
 export function regionalNetworks(catalog: CatalogDataset[], region: TransportRegion, mode: TransitMode): CatalogDataset[] {

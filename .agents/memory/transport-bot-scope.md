@@ -53,6 +53,18 @@ Une région suffit pour découvrir les sources/réseaux et leurs lignes. Les arr
 
 **How to apply:** Ne pas réduire une région à une ville ou à un point central. Conserver les identités des sources et avertir du recouvrement des agrégats. Vérifier le retour dans son vrai sens, sans renverser les horaires aller.
 
+For regional browsing, show only regions with transport lines confirmed for the selected mode. Use a selectable list when the source supports a verified regional index; do not replace “Browse areas” with a free-text zone prompt. If that index is unavailable, explain the limitation and keep city search available.
+
+**Why:** The user chose to list only zones with verified lines after the zone button unexpectedly asked them to type a region.
+
+**How to apply:** Build region options from provider coverage data, not an unverified world directory. Never label a region as route-covered based only on a country-level feed.
+
+Only show countries in the transport picker after a bot-integrated public source has produced at least one real route for an available mode. A country-directory entry, advertised feed, or unparseable feed is not enough.
+
+**Why:** The user asked to test every country and keep only countries with actual transport data.
+
+**How to apply:** Verify route data through the same provider path the bot uses. Hide countries whose source cannot be read until the issue is fixed; do not treat a temporary outage as permanent absence.
+
 ## Verified conversational journeys
 
 For the new journey features and associated API integrations, select public sources and free APIs.

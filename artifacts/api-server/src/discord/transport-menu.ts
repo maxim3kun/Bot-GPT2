@@ -24,7 +24,7 @@ export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient().enableMobilityDatabase();
 const active = new Map<string, () => void>();
-type Stage = "territory" | "mode" | "city" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
+type Stage = "territory" | "mode" | "city" | "regions" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
 
 export function prewarmIrishBusRouteIndex(): void {
@@ -196,6 +196,7 @@ export async function handleTransportSearch(
   let networks: CatalogDataset[] = [];
   let network: CatalogDataset | undefined;
   let region: TransportRegion | undefined;
+  let regions: string[] = [];
   let province = "";
   let city: TransportLocation | undefined;
   let cities: TransportLocation[] = [];
@@ -309,6 +310,17 @@ export async function handleTransportSearch(
       [new ActionRowBuilder<ButtonBuilder>().addComponents(...cityButtons)]);
   }
 
+  async function showZonesUnavailable() {
+    stage = "city";
+    await edit(text(
+      "Aucune liste de zones avec lignes vérifiées n’est disponible pour ce pays. Choisis « Saisir une commune » pour continuer.",
+      "No area list with verified routes is available for this country. Choose “Enter a town” to continue.",
+    ), [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
+      button("cancel", text("Annuler", "Cancel")),
+    )]);
+  }
+
   function choices(): Choice[] {
     if (stage === "territory") {
       const territories: TransportTerritory[] = [
@@ -334,6 +346,7 @@ export async function handleTransportSearch(
     }
     if (stage === "mode") return (availableModes ?? Object.keys(MODE_NAMES) as TransitMode[])
       .map((value) => ({ value, label: modeName(value, territory) }));
+    if (stage === "regions") return regions.map(value => ({ value, label: value }));
     if (stage === "provinces") return IRELAND_PROVINCES.map(value => ({ value, label: value }));
     if (stage === "counties") return irelandCounties(province).map(value => ({
       value: value.code, label: `${value.name} · ${value.province}`,
@@ -362,6 +375,7 @@ export async function handleTransportSearch(
     const titles: Partial<Record<Stage, string>> = {
       territory: text("Choisis le territoire", "Choose the territory"),
       mode: text("Choisis un moyen de transport", "Choose a transport mode"),
+      regions: text("Choisis une région desservie", "Choose a served region"),
       provinces: text("Choisis une province irlandaise", "Choose an Irish province"),
       counties: text("Choisis un comté", "Choose a county"),
       networks: text("Choisis un réseau", "Choose a network"),
@@ -436,7 +450,11 @@ export async function handleTransportSearch(
       ? text("\nLes autres pays n’apparaissent qu’après vérification de lignes accessibles dans le mode choisi.",
         "\nOther countries appear only after routes are confirmed for the selected mode.")
       : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    const regionListNote = stage === "regions" ? text(
+      "\nRégions où une source publie des horaires pour ce mode; les lignes sont vérifiées à l’étape suivante.",
+      "\nRegions where a source publishes timetables for this mode; routes are verified in the next step.",
+    ) : "";
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${regionListNote}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
   }
 
   async function loadModeChoices() {
@@ -484,8 +502,9 @@ export async function handleTransportSearch(
         text("La recherche n’a pas abouti à temps ou une source est indisponible. Tu peux réessayer; aucune ligne ne sera inventée.",
          "The lookup timed out or a source is unavailable. You can retry; routes will not be invented."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(button("retry", text("Réessayer", "Retry")),
-          button(region?.territory === "ie" ? "zones" : "city",
-            region?.territory === "ie" ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
+          button(region?.territory === "ie" || territory === "fr" ? "zones" : "city",
+            region?.territory === "ie" || territory === "fr"
+              ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }
@@ -668,8 +687,9 @@ export async function handleTransportSearch(
       const networkTitle = irishSourceUnavailable ? "" : network ? `\n${network.title}` : "";
       await edit(`${region?.name ?? city!.label}${networkTitle}\n${details}`,
        [new ActionRowBuilder<ButtonBuilder>().addComponents(button("back", text("Changer de mode", "Change mode")),
-          button(region?.territory === "ie" ? "zones" : "city",
-            region?.territory === "ie" ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
+           button(region?.territory === "ie" || territory === "fr" ? "zones" : "city",
+             region?.territory === "ie" || territory === "fr"
+               ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
           button("retry", text("Réessayer", "Retry")),
           button("cancel", text("Annuler", "Cancel")))]);
       return;
@@ -1012,8 +1032,7 @@ export async function handleTransportSearch(
       return;
     }
     if (interaction.isButton() && action === "options") { await timeOptionsModal(interaction); return; }
-    if (interaction.isButton() && (action === "city" || action === "filter" ||
-      action === "zones" && territory !== "ie")) { await modal(interaction, action); return; }
+    if (interaction.isButton() && (action === "city" || action === "filter")) { await modal(interaction, action); return; }
     busy = true; // Lock before Discord's asynchronous acknowledgement (double-click race).
     try { await interaction.deferUpdate(); } catch (error) { busy = false; throw error; }
     await run(async () => {
@@ -1036,6 +1055,16 @@ export async function handleTransportSearch(
       if (action === "zones" && territory === "ie") {
         province = ""; filter = ""; page = 0; stage = "provinces"; await render(); return;
       }
+      if (action === "zones" && territory === "fr") {
+        regions = typeof service.coveredRegions === "function"
+          ? await service.coveredRegions(territory, selectedMode ?? "bus")
+          : [];
+        filter = ""; page = 0;
+        if (regions.length) { stage = "regions"; await render(); }
+        else await showZonesUnavailable();
+        return;
+      }
+      if (action === "zones") { await showZonesUnavailable(); return; }
       if (action === "refresh") { showPreviousStops = false; await showDepartures(); return; }
       if (action === "return" || action === "refreshReturn") { showPreviousStops = false; await showReturn(); return; }
       if (action === "modify") { resumeFavorite = undefined; showPreviousStops = false; await loadOrigins(); return; }
@@ -1057,6 +1086,7 @@ export async function handleTransportSearch(
         filter = ""; page = 0;
         if (stage === "result") { await loadArrivals(); return; }
         if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
+        if (stage === "regions") { regions = []; await cityInput(); return; }
         if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
         if (stage === "counties") { stage = "provinces"; province = ""; await render(); return; }
         if (stage === "provinces") { await cityInput(); return; }
@@ -1087,6 +1117,12 @@ export async function handleTransportSearch(
         if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
         selectedMode = value as TransitMode;
         await loadCities();
+      } else if (stage === "regions") {
+        place = value;
+        lineFilter = ""; direction = ""; filter = ""; page = 0;
+        region = await service.region?.(place, "fr") ?? undefined;
+        if (!region) throw new TransportDataError("La limite de cette région n’a pas pu être vérifiée.");
+        await loadNetworks();
       } else if (stage === "provinces") {
         province = value;
         filter = ""; page = 0; stage = "counties"; await render();

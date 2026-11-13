@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
-import type { TransportBrowserClient } from "../src/discord/transport-browser.js";
+import { TransportBrowserClient } from "../src/discord/transport-browser.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
 import type { TransportFavorite, TransportPreferences, TransportPreferencesStore } from "../src/discord/transport-preferences.js";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -33,18 +33,17 @@ function service(station = false) {
     departures: async () => ({ content: "Horaires théoriques", source, embed: { title: "Trajet", description: "Horaires théoriques" } }),
   } as unknown as TransportBrowserClient };
 }
-test("Switzerland appears in the territory selector and keeps its country context", async () => {
+test("Switzerland is hidden from the territory selector while its feed exceeds parser limits", async () => {
   const d = fakeDiscord(), s = service();
-  s.value.territories = ["fr", "qc", "en", "ie", "lu", "ch"] as any;
+  s.value.territories = ["fr", "qc", "en", "ie", "lu"] as any;
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
   const selector = card.last.components.flatMap(row => row.components)
     .find((component: any) => component.custom_id?.includes(":choose")) as any;
   assert.deepEqual(selector.options.map((option: any) => option.label),
-    ["France", "Québec", "Angleterre", "Irlande", "Luxembourg", "Suisse"]);
-  await choose(card, "ch");
-  assert.match(card.last.content!, /Suisse/);
-  assert.match(card.last.content!, /Indique une ville de Suisse/);
+    ["France", "Québec", "Angleterre", "Irlande", "Luxembourg"]);
+  assert.deepEqual(new TransportBrowserClient().territories,
+    ["fr", "qc", "en", "ie", "lu", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"]);
   card.collector.stop("cancelled");
 });
 test("Norway appears in the territory selector and identifies the Entur timetable source", async () => {
@@ -135,6 +134,43 @@ test("Ireland keeps city search and adds province then county browsing", async (
   assert.match(card.last.content!, /County Dublin/);
   assert.match(card.last.content!, /Choisis une ligne/);
   assert.match(card.last.content!, /National Transport Authority · Ireland/);
+  card.collector.stop("cancelled");
+});
+
+test("French area browsing opens a covered-region list instead of a text prompt", async () => {
+  const d = fakeDiscord(), s = service();
+  const network = { id: "fr:normandie", title: "Réseau Normandie",
+    page_url: "https://transport.data.gouv.fr/datasets/normandie", territory: "fr",
+    resources: [{ id: 21, title: "GTFS", format: "GTFS", is_available: true,
+      url: "https://transport.data.gouv.fr/normandie.zip" }] };
+  s.value.coveredRegions = async (territory: string, mode: string) => {
+    assert.equal(territory, "fr"); assert.equal(mode, "bus"); return ["Normandie"];
+  };
+  s.value.region = async (place: string, territory: string) => place === "Normandie" && territory === "fr"
+    ? { code: "28", name: "Normandie", departmentCodes: ["27", "76"], epciCodes: [] } as any : null;
+  s.value.regionNetworks = async (selected: any, mode: string) => {
+    assert.equal(selected.code, "28"); assert.equal(mode, "bus"); return [network] as any;
+  };
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  await choose(card, "fr");
+  await click(card, "zones");
+  assert.match(card.last.content!, /Choisis une région desservie/);
+  await choose(card, "Normandie");
+  assert.match(card.last.content!, /Choisis un réseau/);
+  assert.match(card.last.content!, /Normandie/);
+  card.collector.stop("cancelled");
+});
+
+test("countries without a verified region index do not replace zone browsing with a text modal", async () => {
+  const d = fakeDiscord(), s = service();
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
+  const card = d.cards[0]!;
+  await choose(card, "qc");
+  await click(card, "zones");
+  assert.match(card.last.content!, /Aucune liste de zones avec lignes vérifiées/);
+  assert.ok(card.custom("city"), "direct town search remains available");
+  assert.ok(card.custom("cancel"));
   card.collector.stop("cancelled");
 });
 

@@ -6,7 +6,7 @@ import { TransportMetadataCache, publicMetadata, resourceVersion, type MetadataD
 import { FranceTransportClient } from "../src/discord/public-transport.js";
 import { TransportBrowserClient } from "../src/discord/transport-browser.js";
 import { handleTransportCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
-import { regionalNetworks } from "../src/discord/transport-regions.js";
+import { coveredFrenchRegions, regionalNetworks } from "../src/discord/transport-regions.js";
 import { selectAiCommand } from "../src/discord/ai-command-intent.js";
 import { parsePublicTransportQuery } from "../src/discord/transport-query.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
@@ -199,6 +199,16 @@ test("regional membership uses official region/department/EPCI IDs and identical
     covered_area: [{ type: "epci", insee: "200023414", nom: "Rouen" }] },
     { ...source, id: "outside", covered_area: [{ type: "region", insee: "32", nom: "Hauts-de-France" }] }];
   assert.deepEqual(regionalNetworks(all, region, "bus").map(d => d.id), ["nomad", "rouen"]);
+});
+test("French zone options include only regions with an available schedule feed for the selected mode", async () => {
+  const f = fixture(), service = f.browser();
+  assert.deepEqual(await service.coveredRegions("fr", "bus"), ["Normandie"]);
+  assert.deepEqual(await service.coveredRegions("fr", "rail"), []);
+  assert.deepEqual(coveredFrenchRegions([
+    source,
+    { ...source, id: "future", resources: [{ ...source.resources[0]!, is_available: false }] },
+    { ...source, id: "rail", resources: [{ ...source.resources[0]!, modes: ["rail"] }] },
+  ], "bus"), ["Normandie"]);
 });
 test("regional command lists sources and routes without municipality geocoding or schedule indexes; metadata survives restart", async () => {
   const f = fixture(), service = f.browser(), d = fakeDiscord({ channelId: "regional" });
