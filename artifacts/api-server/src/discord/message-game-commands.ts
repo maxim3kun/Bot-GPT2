@@ -19,12 +19,13 @@ import { startTierlist } from "./tierlist.js";
 import type { Language } from "./responses.js";
 import { moduleFallbackMessage } from "./module-fallback.js";
 import { reportModuleFailure } from "./module-technician.js";
+import { handleHangmanCommand } from "./hangman.js";
 
 export function isGameMessageCommand(command: string | undefined): boolean {
   return [
     "minesweeper", "mine", "geo", "trivia", "tierlist", "tier", "blindtest", "musicquiz",
     "milliongame", "million", "guessnumber", "guess", "connect4", "guessthelogo",
-    "guesslogo", "devinelelogo",
+    "guesslogo", "devinelelogo", "hangman", "pendu",
   ].includes(command ?? "");
 }
 
@@ -34,8 +35,15 @@ export async function handleGameMessageCommand(
   args: string[],
   openai: OpenAI | null,
   responseLang: Language,
+  prefix = "!",
 ): Promise<boolean> {
   switch (command) {
+    case "hangman":
+    case "pendu": {
+      await handleHangmanCommand(message, args, responseLang, prefix, command);
+      return true;
+    }
+
     case "minesweeper":
     case "mine": {
       const board = playMinesweeper(message, args[0]?.toLowerCase());

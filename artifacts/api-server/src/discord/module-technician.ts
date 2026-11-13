@@ -211,7 +211,7 @@ export function moduleForMessageCommand(command: string | undefined): Technician
   if ([
     "minesweeper", "mine", "geo", "trivia", "tierlist", "tier", "blindtest", "musicquiz",
     "milliongame", "million", "guessnumber", "guess", "connect4", "guessthelogo",
-    "guesslogo", "devinelelogo", "shellgame",
+    "guesslogo", "devinelelogo", "shellgame", "hangman", "pendu",
   ].includes(command)) return "games";
   if ([
     "prefix", "voicechannels", "voicesalons", "salonsvocaux", "suggest", "suggestion",

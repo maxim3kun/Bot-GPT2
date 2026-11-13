@@ -1793,7 +1793,7 @@ export function startBot(): void {
         const handled = await runModuleWithFallback(
           message,
           "games",
-          () => handleGameMessageCommand(message, command, args, openai, responseLang),
+          () => handleGameMessageCommand(message, command, args, openai, responseLang, getPrefix(message.guildId)),
           async () => {
             await message.reply(moduleFallbackMessage("games", responseLang));
             return true;

@@ -43,7 +43,7 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   for (const command of SLASH_COMMANDS.filter(command => !ADMIN_SLASH_COMMANDS.has(command.name))) assert.ok(all.includes(`/${command.name}`), command.name);
-  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "qr", "echo", "pokemon", "food"]) assert.ok(all.includes(command), command);
+  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food"]) assert.ok(all.includes(command), command);
   for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
   assert.equal(all.includes("Sort 20 items"), false);
   assert.equal(all.includes("Tous supportent"), false);
@@ -56,6 +56,8 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   assert.equal(frenchFood.includes("food scan"), false);
   assert.equal(frenchFood.match(/food history/g)?.length, 1);
   assert.ok(JSON.stringify(buildTopicEmbed("quest", "fr").toJSON()).includes("quest bully on|off"));
+  assert.equal(moduleForMessageCommand("pendu"), "games");
+  assert.equal(moduleForMessageCommand("hangman"), "games");
   assert.equal(resolveTopicKey("persona")?.topic, "persona");
   assert.equal(resolveTopicKey("mémoire")?.topic, "memory");
   assert.equal(resolveTopicKey("tech")?.topic, "diagnostics");
