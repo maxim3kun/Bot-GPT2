@@ -122,17 +122,19 @@ export function buildMemoryConsentPrompt(userId: string): { embeds: EmbedBuilder
   return { embeds: [embed], components: [row] };
 }
 
-export async function requireConsent(message: Message, language: UserLang = "en"): Promise<boolean> {
-  const status = await getConsent(message.author.id);
+export async function applyConsentRequirement(
+  message: Message,
+  status: ConsentStatus,
+  language: UserLang = "en",
+): Promise<boolean> {
   if (status === "accepted") return true;
-  if (status === "declined") {
-    await message.reply(language === "fr"
-      ? "🚫 Tu as désactivé les fonctions IA. Utilise `!ai reset` pour changer ce choix."
-      : "🚫 You've opted out of AI features. Use `!ai reset` to change this.");
-    return false;
-  }
+  if (status === "declined") return false;
   await message.reply(buildConsentPrompt(language));
   return false;
+}
+
+export async function requireConsent(message: Message, language: UserLang = "en"): Promise<boolean> {
+  return applyConsentRequirement(message, await getConsent(message.author.id), language);
 }
 
 export async function requireMemoryConsent(message: Message): Promise<boolean> {

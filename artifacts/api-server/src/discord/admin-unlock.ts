@@ -21,6 +21,10 @@ const OPEN_MODAL_ID_PREFIX = "admin_unlock:open:";
 const SUBMIT_MODAL_ID_PREFIX = "admin_unlock:submit:";
 const SECRET_INPUT_ID = "admin_unlock_secret";
 
+export function isVerifiedCreatorUser(userId: string): boolean {
+  return userId === CREATOR_USER_ID;
+}
+
 interface PendingChallenge {
   challengeId: string;
   guildId: string;
@@ -60,7 +64,7 @@ export async function handleAdminUnlockTrigger(
   message: Message,
   client: Client,
 ): Promise<boolean> {
-  if (!message.inGuild() || message.author.id !== CREATOR_USER_ID) return false;
+  if (!message.inGuild() || !isVerifiedCreatorUser(message.author.id)) return false;
 
   const botId = client.user?.id;
   const text = message.content.toLocaleLowerCase("fr-FR");
@@ -175,7 +179,7 @@ export function registerAdminUnlockInteractions(client: Client): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith(OPEN_MODAL_ID_PREFIX)) {
-      if (interaction.user.id !== CREATOR_USER_ID) {
+      if (!isVerifiedCreatorUser(interaction.user.id)) {
         await replyPrivately(interaction, "🔒 Cette vérification est réservée au créateur du bot.");
         return;
       }
@@ -212,7 +216,7 @@ export function registerAdminUnlockInteractions(client: Client): void {
       return;
     }
 
-    if (interaction.user.id !== CREATOR_USER_ID) {
+    if (!isVerifiedCreatorUser(interaction.user.id)) {
       await replyPrivately(interaction, "🔒 Cette vérification est réservée au créateur du bot.");
       return;
     }
