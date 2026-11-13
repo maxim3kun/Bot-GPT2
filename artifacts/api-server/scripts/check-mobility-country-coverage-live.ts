@@ -29,23 +29,28 @@ async function main() {
   assert.ok(collection, "MongoDB transport metadata collection is unavailable.");
   const document = await collection.findOne({
     territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCoverage",
-    source: "active-open-static-gtfs-by-country", version: "v1",
+    source: "verified-open-gtfs-routes-by-country", version: "v2",
   }, { timeoutMS: 3_000 });
   assert.ok(document?.fetchedAt instanceof Date, "Complete country coverage was not persisted in MongoDB.");
   const stored = document.value as MobilityCountryCoverage;
   assert.equal(stored.complete, true);
   assert.equal(stored.countries.length, coverage.countries.length);
 
-  const covered = stored.countries.filter(country => country.covered)
-    .map(({ code, name }) => ({ code, name }));
-  const notCovered = stored.countries.filter(country => !country.covered)
-    .map(({ code, name }) => ({ code, name }));
+  const covered = stored.countries.filter(country =>
+    country.covered && country.routeCount > 0 && country.modes.length > 0);
+  const notCovered = stored.countries.filter(country =>
+    !country.covered || country.routeCount < 1 || country.modes.length === 0);
+  const builtInCountryCodes = new Set(["FR", "CA", "GB", "IE", "LU", "CH", "NO",
+    "IS", "SG", "LV", "CZ", "PT", "AU", "UA"]);
+  const uniqueCodes = new Set([...builtInCountryCodes, ...covered.map(country => country.code)]);
+  assert.ok(uniqueCodes.size >= 20, `Only ${uniqueCodes.size} countries have verified route sources.`);
+  assert.ok(uniqueCodes.size <= 50, `Coverage unexpectedly includes ${uniqueCodes.size} countries.`);
   console.log(JSON.stringify({
     checkedCountries: stored.countries.length,
-    countriesWithUsableOpenStaticGtfs: covered.length,
-    countriesWithoutUsableOpenStaticGtfs: notCovered.length,
-    included: covered,
-    excluded: notCovered,
+    verifiedMobilityCountries: covered.length,
+    totalCountriesIncludingExistingProviders: uniqueCodes.size,
+    countriesWithoutVerifiedRoutes: notCovered.length,
+    included: covered.map(({ code, name, modes, routeCount }) => ({ code, name, modes, routeCount })),
     cachedInMongoAt: document.fetchedAt.toISOString(),
   }, null, 2));
 }

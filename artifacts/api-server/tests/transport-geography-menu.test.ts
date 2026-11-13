@@ -393,15 +393,15 @@ test("saved territory is first but every territory remains selectable", async ()
   d.cards[0]!.collector.stop("cancelled");
 });
 
-test("only Mobility Database countries with usable static timetables appear", async () => {
+test("only Mobility Database countries with verified scheduled routes appear", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
   s.value.territories = ["fr", "qc", "en"] as any;
   s.value.mobilityCountries = async () => ({
     complete: true,
     countries: [
-      { code: "DE", name: "Germany", covered: false },
-      { code: "SG", name: "Singapore", covered: true },
-      { code: "GB", name: "United Kingdom", covered: true },
+      { code: "DE", name: "Germany", covered: false, modes: [], routeCount: 0 },
+      { code: "SG", name: "Singapore", covered: true, modes: ["bus"], routeCount: 3 },
+      { code: "GB", name: "United Kingdom", covered: true, modes: ["rail"], routeCount: 2 },
     ],
   });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, store);
@@ -412,7 +412,7 @@ test("only Mobility Database countries with usable static timetables appear", as
   assert.deepEqual(selector.options.slice(3).map((option: any) => option.value), ["mobility:SG"]);
   assert.match(selector.options.find((option: any) => option.value === "mobility:SG").label, /GTFS ouvert/);
   assert.equal(selector.options.find((option: any) => option.value === "mobility:DE"), undefined);
-  assert.match(card.last.content!, /GTFS statique actif et licence autorisée : 1 pays · sans flux exploitable : 1/i);
+  assert.match(card.last.content!, /Lignes vérifiées : 1 pays · aucun trajet exploitable confirmé : 1/i);
   assert.equal(card.custom("countries"), undefined);
   assert.deepEqual(await store.get("owner"), { favorites: [] });
   card.collector.stop("cancelled");
@@ -421,7 +421,9 @@ test("only Mobility Database countries with usable static timetables appear", as
 test("incomplete Mobility coverage keeps unverified countries hidden and existing territories available", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
-  s.value.mobilityCountries = async () => ({ countries: [{ code: "AF", name: "Afghanistan", covered: false }], complete: false });
+  s.value.mobilityCountries = async () => ({ countries: [
+    { code: "AF", name: "Afghanistan", covered: false, modes: [], routeCount: 0 },
+  ], complete: false });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
   const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;

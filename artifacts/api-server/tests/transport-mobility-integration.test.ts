@@ -99,6 +99,28 @@ test("Mobility Database candidates supplement, but never replace, the existing c
   assert.equal(networks[0]?.title, "Réseau officiel Québec");
 });
 
+test("Mobility mode choices expose only modes found in scheduled GTFS routes", async () => {
+  const metadata = {
+    async get(_key: unknown, _ttl: number, load: () => Promise<unknown>) { return load(); },
+    async staleWhileRevalidate(_key: unknown, _fresh: number, _retain: number, load: () => Promise<unknown>) {
+      return { value: await load(), stale: false };
+    },
+  } as unknown as TransportMetadataCache;
+  const fetcher: typeof fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.pathname === "/v1/locations") return Response.json({
+      total: 1, results: [{ location_type: "country", country_code: "CA", country_name: "Canada" }],
+    });
+    if (url.pathname === "/v1/gtfs_feeds") return Response.json([dataset]);
+    if (url.hostname === "storage.googleapis.com") return new Response(archive);
+    throw new Error(`Unexpected request ${url.pathname}`);
+  };
+  const mobility = new MobilityDatabaseTransportClient(fetcher, () => NOW, metadata, () => "test-refresh-token");
+  const browser = new TransportBrowserClient(undefined, () => NOW).enableMobilityDatabase(mobility);
+  assert.deepEqual(await browser.availableModes("mobility:CA"), ["bus"]);
+});
+
 test("a Mobility Database copy of an existing network does not appear twice", async () => {
   const browser = makeBrowser(apiFetcher(), "Montréal Transit");
   const networks = await browser.networks(city, "bus");

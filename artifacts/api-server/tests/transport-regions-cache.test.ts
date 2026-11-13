@@ -96,12 +96,12 @@ test("country coverage keeps its last good result after failure and updates on t
   const db = store(); let now = 1_000;
   const coverageKey: MetadataKey = {
     territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCoverage",
-    source: "active-open-static-gtfs-by-country", version: "v1",
+    source: "verified-open-gtfs-routes-by-country", version: "v2",
   };
   const cache = new TransportMetadataCache(() => db.value, () => now);
   const previous = { countries: [
-    { code: "DE", name: "Germany", covered: false },
-    { code: "FR", name: "France", covered: true },
+    { code: "DE", name: "Germany", covered: false, modes: [], routeCount: 0 },
+    { code: "FR", name: "France", covered: true, modes: ["bus"], routeCount: 4 },
   ], complete: true };
   await cache.staleWhileRevalidate(coverageKey, 1_000, 86_400_000, async () => previous);
   const originalFetchedAt = [...db.documents.values()][0]!.fetchedAt.getTime();
@@ -116,8 +116,8 @@ test("country coverage keeps its last good result after failure and updates on t
 
   now += 31_000;
   const refreshed = { countries: [
-    { code: "DE", name: "Germany", covered: true },
-    { code: "FR", name: "France", covered: true },
+    { code: "DE", name: "Germany", covered: true, modes: ["rail"], routeCount: 2 },
+    { code: "FR", name: "France", covered: true, modes: ["bus"], routeCount: 4 },
   ], complete: true };
   let successfulRefresh: (() => void) | undefined;
   const secondStale = await cache.staleWhileRevalidate(coverageKey, 1_000, 86_400_000,

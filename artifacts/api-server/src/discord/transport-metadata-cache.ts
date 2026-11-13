@@ -9,7 +9,8 @@ type Shape = "string" | "number" | "boolean" | { [key: string]: Shape } | readon
 const strings: Shape = ["string"];
 const resource: Shape = { id: "number", provider: "string", title: "string", format: "string", type: "string", url: "string",
   original_url: "string", is_available: "boolean", modes: strings, updated: "string",
-  metadata: { modes: strings, stats: { routes_count: "number" } } };
+  metadata: { modes: strings, stats: { routes_count: "number" }, mobilityFeedId: "string",
+    mobilityCountryCode: "string", zippedFolderSizeMb: "number" } };
 const shapes = {
   catalog: [{ id: "string", title: "string", slug: "string", page_url: "string", type: "string", licence: "string",
     resources: [resource], territory: "string", bounds: ["number"], modes: strings, limitations: strings,
@@ -34,7 +35,7 @@ const shapes = {
     unavailable: "number", targeted: "boolean", networkScoped: "boolean", issues: strings, centerFallback: "boolean" },
   stops: [{ id: "string", name: "string", parent: "string", latitude: "number", longitude: "number", type: "number", stopLetter: "string" }],
   locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
-    territory: "string", area: "string", mobilityCountryCode: "string" }],
+    territory: "string", area: "string", mobilityCountryCode: "string", kind: "string" }],
   mobilityCountries: [{ code: "string", name: "string" }],
   mobilityCountryDirectory: { countries: [{ code: "string", name: "string" }], complete: "boolean" },
   mobilityCoverage: { countries: [{ code: "string", name: "string", covered: "boolean", modes: strings,

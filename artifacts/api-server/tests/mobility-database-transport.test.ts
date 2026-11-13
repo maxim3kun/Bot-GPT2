@@ -19,6 +19,15 @@ function feed(id: string, extra: Record<string, unknown> = {}) {
     ...extra,
   };
 }
+function routeArchive({ routeType = 3, trip = true }: { routeType?: number; trip?: boolean } = {}) {
+  return zipSync({
+    "routes.txt": strToU8(`route_id,route_short_name,route_long_name,route_type\nR,601,Test line,${routeType}\n`),
+    "trips.txt": strToU8(trip ? "route_id,service_id,trip_id\nR,S,T\n" : "route_id,service_id,trip_id\n"),
+    "calendar.txt": strToU8(trip
+      ? "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nS,1,1,1,1,1,1,1,20200101,20991231\n"
+      : "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"),
+  });
+}
 const fakeMetadata = () => {
   const cache = new Map<string, unknown>();
   return {
@@ -144,11 +153,14 @@ test("the country directory is paged, deduplicated and cached", async () => {
   assert.equal(tokenRequests, 1);
 });
 
-test("country coverage marks only active open-license static GTFS feeds available", async () => {
+test("country coverage requires real GTFS routes linked to a scheduled trip", async () => {
   const requestedCountries: string[] = [];
   const client = new MobilityDatabaseTransportClient(async input => {
     const url = new URL(String(input));
     if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.hostname === "storage.googleapis.com") {
+      return new Response(routeArchive({ trip: !url.pathname.includes("mdb-de-broken") }));
+    }
     if (url.pathname === "/v1/locations") return Response.json({
       total: 2,
       results: [
@@ -164,17 +176,15 @@ test("country coverage marks only active open-license static GTFS feeds availabl
       data_type: "gtfs", locations: [{ country_code: "FR" }],
     })]);
     if (code === "DE") return Response.json([
-      feed("mdb-de-denied", { data_type: "gtfs", locations: [{ country_code: "DE" }],
-        source_info: { license_id: "restricted", license_is_spdx: true } }),
-      feed("mdb-de-retired", { data_type: "gtfs", status: "deprecated", locations: [{ country_code: "DE" }] }),
+      feed("mdb-de-broken", { data_type: "gtfs", locations: [{ country_code: "DE" }] }),
     ]);
     throw Error(`Unexpected country ${code}`);
   }, Date.now, fakeMetadata(), () => "test-refresh-token");
   const coverage = await client.countryCoverage();
   assert.deepEqual(coverage, {
     countries: [
-      { code: "FR", name: "France", covered: true },
-      { code: "DE", name: "Germany", covered: false },
+      { code: "FR", name: "France", covered: true, modes: ["bus"], routeCount: 1 },
+      { code: "DE", name: "Germany", covered: false, modes: [], routeCount: 0 },
     ],
     complete: true,
   });
@@ -196,7 +206,9 @@ test("an incomplete country directory is marked incomplete rather than blocking 
   }, Date.now, fakeMetadata(), () => "test-refresh-token");
   const coverage = await client.countryCoverage();
   assert.equal(coverage.complete, false);
-  assert.deepEqual(coverage.countries, [{ code: "FR", name: "France", covered: false }]);
+  assert.deepEqual(coverage.countries, [
+    { code: "FR", name: "France", covered: false, modes: [], routeCount: 0 },
+  ]);
 });
 
 test("worldwide town search stays inside its selected country and returns a Mobility location", async () => {
@@ -222,6 +234,33 @@ test("worldwide town search stays inside its selected country and returns a Mobi
   assert.equal(places[0]?.name, "Singapore");
   assert.equal(places[0]?.territory, "mobility:SG");
   assert.equal(places[0]?.mobilityCountryCode, "SG");
+  assert.equal(requested.length, 1);
+});
+
+test("Mobility address and stop suggestions are country-bounded and are not persisted as user searches", async () => {
+  const requested: URL[] = [];
+  const metadata = fakeMetadata();
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    requested.push(url);
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    assert.equal(url.hostname, "nominatim.openstreetmap.org");
+    assert.equal(url.searchParams.get("countrycodes"), "gb");
+    return Response.json([
+      { class: "building", type: "house", name: "12 King Street", display_name: "12 King Street, London, England",
+        lat: "51.5", lon: "-0.12", address: { country_code: "gb", house_number: "12", road: "King Street" } },
+      { class: "public_transport", type: "platform", name: "King Street Stop",
+        display_name: "King Street Stop, London, England", lat: "51.501", lon: "-0.121",
+        address: { country_code: "gb" } },
+      { class: "building", type: "house", name: "Foreign address", lat: "51.5", lon: "-0.12",
+        address: { country_code: "fr", house_number: "12", road: "King Street" } },
+    ]);
+  }, Date.now, metadata, () => "test-refresh-token");
+  const places = await client.municipalities("12 King Street", "GB");
+  assert.equal(places.length, 2);
+  assert.ok(places.every(place => place.kind === "address"));
+  assert.ok(places.every(place => place.territory === "mobility:GB"));
+  assert.equal(metadata.cache.size, 0, "address text and selected coordinates stay out of persistent metadata");
   assert.equal(requested.length, 1);
 });
 
@@ -269,7 +308,7 @@ test("dynamic country selections query Mobility Database by their ISO country co
 test("hosted GTFS downloads stay on MobilityData's approved storage host and parse route data", async () => {
   const archive = zipSync({
     "agency.txt": strToU8("agency_id,agency_name,agency_timezone\nA,Test,Europe/Paris\n"),
-    "routes.txt": strToU8("route_id,route_short_name,route_long_name,route_type\nR,601,Paris service,3\n"),
+    "routes.txt": strToU8("route_id,route_short_name,route_long_name,route_type\nR,601,Paris service,200\n"),
     "trips.txt": strToU8("route_id,service_id,trip_id\nR,S,T\n"),
     "calendar.txt": strToU8("service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nS,1,1,1,1,1,1,1,20200101,20991231\n"),
     "stops.txt": strToU8("stop_id,stop_name,stop_lat,stop_lon,location_type\nO,Origin,48.8566,2.3522,0\nD,Destination,48.86,2.36,0\n"),

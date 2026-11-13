@@ -157,7 +157,7 @@ export interface TransportLocation {
   latitude: number;
   longitude: number;
   territory?: TransportTerritory;
-  kind?: "station";
+  kind?: "station" | "address";
 }
 
 export type TransportSearchResult =

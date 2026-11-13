@@ -213,7 +213,11 @@ export class TransportBrowserClient {
   }
 
   async availableModes(territory: TransportTerritory): Promise<TransitMode[]> {
-    if (isMobilityTerritory(territory)) return Object.keys(MODE_NAMES) as TransitMode[];
+    if (isMobilityTerritory(territory)) {
+      const countryCode = territory.slice("mobility:".length).toUpperCase();
+      const coverage = await this.requiredMobilityDatabase().countryCoverage();
+      return coverage.countries.find(country => country.code === countryCode && country.covered)?.modes ?? [];
+    }
     if (["ie", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"].includes(territory)) {
       const provider = this.providerFor(territory);
       if (!provider.availableModes) throw new TransportDataError("Le catalogue des modes de ce territoire est indisponible.");

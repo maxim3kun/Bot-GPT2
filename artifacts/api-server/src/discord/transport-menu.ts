@@ -270,8 +270,8 @@ export async function handleTransportSearch(
     cityButtons.push(button("cancel", text("Annuler", "Cancel")));
     await edit(`**Transport · ${territory ? territoryLabel(territory, language === "fr" ? "fr" : "en") : ""}**\n` +
       (territory && isMobilityTerritory(territory)
-      ? text("Indique une ville ou une zone. Les horaires ne seront proposés que si un flux GTFS statique ouvert existe dans cette zone.",
-        "Enter a city or area. Timetables appear only when an open static GTFS feed exists in that area.")
+      ? text("Saisis une ville, une adresse ou un arrêt. Le bot propose les lieux correspondants et ne garde que les modes avec des lignes vérifiées.",
+        "Enter a town, address or stop. The bot suggests matching places and offers only modes with verified routes.")
       : territory === "en"
       ? selectedMode === "rail" ? text("Trains anglais : accès National Rail en attente de validation. Les bus et le métro londonien restent disponibles.",
           "English trains: National Rail access awaits approval. Buses and the London Underground remain available.")
@@ -352,11 +352,13 @@ export async function handleTransportSearch(
         : value === "pt" ? { description: text("Métro de Lisbonne uniquement", "Lisbon Metro only") }
         : value === "au" ? { description: text("Queensland · SEQ, Bowen, Bundaberg, Cairns", "Queensland · SEQ, Bowen, Bundaberg, Cairns") }
         : value === "ua" ? { description: text("Bus et tram à Lviv uniquement", "Lviv buses and trams only") } : {}) }));
-      const discovered = (mobilityCoverage?.countries ?? []).filter(country => country.covered && country.code !== "GB").map(country => ({
+      const discovered = (mobilityCoverage?.countries ?? [])
+        .filter(country => country.covered && country.modes.length > 0 && country.code !== "GB").map(country => ({
         value: `mobility:${country.code}`,
         label: `${territoryLabel(`mobility:${country.code}`, language === "fr" ? "fr" : "en")} · ${
           text("GTFS ouvert", "open GTFS")}`,
-        description: text("Flux GTFS statique actif · licence autorisée", "Active static GTFS feed · permitted license"),
+        description: text(`Modes avec lignes vérifiées : ${country.modes.map(mode => modeName(mode, territory)).join(", ")}`,
+          `Modes with verified routes: ${country.modes.map(mode => modeName(mode, territory)).join(", ")}`),
       }));
       return [...builtIn, ...discovered];
     }
@@ -401,7 +403,10 @@ export async function handleTransportSearch(
       counties: text("Choisis un comté", "Choose a county"),
       networks: text("Choisis un réseau", "Choose a network"),
       cities: cities.length && cities.every(c => c.kind === "station")
-        ? text("Quelle gare de départ ?", "Which departure station?") : text("Quelle commune de départ ?", "Which departure city?"),
+        ? text("Quelle gare de départ ?", "Which departure station?")
+        : cities.some(c => c.kind === "address")
+          ? text("Choisis une adresse ou un arrêt", "Choose an address or stop")
+          : text("Quelle commune de départ ?", "Which departure city?"),
       lines: text("Choisis une ligne", "Choose a route"),
       origins: selectedMode === "metro" ? text("Choisis ta station de départ", "Choose your departure station")
         : text("Choisis ton arrêt de départ", "Choose your departure stop"),
@@ -432,8 +437,8 @@ export async function handleTransportSearch(
     rows.push(controls);
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = stage === "networks" && isMobilityTerritory(territory)
-      ? text("Aucun flux GTFS statique actif et ouvert trouvé pour cette zone et ce mode.",
-        "No active, open static GTFS feed was found for this area and mode.")
+      ? text("Aucune ligne vérifiée trouvée pour cette zone et ce mode.",
+        "No verified routes were found for this area and mode.")
       : text("Aucun choix ne correspond à cette recherche.", "No choices match this search.");
     const note = stage === "arrivals" ? (line?.selection
       ? territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" ||
@@ -472,8 +477,8 @@ export async function handleTransportSearch(
       : !mobilityCoverage ? text("\nCouverture Mobility Database non vérifiée; les recherches déjà disponibles restent accessibles.",
         "\nMobility Database coverage could not be verified; existing searches remain available.")
       : mobilityCoverage.complete
-        ? text(`\nGTFS statique actif et licence autorisée : ${visibleMobilityCoverage.filter(country => country.covered).length} pays · sans flux exploitable : ${visibleMobilityCoverage.filter(country => !country.covered).length}.`,
-          `\nActive static GTFS with a permitted license: ${visibleMobilityCoverage.filter(country => country.covered).length} countries · no usable feed: ${visibleMobilityCoverage.filter(country => !country.covered).length}.`)
+        ? text(`\nLignes vérifiées : ${visibleMobilityCoverage.filter(country => country.covered && country.modes.length > 0).length} pays · aucun trajet exploitable confirmé : ${visibleMobilityCoverage.filter(country => !country.covered || !country.modes.length).length}.`,
+          `\nVerified routes: ${visibleMobilityCoverage.filter(country => country.covered && country.modes.length > 0).length} countries · no usable route confirmed: ${visibleMobilityCoverage.filter(country => !country.covered || !country.modes.length).length}.`)
         : text("\nRépertoire ou couverture incomplet; seuls les flux confirmés sont marqués disponibles.",
           "\nCountry directory or coverage is incomplete; only confirmed feeds are marked available.");
     const regionListNote = stage === "regions" ? text(
@@ -558,7 +563,9 @@ export async function handleTransportSearch(
         await loadNetworks(); return;
       }
     }
-    await edit(selectedMode === "rail" && territory === "fr" ? text("Recherche des gares…", "Looking up stations…")
+    await edit(territory && isMobilityTerritory(territory)
+      ? text("Recherche de lieux, adresses et arrêts…", "Looking up places, addresses and stops…")
+      : selectedMode === "rail" && territory === "fr" ? text("Recherche des gares…", "Looking up stations…")
       : text("Recherche des communes…", "Looking up cities…"));
     cities = await service.cities(place, territory, selectedMode);
     if (!direction && !/(?:\s+|\s*\()(\d{2,5}|2[ab])\)?$/i.test(place) &&
@@ -592,8 +599,8 @@ export async function handleTransportSearch(
         ? text(`Aucune gare trouvée dans le référentiel voyageurs pour « ${place} ». Cela ne confirme pas une absence de trains. Essaie une ville ou une gare voisine.`,
           `No passenger-reference station found for “${place}”. This does not establish that there are no trains. Try a nearby city or station.`)
         : territory && isMobilityTerritory(territory)
-          ? text(`Aucune ville trouvée pour « ${place} » dans ${territoryLabel(territory, "fr")}. Vérifie l’orthographe.`,
-            `No town found for “${place}” in ${territoryLabel(territory, "en")}. Check the spelling.`)
+          ? text(`Aucune ville, adresse ou arrêt trouvé pour « ${place} » dans ${territoryLabel(territory, "fr")}. Vérifie l’orthographe.`,
+            `No town, address or stop found for “${place}” in ${territoryLabel(territory, "en")}. Check the spelling.`)
           : text(`Je ne trouve pas de commune pour « ${place} ». Indique une ville, un département ou un code postal.`,
             `No city found for “${place}”. Enter a city, department or postal code.`) });
       return;
@@ -1004,7 +1011,9 @@ export async function handleTransportSearch(
       ? text("Ville ou localité anglaise", "English town or locality") : territory === "qc"
       ? text("Localité du Québec", "Québec locality") : selectedMode === "rail"
         ? text("Ville, gare, département ou code postal", "City, station, department or postal code")
-         : text("Région, commune, département ou code postal", "Region, city, department or postal code"))
+        : territory && isMobilityTerritory(territory)
+          ? text("Ville, adresse ou arrêt", "Town, address or stop")
+          : text("Région, commune, département ou code postal", "Region, city, department or postal code"))
       : stage === "cities" ? text("Commune, gare ou code postal", "City, station or postal code")
       : stage === "territory" ? text("Pays ou territoire recherché", "Country or territory to find")
         : text("Numéro ou nom recherché", "Number or name to find"))
@@ -1014,7 +1023,9 @@ export async function handleTransportSearch(
     await interaction.showModal(new ModalBuilder().setCustomId(modalId)
       .setTitle(zoneEntry ? text("Rechercher une zone", "Search for an area")
         : cityEntry ? selectedMode === "rail" && territory === "fr" ? text("Départ du train", "Train departure")
-          : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
+         : territory && isMobilityTerritory(territory)
+           ? text("Ville, adresse ou arrêt", "Town, address or stop")
+           : text("Commune de départ", "Departure city") : text("Rechercher dans la liste", "Search the list"))
       .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)));
     submitted = await interaction.awaitModalSubmit({ time: 60_000,
       filter: (event) => event.customId === modalId && event.user.id === message.author.id }).catch(() => null);

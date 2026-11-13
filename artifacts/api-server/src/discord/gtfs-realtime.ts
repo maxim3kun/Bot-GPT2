@@ -332,7 +332,7 @@ export function routeTypeToMode(type: number | null): TransitMode | null {
   if (type === 0) return "tram";
   if (type === 1 || type === 12) return "metro";
   if (type === 2 || type === 100 || type === 101 || type === 102 || type === 103 || type === 104 || type === 105 || type === 106 || type === 107 || type === 108) return "rail";
-  if (type === 3 || type === 11 || (type != null && type >= 700 && type < 800)) return "bus";
+  if (type === 3 || type === 11 || (type != null && (type >= 200 && type < 300 || type >= 700 && type < 800))) return "bus";
   return null;
 }
 

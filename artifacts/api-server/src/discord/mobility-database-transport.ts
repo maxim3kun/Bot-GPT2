@@ -73,7 +73,9 @@ type MobilityLocation = {
 type MobilityLocationPage = { total?: unknown; results?: unknown };
 type OSMResult = {
   lat?: unknown; lon?: unknown; name?: unknown; display_name?: unknown; class?: unknown; category?: unknown; type?: unknown;
-  address?: { country_code?: unknown; state?: unknown; county?: unknown };
+  address?: {
+    country_code?: unknown; state?: unknown; county?: unknown; house_number?: unknown; road?: unknown;
+  };
 };
 
 let geocodeQueue: Promise<unknown> = Promise.resolve();
@@ -337,7 +339,6 @@ export class MobilityDatabaseTransportClient {
         const directory = await this.countryDirectory();
         const countries = directory.countries;
         let next = 0;
-        let complete = directory.complete;
         const coverage = new Array<MobilityCountryCoverage["countries"][number]>(countries.length);
         // A route check downloads a real GTFS archive. Keep parallel downloads low
         // so a country-wide refresh cannot compete with interactive searches.
@@ -348,24 +349,22 @@ export class MobilityDatabaseTransportClient {
             if (!country) return;
             try {
               const result = await this.countryRouteCoverage(country.code);
-              if (!result.complete) complete = false;
               coverage[index] = { code: country.code, name: country.name, covered: result.covered,
                 modes: result.modes, routeCount: result.routeCount };
             } catch (error) {
-              complete = false;
               coverage[index] = { ...country, covered: false, modes: [], routeCount: 0 };
               logger.debug({ country: country.code, err: error }, "Mobility country route coverage unavailable");
             }
           }
         });
         await Promise.all(workers);
-        return { countries: coverage, complete };
+        return { countries: coverage, complete: directory.complete };
       }, undefined, { countries: [], complete: false });
     return cached.value;
   }
 
   private async countryRouteCoverage(countryCode: string): Promise<{
-    covered: boolean; modes: TransitMode[]; routeCount: number; complete: boolean;
+    covered: boolean; modes: TransitMode[]; routeCount: number;
   }> {
     const catalog = await this.catalogForCountry(countryCode);
     const candidates = catalog.flatMap(dataset => dataset.resources
@@ -379,7 +378,6 @@ export class MobilityDatabaseTransportClient {
 
     const modes = new Set<TransitMode>();
     let routeCount = 0;
-    let failed = false;
     for (const { resource } of candidates) {
       try {
         const routes = await this.referenceRoutes(resource);
@@ -388,14 +386,14 @@ export class MobilityDatabaseTransportClient {
         routeCount += usable.length;
         for (const route of usable) modes.add(route.mode!);
       } catch {
-        failed = true;
+        // A bad feed must not keep this country's other routes or countries
+        // from being verified.
       }
     }
     return {
       covered: routeCount > 0 && modes.size > 0,
       modes: [...modes].sort(),
       routeCount,
-      complete: !failed || routeCount > 0,
     };
   }
 
@@ -403,57 +401,94 @@ export class MobilityDatabaseTransportClient {
     const code = countryCode.trim().toUpperCase();
     const query = normalizePlace(place);
     if (!/^[A-Z]{2}$/.test(code) || query.length < 2 || query.length > 100) return [];
+    const privateQuery = /\d/.test(place) ||
+      /\b(?:street|road|avenue|rue|route|chemin|boulevard|lane|drive|square|platz|strasse|calle|avenida|rua)\b/i.test(query);
+    const cacheKey = `${code}:${query}`;
+    if (privateQuery) {
+      const cached = this.addressCache.get(cacheKey);
+      if (cached && cached.expiresAt > this.now()) return cached.value;
+      const pending = this.addressPending.get(cacheKey);
+      if (pending) return pending;
+      const request = queueMobilityGeocode(() => this.fetchGeocodedPlaces(place, query, code));
+      this.addressPending.set(cacheKey, request);
+      try {
+        const value = await request;
+        this.addressCache.set(cacheKey, { expiresAt: this.now() + 5 * 60_000, value });
+        return value;
+      } finally {
+        this.addressPending.delete(cacheKey);
+      }
+    }
     return this.metadata.get<TransportLocation[]>({
       territory: `mobility:${code}`, provider: "nominatim", kind: "locations",
-      source: `settlements:${query}`, version: "mobility-country-geocoder-v1",
-    }, 24 * 60 * 60_000, () => queueMobilityGeocode(async () => {
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("q", place.trim());
-      url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("addressdetails", "1");
-      url.searchParams.set("limit", "15");
-      url.searchParams.set("countrycodes", code.toLowerCase());
-      let response: Response;
-      try {
-        response = await this.request(url.href, {
-          headers: { accept: "application/json", "user-agent": "MaximeGPT public transport/1.0" },
-        }, 8_000);
-      } catch {
-        throw new Error("OpenStreetMap geocoding failed or timed out");
-      }
-      let body: unknown;
-      try { body = await this.json<unknown>(response); }
-      catch { throw new Error("OpenStreetMap returned an invalid location response"); }
-      if (!Array.isArray(body)) throw new Error("OpenStreetMap returned an invalid location list");
-      const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
-      const places = (body as OSMResult[]).flatMap(result => {
-        // Nominatim's jsonv2 response uses `category`; older versions used `class`.
-        const resultClass = result.class ?? result.category;
-        const isPlace = resultClass === "place" &&
-          ["city", "town", "village", "municipality", "hamlet"].includes(String(result.type ?? ""));
-        const isExactBoundary = resultClass === "boundary" && result.type === "administrative" &&
-          normalizePlace(String(result.name ?? "")) === query;
-        if ((!isPlace && !isExactBoundary) ||
-          String(result.address?.country_code ?? "").toUpperCase() !== code) return [];
-        const latitude = Number(result.lat), longitude = Number(result.lon);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
-          Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return [];
-        const name = typeof result.name === "string" ? result.name.trim()
-          : typeof result.display_name === "string" ? result.display_name.split(",")[0]?.trim() ?? "" : "";
-        if (!name) return [];
-        const area = typeof result.address?.state === "string" ? result.address.state
-          : typeof result.address?.county === "string" ? result.address.county : undefined;
-        const id = `osm:mobility:${code}:${createHash("sha256")
-          .update(`${normalizePlace(name)}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`).digest("hex").slice(0, 16)}`;
-        return [{
-          id, name, label: [name, area, countryName].filter(Boolean).join(" · "),
-          ...(area ? { area } : {}), latitude, longitude, territory: `mobility:${code}` as TransportTerritory,
-          mobilityCountryCode: code,
-        }];
-      });
-      const exact = places.filter(location => normalizePlace(location.name) === query);
-      return (exact.length ? exact : places).slice(0, 25);
-    }));
+      source: `settlements:${query}`, version: "mobility-country-geocoder-v2",
+    }, 24 * 60 * 60_000, () => queueMobilityGeocode(() => this.fetchGeocodedPlaces(place, query, code)));
+  }
+
+  private async fetchGeocodedPlaces(place: string, query: string, code: string): Promise<TransportLocation[]> {
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("q", place.trim());
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("limit", "15");
+    url.searchParams.set("countrycodes", code.toLowerCase());
+    let response: Response;
+    try {
+      response = await this.request(url.href, {
+        headers: { accept: "application/json", "user-agent": "MaximeGPT public transport/1.0" },
+      }, 8_000);
+    } catch {
+      throw new Error("OpenStreetMap geocoding failed or timed out");
+    }
+    let body: unknown;
+    try { body = await this.json<unknown>(response); }
+    catch { throw new Error("OpenStreetMap returned an invalid location response"); }
+    if (!Array.isArray(body)) throw new Error("OpenStreetMap returned an invalid location list");
+    const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+    const places = (body as OSMResult[]).flatMap(result => {
+      const resultClass = result.class ?? result.category;
+      const resultType = String(result.type ?? "");
+      const isPlace = resultClass === "place" &&
+        ["city", "town", "village", "municipality", "hamlet"].includes(resultType);
+      const isExactBoundary = resultClass === "boundary" && resultType === "administrative" &&
+        normalizePlace(String(result.name ?? "")) === query;
+      const isStop = resultClass === "highway" && resultType === "bus_stop" ||
+        resultClass === "amenity" && ["bus_station", "bus_stop"].includes(resultType) ||
+        resultClass === "public_transport" && ["platform", "stop_position", "station"].includes(resultType) ||
+        resultClass === "railway" && ["station", "halt", "tram_stop", "subway_entrance"].includes(resultType);
+      const hasAddress = typeof result.address?.road === "string" &&
+        (typeof result.address.house_number === "string" || resultType === "house" ||
+          resultClass === "highway" && ["road", "residential", "service", "tertiary", "secondary", "primary"].includes(resultType));
+      const isAddress = hasAddress || resultClass === "building" && resultType === "house";
+      if ((!isPlace && !isExactBoundary && !isStop && !isAddress) ||
+        String(result.address?.country_code ?? "").toUpperCase() !== code) return [];
+      const latitude = Number(result.lat), longitude = Number(result.lon);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+        Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return [];
+      const road = typeof result.address?.road === "string" ? result.address.road.trim() : "";
+      const number = typeof result.address?.house_number === "string" ? result.address.house_number.trim() : "";
+      const fallbackName = isAddress ? [number, road].filter(Boolean).join(" ")
+        : typeof result.display_name === "string" ? result.display_name.split(",")[0]?.trim() ?? "" : "";
+      const name = typeof result.name === "string" && result.name.trim() ? result.name.trim() : fallbackName;
+      if (!name) return [];
+      const area = typeof result.address?.state === "string" ? result.address.state
+        : typeof result.address?.county === "string" ? result.address.county : undefined;
+      const displayName = typeof result.display_name === "string" ? result.display_name.trim() : "";
+      const label = (isStop || isAddress) && displayName
+        ? displayName.slice(0, 180) : [name, area, countryName].filter(Boolean).join(" · ");
+      const id = `osm:mobility:${code}:${createHash("sha256")
+        .update(`${normalizePlace(name)}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`).digest("hex").slice(0, 16)}`;
+      return [{
+        id, name, label, ...(area ? { area } : {}), latitude, longitude,
+        territory: `mobility:${code}` as TransportTerritory, mobilityCountryCode: code,
+        ...((isStop || isAddress) ? { kind: "address" as const } : {}),
+      }];
+    });
+    const exact = places.filter(location => normalizePlace(location.name) === query);
+    const ordered = exact.length
+      ? [...exact, ...places.filter(location => !exact.includes(location))]
+      : places;
+    return ordered.slice(0, 25);
   }
 
   /** Return usable, licensed feeds whose published geographic bounds overlap the chosen town. */
