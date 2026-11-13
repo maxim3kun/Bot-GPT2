@@ -54,6 +54,28 @@ function qt(context: QuestLanguageContext, english: string, french: string): str
   return questLanguage(context) === "fr" ? french : english;
 }
 const FRENCH_LEVELS = ["🌱 Novice", "⚡ Apprenti", "🔥 Aventurier", "⚔️ Guerrier", "🏆 Champion", "💎 Maître", "🌟 Expert", "👑 Légende", "🌌 Transcendant"];
+const QUEST_POINTS: Record<Quest["difficulty"], number> = { easy: 10, medium: 25, hard: 50 };
+
+/** Normalize newly generated quests without touching stored quests or earned XP. */
+export function normalizeGeneratedQuest(value: unknown, id: number, fallbackGoal: string, language: string): Quest {
+  const generated = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const clean = (item: unknown, limit: number) =>
+    typeof item === "string" ? item.replace(/\s+/g, " ").trim().slice(0, limit) : "";
+  const difficulty = (["easy", "medium", "hard"].includes(String(generated["difficulty"]))
+    ? generated["difficulty"] : "medium") as Quest["difficulty"];
+  const goal = clean(fallbackGoal, 240);
+  const title = clean(generated["title"], 40) || goal.slice(0, 40)
+    || (language === "fr" ? "Nouvelle quête" : "New quest");
+  const description = clean(generated["description"], 240) || goal || title;
+  return {
+    id,
+    title,
+    description,
+    difficulty,
+    points: QUEST_POINTS[difficulty],
+    completed: false,
+  };
+}
 
 // ── Level system ──────────────────────────────────────────────────────────────
 
@@ -203,7 +225,11 @@ export function buildQuestEmbed(profile: UserProfile, language = questLanguage(p
     const lines = profile.quests.map((q, i) => {
       const num = q.completed ? "✅" : (QUEST_NUMS[i] ?? `${i + 1}.`);
       const title = q.completed ? `~~${q.title}~~` : `**${q.title}**`;
-      return `${num} ${DIFF_EMOJI[q.difficulty] ?? "⬜"} ${title} — *${q.points} XP*`;
+      const description = typeof q.description === "string" ? q.description.trim().replace(/\s+/g, " ") : "";
+      const detail = description
+        ? `\n> ${description.length > 110 ? `${description.slice(0, 107).trimEnd()}…` : description}`
+        : "";
+      return `${num} ${DIFF_EMOJI[q.difficulty] ?? "⬜"} ${title} — *${q.points} XP*${detail}`;
     });
     embed.setDescription(lines.join("\n"));
     if (profile.quests.some(q => !q.completed)) {
@@ -533,10 +559,13 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
         {
           role: "system",
           content:
-            "You are a quest designer. Convert the user's goals into a JSON array of quests.\n" +
+            "You are a practical quest designer. Turn only the goals the user explicitly named into a JSON array of quests.\n" +
             "Return ONLY valid JSON, no markdown, no other text. Max 9 quests.\n" +
             'Schema: [{"title":"<max 40 chars>","description":"<one sentence>","difficulty":"easy|medium|hard","points":10|25|50}]\n' +
-            "Rules: easy=10pts (daily/weekly habit), medium=25pts (monthly goal), hard=50pts (long-term project).\n" +
+            "Make each objective concrete, measurable, and achievable from the user's stated goal. State an observable completion criterion in the description. " +
+            "Do not invent a goal, deadline, schedule, health assumption, or personal fact. If the user gave no target, choose a modest first step and keep the wording flexible. " +
+            "Do not split one goal into several quests unless the user explicitly gave multiple goals. " +
+            "Difficulty must match scope: easy=10pts, medium=25pts, hard=50pts. Set points to that exact value; never award more.\n" +
             `Respond in ${userLang}.`,
         },
         { role: "user", content: userInput },
@@ -549,21 +578,12 @@ export async function startQuestSetup(message: Message, openai: OpenAI | null): 
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error("No JSON array in response");
 
-    const parsed = JSON.parse(jsonMatch[0]) as Array<{
-      title: string;
-      description: string;
-      difficulty: "easy" | "medium" | "hard";
-      points: number;
-    }>;
+    const parsed = JSON.parse(jsonMatch[0]) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("No quests in response");
 
-    profile.quests = parsed.slice(0, 9).map((q, i) => ({
-      id: i + 1,
-      title: q.title ?? qt(message, "Quest", "Quête"),
-      description: q.description ?? "",
-      difficulty: (["easy", "medium", "hard"].includes(q.difficulty) ? q.difficulty : "medium") as "easy" | "medium" | "hard",
-      points: typeof q.points === "number" ? q.points : 25,
-      completed: false,
-    }));
+    profile.quests = parsed.slice(0, 9).map((quest, index) =>
+      normalizeGeneratedQuest(quest, index + 1, userInput, questLanguage(message)),
+    );
 
     persistUser(profile.userId);
 
@@ -757,6 +777,13 @@ export async function setSchedule(message: Message, input: string): Promise<void
   await message.reply(explanation);
 }
 
+export function buildQuestCommandHelp(language: string, prefix = "!"): string {
+  if (language === "fr") {
+    return `📋 **Commandes de quêtes**\n\`${prefix}quest start\` · \`${prefix}quest add <objectif>\` · \`${prefix}quest list\`\n\`${prefix}quest done <N|all>\` · \`${prefix}quest negotiate\` · \`${prefix}quest profile\` · \`${prefix}quest stats\`\n\`${prefix}quest remind\` · \`${prefix}quest bully on|off\` · \`${prefix}quest reset\`\nLes rappels sont irréguliers, jusqu’à trois par semaine.`;
+  }
+  return `📋 **Quest commands**\n\`${prefix}quest start\` · \`${prefix}quest add <goal>\` · \`${prefix}quest list\`\n\`${prefix}quest done <N|all>\` · \`${prefix}quest negotiate\` · \`${prefix}quest profile\` · \`${prefix}quest stats\`\n\`${prefix}quest remind\` · \`${prefix}quest bully on|off\` · \`${prefix}quest reset\`\nReminders are irregular, up to three per week.`;
+}
+
 export async function addQuestWithCoach(message: Message, objective: string, openai: OpenAI | null): Promise<void> {
   if (!objective.trim()) {
     await message.reply(qt(message, "❓ Usage: `!quest add <your goal>` — e.g. `!quest add Run 5km three times a week`", "❓ Utilisation : `!quest add <objectif>` — par exemple `!quest add Courir 5 km trois fois par semaine`"));
@@ -798,9 +825,9 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
         {
           role: "system",
           content:
-            "You are a goal-setting coach. The user wants to add a personal quest/goal. " +
-            "Ask ONE short, sharp clarifying question to better define this goal. " +
-            "Focus on: timeline, how to measure success, or the real motivation. " +
+            "You are a practical goal-setting coach. The user wants to add one personal goal. " +
+            "Ask ONE short, useful question that makes the goal measurable or clarifies the user's own target. " +
+            "Do not pressure them to share sensitive personal details or invent a deadline. " +
             `One sentence only. No preamble, no label. Respond in ${userLangAdd}.`,
         },
         { role: "user", content: `Goal: ${objective}` },
@@ -826,9 +853,10 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
         {
           role: "system",
           content:
-            "Create ONE quest JSON from a user goal. Return ONLY valid JSON, no other text, no markdown.\n" +
+            "Create ONE concrete, measurable, achievable quest using only the user's stated goal and answer. Return ONLY valid JSON, no other text, no markdown.\n" +
             'Schema: {"title":"<max 40 chars>","description":"<one sentence>","difficulty":"easy|medium|hard","points":10|25|50}\n' +
-            "easy=10pts (daily habit), medium=25pts (weekly/monthly goal), hard=50pts (long-term project).\n" +
+            "Description must say what observable result completes the quest. Do not invent schedules, deadlines, health facts, or extra goals. " +
+            "Difficulty must match scope: easy=10pts, medium=25pts, hard=50pts; points must be exact.\n" +
             `Respond in ${userLangAdd}.`,
         },
         {
@@ -844,16 +872,8 @@ export async function addQuestWithCoach(message: Message, objective: string, ope
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON object in response");
 
-    const parsed = JSON.parse(jsonMatch[0]) as { title?: string; description?: string; difficulty?: string; points?: number };
-
-    const quest: Quest = {
-      id: profile.quests.length + 1,
-      title: (parsed.title ?? objective).slice(0, 40),
-      description: parsed.description ?? objective,
-      difficulty: (["easy", "medium", "hard"].includes(parsed.difficulty ?? "") ? parsed.difficulty : "medium") as "easy" | "medium" | "hard",
-      points: typeof parsed.points === "number" ? parsed.points : 25,
-      completed: false,
-    };
+    const parsed: unknown = JSON.parse(jsonMatch[0]);
+    const quest = normalizeGeneratedQuest(parsed, profile.quests.length + 1, objective, questLanguage(message));
 
     profile.quests.push(quest);
     persistUser(profile.userId);

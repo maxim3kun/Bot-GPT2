@@ -2,7 +2,7 @@ import test from "node:test";
 import "./ai-command-tools.test.js";
 import assert from "node:assert/strict";
 import { classifyAiMessage } from "../src/discord/ai-router.js";
-import { generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
+import { FACTUAL_ACCURACY_GUIDANCE, generateWithLengthRetry } from "../src/discord/ai-completion-quality.js";
 import { splitAiAnswer } from "../src/discord/ai-answer-format.js";
 import { actionAccessFailure, executeAuthorizedAction, isAiActionCandidate, parseAiAction, type AiActionAccess } from "../src/discord/ai-action-policy.js";
 import { calculateVerified, simpleArithmeticReply } from "../src/discord/ai-calculator.js";
@@ -156,6 +156,12 @@ test("Persona truncation is retried exactly once with a larger budget", async ()
   });
   assert.deepEqual(budgets, [1600, 2800]);
   assert.equal(result.text, "Complete.");
+});
+
+test("General factual answers default to concise, direct replies while allowing requested detail", () => {
+  assert.match(FACTUAL_ACCURACY_GUIDANCE, /answer directly and briefly/);
+  assert.match(FACTUAL_ACCURACY_GUIDANCE, /Expand when the user asks for detail/);
+  assert.match(FACTUAL_ACCURACY_GUIDANCE, /do not invent numbers, statistics, sources/);
 });
 
 test("Complete answers and safety refusals are not retried", async () => {

@@ -10,7 +10,7 @@ import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateMusicTrack, handleSunoBalanceCommand } from "./discord/music-generation-commands.js";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
-import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests, handleQuestReminderButton, MAX_WEEKLY_QUEST_REMINDERS } from "./discord/quests";
+import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests, handleQuestReminderButton, MAX_WEEKLY_QUEST_REMINDERS, buildQuestCommandHelp } from "./discord/quests";
 import { shazam } from "./discord/shazam";
 import { registerSlashCommands } from "./discord/slash";
 import { getPrefix } from "./discord/prefix-store";
@@ -3092,7 +3092,7 @@ export function startBot(): void {
           } else if (sub === "negotiate") {
             await negotiateQuests(message, openai);
           } else {
-            await message.reply("❓ Commands: `!quest start` · `!quest add <goal>` · `!quest list` · `!quest done <n>` · `!quest profile` · `!quest negotiate` · `!quest reset`");
+            await message.reply(buildQuestCommandHelp(responseLang, getPrefix(message.guildId)));
           }
           break;
         }

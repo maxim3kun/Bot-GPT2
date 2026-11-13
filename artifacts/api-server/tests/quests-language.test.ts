@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildQuestEmbed, initQuestStore, showQuestList, showQuestProfile, showQuestStats, addQuestWithCoach, startQuestSetup,
   createQuestReminderSchedule, getQuestReminderWeekKey, runQuestReminderCycle, handleQuestReminderButton,
-  getUserQuestData, MAX_WEEKLY_QUEST_REMINDERS,
+  getUserQuestData, MAX_WEEKLY_QUEST_REMINDERS, normalizeGeneratedQuest, buildQuestCommandHelp,
 } from "../src/discord/quests.js";
 import type { Message } from "discord.js";
 import { questFixture as f } from "./fixtures/quest-language.js";
@@ -32,6 +32,7 @@ test("Quest UI inherits French server language, preserves goals/XP, and follows 
   assert.match(list, /Niveau/);
   assert.match(list, /Apprenti/);
   assert.match(list, /Objectif conservé/);
+  assert.match(list, /Description/);
   assert.match(list, /150 pts/);
   assert.equal(reactionFilter!({ emoji: { name: "1️⃣" } }, { id: "other", bot: false }), false);
   assert.equal(reactionFilter!({ emoji: { name: "1️⃣" } }, { id: "user", bot: false }), true);
@@ -86,6 +87,26 @@ test("Quest creation prompts the AI in the server language, with French setup an
   await startQuestSetup(generatedMessage, model as any);
   assert.equal(calls.length, 1);
   assert.match(calls[0].messages[0].content, /Respond in French/);
+  assert.match(calls[0].messages[0].content, /concrete, measurable, and achievable/);
+});
+
+test("Generated quests keep difficulty rewards bounded and never alter existing quest data", () => {
+  assert.deepEqual(
+    normalizeGeneratedQuest({ title: "  Lire   plus ", description: "Lire dix pages.", difficulty: "easy", points: 9999 }, 2, "Lire davantage", "fr"),
+    { id: 2, title: "Lire plus", description: "Lire dix pages.", difficulty: "easy", points: 10, completed: false },
+  );
+  const invalid = normalizeGeneratedQuest({ title: "", description: "", difficulty: "impossible", points: -30 }, 3, "Faire une promenade", "fr");
+  assert.equal(invalid.title, "Faire une promenade");
+  assert.equal(invalid.description, "Faire une promenade");
+  assert.equal(invalid.difficulty, "medium");
+  assert.equal(invalid.points, 25);
+  assert.ok(buildQuestCommandHelp("fr", "??").includes("`??quest add <objectif>`"));
+  assert.match(buildQuestCommandHelp("fr", "??"), /jusqu’à trois par semaine/);
+  const priorPoints = f.profile.totalPoints;
+  const priorQuest = structuredClone(f.profile.quests[0]);
+  normalizeGeneratedQuest({ title: "Test", description: "Test", difficulty: "hard", points: 50 }, 4, "Test", "fr");
+  assert.equal(f.profile.totalPoints, priorPoints);
+  assert.deepEqual(f.profile.quests[0], priorQuest);
 });
 
 test("Quest reminders vary across the week, stay under the weekly cap, persist across restarts, and only the recipient can disable them", async () => {

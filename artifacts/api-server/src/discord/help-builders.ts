@@ -110,7 +110,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
-        value: `\`${p}agenda add YYYY-MM-DD HH:MM <title>\` · \`${p}agenda list\` · \`${p}timer 20m <label>\``,
+        value: `\`${p}agenda add YYYY-MM-DD HH:MM <title>\` · \`${p}agenda list\` · \`${p}timer 20m <label>\`\n` +
+          ({ en: "Private events and reminders are sent only in DMs.", fr: "Les événements et rappels privés sont envoyés uniquement par DM.", es: "Los eventos y recordatorios privados solo se envían por DM.", de: "Private Termine und Erinnerungen werden nur per DM gesendet.", pt: "Eventos e lembretes privados são enviados apenas por DM.", it: "Eventi e promemoria privati vengono inviati solo in DM." }[tl] ?? "Private events and reminders are sent only in DMs."),
       },
     );
 
@@ -195,6 +196,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
   // ── Page 5 — AI & Quests ───────────────────────────────────────────────────
   } else if (page === 5) {
     const desc = { en: "AI & quests.", fr: "IA & quêtes.", es: "IA & misiones.", de: "KI & Quests.", pt: "IA & missões.", it: "IA & missioni." };
+    const questGoalArgument = tl === "fr" ? "objectif" : "goal";
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
@@ -211,8 +213,9 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎯 Quests & Levels", fr: "🎯 Quêtes & Niveaux", es: "🎯 Misiones & Niveles", de: "🎯 Quests & Level", pt: "🎯 Missões & Níveis", it: "🎯 Missioni & Livelli" }[tl] ?? "🎯 Quests",
         value: [
-          `\`${p}quest start\` · \`${p}quest list\` · \`${p}quest done <N>\` · \`${p}quest done all\``,
-          `\`${p}quest profile\` · \`${p}quest stats\` · \`${p}quest remind\` · \`${p}quest reset\``,
+          `\`${p}quest start\` · \`${p}quest add <${questGoalArgument}>\` · \`${p}quest list\``,
+          `\`${p}quest done <N|all>\` · \`${p}quest negotiate\` · \`${p}quest profile\` · \`${p}quest stats\``,
+          `\`${p}quest remind\` · \`${p}quest bully on|off\` · \`${p}quest reset\``,
           `> \`${p}help quest\` ` + { en: "for full details", fr: "pour les détails", es: "para detalles", de: "für Details", pt: "para detalhes", it: "per i dettagli" }[tl],
         ].join("\n"),
       },
@@ -485,10 +488,12 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "levels":
       embed.setTitle({ en: "🎯 Quests & Levels", fr: "🎯 Quêtes & Niveaux", es: "🎯 Misiones & Niveles", de: "🎯 Quests & Level", pt: "🎯 Missões & Níveis", it: "🎯 Missioni & Livelli" }[tl] ?? "🎯 Quests");
       embed.addFields(
-        { name: `\`${p}quest start\``, value: { en: "Set up personal quests with AI coaching.", fr: "Configurer des quêtes personnelles avec coaching IA.", es: "Configurar misiones personales con coaching IA.", de: "Persönliche Quests mit KI-Coaching einrichten.", pt: "Configurar missões pessoais com coaching de IA.", it: "Configura missioni personali con coaching IA." }[tl] ?? "" },
+        { name: `\`${p}quest start\``, value: { en: "Create tailored quests with specific completion criteria.", fr: "Créer des quêtes personnalisées avec des critères de réussite concrets.", es: "Crear misiones personalizadas con criterios de finalización concretos.", de: "Individuelle Quests mit konkreten Abschlusskriterien erstellen.", pt: "Criar missões personalizadas com critérios de conclusão concretos.", it: "Crea missioni personalizzate con criteri di completamento concreti." }[tl] ?? "" },
+        { name: `\`${p}quest add <${tl === "fr" ? "objectif" : "goal"}>\`  ·  \`${p}quest negotiate\``, value: { en: "Add a personal goal or adjust your current quests with the coach.", fr: "Ajouter un objectif personnel ou ajuster tes quêtes avec le coach.", es: "Añadir un objetivo personal o ajustar tus misiones con el coach.", de: "Ein persönliches Ziel hinzufügen oder Quests mit dem Coach anpassen.", pt: "Adicionar uma meta pessoal ou ajustar missões com o orientador.", it: "Aggiungi un obiettivo personale o modifica le missioni con il coach." }[tl] ?? "" },
         { name: `\`${p}quest list\`  \`${p}quest done <N>\`  \`${p}quest done all\``, value: { en: "View quests, mark one or all as done.", fr: "Voir les quêtes, marquer une ou toutes comme faites.", es: "Ver misiones, marcar una o todas como hechas.", de: "Quests anzeigen, eine oder alle als erledigt markieren.", pt: "Ver missões, marcar uma ou todas como concluídas.", it: "Vedi missioni, segna una o tutte come completate." }[tl] ?? "" },
         { name: `\`${p}quest profile\`  \`${p}quest stats\``, value: { en: "View your XP level card or your quest statistics.", fr: "Voir ta fiche niveau XP ou tes statistiques de quêtes.", es: "Ver tu ficha de nivel XP o estadísticas de misiones.", de: "Deine XP-Level-Karte oder Quest-Statistiken anzeigen.", pt: "Ver seu cartão de nível XP ou estatísticas de missões.", it: "Vedi il tuo livello XP o le statistiche delle missioni." }[tl] ?? "" },
         { name: `\`${p}quest remind\`  \`${p}quest schedule\``, value: { en: "Enable reminders (up to three per week at varied times). Fixed-hour schedules are no longer supported.", fr: "Activer les rappels (jusqu’à trois par semaine, à des horaires variables). Les horaires fixes ne sont plus utilisés.", es: "Activar recordatorios (hasta tres por semana en horarios variables). Ya no se admiten horarios fijos.", de: "Erinnerungen aktivieren (bis zu drei pro Woche zu variablen Zeiten). Feste Zeiten werden nicht mehr unterstützt.", pt: "Ativar lembretes (até três por semana em horários variados). Horários fixos não são mais usados.", it: "Attiva i promemoria (fino a tre a settimana in orari variabili). Gli orari fissi non sono più supportati." }[tl] ?? "" },
+        { name: `\`${p}quest bully on|off\``, value: { en: "Choose a firmer or supportive tone for your own quest reminders.", fr: "Choisir un ton plus ferme ou bienveillant pour tes rappels personnels.", es: "Elegir un tono más firme o de apoyo para tus recordatorios.", de: "Einen strengeren oder unterstützenden Ton für deine Erinnerungen wählen.", pt: "Escolher um tom mais firme ou acolhedor para seus lembretes.", it: "Scegli un tono più severo o incoraggiante per i tuoi promemoria." }[tl] ?? "" },
         { name: `\`${p}quest reset\``, value: { en: "Reset all quests (asks for confirmation).", fr: "Réinitialiser toutes les quêtes (demande confirmation).", es: "Reiniciar todas las misiones (pide confirmación).", de: "Alle Quests zurücksetzen (fragt nach Bestätigung).", pt: "Redefinir todas as missões (pede confirmação).", it: "Reimposta tutte le missioni (chiede conferma)." }[tl] ?? "" },
       );
       break;
@@ -582,10 +587,11 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       break;
 
     case "food":
-      embed.setTitle({ en: "🥗 Food Scanner", fr: "🥗 Scanner Alimentaire", es: "🥗 Escáner de Comida", de: "🥗 Lebensmittel-Scanner", pt: "🥗 Scanner de Alimentos", it: "🥗 Scanner Alimentare" }[tl] ?? "🥗 Food");
+      embed.setTitle({ en: "🥗 Food Scanner", fr: "🥗 Scanner alimentaire", es: "🥗 Escáner de Comida", de: "🥗 Lebensmittel-Scanner", pt: "🥗 Scanner de Alimentos", it: "🥗 Scanner Alimentare" }[tl] ?? "🥗 Food");
       embed.addFields(
-        { name: `\`${p}food\`  ·  \`${p}food scan\``, value: { en: "Scan a food product from a photo or barcode. Returns Nutri-Score and nutritional info.", fr: "Scanner un produit alimentaire depuis une photo ou un code-barre. Retourne le Nutri-Score et les infos nutritionnelles.", es: "Escanear un producto alimenticio desde una foto o código de barras.", de: "Ein Lebensmittelprodukt anhand eines Fotos oder Barcodes scannen.", pt: "Escanear um produto alimentar a partir de uma foto ou código de barras.", it: "Scansionare un prodotto alimentare da una foto o codice a barre." }[tl] ?? "" },
-        { name: `\`${p}food history\`  ·  \`${p}food clear\``, value: { en: "View your last 10 scanned products or clear your history.", fr: "Voir tes 10 derniers produits scannés ou effacer l'historique.", es: "Ver tus últimos 10 productos escaneados o borrar el historial.", de: "Deine letzten 10 gescannten Produkte anzeigen oder verlauf löschen.", pt: "Ver seus últimos 10 produtos escaneados ou limpar o histórico.", it: "Vedi i tuoi ultimi 10 prodotti scansionati o cancella la cronologia." }[tl] ?? "" },
+        { name: `\`${p}food <${tl === "fr" ? "nom|code-barres" : "name|barcode"}>\`  ·  \`${p}food\` + 📎 photo`, value: { en: "Look up a product by name or barcode, or attach a photo to scan it.", fr: "Rechercher un produit par nom ou code-barres, ou joindre une photo pour le scanner.", es: "Buscar un producto por nombre o código de barras, o adjuntar una foto.", de: "Ein Produkt nach Name oder Barcode suchen oder ein Foto zum Scannen anhängen.", pt: "Buscar um produto por nome ou código de barras, ou anexar uma foto.", it: "Cerca un prodotto per nome o codice a barre, oppure allega una foto." }[tl] ?? "" },
+        { name: `\`${p}food rate <${tl === "fr" ? "nom" : "name"}>\`  ·  \`${p}rate food <${tl === "fr" ? "nom" : "name"}>\``, value: { en: "Show a product's Nutri-Score, processing group and summary.", fr: "Afficher le Nutri-Score, le niveau de transformation et un résumé des données.", es: "Mostrar el Nutri-Score, el nivel de procesamiento y una valoración.", de: "Nutri-Score, Verarbeitungsgrad und Bewertung anzeigen.", pt: "Mostrar Nutri-Score, nível de processamento e avaliação.", it: "Mostra Nutri-Score, livello di lavorazione e valutazione." }[tl] ?? "" },
+        { name: `\`${p}food history\`  ·  \`${p}food clear\``, value: { en: "View your last 10 scanned products or clear your history.", fr: "Voir tes 10 derniers produits scannés ou effacer l'historique.", es: "Ver tus últimos 10 productos escaneados o borrar el historial.", de: "Deine letzten 10 gescannten Produkte anzeigen oder Verlauf löschen.", pt: "Ver seus últimos 10 produtos escaneados ou limpar o histórico.", it: "Vedi i tuoi ultimi 10 prodotti scansionati o cancella la cronologia." }[tl] ?? "" },
       );
       break;
 

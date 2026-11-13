@@ -12,7 +12,7 @@ import { SLASH_COMMANDS } from "../src/discord/slash.js";
 import { buildPersonaHelp, PERSONA_HELP_PAGES, sendPersonaHelp } from "../src/discord/persona-help.js";
 
 const languages: HelpLanguage[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
-const topics: HelpTopic[] = ["language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist", "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr", "echo", "pokemon", "welcome", "schedule", "food", "tierlist", "blindtest", "milliongame", "persona", "memory", "diagnostics"];
+const topics: HelpTopic[] = ["language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist", "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr", "echo", "pokemon", "welcome", "schedule", "agenda", "food", "tierlist", "blindtest", "milliongame", "persona", "memory", "diagnostics"];
 
 function validateEmbed(embed: ReturnType<typeof buildHelpEmbed>, context: string) {
   const json = embed.toJSON();
@@ -47,6 +47,15 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
   assert.equal(all.includes("Sort 20 items"), false);
   assert.equal(all.includes("Tous supportent"), false);
+  assert.ok(all.includes("quest add <objectif>"));
+  assert.ok(all.includes("quest negotiate"));
+  const frenchFood = JSON.stringify(buildTopicEmbed("food", "fr").toJSON());
+  assert.match(frenchFood, /code-barres/);
+  assert.ok(frenchFood.includes("food <nom|code-barres>"));
+  assert.ok(frenchFood.includes("food rate <nom>"));
+  assert.equal(frenchFood.includes("food scan"), false);
+  assert.equal(frenchFood.match(/food history/g)?.length, 1);
+  assert.ok(JSON.stringify(buildTopicEmbed("quest", "fr").toJSON()).includes("quest bully on|off"));
   assert.equal(resolveTopicKey("persona")?.topic, "persona");
   assert.equal(resolveTopicKey("mémoire")?.topic, "memory");
   assert.equal(resolveTopicKey("tech")?.topic, "diagnostics");

@@ -7,6 +7,7 @@ import { Message, ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuild
 import OpenAI from "openai";
 import { logger } from "../lib/logger.js";
 import { saveFoodHistory, getFoodHistory, clearFoodHistory, isMongoConnected } from "../lib/db.js";
+import { getEffectiveLanguage } from "./effective-language.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +35,7 @@ interface OffProduct {
   image_url?: string;
   url?: string;
   ingredients_text_en?: string;
+  ingredients_text_fr?: string;
   ingredients_text?: string;
   nutriments?: {
     "energy-kcal_100g"?: number;
@@ -48,6 +50,16 @@ interface OffProduct {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+export type FoodLanguage = "en" | "fr";
+
+export function foodText(language: FoodLanguage, english: string, french: string): string {
+  return language === "fr" ? french : english;
+}
+
+function foodLanguage(message: Pick<Message, "guildId" | "author">): FoodLanguage {
+  return getEffectiveLanguage(message.guildId, message.author.id) === "fr" ? "fr" : "en";
+}
 
 const NUTRISCORE_COLORS: Record<string, number> = {
   a: 0x1e8f4e,
@@ -65,13 +77,6 @@ const NUTRISCORE_EMOJIS: Record<string, string> = {
   e: "🔴",
 };
 
-const NOVA_LABELS: Record<number, string> = {
-  1: "🥦 NOVA 1 — Unprocessed / minimally processed",
-  2: "🧂 NOVA 2 — Processed culinary ingredient",
-  3: "🥫 NOVA 3 — Processed food",
-  4: "🏭 NOVA 4 — Ultra-processed food",
-};
-
 const ECOSCORE_EMOJIS: Record<string, string> = {
   a: "🌿",
   b: "🌱",
@@ -80,9 +85,13 @@ const ECOSCORE_EMOJIS: Record<string, string> = {
   e: "🍁",
 };
 
-function fmt(val: number | undefined, unit: string, decimals = 1): string {
+function fmt(val: number | undefined, unit: string, language: FoodLanguage, decimals = 1): string {
   if (val === undefined || val === null) return "—";
-  return `${val.toFixed(decimals)} ${unit}`;
+  const formatted = val.toLocaleString(language === "fr" ? "fr-FR" : "en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return `${formatted} ${unit}`;
 }
 
 function isBarcode(query: string): boolean {
@@ -411,14 +420,16 @@ export async function handleFoodVisionButton(
   interaction: ButtonInteraction,
   openai: OpenAI | null,
 ): Promise<void> {
+  const language = getEffectiveLanguage(interaction.guildId, interaction.user.id) === "fr" ? "fr" : "en";
+  const text = (en: string, fr: string) => foodText(language, en, fr);
   const cdnUrl = popPendingVision(interaction.user.id);
 
   if (!cdnUrl) {
-    await interaction.reply({ content: "❌ This request has expired. Send the photo again with `!food`.", ephemeral: true });
+    await interaction.reply({ content: text("❌ This request has expired. Send the photo again with `!food`.", "❌ Cette demande a expiré. Renvoie la photo avec `!food`."), ephemeral: true });
     return;
   }
   if (!openai) {
-    await interaction.reply({ content: "❌ AI not configured (GROQ_API_KEY missing).", ephemeral: true });
+    await interaction.reply({ content: text("❌ AI is unavailable right now.", "❌ L’IA est indisponible pour le moment."), ephemeral: true });
     return;
   }
 
@@ -426,26 +437,31 @@ export async function handleFoodVisionButton(
 
   const identified = await identifyWithAI(cdnUrl, openai);
   if (!identified) {
-    await interaction.editReply("❌ AI couldn't identify any food product. Try a clearer photo or type the name: `!food <name>`");
+    await interaction.editReply(text("❌ AI couldn't identify a food product. Try a clearer photo or type its name: `!food <name>`", "❌ L’IA n’a pas identifié de produit alimentaire. Essaie une photo plus nette ou saisis son nom : `!food <nom>`"));
     return;
   }
 
-  await interaction.editReply(`🤖 AI detected: **${identified}** — searching Open Food Facts…`);
+  await interaction.editReply(text(`🤖 AI detected: **${identified}** — searching Open Food Facts…`, `🤖 Produit identifié : **${identified}** — recherche sur Open Food Facts…`));
 
   const product = isBarcode(identified)
     ? await fetchByBarcode(identified)
     : await smartSearch(identified);
 
   if (!product) {
-    await interaction.editReply(`❌ AI detected "**${identified}**" but no match found. Try: \`!food ${identified}\``);
+    await interaction.editReply(text(`❌ AI detected "**${identified}**" but no match was found. Try: \`!food ${identified}\``, `❌ Aucun résultat pour "**${identified}**". Essaie : \`!food ${identified}\``));
     return;
   }
 
-  recordToHistory(interaction.user.id, product, `AI: "${identified}"`);
-  const embed = buildProductEmbed(product, false, `🤖 AI: "${identified}"`);
+  recordToHistory(interaction.user.id, product, `AI: "${identified}"`, language);
+  const embed = buildProductEmbed(
+    product,
+    false,
+    `${language === "fr" ? "🤖 IA" : "🤖 AI"} : "${identified}"`,
+    language,
+  );
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel("🔗 View on Open Food Facts")
+      .setLabel(text("🔗 View on Open Food Facts", "🔗 Voir sur Open Food Facts"))
       .setStyle(ButtonStyle.Link)
       .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
   );
@@ -454,28 +470,50 @@ export async function handleFoodVisionButton(
 
 // ── Embed builder ─────────────────────────────────────────────────────────────
 
-function getProductName(product: OffProduct): string {
-  return product.product_name_en || product.product_name || product.product_name_fr || "Unknown product";
+function getProductName(product: OffProduct, language: FoodLanguage = "en"): string {
+  return language === "fr"
+    ? product.product_name_fr || product.product_name || product.product_name_en || "Produit inconnu"
+    : product.product_name_en || product.product_name || product.product_name_fr || "Unknown product";
 }
 
-function getIngredients(product: OffProduct): string | undefined {
-  return product.ingredients_text_en || product.ingredients_text;
+function getIngredients(product: OffProduct, language: FoodLanguage): string | undefined {
+  return language === "fr"
+    ? product.ingredients_text_fr || product.ingredients_text || product.ingredients_text_en
+    : product.ingredients_text_en || product.ingredients_text || product.ingredients_text_fr;
 }
 
-function nutriscoreLabel(grade: string): string {
-  const labels: Record<string, string> = {
-    a: "Excellent nutritional quality",
-    b: "Good nutritional quality",
-    c: "Average nutritional quality",
-    d: "Poor nutritional quality",
-    e: "Very poor nutritional quality",
+function nutriscoreLabel(grade: string, language: FoodLanguage): string {
+  const labels: Record<string, { en: string; fr: string }> = {
+    a: { en: "Excellent nutritional quality", fr: "Qualité nutritionnelle excellente" },
+    b: { en: "Good nutritional quality", fr: "Bonne qualité nutritionnelle" },
+    c: { en: "Average nutritional quality", fr: "Qualité nutritionnelle moyenne" },
+    d: { en: "Lower nutritional quality", fr: "Qualité nutritionnelle moins favorable" },
+    e: { en: "Lowest nutritional quality", fr: "Qualité nutritionnelle peu favorable" },
   };
-  return labels[grade] ?? "Unknown quality";
+  const label = labels[grade];
+  return label ? foodText(language, label.en, label.fr) : foodText(language, "Not available", "Non disponible");
 }
 
-function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: string): EmbedBuilder {
-  const name = getProductName(product);
-  const brand = product.brands || "Unknown brand";
+function novaLabel(group: number, language: FoodLanguage): string {
+  const labels: Record<number, { en: string; fr: string }> = {
+    1: { en: "🥦 NOVA 1 — Unprocessed or minimally processed", fr: "🥦 NOVA 1 — Non transformé ou peu transformé" },
+    2: { en: "🧂 NOVA 2 — Processed culinary ingredient", fr: "🧂 NOVA 2 — Ingrédient culinaire transformé" },
+    3: { en: "🥫 NOVA 3 — Processed food", fr: "🥫 NOVA 3 — Aliment transformé" },
+    4: { en: "🏭 NOVA 4 — Ultra-processed food", fr: "🏭 NOVA 4 — Aliment ultra-transformé" },
+  };
+  const label = labels[group];
+  return label ? foodText(language, label.en, label.fr) : foodText(language, "Not available", "Non disponible");
+}
+
+export function buildProductEmbed(
+  product: OffProduct,
+  showRate = false,
+  detectedAs?: string,
+  language: FoodLanguage = "en",
+): EmbedBuilder {
+  const text = (en: string, fr: string) => foodText(language, en, fr);
+  const name = getProductName(product, language);
+  const brand = product.brands || text("Unknown brand", "Marque inconnue");
   const quantity = product.quantity ? ` — ${product.quantity}` : "";
   const nutrigrade = (product.nutriscore_grade ?? "").toLowerCase();
   const nova = product.nova_group;
@@ -485,7 +523,7 @@ function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: s
   const color = NUTRISCORE_COLORS[nutrigrade] ?? 0x5865f2;
 
   const description = detectedAs
-    ? `**${brand}**${quantity}\n*📸 Identified from photo as: "${detectedAs}"*`
+    ? `**${brand}**${quantity}\n*📸 ${text(`Identified from photo as: "${detectedAs}"`, `Identifié sur la photo : "${detectedAs}"`)}*`
     : `**${brand}**${quantity}`;
 
   const embed = new EmbedBuilder()
@@ -493,7 +531,7 @@ function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: s
     .setTitle(`🍽️ ${name}`)
     .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`)
     .setDescription(description)
-    .setFooter({ text: "Data: Open Food Facts • openfoodfacts.org" });
+    .setFooter({ text: text("Data: Open Food Facts • openfoodfacts.org", "Données : Open Food Facts • openfoodfacts.org") });
 
   const image = product.image_front_url || product.image_url;
   if (image) embed.setThumbnail(image);
@@ -502,25 +540,25 @@ function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: s
   if (nutrigrade && NUTRISCORE_EMOJIS[nutrigrade]) {
     embed.addFields({
       name: "Nutri-Score",
-      value: `${NUTRISCORE_EMOJIS[nutrigrade]} **${nutrigrade.toUpperCase()}** — ${nutriscoreLabel(nutrigrade)}`,
+      value: `${NUTRISCORE_EMOJIS[nutrigrade]} **${nutrigrade.toUpperCase()}** — ${nutriscoreLabel(nutrigrade, language)}`,
       inline: true,
     });
   } else {
-    embed.addFields({ name: "Nutri-Score", value: "❓ Not available", inline: true });
+    embed.addFields({ name: "Nutri-Score", value: text("❓ Not available", "❓ Non disponible"), inline: true });
   }
 
   // NOVA group
-  if (nova && NOVA_LABELS[nova]) {
-    embed.addFields({ name: "Processing level", value: NOVA_LABELS[nova]!, inline: true });
+  if (nova && nova >= 1 && nova <= 4) {
+    embed.addFields({ name: text("Processing level", "Niveau de transformation"), value: novaLabel(nova, language), inline: true });
   } else {
-    embed.addFields({ name: "Processing level", value: "❓ Not available", inline: true });
+    embed.addFields({ name: text("Processing level", "Niveau de transformation"), value: text("❓ Not available", "❓ Non disponible"), inline: true });
   }
 
   // Eco-Score
   if (ecoscore && ECOSCORE_EMOJIS[ecoscore]) {
     embed.addFields({
       name: "Eco-Score",
-      value: `${ECOSCORE_EMOJIS[ecoscore]} **${ecoscore.toUpperCase()}**`,
+      value: `${ECOSCORE_EMOJIS[ecoscore]} **${ecoscore.toUpperCase()}** · ${text("environmental indicator", "indicateur environnemental")}`,
       inline: true,
     });
   }
@@ -537,86 +575,64 @@ function buildProductEmbed(product: OffProduct, showRate = false, detectedAs?: s
   const hasNutrients = [energy, proteins, fat, sugars, salt].some((v) => v !== undefined);
 
   if (hasNutrients) {
+    const colon = language === "fr" ? " : " : ": ";
     const lines = [
-      `🔥 Energy: **${fmt(energy, "kcal")}**`,
-      `💪 Protein: **${fmt(proteins, "g")}**`,
-      `🧈 Fat: **${fmt(fat, "g")}** (saturated: ${fmt(saturatedFat, "g")})`,
-      `🍬 Sugar: **${fmt(sugars, "g")}**`,
-      fiber !== undefined ? `🌾 Fiber: **${fmt(fiber, "g")}**` : null,
-      `🧂 Salt: **${fmt(salt, "g")}**`,
+      `🔥 ${text("Energy", "Énergie")}${colon}**${fmt(energy, "kcal", language)}**`,
+      `💪 ${text("Protein", "Protéines")}${colon}**${fmt(proteins, "g", language)}**`,
+      `🧈 ${text("Fat", "Matières grasses")}${colon}**${fmt(fat, "g", language)}** (${text("saturated", "dont saturées")}${colon}${fmt(saturatedFat, "g", language)})`,
+      `🍬 ${text("Sugar", "Sucres")}${colon}**${fmt(sugars, "g", language)}**`,
+      fiber !== undefined ? `🌾 ${text("Fiber", "Fibres")}${colon}**${fmt(fiber, "g", language)}**` : null,
+      `🧂 ${text("Salt", "Sel")}${colon}**${fmt(salt, "g", language)}**`,
     ].filter(Boolean).join("\n");
 
-    embed.addFields({ name: "📊 Nutritional values (per 100 g)", value: lines, inline: false });
+    embed.addFields({ name: text("📊 Nutritional values (per 100 g)", "📊 Valeurs nutritionnelles (pour 100 g)"), value: lines, inline: false });
   }
 
   // Rate verdict
   if (showRate) {
-    embed.addFields({ name: "⚖️ Verdict", value: buildVerdict(nutrigrade, nova), inline: false });
+    embed.addFields({ name: text("⚖️ Summary", "⚖️ Résumé"), value: buildVerdict(nutrigrade, language), inline: false });
   }
 
   // Ingredients (truncated)
-  const ingredients = getIngredients(product);
+  const ingredients = getIngredients(product, language);
   if (ingredients) {
     const truncated = ingredients.length > 300 ? ingredients.slice(0, 300) + "…" : ingredients;
-    embed.addFields({ name: "🧪 Ingredients", value: truncated, inline: false });
+    embed.addFields({ name: text("🧪 Ingredients", "🧪 Ingrédients"), value: truncated, inline: false });
   }
 
   return embed;
 }
 
-function buildVerdict(nutrigrade: string, nova: number | undefined): string {
-  type VerdictKey = "great" | "good" | "meh" | "bad" | "terrible" | "unknown";
-
-  let key: VerdictKey = "unknown";
-  if (nutrigrade === "a" && (!nova || nova <= 2)) key = "great";
-  else if (nutrigrade === "a" || nutrigrade === "b") key = "good";
-  else if (nutrigrade === "c" || (nova && nova === 3)) key = "meh";
-  else if (nutrigrade === "d" || (nova && nova === 4)) key = "bad";
-  else if (nutrigrade === "e") key = "terrible";
-
-  const verdicts: Record<VerdictKey, string[]> = {
-    great: [
-      "🏆 Absolute winner! This product is a nutritional gem. Go for it!",
-      "⭐ Nutri-Score A and barely processed? You found the holy grail of snacks.",
-      "🥇 Congrats on your excellent taste — this product is top tier!",
-    ],
-    good: [
-      "👍 Not perfect, but genuinely solid! A good everyday option.",
-      "✅ Decent Nutri-Score — you can enjoy this without too much guilt.",
-      "🙂 Good without being exceptional. Balance is everything!",
-    ],
-    meh: [
-      "😐 Average, like a Monday morning. Enjoy in moderation.",
-      "⚠️ Nutri-Score C… not great, not terrible. Make it the exception, not the rule.",
-      "🤷 Meh. Could be worse, could be better. Your call.",
-    ],
-    bad: [
-      "😬 Nutri-Score D — the kind of product that makes dietitians cry.",
-      "🚨 Eat this rarely! Your body deserves better.",
-      "💀 D for Dangerous? Not quite, but definitely limit this one.",
-    ],
-    terrible: [
-      "🔥 Nutri-Score E! This is basically a nutritional weapon. Save it for cheat days.",
-      "❌ It probably tastes amazing — that's exactly the problem.",
-      "🚫 Nutri-Score E… even junk food is embarrassed. Extreme moderation advised.",
-    ],
-    unknown: [
-      "🔍 Incomplete nutritional data. Open Food Facts doesn't have the full picture on this one.",
-      "❓ Nutri-Score not available. Trust your instincts — or the label on the box.",
-    ],
+function buildVerdict(nutrigrade: string, language: FoodLanguage): string {
+  const labels: Record<string, { en: string; fr: string }> = {
+    a: { en: "the most favorable grade in this indicator", fr: "la classe la plus favorable de cet indicateur" },
+    b: { en: "a favorable grade in this indicator", fr: "une classe favorable de cet indicateur" },
+    c: { en: "the middle grade in this indicator", fr: "la classe intermédiaire de cet indicateur" },
+    d: { en: "a less favorable grade in this indicator", fr: "une classe moins favorable de cet indicateur" },
+    e: { en: "the least favorable grade in this indicator", fr: "la classe la moins favorable de cet indicateur" },
   };
-
-  const pool = verdicts[key];
-  return pool[Math.floor(Math.random() * pool.length)]!;
+  const grade = labels[nutrigrade];
+  if (!grade) {
+    return foodText(
+      language,
+      "Nutri-Score is unavailable. The listed nutrition data may still help; product information can be incomplete.",
+      "Nutri-Score indisponible. Les valeurs nutritionnelles restent consultables, mais les données du produit peuvent être incomplètes.",
+    );
+  }
+  return foodText(
+    language,
+    `Nutri-Score ${nutrigrade.toUpperCase()}: ${grade.en}. This indicator alone does not assess the whole product.`,
+    `Nutri-Score ${nutrigrade.toUpperCase()} : ${grade.fr}. Cet indicateur ne résume pas à lui seul l’ensemble du produit.`,
+  );
 }
 
 // ── History helpers ────────────────────────────────────────────────────────────
 
-function recordToHistory(discordId: string, product: OffProduct, detectedAs: string): void {
-  const name = getProductName(product);
+function recordToHistory(discordId: string, product: OffProduct, detectedAs: string, language: FoodLanguage): void {
+  const name = getProductName(product, language);
   saveFoodHistory(discordId, {
     productName: name,
-    brand: product.brands ?? "Unknown brand",
+    brand: product.brands ?? foodText(language, "Unknown brand", "Marque inconnue"),
     nutriscoreGrade: (product.nutriscore_grade ?? "").toLowerCase(),
     code: product.code ?? "",
     detectedAs,
@@ -627,15 +643,17 @@ function recordToHistory(discordId: string, product: OffProduct, detectedAs: str
 const NUTRISCORE_BADGE: Record<string, string> = { a: "🟢 A", b: "🟩 B", c: "🟡 C", d: "🟠 D", e: "🔴 E" };
 
 async function handleFoodHistory(message: Message): Promise<void> {
+  const language = foodLanguage(message);
+  const text = (en: string, fr: string) => foodText(language, en, fr);
   if (!isMongoConnected()) {
-    await message.reply("❌ History unavailable — database not connected.");
+    await message.reply(text("❌ History is unavailable because the database is not connected.", "❌ L’historique est indisponible, car la base de données n’est pas connectée."));
     return;
   }
 
   const entries = await getFoodHistory(message.author.id);
 
   if (entries.length === 0) {
-    await message.reply("📭 No food history yet. Look up a product with `!food <name>` or a photo!");
+    await message.reply(text("📭 No food history yet. Look up a product with `!food <name>` or a photo.", "📭 Aucun historique pour le moment. Recherche un produit avec `!food <nom>` ou une photo."));
     return;
   }
 
@@ -647,9 +665,9 @@ async function handleFoodHistory(message: Message): Promise<void> {
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("🍽️ Your food history")
+    .setTitle(text("🍽️ Your food history", "🍽️ Ton historique alimentaire"))
     .setDescription(lines.join("\n"))
-    .setFooter({ text: `Last ${entries.length} products • !food clear to reset` });
+    .setFooter({ text: text(`Last ${entries.length} products • !food clear to reset`, `${entries.length} derniers produits • !food clear pour effacer`) });
 
   await message.reply({ embeds: [embed] });
 }
@@ -663,8 +681,12 @@ async function lookupAndReply(
   openai: OpenAI | null,
   detectedAs?: string,
 ): Promise<void> {
+  const language = foodLanguage(message);
+  const text = (en: string, fr: string) => foodText(language, en, fr);
   const waitMsg = await message.reply(
-    showRate ? `⚖️ Analysing **${query}**…` : "🔍 Searching Open Food Facts…",
+    showRate
+      ? text(`⚖️ Checking **${query}**…`, `⚖️ Recherche de **${query}**…`)
+      : text("🔍 Searching Open Food Facts…", "🔍 Recherche sur Open Food Facts…"),
   );
 
   const product = isBarcode(query)
@@ -672,16 +694,16 @@ async function lookupAndReply(
     : await smartSearch(query);
 
   if (!product) {
-    await waitMsg.edit(`❌ No product found for **${query}**. Try a different name or use the barcode.`);
+    await waitMsg.edit(text(`❌ No product found for **${query}**. Try another name or use its barcode.`, `❌ Aucun produit trouvé pour **${query}**. Essaie un autre nom ou son code-barres.`));
     return;
   }
 
-  recordToHistory(message.author.id, product, detectedAs ?? "manual");
+  recordToHistory(message.author.id, product, detectedAs ?? "manual", language);
 
-  const embed = buildProductEmbed(product, showRate, detectedAs);
+  const embed = buildProductEmbed(product, showRate, detectedAs, language);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel("🔗 View on Open Food Facts")
+      .setLabel(text("🔗 View on Open Food Facts", "🔗 Voir sur Open Food Facts"))
       .setStyle(ButtonStyle.Link)
       .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
   );
@@ -693,6 +715,8 @@ async function lookupAndReply(
 // ── Public handlers ─────────────────────────────────────────────────────────────
 
 export async function handleFood(message: Message, args: string[], openai: OpenAI | null): Promise<void> {
+  const language = foodLanguage(message);
+  const text = (en: string, fr: string) => foodText(language, en, fr);
   const sub = args[0]?.toLowerCase();
 
   // !food history
@@ -704,11 +728,11 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
   // !food clear
   if (sub === "clear") {
     if (!isMongoConnected()) {
-      await message.reply("❌ History unavailable — database not connected.");
+      await message.reply(text("❌ History is unavailable because the database is not connected.", "❌ L’historique est indisponible, car la base de données n’est pas connectée."));
       return;
     }
     await clearFoodHistory(message.author.id);
-    await message.reply("🗑️ Your food history has been cleared.");
+    await message.reply(text("🗑️ Your food history has been cleared.", "🗑️ Ton historique alimentaire a été effacé."));
     return;
   }
 
@@ -726,15 +750,15 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
   if (attachment && !query) {
     const isImage = attachment.contentType?.startsWith("image/") ?? false;
     if (!isImage) {
-      await message.reply("❌ Please attach an image file (JPG, PNG, WEBP…).");
+      await message.reply(text("❌ Please attach an image file (JPG, PNG, WEBP…).", "❌ Joins un fichier image (JPG, PNG, WEBP…)."));
       return;
     }
 
-    const waitMsg = await message.reply("📸 Scanning photo…");
+    const waitMsg = await message.reply(text("📸 Scanning photo…", "📸 Analyse de la photo…"));
 
     const buffer = await downloadImageBuffer(attachment.url, 2000);
     if (!buffer) {
-      await waitMsg.edit("❌ Couldn't download the image. Try again.");
+      await waitMsg.edit(text("❌ Couldn't download the image. Try again.", "❌ Impossible de télécharger l’image. Réessaie."));
       return;
     }
 
@@ -743,14 +767,14 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
     logger.info({ barcode }, "Barcode detection result");
 
     if (barcode) {
-      await waitMsg.edit(`🔢 Barcode detected: **${barcode}** — searching Open Food Facts…`);
+      await waitMsg.edit(text(`🔢 Barcode detected: **${barcode}** — searching Open Food Facts…`, `🔢 Code-barres détecté : **${barcode}** — recherche sur Open Food Facts…`));
       const product = await fetchByBarcode(barcode);
       if (product) {
-        recordToHistory(message.author.id, product, `barcode: ${barcode}`);
-        const embed = buildProductEmbed(product, false, `🔢 Barcode: ${barcode}`);
+        recordToHistory(message.author.id, product, `barcode: ${barcode}`, language);
+        const embed = buildProductEmbed(product, false, `${language === "fr" ? "🔢 Code-barres" : "🔢 Barcode"} : ${barcode}`, language);
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel("🔗 View on Open Food Facts")
+            .setLabel(text("🔗 View on Open Food Facts", "🔗 Voir sur Open Food Facts"))
             .setStyle(ButtonStyle.Link)
             .setURL(product.url ?? `https://world.openfoodfacts.org/product/${barcode}`),
         );
@@ -758,28 +782,28 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
         await message.reply({ embeds: [embed], components: [row] });
         return;
       }
-      await waitMsg.edit(`🔢 Barcode **${barcode}** not found on Open Food Facts. Trying OCR…`);
+      await waitMsg.edit(text(`🔢 Barcode **${barcode}** not found on Open Food Facts. Trying text recognition…`, `🔢 Code-barres **${barcode}** introuvable sur Open Food Facts. Essai de reconnaissance du texte…`));
     }
 
     // ── Step 2: OCR text recognition ──────────────────────────────────────────
-    await waitMsg.edit("🔍 Trying text recognition (OCR)…");
+    await waitMsg.edit(text("🔍 Trying text recognition (OCR)…", "🔍 Reconnaissance du texte (OCR)…"));
     const ocrText = await ocrImageBuffer(buffer);
     const ocrQuery = extractProductQuery(ocrText);
     logger.info({ ocrQuery, ocrLines: ocrText.split("\n").length }, "OCR result");
 
     if (ocrQuery) {
-      await waitMsg.edit(`🔍 Read: **${ocrQuery}** — searching Open Food Facts…`);
+      await waitMsg.edit(text(`🔍 Read: **${ocrQuery}** — searching Open Food Facts…`, `🔍 Texte détecté : **${ocrQuery}** — recherche sur Open Food Facts…`));
 
       const product = isBarcode(ocrQuery)
         ? await fetchByBarcode(ocrQuery)
         : await smartSearch(ocrQuery);
 
       if (product) {
-        recordToHistory(message.author.id, product, `OCR: "${ocrQuery}"`);
-        const embed = buildProductEmbed(product, false, `📷 OCR: "${ocrQuery}"`);
+        recordToHistory(message.author.id, product, `OCR: "${ocrQuery}"`, language);
+        const embed = buildProductEmbed(product, false, `📷 OCR : "${ocrQuery}"`, language);
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel("🔗 View on Open Food Facts")
+            .setLabel(text("🔗 View on Open Food Facts", "🔗 Voir sur Open Food Facts"))
             .setStyle(ButtonStyle.Link)
             .setURL(product.url ?? `https://world.openfoodfacts.org/product/${product.code ?? ""}`),
         );
@@ -789,15 +813,17 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
       }
 
       // OCR found text but no product match — offer AI or manual search
-      const noMatchMsg = `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n` +
-        `• Try manually: \`!food ${ocrQuery}\``;
+      const noMatchMsg = text(
+        `🔍 OCR read "**${ocrQuery}**" but found no match on Open Food Facts.\n• Search manually: \`!food ${ocrQuery}\``,
+        `🔍 Aucun résultat Open Food Facts pour "**${ocrQuery}**".\n• Recherche manuelle : \`!food ${ocrQuery}\``,
+      );
 
       if (openai) {
         storePendingVision(message.author.id, attachment.url);
         const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`food_vision_${message.author.id}`)
-            .setLabel("🤖 Try with AI")
+            .setLabel(text("🤖 Try with AI", "🤖 Essayer avec l’IA"))
             .setStyle(ButtonStyle.Primary),
         );
         await waitMsg.edit({ content: noMatchMsg, components: [aiRow] });
@@ -808,15 +834,17 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
     }
 
     // ── Step 2: OCR found nothing — offer AI button or manual search ───────────
-    const noOcrMsg = "📷 OCR couldn't read any text from this photo.\n" +
-      "• Type the product name: `!food <name>`";
+    const noOcrMsg = text(
+      "📷 OCR couldn't read any text from this photo.\n• Type the product name: `!food <name>`",
+      "📷 Aucun texte détecté sur la photo.\n• Saisis le nom du produit : `!food <nom>`",
+    );
 
     if (openai) {
       storePendingVision(message.author.id, attachment.url);
       const aiRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`food_vision_${message.author.id}`)
-          .setLabel("🤖 Try with AI")
+          .setLabel(text("🤖 Try with AI", "🤖 Essayer avec l’IA"))
           .setStyle(ButtonStyle.Primary),
       );
       await waitMsg.edit({ content: noOcrMsg, components: [aiRow] });
@@ -830,20 +858,12 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
   if (!query && !attachment) {
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
-      .setTitle("🍽️ Food Command")
-      .setDescription(
-        "Look up any food product on Open Food Facts!\n\n" +
-        "**`!food <name or barcode>`** — Nutritional info\n" +
-        "**`!food rate <name>`** — Rate & verdict for a product\n" +
-        "**`!rate food <name>`** — Same thing\n" +
-        "**`!food` + 📎 photo** — Detect product from a photo\n\n" +
-        "**Examples:**\n" +
-        "`!food nutella`\n" +
-        "`!food coca-cola`\n" +
-        "`!food 3017620422003`\n" +
-        "`!food rate oreo`",
-      )
-      .setFooter({ text: "Data: Open Food Facts (openfoodfacts.org)" });
+      .setTitle(text("🍽️ Food", "🍽️ Alimentation"))
+      .setDescription(text(
+        "Look up a product on Open Food Facts:\n`!food <name or barcode>` · `!food rate <name>`\n`!food` + 📎 photo · `!food history` · `!food clear`\n\nExamples: `!food nutella` · `!food 3017620422003`",
+        "Recherche un produit sur Open Food Facts :\n`!food <nom ou code-barres>` · `!food rate <nom>`\n`!food` + 📎 photo · `!food history` · `!food clear`\n\nExemples : `!food nutella` · `!food 3017620422003`",
+      ))
+      .setFooter({ text: text("Data: Open Food Facts • openfoodfacts.org", "Données : Open Food Facts • openfoodfacts.org") });
     await message.reply({ embeds: [embed] });
     return;
   }
@@ -854,7 +874,7 @@ export async function handleFood(message: Message, args: string[], openai: OpenA
 export async function handleFoodRate(message: Message, args: string[], openai: OpenAI | null): Promise<void> {
   const query = args.join(" ").trim();
   if (!query) {
-    await message.reply("❓ Tell me what to rate! Example: `!food rate nutella`");
+    await message.reply(foodText(foodLanguage(message), "❓ Enter a product name to check. Example: `!food rate nutella`", "❓ Indique le nom d’un produit. Exemple : `!food rate nutella`"));
     return;
   }
   await lookupAndReply(message, query, true, openai);
