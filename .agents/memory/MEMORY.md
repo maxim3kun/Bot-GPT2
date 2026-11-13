@@ -29,3 +29,4 @@
 - [Free weather contracts](weather-source-contracts.md) — MET requires human terms acceptance and shared three-hour caching; Québec timezone polygons can miss legal exceptions.
 - [National GTFS geography and timezones](national-gtfs-contracts.md) — Validate country geocodes/timezones and account for source-specific ZIP, CSV, and place-name quirks.
 - [Entur Norway timetable format](norway-entur-schedule-contract.md) — The national GTFS download contains stops only; official timetable exports are NeTEx.
+- [Bot product vision](bot-product-vision.md) — User's requested roadmap: broader transport, flights, personas, games, voice, reminders, knowledge and creation tools.
