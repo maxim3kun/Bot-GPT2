@@ -92,6 +92,8 @@ import { handleDataExportCommand, isDataExportCommand } from "./discord/data-exp
 import { isSendable } from "./discord/message-utils.js";
 import { handleMessageAiCommand, isMessageAiCommand } from "./discord/message-ai-commands.js";
 import { handleAdminMessageCommand, isAdminMessageCommand } from "./discord/admin-message-commands.js";
+import { handleTranslationButton, handleTranslationCommand, isTranslationCommand, translationInteractionError } from "./discord/translation-command.js";
+import { handleMemeCommand, isMemeCommand } from "./discord/meme-command.js";
 import {
   moduleForMessageCommand,
   moduleDependencyForCommand,
@@ -1078,6 +1080,19 @@ export function startBot(): void {
       return;
     }
 
+    if (interaction.customId.startsWith("translate:")) {
+      try {
+        await handleTranslationButton(interaction, openai);
+      } catch (err) {
+        logger.error({ name: err instanceof Error ? err.name : "unknown" }, "translation button failed");
+        await interaction.reply({
+          content: translationInteractionError(getEffectiveLanguage(interaction.guildId, interaction.user.id)),
+          ephemeral: true,
+        }).catch(() => null);
+      }
+      return;
+    }
+
     // ── AI research sources ────────────────────────────────────────────────
     if (interaction.customId.startsWith("ai_sources:")) {
       const key = interaction.customId.slice("ai_sources:".length);
@@ -1758,6 +1773,15 @@ export function startBot(): void {
       if (command === "bus" || command === "metro" || command === "transport" || command === "transports" || command === "tram" || command === "train") {
         const mode = command === "metro" ? "metro" : command === "tram" ? "tram" : command === "train" ? "rail" : command === "bus" ? "bus" : null;
         await handleTransportCommand(message, args, responseLang, guildPrefix, mode);
+        return;
+      }
+
+      if (isTranslationCommand(command)) {
+        await handleTranslationCommand(message, command, args, responseLang);
+        return;
+      }
+      if (isMemeCommand(command)) {
+        await handleMemeCommand(message, args, responseLang);
         return;
       }
 

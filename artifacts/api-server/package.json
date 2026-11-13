@@ -30,6 +30,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:commands": "esbuild tests/help-commands.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/help-commands.test.mjs && node node_modules/.cache/help-commands.test.mjs",
+    "test:content-tools": "esbuild tests/content-tools.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/content-tools.test.mjs && node node_modules/.cache/content-tools.test.mjs",
     "test:food-language": "esbuild tests/food-language.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/food-language.test.mjs && node node_modules/.cache/food-language.test.mjs",
     "test:private-agenda": "esbuild tests/private-agenda.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/private-agenda.test.mjs && node node_modules/.cache/private-agenda.test.mjs",
     "test:hangman": "node tests/run-hangman.mjs",

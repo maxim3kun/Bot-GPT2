@@ -141,6 +141,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         value: [
           `\`${p}define <word>\` 📖  \`${p}pokemon <name>\` 🔴  \`${p}qr <text>\` 📷`,
           `\`${p}echo\` 🦜  \`${p}food\` 🥗  \`${p}rate <food>\` ⭐  \`${p}shazam\` 🎵`,
+          `\`${p}translate <lang> <text>\` 🌐  \`${p}meme <top> | <bottom>\` 🖼️`,
           `\`${p}excel <URL>\` 📊  \`${p}pdf <URL>\` 📄`,
           `> ` + { en: "`!help <tool>` for details", fr: "`!help <outil>` pour les détails", es: "`!help <herramienta>` para detalles", de: "`!help <Werkzeug>` für Details", pt: "`!help <ferramenta>` para detalhes", it: "`!help <strumento>` per i dettagli" }[tl],
         ].join("\n"),
@@ -286,12 +287,15 @@ export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
   | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food"
-  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics";
+  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme";
 
 export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { topic: HelpTopic; lang: HelpLanguage } | null {
   const key = raw.toLowerCase().trim();
   const map: Record<string, { topic: HelpTopic; lang?: HelpLanguage }> = {
     persona: { topic: "persona" }, personas: { topic: "persona" },
+    translate: { topic: "translation" }, translation: { topic: "translation" },
+    traduis: { topic: "translation", lang: "fr" }, traduction: { topic: "translation", lang: "fr" },
+    meme: { topic: "meme" }, mème: { topic: "meme", lang: "fr" },
     memory: { topic: "memory" }, mémoire: { topic: "memory", lang: "fr" }, memoire: { topic: "memory", lang: "fr" },
     tech: { topic: "diagnostics" }, technician: { topic: "diagnostics" }, diagnostic: { topic: "diagnostics", lang: "fr" },
     language: { topic: "language" }, langue: { topic: "language", lang: "fr" }, idioma: { topic: "language", lang: "es" },
@@ -366,6 +370,22 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
         `\n\n🇬🇧 \`${p}language en\`  🇫🇷 \`${p}language fr\`  🇪🇸 \`${p}language es\`  🇩🇪 \`${p}language de\`\n` +
         `🇧🇷 \`${p}language pt\`  🇮🇹 \`${p}language it\`  🇯🇵 \`${p}language ja\`  🇳🇱 \`${p}language nl\`\n` +
         `🇷🇺 \`${p}language ru\`  🇵🇱 \`${p}language pl\`  🇹🇷 \`${p}language tr\``
+      );
+      break;
+
+    case "translation":
+      embed.setTitle({ en: "🌐 Translation", fr: "🌐 Traduction", es: "🌐 Traducción", de: "🌐 Übersetzung", pt: "🌐 Tradução", it: "🌐 Traduzione" }[tl] ?? "🌐 Translation");
+      embed.addFields(
+        { name: `\`${p}translate <lang> <text>\``, value: { en: "Use one of `en fr es de pt it ja nl ru pl tr`. Choose direct translation through MyMemory or AI reformulation through Groq. The selected service receives your text.", fr: "Codes disponibles : `en fr es de pt it ja nl ru pl tr`. Choisis la traduction directe par MyMemory ou la reformulation par Groq. Le service choisi reçoit ton texte.", es: "Códigos: `en fr es de pt it ja nl ru pl tr`. Elige traducción directa con MyMemory o reformulación con Groq. El servicio elegido recibe tu texto.", de: "Codes: `en fr es de pt it ja nl ru pl tr`. Wähle direkte Übersetzung mit MyMemory oder KI-Umformulierung mit Groq. Der gewählte Dienst erhält deinen Text.", pt: "Códigos: `en fr es de pt it ja nl ru pl tr`. Escolha tradução direta pelo MyMemory ou reformulação por IA com Groq. O serviço escolhido recebe o texto.", it: "Codici: `en fr es de pt it ja nl ru pl tr`. Scegli la traduzione diretta con MyMemory o la riformulazione IA con Groq. Il servizio scelto riceve il testo." }[tl] ?? "" },
+        { name: { en: "AI consent", fr: "Consentement IA", es: "Consentimiento de IA", de: "KI-Zustimmung", pt: "Consentimento de IA", it: "Consenso IA" }[tl] ?? "AI consent", value: { en: "The AI option uses the existing consent. A refusal is respected without another prompt.", fr: "L’option IA utilise le consentement existant. Un refus est respecté sans nouvelle demande.", es: "La opción IA usa el consentimiento existente. Se respeta el rechazo sin volver a preguntar.", de: "Die KI-Option nutzt die bestehende Zustimmung. Eine Ablehnung führt zu keiner erneuten Nachfrage.", pt: "A opção de IA usa o consentimento existente. A recusa é respeitada sem nova pergunta.", it: "L’opzione IA usa il consenso esistente. Il rifiuto è rispettato senza nuove richieste." }[tl] ?? "" },
+      );
+      break;
+
+    case "meme":
+      embed.setTitle({ en: "🖼️ Meme maker", fr: "🖼️ Créateur de mèmes", es: "🖼️ Creador de memes", de: "🖼️ Meme-Generator", pt: "🖼️ Criador de memes", it: "🖼️ Creatore di meme" }[tl] ?? "🖼️ Meme maker");
+      embed.addFields(
+        { name: `\`${p}meme <top> | <bottom>\``, value: { en: "Attach an image you own or are allowed to edit, or let the bot use its original template.", fr: "Joins une image que tu possèdes ou peux modifier, ou utilise le modèle original du bot.", es: "Adjunta una imagen propia o autorizada, o usa la plantilla original del bot.", de: "Füge ein eigenes oder freigegebenes Bild an oder verwende die Originalvorlage des Bots.", pt: "Anexe uma imagem própria ou autorizada, ou use o modelo original do bot.", it: "Allega un’immagine tua o autorizzata, oppure usa il modello originale del bot." }[tl] ?? "" },
+        { name: `\`${p}meme template <classic|duo|night> <top> | <bottom>\``, value: { en: "Built-in templates are original; no AI image generation or image quota is used.", fr: "Les modèles intégrés sont originaux ; aucune génération d’image IA ni aucun quota d’image n’est utilisé.", es: "Las plantillas son originales; no se usa generación de imágenes con IA ni cuota.", de: "Die Vorlagen sind original; es wird weder KI-Bildgenerierung noch ein Bildkontingent verwendet.", pt: "Os modelos são originais; não há geração de imagem por IA nem uso de cota.", it: "I modelli sono originali; non viene usata la generazione di immagini IA né la quota." }[tl] ?? "" },
       );
       break;
 
