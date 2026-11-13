@@ -33,7 +33,7 @@ const COUNTRY_LIST_CACHE_KEY = {
 } as const;
 const COUNTRY_COVERAGE_CACHE_KEY = {
   territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCoverage",
-  source: "active-open-static-gtfs-by-country", version: "v1",
+  source: "verified-open-gtfs-routes-by-country", version: "v2",
 } as const;
 const OPEN_LICENSES = new Set([
   "0bsd", "cc0-1.0", "cc-by-3.0", "cc-by-4.0", "cc-by-sa-3.0", "cc-by-sa-4.0",
@@ -58,7 +58,7 @@ type MobilityFeed = {
 type TokenResponse = { access_token?: unknown; expiration_datetime_utc?: unknown };
 export interface MobilityCountry { code: string; name: string }
 export interface MobilityCountryCoverage {
-  countries: Array<MobilityCountry & { covered: boolean }>;
+  countries: Array<MobilityCountry & { covered: boolean; modes: TransitMode[]; routeCount: number }>;
   complete: boolean;
 }
 export interface MobilityRegionalIndex {
@@ -181,6 +181,8 @@ export class MobilityDatabaseTransportClient {
   private readonly realtimeFilePending = new Map<number, Promise<Uint8Array>>();
   private readonly realtimeFailedUntil = new Map<number, number>();
   private readonly regionIndexStatuses = new Map<string, MobilityRegionIndexStatus>();
+  private readonly addressCache = new Map<string, { expiresAt: number; value: TransportLocation[] }>();
+  private readonly addressPending = new Map<string, Promise<TransportLocation[]>>();
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
@@ -335,34 +337,66 @@ export class MobilityDatabaseTransportClient {
         const directory = await this.countryDirectory();
         const countries = directory.countries;
         let next = 0;
+        let complete = directory.complete;
         const coverage = new Array<MobilityCountryCoverage["countries"][number]>(countries.length);
-        const workers = Array.from({ length: Math.min(8, countries.length) }, async () => {
+        // A route check downloads a real GTFS archive. Keep parallel downloads low
+        // so a country-wide refresh cannot compete with interactive searches.
+        const workers = Array.from({ length: Math.min(2, countries.length) }, async () => {
           while (true) {
             const index = next++;
             const country = countries[index];
             if (!country) return;
-            coverage[index] = { ...country, covered: await this.hasUsableStaticFeed(country.code) };
+            try {
+              const result = await this.countryRouteCoverage(country.code);
+              if (!result.complete) complete = false;
+              coverage[index] = { code: country.code, name: country.name, covered: result.covered,
+                modes: result.modes, routeCount: result.routeCount };
+            } catch (error) {
+              complete = false;
+              coverage[index] = { ...country, covered: false, modes: [], routeCount: 0 };
+              logger.debug({ country: country.code, err: error }, "Mobility country route coverage unavailable");
+            }
           }
         });
         await Promise.all(workers);
-        return { countries: coverage, complete: directory.complete };
+        return { countries: coverage, complete };
       }, undefined, { countries: [], complete: false });
     return cached.value;
   }
 
-  private async hasUsableStaticFeed(countryCode: string): Promise<boolean> {
-    for (let offset = 0; offset < MAX_CATALOG_FEEDS; offset += PAGE_SIZE) {
-      const url = new URL(`${API}/v1/gtfs_feeds`);
-      url.searchParams.set("country_code", countryCode);
-      url.searchParams.set("limit", String(PAGE_SIZE));
-      url.searchParams.set("offset", String(offset));
-      const page = await this.apiJson<unknown>(url.href);
-      if (!Array.isArray(page)) throw new Error("Mobility Database feed list has an unexpected format");
-      if (page.some(item => this.toCatalogDataset(item as MobilityFeed, countryCode,
-        `mobility:${countryCode}` as TransportTerritory) !== null)) return true;
-      if (page.length < PAGE_SIZE) return false;
+  private async countryRouteCoverage(countryCode: string): Promise<{
+    covered: boolean; modes: TransitMode[]; routeCount: number; complete: boolean;
+  }> {
+    const catalog = await this.catalogForCountry(countryCode);
+    const candidates = catalog.flatMap(dataset => dataset.resources
+      .filter(isStaticScheduleResource)
+      .map(resource => ({ resource, official: /source officielle/i.test(dataset.title),
+        size: Number(resource.metadata?.zippedFolderSizeMb) }))
+    ).sort((a, b) => Number(b.official) - Number(a.official) ||
+      (Number.isFinite(a.size) ? a.size : Number.MAX_SAFE_INTEGER) -
+      (Number.isFinite(b.size) ? b.size : Number.MAX_SAFE_INTEGER))
+      .slice(0, 2);
+
+    const modes = new Set<TransitMode>();
+    let routeCount = 0;
+    let failed = false;
+    for (const { resource } of candidates) {
+      try {
+        const routes = await this.referenceRoutes(resource);
+        const usable = routes.filter(route => route.mode !== null);
+        if (!usable.length) continue;
+        routeCount += usable.length;
+        for (const route of usable) modes.add(route.mode!);
+      } catch {
+        failed = true;
+      }
     }
-    return false;
+    return {
+      covered: routeCount > 0 && modes.size > 0,
+      modes: [...modes].sort(),
+      routeCount,
+      complete: !failed || routeCount > 0,
+    };
   }
 
   async municipalities(place: string, countryCode: string): Promise<TransportLocation[]> {
@@ -467,7 +501,7 @@ export class MobilityDatabaseTransportClient {
     if (!/^[A-Z]{2}$/.test(code)) return [];
     const cached = await this.metadata.staleWhileRevalidate<CatalogDataset[]>({
       territory, provider: RESOURCE_PROVIDER, kind: "catalog",
-      source: `country-feeds:${code}`, version: "mobility-country-open-gtfs-v1",
+      source: `country-feeds:${code}`, version: "mobility-country-open-gtfs-v2",
     }, CACHE_FRESH_MS, CACHE_RETAIN_MS, () => this.fetchCountryCatalog(code, territory));
     return cached.value;
   }
@@ -661,7 +695,10 @@ export class MobilityDatabaseTransportClient {
     const resource: CatalogResource = {
       id: resourceId(id), provider: RESOURCE_PROVIDER, title: "GTFS · Mobility Database",
       format: "GTFS", type: "static_schedule", url: hostedUrl.href, original_url: hostedUrl.href,
-      is_available: true, metadata: { mobilityFeedId: id },
+      is_available: true, metadata: {
+        mobilityFeedId: id, mobilityCountryCode: countryCode,
+        ...(typeof size === "number" ? { zippedFolderSizeMb: size } : {}),
+      },
       ...(typeof latest.downloaded_at === "string" ? { updated: latest.downloaded_at } : {}),
     };
     return {
@@ -835,11 +872,27 @@ export class MobilityDatabaseTransportClient {
   }
 
   async referenceRoutes(resource: CatalogResource): Promise<ReferenceRoute[]> {
-    const metadata = parseGtfsStaticMetadata(await this.staticFeed(resource));
-    return [...metadata.routes].map(([routeId, route]) => ({
-      routeId, shortName: route.shortName, longName: route.longName,
-      mode: routeTypeToMode(route.type), stopIds: [],
-    }));
+    const feedId = typeof resource.metadata?.mobilityFeedId === "string"
+      ? resource.metadata.mobilityFeedId : String(resource.id);
+    const countryCode = typeof resource.metadata?.mobilityCountryCode === "string"
+      ? resource.metadata.mobilityCountryCode.toUpperCase() : "ZZ";
+    const territory = `mobility:${countryCode}` as TransportTerritory;
+    return this.metadata.get({
+      territory, provider: RESOURCE_PROVIDER, kind: "routes",
+      source: `feed-routes:${feedId}`, version: resourceVersion(resource),
+    }, 7 * 24 * 60 * 60_000, async () => {
+      const metadata = parseGtfsStaticMetadata(await this.staticFeed(resource));
+      const scheduledServices = new Set(metadata.calendars.keys());
+      for (const key of metadata.calendarExceptions.keys()) scheduledServices.add(key.slice(key.indexOf(":") + 1));
+      const scheduledRoutes = new Set([...metadata.trips.values()]
+        .filter(trip => scheduledServices.has(trip.serviceId)).map(trip => trip.routeId));
+      return [...metadata.routes].flatMap(([routeId, route]) => {
+        const mode = routeTypeToMode(route.type);
+        return mode && scheduledRoutes.has(routeId)
+          ? [{ routeId, shortName: route.shortName, longName: route.longName, mode, stopIds: [] }]
+          : [];
+      });
+    });
   }
 
   async referenceStops(resource: CatalogResource): Promise<ReferenceStop[]> {
