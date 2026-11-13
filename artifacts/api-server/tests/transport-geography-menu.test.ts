@@ -317,7 +317,7 @@ test("saved territory is first but every territory remains selectable", async ()
   d.cards[0]!.collector.stop("cancelled");
 });
 
-test("Mobility Database countries show whether usable static timetables are confirmed", async () => {
+test("only Mobility Database countries with usable static timetables appear", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
   s.value.territories = ["fr", "qc", "en"] as any;
   s.value.mobilityCountries = async () => ({
@@ -332,25 +332,24 @@ test("Mobility Database countries show whether usable static timetables are conf
   const selector = card.last.components.flatMap(row => row.components)
     .find((component: any) => component.options) as any;
   assert.deepEqual(selector.options.slice(0, 3).map((option: any) => option.value), ["fr", "qc", "en"]);
-  assert.deepEqual(selector.options.slice(3).map((option: any) => option.value), ["mobility:DE", "mobility:SG"]);
+  assert.deepEqual(selector.options.slice(3).map((option: any) => option.value), ["mobility:SG"]);
   assert.match(selector.options.find((option: any) => option.value === "mobility:SG").label, /GTFS ouvert/);
-  assert.match(selector.options.find((option: any) => option.value === "mobility:DE").label, /aucun flux ouvert/);
+  assert.equal(selector.options.find((option: any) => option.value === "mobility:DE"), undefined);
   assert.match(card.last.content!, /GTFS statique actif et licence autorisée : 1 pays · sans flux exploitable : 1/i);
   assert.equal(card.custom("countries"), undefined);
   assert.deepEqual(await store.get("owner"), { favorites: [] });
   card.collector.stop("cancelled");
 });
 
-test("incomplete Mobility coverage is disclosed without removing existing territories", async () => {
+test("incomplete Mobility coverage keeps unverified countries hidden and existing territories available", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
   s.value.mobilityCountries = async () => ({ countries: [{ code: "AF", name: "Afghanistan", covered: false }], complete: false });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
   const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
-  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en", "mobility:AF"]);
+  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en"]);
   assert.match(card.last.content!, /couverture incomplet/i);
-  assert.match(selector.options[3].label, /aucun flux ouvert/);
   card.collector.stop("cancelled");
 });
 

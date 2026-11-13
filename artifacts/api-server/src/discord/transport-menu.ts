@@ -346,13 +346,11 @@ export async function handleTransportSearch(
         : value === "pt" ? { description: text("Métro de Lisbonne uniquement", "Lisbon Metro only") }
         : value === "au" ? { description: text("Queensland · SEQ, Bowen, Bundaberg, Cairns", "Queensland · SEQ, Bowen, Bundaberg, Cairns") }
         : value === "ua" ? { description: text("Bus et tram à Lviv uniquement", "Lviv buses and trams only") } : {}) }));
-      const discovered = (mobilityCoverage?.countries ?? []).map(country => ({
+      const discovered = (mobilityCoverage?.countries ?? []).filter(country => country.covered).map(country => ({
         value: `mobility:${country.code}`,
         label: `${territoryLabel(`mobility:${country.code}`, language === "fr" ? "fr" : "en")} · ${
-          country.covered ? text("GTFS ouvert", "open GTFS") : text("aucun flux ouvert", "no open feed")}`,
-        description: country.covered
-          ? text("Flux GTFS statique actif · licence autorisée", "Active static GTFS feed · permitted license")
-          : text("Aucun flux GTFS statique actif avec licence autorisée", "No active static GTFS feed with a permitted license"),
+          text("GTFS ouvert", "open GTFS")}`,
+        description: text("Flux GTFS statique actif · licence autorisée", "Active static GTFS feed · permitted license"),
       }));
       return [...builtIn, ...discovered];
     }
