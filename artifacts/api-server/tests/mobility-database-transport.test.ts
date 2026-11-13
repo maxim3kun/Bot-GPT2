@@ -144,6 +144,61 @@ test("the country directory is paged, deduplicated and cached", async () => {
   assert.equal(tokenRequests, 1);
 });
 
+test("country coverage marks only active open-license static GTFS feeds available", async () => {
+  const requestedCountries: string[] = [];
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.pathname === "/v1/locations") return Response.json({
+      total: 2,
+      results: [
+        { location_type: "country", country_code: "FR", country_name: "France" },
+        { location_type: "country", country_code: "DE", country_name: "Germany" },
+      ],
+    });
+    assert.equal(url.pathname, "/v1/gtfs_feeds");
+    const code = url.searchParams.get("country_code")!;
+    requestedCountries.push(code);
+    assert.equal(url.searchParams.has("dataset_latitudes"), false, "coverage scans are country-wide, not per search area");
+    if (code === "FR") return Response.json([feed("mdb-fr-open", {
+      data_type: "gtfs", locations: [{ country_code: "FR" }],
+    })]);
+    if (code === "DE") return Response.json([
+      feed("mdb-de-denied", { data_type: "gtfs", locations: [{ country_code: "DE" }],
+        source_info: { license_id: "restricted", license_is_spdx: true } }),
+      feed("mdb-de-retired", { data_type: "gtfs", status: "deprecated", locations: [{ country_code: "DE" }] }),
+    ]);
+    throw Error(`Unexpected country ${code}`);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const coverage = await client.countryCoverage();
+  assert.deepEqual(coverage, {
+    countries: [
+      { code: "FR", name: "France", covered: true },
+      { code: "DE", name: "Germany", covered: false },
+    ],
+    complete: true,
+  });
+  assert.deepEqual(requestedCountries.sort(), ["DE", "FR"]);
+  assert.deepEqual(await client.countryCoverage(), coverage, "coverage metadata is cached between searches");
+  assert.deepEqual(requestedCountries.sort(), ["DE", "FR"]);
+});
+
+test("an incomplete country directory is marked incomplete rather than blocking existing coverage", async () => {
+  const client = new MobilityDatabaseTransportClient(async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/tokens/access") return Response.json({ access_token: "temporary-access-token" });
+    if (url.pathname === "/v1/locations") return Response.json({
+      total: 3,
+      results: [{ location_type: "country", country_code: "FR", country_name: "France" }],
+    });
+    assert.equal(url.pathname, "/v1/gtfs_feeds");
+    return Response.json([]);
+  }, Date.now, fakeMetadata(), () => "test-refresh-token");
+  const coverage = await client.countryCoverage();
+  assert.equal(coverage.complete, false);
+  assert.deepEqual(coverage.countries, [{ code: "FR", name: "France", covered: false }]);
+});
+
 test("worldwide town search stays inside its selected country and returns a Mobility location", async () => {
   const requested: URL[] = [];
   const client = new MobilityDatabaseTransportClient(async input => {

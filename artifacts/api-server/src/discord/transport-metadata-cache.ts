@@ -36,6 +36,8 @@ const shapes = {
   locations: [{ id: "string", name: "string", label: "string", latitude: "number", longitude: "number",
     territory: "string", area: "string", mobilityCountryCode: "string" }],
   mobilityCountries: [{ code: "string", name: "string" }],
+  mobilityCountryDirectory: { countries: [{ code: "string", name: "string" }], complete: "boolean" },
+  mobilityCoverage: { countries: [{ code: "string", name: "string", covered: "boolean" }], complete: "boolean" },
   patterns: [{ id: "string", routeId: "string", direction: "string", stopIds: strings }],
 } satisfies Record<string, Shape>;
 export type MetadataKind = keyof typeof shapes;
@@ -80,6 +82,16 @@ export function publicMetadata(kind: MetadataKind, value: unknown): unknown {
     kind === "locations" && rows.some(row => typeof row.id !== "string" || typeof row.name !== "string" ||
       typeof row.label !== "string" || typeof row.latitude !== "number" || typeof row.longitude !== "number") ||
     kind === "mobilityCountries" && rows.some(row => typeof row.code !== "string" || typeof row.name !== "string") ||
+    kind === "mobilityCountryDirectory" &&
+      (!Array.isArray((result as { countries?: unknown }).countries) ||
+        typeof (result as { complete?: unknown }).complete !== "boolean" ||
+        ((result as { countries: Array<Record<string, unknown>> }).countries)
+          .some(row => typeof row.code !== "string" || typeof row.name !== "string")) ||
+    kind === "mobilityCoverage" &&
+      (!Array.isArray((result as { countries?: unknown }).countries) ||
+        typeof (result as { complete?: unknown }).complete !== "boolean" ||
+        ((result as { countries: Array<Record<string, unknown>> }).countries)
+          .some(row => typeof row.code !== "string" || typeof row.name !== "string" || typeof row.covered !== "boolean")) ||
     kind === "patterns" && rows.some(row => typeof row.id !== "string" || typeof row.routeId !== "string" ||
       typeof row.direction !== "string" || !Array.isArray(row.stopIds)) ||
     kind === "nearby" && !Array.isArray((result as { features?: unknown }).features))
@@ -117,7 +129,7 @@ export class TransportMetadataCache {
     schedule: (refresh: () => void) => void = (refresh) => {
       const timer = setTimeout(refresh, 2_000);
       timer.unref?.();
-    }): Promise<{ value: T; stale: boolean }> {
+    }, coldFallback?: T): Promise<{ value: T; stale: boolean }> {
     const id = createHash("sha256").update(JSON.stringify([SCHEMA, key.territory, key.provider, key.kind, key.source, key.version])).digest("hex");
     const now = this.now();
     const old = this.memory.get(id);
@@ -147,6 +159,10 @@ export class TransportMetadataCache {
       }
     } catch { this.failed(); col = null; }
 
+    if (coldFallback !== undefined) {
+      this.scheduleRefresh(id, key, freshFor, retainFor, load, schedule);
+      return { value: structuredClone(coldFallback), stale: true };
+    }
     const work = this.loadAndStore(id, key, freshFor, retainFor, load, col).finally(() => this.pending.delete(id));
     this.pending.set(id, work);
     return { value: structuredClone(await work) as T, stale: false };

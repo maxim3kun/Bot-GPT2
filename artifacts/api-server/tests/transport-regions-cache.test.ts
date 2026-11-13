@@ -92,6 +92,42 @@ test("a failed background listing refresh keeps the last good Mongo result", asy
   assert.equal(doc.expiresAt.getTime(), 86_401_000);
 });
 
+test("country coverage keeps its last good result after failure and updates on the next refresh", async () => {
+  const db = store(); let now = 1_000;
+  const coverageKey: MetadataKey = {
+    territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCoverage",
+    source: "active-open-static-gtfs-by-country", version: "v1",
+  };
+  const cache = new TransportMetadataCache(() => db.value, () => now);
+  const previous = { countries: [
+    { code: "DE", name: "Germany", covered: false },
+    { code: "FR", name: "France", covered: true },
+  ], complete: true };
+  await cache.staleWhileRevalidate(coverageKey, 1_000, 86_400_000, async () => previous);
+  const originalFetchedAt = [...db.documents.values()][0]!.fetchedAt.getTime();
+  now += 2_000;
+  let failedRefresh: (() => void) | undefined;
+  const stale = await cache.staleWhileRevalidate(coverageKey, 1_000, 86_400_000,
+    async () => { throw Error("Mobility Database temporarily unavailable"); }, refresh => { failedRefresh = refresh; });
+  assert.equal(stale.stale, true);
+  failedRefresh!();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual([...db.documents.values()][0]!.value, previous);
+
+  now += 31_000;
+  const refreshed = { countries: [
+    { code: "DE", name: "Germany", covered: true },
+    { code: "FR", name: "France", covered: true },
+  ], complete: true };
+  let successfulRefresh: (() => void) | undefined;
+  const secondStale = await cache.staleWhileRevalidate(coverageKey, 1_000, 86_400_000,
+    async () => refreshed, refresh => { successfulRefresh = refresh; });
+  assert.equal(secondStale.stale, true);
+  successfulRefresh!();
+  await settle(() => [...db.documents.values()][0]!.fetchedAt.getTime() > originalFetchedAt);
+  assert.deepEqual([...db.documents.values()][0]!.value, refreshed);
+});
+
 test("closed projections exclude every schedule, identity, binary and arbitrary raw metadata field", async () => {
   const db = store();
   const dangerous = { ...routes[0], departureAt: 123, arrivalAt: 456, calendar: { date: "20261111" },

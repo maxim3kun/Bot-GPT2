@@ -23,8 +23,12 @@ const COUNTRY_CODES: Partial<Record<TransportTerritory, string>> = {
   is: "IS", sg: "SG", lv: "LV", cz: "CZ", pt: "PT", au: "AU", ua: "UA",
 };
 const COUNTRY_LIST_CACHE_KEY = {
-  territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCountries",
-  source: "country-locations", version: "v1",
+  territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCountryDirectory",
+  source: "country-locations", version: "v2",
+} as const;
+const COUNTRY_COVERAGE_CACHE_KEY = {
+  territory: "mobility", provider: "mobilitydatabase", kind: "mobilityCoverage",
+  source: "active-open-static-gtfs-by-country", version: "v1",
 } as const;
 const OPEN_LICENSES = new Set([
   "0bsd", "cc0-1.0", "cc-by-3.0", "cc-by-4.0", "cc-by-sa-3.0", "cc-by-sa-4.0",
@@ -48,6 +52,10 @@ type MobilityFeed = {
 };
 type TokenResponse = { access_token?: unknown; expiration_datetime_utc?: unknown };
 export interface MobilityCountry { code: string; name: string }
+export interface MobilityCountryCoverage {
+  countries: Array<MobilityCountry & { covered: boolean }>;
+  complete: boolean;
+}
 type MobilityLocation = {
   location_type?: unknown; name?: unknown; country_code?: unknown; country_name?: unknown;
 };
@@ -259,12 +267,16 @@ export class MobilityDatabaseTransportClient {
   }
 
   async countries(): Promise<MobilityCountry[]> {
-    const cached = await this.metadata.staleWhileRevalidate<MobilityCountry[]>(
+    return (await this.countryDirectory()).countries;
+  }
+
+  private async countryDirectory(): Promise<{ countries: MobilityCountry[]; complete: boolean }> {
+    const cached = await this.metadata.staleWhileRevalidate<{ countries: MobilityCountry[]; complete: boolean }>(
       COUNTRY_LIST_CACHE_KEY, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000,
       async () => {
         const token = await this.token();
         const unique = new Map<string, MobilityCountry>();
-        let total = 0;
+        let total = 0, complete = true, received = 0;
         for (let offset = 0; offset < 1_000 && offset < Math.max(total, 100); offset += 100) {
           const url = new URL("/v1/locations", API);
           url.searchParams.set("location_type", "country");
@@ -276,7 +288,10 @@ export class MobilityDatabaseTransportClient {
             !Number.isSafeInteger(page.total) || page.total < 0) {
             throw new Error("Mobility Database returned an invalid country list");
           }
-          total = Math.min(page.total, 1_000);
+          if (offset === 0) total = page.total;
+          else if (page.total !== total) complete = false;
+          if (total > 1_000) complete = false;
+          received += page.results.length;
           for (const item of page.results as MobilityLocation[]) {
             const code = typeof item.country_code === "string" ? item.country_code.trim().toUpperCase() : "";
             const name = typeof item.country_name === "string" ? item.country_name.trim()
@@ -285,11 +300,57 @@ export class MobilityDatabaseTransportClient {
               unique.set(code, { code, name });
             }
           }
-          if (page.results.length < 100 || offset + 100 >= total) break;
+          if (offset + page.results.length >= total) break;
+          if (page.results.length < 100) { complete = false; break; }
         }
-        return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, "en"));
+        if (received < total) complete = false;
+        return {
+          countries: [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, "en")),
+          complete,
+        };
       });
     return cached.value;
+  }
+
+  /**
+   * Public, shared coverage metadata. A cold cache starts the catalogue scan
+   * in the background and returns no unverified countries to the menu.
+   */
+  async countryCoverage(): Promise<MobilityCountryCoverage> {
+    const cached = await this.metadata.staleWhileRevalidate<MobilityCountryCoverage>(
+      COUNTRY_COVERAGE_CACHE_KEY, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000,
+      async () => {
+        const directory = await this.countryDirectory();
+        const countries = directory.countries;
+        let next = 0;
+        const coverage = new Array<MobilityCountryCoverage["countries"][number]>(countries.length);
+        const workers = Array.from({ length: Math.min(8, countries.length) }, async () => {
+          while (true) {
+            const index = next++;
+            const country = countries[index];
+            if (!country) return;
+            coverage[index] = { ...country, covered: await this.hasUsableStaticFeed(country.code) };
+          }
+        });
+        await Promise.all(workers);
+        return { countries: coverage, complete: directory.complete };
+      }, undefined, { countries: [], complete: false });
+    return cached.value;
+  }
+
+  private async hasUsableStaticFeed(countryCode: string): Promise<boolean> {
+    for (let offset = 0; offset < MAX_CATALOG_FEEDS; offset += PAGE_SIZE) {
+      const url = new URL(`${API}/v1/gtfs_feeds`);
+      url.searchParams.set("country_code", countryCode);
+      url.searchParams.set("limit", String(PAGE_SIZE));
+      url.searchParams.set("offset", String(offset));
+      const page = await this.apiJson<unknown>(url.href);
+      if (!Array.isArray(page)) throw new Error("Mobility Database feed list has an unexpected format");
+      if (page.some(item => this.toCatalogDataset(item as MobilityFeed, countryCode,
+        `mobility:${countryCode}` as TransportTerritory) !== null)) return true;
+      if (page.length < PAGE_SIZE) return false;
+    }
+    return false;
   }
 
   async municipalities(place: string, countryCode: string): Promise<TransportLocation[]> {
@@ -420,6 +481,7 @@ export class MobilityDatabaseTransportClient {
     const locations = Array.isArray(feed.locations) ? feed.locations : [];
     const size = latest?.zipped_folder_size_mb;
     if (!SAFE_FEED_ID.test(id) || String(feed.status).toLowerCase() !== "active" ||
+      feed.data_type !== undefined && feed.data_type !== "gtfs" ||
       !latest || typeof latest.hosted_url !== "string" || !bounds || !license ||
       size !== undefined && (typeof size !== "number" || !Number.isFinite(size) || size <= 0 || size > 80) ||
       locations.length && !locations.some(location => location.country_code === countryCode)) return null;

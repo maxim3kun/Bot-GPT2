@@ -317,45 +317,52 @@ test("saved territory is first but every territory remains selectable", async ()
   d.cards[0]!.collector.stop("cancelled");
 });
 
-test("unverified Mobility Database countries are hidden from the territory menu", async () => {
+test("Mobility Database countries show whether usable static timetables are confirmed", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
   s.value.territories = ["fr", "qc", "en"] as any;
-  s.value.mobilityCountries = async () => [{ code: "SG", name: "Singapore" }];
+  s.value.mobilityCountries = async () => ({
+    complete: true,
+    countries: [
+      { code: "DE", name: "Germany", covered: false },
+      { code: "SG", name: "Singapore", covered: true },
+    ],
+  });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, store);
   const card = d.cards[0]!;
   const selector = card.last.components.flatMap(row => row.components)
     .find((component: any) => component.options) as any;
-  assert.deepEqual(selector.options.map((option: any) => option.value),
-    ["fr", "qc", "en"]);
-  assert.match(card.last.content!, /autres pays n’apparaissent qu’après vérification de lignes accessibles/i);
+  assert.deepEqual(selector.options.slice(0, 3).map((option: any) => option.value), ["fr", "qc", "en"]);
+  assert.deepEqual(selector.options.slice(3).map((option: any) => option.value), ["mobility:DE", "mobility:SG"]);
+  assert.match(selector.options.find((option: any) => option.value === "mobility:SG").label, /GTFS ouvert/);
+  assert.match(selector.options.find((option: any) => option.value === "mobility:DE").label, /aucun flux ouvert/);
+  assert.match(card.last.content!, /GTFS statique actif et licence autorisée : 1 pays · sans flux exploitable : 1/i);
   assert.equal(card.custom("countries"), undefined);
   assert.deepEqual(await store.get("owner"), { favorites: [] });
   card.collector.stop("cancelled");
 });
 
-test("large unverified Mobility directory entries do not flood country choices", async () => {
+test("incomplete Mobility coverage is disclosed without removing existing territories", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
-  const codes = ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX",
-    "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BM", "BN", "BO", "BQ", "BR"];
-  s.value.mobilityCountries = async () => codes.map(code => ({ code, name: code }));
+  s.value.mobilityCountries = async () => ({ countries: [{ code: "AF", name: "Afghanistan", covered: false }], complete: false });
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
   const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
-  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en"]);
-  assert.doesNotMatch(card.last.content!, /AF|Bangladesh|Mobility Database/);
+  assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en", "mobility:AF"]);
+  assert.match(card.last.content!, /couverture incomplet/i);
+  assert.match(selector.options[3].label, /aucun flux ouvert/);
   card.collector.stop("cancelled");
 });
 
-test("Afghanistan stays hidden until its lines are confirmed", async () => {
+test("Mobility coverage API failures leave the existing territory search available", async () => {
   const d = fakeDiscord(), s = service();
   s.value.territories = ["fr", "qc", "en"] as any;
-  s.value.mobilityCountries = async () => [{ code: "AF", name: "Afghanistan" }];
+  s.value.mobilityCountries = async () => { throw Error("catalog unavailable"); };
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value);
   const card = d.cards[0]!;
-  assert.doesNotMatch(card.last.content!, /Afghanistan/);
   const selector = card.last.components.flatMap(row => row.components).find((component: any) => component.options) as any;
   assert.deepEqual(selector.options.map((option: any) => option.value), ["fr", "qc", "en"]);
+  assert.match(card.last.content!, /non vérifiée/i);
   card.collector.stop("cancelled");
 });
 

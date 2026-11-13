@@ -31,7 +31,7 @@ import { IrelandTransportClient, LuxembourgTransportClient, NationalGtfsTranspor
 import { NorwayNetexTransportClient } from "./norway-netex-transport.js";
 import { IcelandGtfsTransportClient } from "./iceland-gtfs-transport.js";
 import { SingaporeDataMallTransportClient } from "./singapore-datamall-transport.js";
-import { isMobilityDatabaseResource, MobilityDatabaseTransportClient } from "./mobility-database-transport.js";
+import { isMobilityDatabaseResource, MobilityDatabaseTransportClient, type MobilityCountryCoverage } from "./mobility-database-transport.js";
 
 export interface TransportLine {
   routeId: string;
@@ -173,8 +173,8 @@ export class TransportBrowserClient {
     return this;
   }
 
-  async mobilityCountries() {
-    return this.mobilityDatabase?.countries() ?? [];
+  async mobilityCountries(): Promise<MobilityCountryCoverage | undefined> {
+    return this.mobilityDatabase?.countryCoverage();
   }
 
   private requiredMobilityDatabase() {

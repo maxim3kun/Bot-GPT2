@@ -20,6 +20,7 @@ import type { TransportRegion } from "./transport-regions.js";
 import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
 import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode, irelandCountyFromSearch } from "./ireland-regions.js";
+import type { MobilityCountryCoverage } from "./mobility-database-transport.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient().enableMobilityDatabase();
@@ -222,6 +223,8 @@ export async function handleTransportSearch(
   let favoriteNotice = "";
   let expanded = false;
   let revision = 0;
+  let mobilityCoverage: MobilityCountryCoverage | undefined;
+  let mobilityCoverageLoaded = false;
   let validControls = new Set<string>();
   const id = `transport:${randomUUID()}`;
   const prompt = await message.reply({
@@ -330,7 +333,7 @@ export async function handleTransportSearch(
         territories.splice(territories.indexOf(preferredTerritory), 1);
         territories.unshift(preferredTerritory);
       }
-      return territories.map(value => ({ value,
+      const builtIn = territories.map(value => ({ value,
         label: territoryLabel(value, language === "fr" ? "fr" : "en"),
         ...(isMobilityTerritory(value) ? { description: text("Catalogue Mobility Database · horaires si flux statique ouvert",
           "Mobility Database catalog · schedules when an open static feed exists") } : {}),
@@ -343,6 +346,15 @@ export async function handleTransportSearch(
         : value === "pt" ? { description: text("Métro de Lisbonne uniquement", "Lisbon Metro only") }
         : value === "au" ? { description: text("Queensland · SEQ, Bowen, Bundaberg, Cairns", "Queensland · SEQ, Bowen, Bundaberg, Cairns") }
         : value === "ua" ? { description: text("Bus et tram à Lviv uniquement", "Lviv buses and trams only") } : {}) }));
+      const discovered = (mobilityCoverage?.countries ?? []).map(country => ({
+        value: `mobility:${country.code}`,
+        label: `${territoryLabel(`mobility:${country.code}`, language === "fr" ? "fr" : "en")} · ${
+          country.covered ? text("GTFS ouvert", "open GTFS") : text("aucun flux ouvert", "no open feed")}`,
+        description: country.covered
+          ? text("Flux GTFS statique actif · licence autorisée", "Active static GTFS feed · permitted license")
+          : text("Aucun flux GTFS statique actif avec licence autorisée", "No active static GTFS feed with a permitted license"),
+      }));
+      return [...builtIn, ...discovered];
     }
     if (stage === "mode") return (availableModes ?? Object.keys(MODE_NAMES) as TransitMode[])
       .map((value) => ({ value, label: modeName(value, territory) }));
@@ -368,6 +380,11 @@ export async function handleTransportSearch(
   }
 
   async function render() {
+    if (stage === "territory" && !mobilityCoverageLoaded && typeof service.mobilityCountries === "function") {
+      mobilityCoverageLoaded = true;
+      try { mobilityCoverage = await transportDeadline(service.mobilityCountries(), 500); }
+      catch { mobilityCoverage = undefined; }
+    }
     const all = choices();
     const matching = all.filter((choice) => normalizeTransitText(`${choice.label} ${choice.description ?? ""}`).includes(normalizeTransitText(filter)));
     const pages = Math.max(1, Math.ceil(matching.length / 25));
@@ -446,10 +463,14 @@ export async function handleTransportSearch(
     const pageHint = stage === "lines" && pages > 1
       ? text("\n25 lignes par page · utilise Rechercher ou Suivant pour parcourir les lignes.",
         "\n25 routes per page · use Search or Next to browse routes.") : "";
-    const coverageNote = stage === "territory" && typeof service.mobilityCountries === "function"
-      ? text("\nLes autres pays n’apparaissent qu’après vérification de lignes accessibles dans le mode choisi.",
-        "\nOther countries appear only after routes are confirmed for the selected mode.")
-      : "";
+    const coverageNote = stage !== "territory" || typeof service.mobilityCountries !== "function" ? ""
+      : !mobilityCoverage ? text("\nCouverture Mobility Database non vérifiée; les recherches déjà disponibles restent accessibles.",
+        "\nMobility Database coverage could not be verified; existing searches remain available.")
+      : mobilityCoverage.complete
+        ? text(`\nGTFS statique actif et licence autorisée : ${mobilityCoverage.countries.filter(country => country.covered).length} pays · sans flux exploitable : ${mobilityCoverage.countries.filter(country => !country.covered).length}.`,
+          `\nActive static GTFS with a permitted license: ${mobilityCoverage.countries.filter(country => country.covered).length} countries · no usable feed: ${mobilityCoverage.countries.filter(country => !country.covered).length}.`)
+        : text("\nRépertoire ou couverture incomplet; seuls les flux confirmés sont marqués disponibles.",
+          "\nCountry directory or coverage is incomplete; only confirmed feeds are marked available.");
     const regionListNote = stage === "regions" ? text(
       "\nRégions où une source publie des horaires pour ce mode; les lignes sont vérifiées à l’étape suivante.",
       "\nRegions where a source publishes timetables for this mode; routes are verified in the next step.",
