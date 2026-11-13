@@ -130,7 +130,7 @@ function normalizeNewsText(value: string): string {
   return normalizedQuery(value).replace(/[’']/g, " ").replace(/\s+/g, " ").trim();
 }
 
-type ResearchTopic = "general" | "practical" | "comparison" | "current" | "health" | "legal" | "technology" | "science";
+type ResearchTopic = "general" | "practical" | "comparison" | "current" | "health" | "legal" | "technology" | "science" | "travel" | "flight";
 
 interface ResearchPlan {
   initialPages: number;
@@ -141,6 +141,8 @@ interface ResearchPlan {
 function getResearchPlan(query: string): ResearchPlan {
   const normalized = normalizedQuery(query);
   const explicitConflict = /\b(?:contradictoire?s?|contredisent|desaccord|verifie|recoupe|conflicting|disagree)\b/.test(normalized);
+  const flight = /\b(?:flight status|flight number|track(?:ing)? (?:my )?flight|my flight|statut du vol|suivi du vol|mon vol|horaires? de vol|vol\s+(?:[a-z]{2,3}\s?\d{1,4}|n\s?\d)|vols?\s+(?:de|entre|vers|pour)|flights?\s+(?:from|between|to))\b/.test(normalized);
+  const travel = /\b(?:visa|visas|passeport|passport|formalites? d entree|conditions? d entree|entry requirements|immigration requirements|fiche\s+(?:du\s+)?pays|infos?\s+pratiques?|informations?\s+pratiques?|guide\s+(?:de\s+)?voyage|travel\s+(?:guide|advice|information)|country\s+profile)\b/.test(normalized);
   const health = /\b(?:sante|sante|medical|medic(?:al|ine)|maladie|symptome|traitement|nutrition)\b/.test(normalized);
   const legal = /\b(?:juridique|legal|loi|droit|administration|impot|visa|passeport|demarche)\b/.test(normalized);
   const technology = /\b(?:code|coder|programm(?:e|ation)|logiciel|api|documentation|installer|bug|erreur|javascript|typescript|python|discord|application|appli|app|jeu|game|gaming|multijoueur|multiplayer)\b/.test(normalized);
@@ -150,6 +152,8 @@ function getResearchPlan(query: string): ResearchPlan {
   const practical = /\b(?:comment|recette|faire|tutoriel|guide|utiliser|etapes?|how to|recipe|tutorial)\b/.test(normalized);
   const entityLookup = /\b(?:qu['’]est[- ]ce que|qu est ce que|c['’]est quoi|c est quoi|qui est|que signifie|what is|who is|who was|tell me about)\b/.test(normalized);
 
+  if (flight) return { initialPages: 3, maxPages: 5, topic: "flight" };
+  if (travel) return { initialPages: 3, maxPages: 5, topic: "travel" };
   if (explicitConflict || current) return { initialPages: 4, maxPages: 6, topic: current ? "current" : "general" };
   if (health) return { initialPages: 4, maxPages: 6, topic: "health" };
   if (legal) return { initialPages: 4, maxPages: 6, topic: "legal" };
@@ -190,7 +194,9 @@ function sourceQualityScore(result: WebSearchResult, plan: ResearchPlan): number
 
   // Domain trust is a starting point, not the complete judgment.
   const matchesDomain = (domain: string) => hostname === domain || hostname.endsWith(`.${domain}`);
-  const government = hostname.endsWith(".gouv.fr") || hostname.endsWith(".gov") || hostname.endsWith(".gov.uk") || matchesDomain("service-public.fr");
+  const government = /(?:^|\.)(?:gov|gouv|gob|go|govt)\.[a-z]{2,}$/.test(hostname) ||
+    hostname.endsWith(".gov") || hostname.endsWith(".gouv.fr") || matchesDomain("service-public.fr") ||
+    hostname === "gc.ca" || hostname.endsWith(".gc.ca");
   const academic = hostname.endsWith(".edu") || hostname.endsWith(".ac.uk") || hostname.endsWith(".edu.au");
   const official = ["who.int", "europa.eu", "un.org", "cdc.gov", "nih.gov", "developer.mozilla.org",
     "nodejs.org", "docs.python.org", "discord.com", "learn.microsoft.com"].some(matchesDomain);
@@ -205,6 +211,8 @@ function sourceQualityScore(result: WebSearchResult, plan: ResearchPlan): number
 
   if (plan.topic === "health" && (government || matchesDomain("who.int") || academic)) score += 5;
   if (plan.topic === "legal" && government) score += 5;
+  if (plan.topic === "travel" && government) score += 5;
+  if (plan.topic === "flight" && /\b(?:airport|airline|flightaware|flightradar24|flightstats)\b/.test(hostname)) score += 5;
   if (plan.topic === "technology" && (official || hostname.includes("github.com"))) score += 5;
   if (plan.topic === "science" && academic) score += 4;
   if (plan.topic === "current" && result.publishedAt) score += 3;
@@ -285,6 +293,8 @@ function hasConflictSignals(results: WebSearchResult[]): boolean {
 
 function buildTargetedQuery(query: string, plan: ResearchPlan): string | undefined {
   if (/\bsite:/i.test(query)) return undefined;
+  if (plan.topic === "travel") return `${query} official government immigration entry requirements`;
+  if (plan.topic === "flight") return `${query} flight status schedule airline airport`;
   if (plan.topic === "legal") return `${query} site:gouv.fr`;
   if (plan.topic === "health") return `${query} site:who.int OR site:sante.gouv.fr`;
   if (plan.topic === "technology") {

@@ -6,6 +6,20 @@ function normalized(text: string): string {
   return text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+export function isOfficialTravelSource(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return false;
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    return host === "europa.eu" || host.endsWith(".europa.eu") ||
+      host === "service-public.fr" || host.endsWith(".service-public.fr") ||
+      host === "gc.ca" || host.endsWith(".gc.ca") ||
+      /(?:^|\.)(?:gov|gouv|gob|go|govt)\.[a-z]{2,}$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
 export function relevantPageText(text: string, query: string, limit = 2_000): string {
   if (text.length <= limit) return text;
   const terms = [...new Set(query.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()

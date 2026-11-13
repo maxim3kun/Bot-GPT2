@@ -69,6 +69,7 @@ import { shouldSkipConversation, stripBotMention } from "./discord/ai-conversati
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./discord/ai-speaker-context.js";
 import { rememberConversationTurn } from "./discord/ai-conversation-memory.js";
 import { researchForTurn } from "./discord/ai-research-service.js";
+import { travelResearchFooter, travelResearchKind } from "./discord/ai-travel-research.js";
 import { isFactualCorrection } from "./discord/ai-correction-policy.js";
 import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabilitiesAnswer, directCreatorAnswer, directGreeting, directIdentityAnswer, isLatestNewsRequest, isWeatherRequest, requestedTimePlace, resolveTimeZone } from "./discord/ai-router.js";
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
@@ -272,8 +273,19 @@ async function replyWithAiAnswer(
   message: Message,
   answer: string,
   webResults: WebSearchResult[],
+  travelQuery?: string,
+  language?: string,
 ): Promise<void> {
-  const chunks = answer.match(/[\s\S]{1,2000}/g) ?? [answer];
+  const kind = travelQuery ? travelResearchKind(travelQuery) : null;
+  const checkedOn = kind && webResults.length
+    ? new Intl.DateTimeFormat(language === "fr" ? "fr-FR" : "en-GB", {
+      timeZone: "Europe/Paris", dateStyle: "long",
+    }).format(new Date())
+    : "";
+  const sourcedAnswer = kind && webResults.length
+    ? `${answer.trim()}${travelResearchFooter(kind, checkedOn, language ?? "en")}`
+    : answer;
+  const chunks = sourcedAnswer.match(/[\s\S]{1,2000}/g) ?? [sourcedAnswer];
   const sourcesButton = createSearchSourceButton(webResults, message.author.id);
   const firstReply = sourcesButton
     ? { content: chunks[0]!, components: [sourcesButton], flags: ["SuppressEmbeds" as const] }
@@ -480,7 +492,7 @@ export function startBot(): void {
         ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
       const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
       addToHistory(conversationKey(message), "assistant", reply);
-      await replyWithAiAnswer(message, reply, verifiedSources);
+      await replyWithAiAnswer(message, reply, verifiedSources, prompt, aiResponseLang);
       rememberConversationTurn(message, prompt, openai, false, reply);
     } catch (err) {
       logger.error({ err }, "Prefixed AI question error");
@@ -1548,7 +1560,7 @@ export function startBot(): void {
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, verifiedSources);
+        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang);
         rememberConversationTurn(message, userText, openai, false, reply);
       } catch (err) {
         logger.error({ err }, "DM AI error");
@@ -1670,7 +1682,7 @@ export function startBot(): void {
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, verifiedSources);
+        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang);
         rememberConversationTurn(message, userText, openai, false, reply);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {

@@ -13,7 +13,8 @@ import { createConversationRepository, type ConversationMemoryDoc } from "../src
 import { replyFeedbackPlan, LONG_ANSWER_RATING_THRESHOLD } from "../src/discord/ai-feedback-policy.js";
 import { AI_ECOLOGY_GUIDANCE, ecologyGuidanceFor, isAiEcologyRequest } from "../src/discord/ai-ecology-policy.js";
 import { correctionContext, correctionSearchQuery, isFactualCorrection } from "../src/discord/ai-correction-policy.js";
-import { prepareEvidence, relevantPageText, validateEvidenceReview } from "../src/discord/ai-research-policy.js";
+import { isOfficialTravelSource, prepareEvidence, relevantPageText, validateEvidenceReview } from "../src/discord/ai-research-policy.js";
+import { travelEvidenceFreshness, travelResearchClarification, travelResearchFooter, travelResearchKind } from "../src/discord/ai-travel-research.js";
 
 const allowedAccess: AiActionAccess = {
   blocked: false, consentAccepted: true, aiEnabled: true, moduleEnabled: true,
@@ -118,6 +119,31 @@ test("Carbon comparisons and estimates need evidence, casual chat does not", () 
     "Compare the carbon footprint of AI and a flight",
   ]) assert.equal(classifyAiMessage(prompt).needsResearch, true, prompt);
   assert.equal(classifyAiMessage("Comment tu vas ?").needsResearch, false);
+});
+
+test("Flight, visa and country travel requests use sourced research without catching generic flight discussions", () => {
+  for (const [text, kind] of [
+    ["Quel est le statut du vol AF123 ?", "flight"],
+    ["Quels vols de Paris à Tokyo le 12 décembre ?", "flight"],
+    ["Visa pour le Japon avec un passeport français", "visa"],
+    ["Infos pratiques pour le Japon", "country"],
+    ["Fiche du pays Canada", "country"],
+  ] as const) {
+    assert.equal(travelResearchKind(text), kind);
+    assert.equal(classifyAiMessage(text).needsResearch, true, text);
+  }
+  assert.equal(travelResearchKind("Compare le CO2 de l’IA avec un vol au Japon"), null);
+  assert.equal(travelResearchClarification("Visa pour le Japon", "fr")?.includes("nationalité du passeport"), true);
+  assert.equal(travelResearchClarification("Visa pour le Japon avec un passeport français", "fr"), null);
+  assert.notEqual(travelResearchClarification("Visa Japon, nationalité inconnue", "fr"), null);
+  assert.notEqual(travelResearchClarification("Visa Japon, nationalité du passeport", "fr"), null);
+  assert.equal(travelResearchClarification("Visa Japon, passeport du Japon", "fr"), null);
+  assert.match(travelResearchFooter("flight", "13 novembre 2026", "fr"), /Source consultée : bouton 🔎/);
+  assert.match(travelResearchFooter("visa", "13 November 2026", "en"), /Checked on 13 November 2026/);
+  const now = Date.parse("2026-11-13T12:00:00Z");
+  assert.equal(travelEvidenceFreshness("2026-10-01", now), "dated-recently");
+  assert.equal(travelEvidenceFreshness(undefined, now), "undated");
+  assert.equal(travelEvidenceFreshness("2024-01-01", now), "stale");
 });
 
 test("Persona truncation is retried exactly once with a larger budget", async () => {

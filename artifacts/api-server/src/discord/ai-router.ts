@@ -2,6 +2,7 @@ import type { Message } from "discord.js";
 import type { UserLang } from "./user-lang-store.js";
 import { isAiEcologyRequest } from "./ai-ecology-policy.js";
 import { isFactualCorrection } from "./ai-correction-policy.js";
+import { travelResearchKind } from "./ai-travel-research.js";
 
 export type AiIntent =
   | "greeting"
@@ -161,6 +162,10 @@ export function classifyAiMessage(text: string): AiRoute {
       needsResearch: false,
       needsConfirmation: true,
     };
+  }
+
+  if (travelResearchKind(text)) {
+    return { intent: "research", needsResearch: true, needsConfirmation: false };
   }
 
   if (includesAny(normalized, RESEARCH_TERMS) || isAiEcologyRequest(text)) {
