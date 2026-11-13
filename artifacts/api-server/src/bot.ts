@@ -79,6 +79,8 @@ import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTransportDialogue, handleJourneyCommand } from "./discord/transport-dialogue.js";
 import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
 import { handleTransportCommand, handleTransportFavoritesCommand, prewarmIrishBusRouteIndex } from "./discord/transport-menu.js";
+import { handleCivicCommand, isCivicCommand } from "./discord/civic-command.js";
+import { prewarmAssemblyVoteIndex } from "./discord/civic-data.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
 import { handleBlindtestButton, handleBlindtestMessage } from "./discord/blindtest.js";
 import { handleMgButton } from "./discord/milliongame.js";
@@ -619,6 +621,7 @@ export function startBot(): void {
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag, id: client.user?.id }, "Discord bot connected");
     prewarmIrishBusRouteIndex();
+    void prewarmAssemblyVoteIndex().catch((err) => logger.debug({ err }, "Could not prewarm official Assembly vote data"));
     client.user?.setActivity("!help · !music · !join", { type: ActivityType.Listening });
 
     // Update bot presence when a song starts/stops in any guild
@@ -1758,6 +1761,10 @@ export function startBot(): void {
     }
 
     try {
+      if (command && isCivicCommand(command)) {
+        await handleCivicCommand(message, command, args, responseLang);
+        return;
+      }
       if (command === "trajet" || command === "itineraire") {
         await handleJourneyCommand(message, args, responseLang);
         return;

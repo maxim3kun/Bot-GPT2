@@ -12,7 +12,7 @@ import { SLASH_COMMANDS } from "../src/discord/slash.js";
 import { buildPersonaHelp, PERSONA_HELP_PAGES, sendPersonaHelp } from "../src/discord/persona-help.js";
 
 const languages: HelpLanguage[] = ["en", "fr", "es", "de", "pt", "it", "ja", "nl", "ru", "pl", "tr"];
-const topics: HelpTopic[] = ["language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist", "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr", "echo", "pokemon", "welcome", "schedule", "agenda", "food", "tierlist", "blindtest", "milliongame", "persona", "memory", "diagnostics", "translation", "meme"];
+const topics: HelpTopic[] = ["language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist", "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr", "echo", "pokemon", "welcome", "schedule", "agenda", "food", "civic", "tierlist", "blindtest", "milliongame", "persona", "memory", "diagnostics", "translation", "meme"];
 
 function validateEmbed(embed: ReturnType<typeof buildHelpEmbed>, context: string) {
   const json = embed.toJSON();
@@ -61,6 +61,7 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   assert.equal(resolveTopicKey("persona")?.topic, "persona");
   assert.equal(resolveTopicKey("mémoire")?.topic, "memory");
   assert.equal(resolveTopicKey("tech")?.topic, "diagnostics");
+  assert.equal(resolveTopicKey("civique")?.topic, "civic");
 });
 
 test("Every help page uses the server prefix in fields and footer and the AI sees the expanded catalogue", () => {
@@ -109,6 +110,7 @@ test("The public command overview never advertises a slash-only command with a f
   const implemented = new Set(sources.flatMap((source) => [...source.matchAll(/case "([\w-]+)":/g)].map((match) => match[1])));
   if (messageHandler.includes("isTranslationCommand(command)")) implemented.add("translate");
   if (messageHandler.includes("isMemeCommand(command)")) implemented.add("meme");
+  if (messageHandler.includes("isCivicCommand(command)")) for (const command of ["vote", "loi", "feries"]) implemented.add(command);
   const dataExport = readFileSync("src/discord/data-export.ts", "utf8");
   for (const match of dataExport.matchAll(/command === "(excel|pdf)"/g)) implemented.add(match[1]);
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");

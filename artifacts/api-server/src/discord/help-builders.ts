@@ -222,6 +222,18 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
           `> \`${p}help quest\` ` + { en: "for full details", fr: "pour les détails", es: "para detalles", de: "für Details", pt: "para detalhes", it: "per i dettagli" }[tl],
         ].join("\n"),
       },
+        {
+          name: { en: "📚 Verified civic data", fr: "📚 Informations civiques vérifiées", es: "📚 Datos cívicos verificados", de: "📚 Geprüfte Bürgerdaten", pt: "📚 Dados cívicos verificados", it: "📚 Dati civici verificati" }[tl] ?? "📚 Verified civic data",
+          value: [
+            `\`${p}vote <topic>\` · \`${p}loi <article>\` · \`${p}feries <country> [year]\``,
+            { en: "`!vote` shows recent National Assembly votes; `!law` cites Legifrance; `!holidays` lists sourced dates.",
+              fr: "`!vote` affiche les scrutins récents ; `!loi` cite Légifrance ; `!feries` liste les dates et leur source.",
+              es: "`!vote` muestra votaciones recientes; `!law` cita Legifrance; `!holidays` indica las fechas y su fuente.",
+              de: "`!vote` zeigt Abstimmungen; `!law` zitiert Legifrance; `!holidays` nennt Daten und Quelle.",
+              pt: "`!vote` mostra votações; `!law` cita Legifrance; `!holidays` apresenta datas e fontes.",
+              it: "`!vote` mostra le votazioni; `!law` cita Legifrance; `!holidays` indica date e fonti." }[tl] ?? "",
+          ].join("\n"),
+        },
     );
 
   // ── Personas, private memory, administration and actual slash catalogue ────
@@ -286,13 +298,16 @@ export async function sendHelpPaginator(
 export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
-  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food"
+  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food" | "civic"
   | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme";
 
 export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { topic: HelpTopic; lang: HelpLanguage } | null {
   const key = raw.toLowerCase().trim();
   const map: Record<string, { topic: HelpTopic; lang?: HelpLanguage }> = {
     persona: { topic: "persona" }, personas: { topic: "persona" },
+    civic: { topic: "civic" }, votes: { topic: "civic" }, vote: { topic: "civic" }, scrutin: { topic: "civic" },
+    civique: { topic: "civic", lang: "fr" }, loi: { topic: "civic", lang: "fr" }, droit: { topic: "civic", lang: "fr" },
+    holidays: { topic: "civic" }, feries: { topic: "civic", lang: "fr" }, "jours fériés": { topic: "civic", lang: "fr" },
     translate: { topic: "translation" }, translation: { topic: "translation" },
     traduis: { topic: "translation", lang: "fr" }, traduction: { topic: "translation", lang: "fr" },
     meme: { topic: "meme" }, mème: { topic: "meme", lang: "fr" },
@@ -358,6 +373,14 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
   const embed = new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang]);
 
   switch (topic) {
+    case "civic":
+      embed.setTitle({ en: "📚 Verified civic data", fr: "📚 Informations civiques vérifiées", es: "📚 Datos cívicos verificados", de: "📚 Geprüfte Bürgerdaten", pt: "📚 Dados cívicos verificados", it: "📚 Dati civici verificati" }[tl] ?? "📚 Verified civic data");
+      embed.addFields(
+        { name: `\`${p}vote <topic>\``, value: { en: "Search official National Assembly votes. Results include the date, outcome, counts and source link.", fr: "Chercher les scrutins officiels de l’Assemblée nationale : date, résultat, décomptes et lien source.", es: "Buscar votaciones oficiales: fecha, resultado, recuentos y enlace de la fuente.", de: "Offizielle Abstimmungen mit Datum, Ergebnis, Stimmenzahlen und Quellenlink suchen.", pt: "Pesquisar votações oficiais com data, resultado, contagens e fonte.", it: "Cerca votazioni ufficiali con data, esito, conteggi e fonte." }[tl] ?? "" },
+        { name: `\`${p}loi <article>\``, value: { en: "Read a French Code civil article; `!law search <topic>` searches official legal texts. Requires Legifrance PISTE access.", fr: "Lire un article du Code civil ; `!loi recherche <sujet>` cherche des textes officiels. L’accès PISTE Légifrance est requis.", es: "Consultar artículos del Código Civil francés; `!law search <tema>` busca textos oficiales. Requiere acceso PISTE.", de: "Artikel des französischen Code civil abrufen; `!law search <Thema>` durchsucht offizielle Texte. PISTE-Zugang erforderlich.", pt: "Consultar artigos do Código Civil francês; `!law search <tema>` pesquisa textos oficiais. Requer acesso PISTE.", it: "Consulta articoli del Codice civile francese; `!law search <tema>` cerca testi ufficiali. Richiede accesso PISTE." }[tl] ?? "" },
+        { name: `\`${p}feries <pays> [année]\``, value: { en: "Show verified public-holiday records by country and year, with the provider and regional coverage identified.", fr: "Afficher les jours fériés vérifiés par pays et année, avec la source et les éventuelles régions précisées.", es: "Mostrar festivos verificados por país y año, indicando la fuente y la cobertura regional.", de: "Geprüfte Feiertage nach Land und Jahr mit Quelle und regionaler Abdeckung anzeigen.", pt: "Mostrar feriados verificados por país e ano, com fonte e cobertura regional.", it: "Mostrare festività verificate per paese e anno, con fonte e copertura regionale." }[tl] ?? "" },
+      );
+      break;
     case "language":
       embed.setTitle({ en: "🌐 Language", fr: "🌐 Langue", es: "🌐 Idioma", de: "🌐 Sprache", pt: "🌐 Idioma", it: "🌐 Lingua" }[tl] ?? "🌐 Language");
       embed.setDescription(
