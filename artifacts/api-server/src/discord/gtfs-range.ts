@@ -147,7 +147,7 @@ export class GtfsRangeArchive {
     if (start + entry.compressed > this.total) throw new Error("Transport ZIP member lies outside the archive");
     const response = await this.response(`bytes=${start}-${start + entry.compressed - 1}`);
     const chunks: Buffer[] = [];
-    for await (const chunk of this.chunks(response, entry.compressed)) chunks.push(chunk);
+    for await (const chunk of this.chunks(response, entry.compressed)) chunks.push(Buffer.from(chunk));
     const compressed = Buffer.concat(chunks, entry.compressed);
     let bytes: Buffer;
     try {

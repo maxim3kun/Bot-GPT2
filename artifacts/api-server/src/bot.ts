@@ -88,6 +88,7 @@ import { handlePollCommand } from "./discord/poll.js";
 import { registerVoiceStateEvents } from "./discord/voice-events.js";
 import { registerGuildEvents } from "./discord/guild-events.js";
 import { handleGameMessageCommand, isGameMessageCommand } from "./discord/message-game-commands.js";
+import { handleDataExportCommand, isDataExportCommand } from "./discord/data-export.js";
 import { isSendable } from "./discord/message-utils.js";
 import { handleMessageAiCommand, isMessageAiCommand } from "./discord/message-ai-commands.js";
 import { handleAdminMessageCommand, isAdminMessageCommand } from "./discord/admin-message-commands.js";
@@ -1757,6 +1758,11 @@ export function startBot(): void {
       if (command === "bus" || command === "metro" || command === "transport" || command === "transports" || command === "tram" || command === "train") {
         const mode = command === "metro" ? "metro" : command === "tram" ? "tram" : command === "train" ? "rail" : command === "bus" ? "bus" : null;
         await handleTransportCommand(message, args, responseLang, guildPrefix, mode);
+        return;
+      }
+
+      if (isDataExportCommand(command)) {
+        await handleDataExportCommand(message, command, args, responseLang, guildPrefix);
         return;
       }
 

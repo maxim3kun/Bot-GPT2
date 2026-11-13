@@ -43,7 +43,7 @@ test("Help includes actual slash commands, personas, memory controls and diagnos
   assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   for (const command of SLASH_COMMANDS.filter(command => !ADMIN_SLASH_COMMANDS.has(command.name))) assert.ok(all.includes(`/${command.name}`), command.name);
-  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food"]) assert.ok(all.includes(command), command);
+  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food", "excel <URL>", "pdf <URL>"]) assert.ok(all.includes(command), command);
   for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
   assert.equal(all.includes("Sort 20 items"), false);
   assert.equal(all.includes("Tous supportent"), false);
@@ -73,6 +73,8 @@ test("Every help page uses the server prefix in fields and footer and the AI see
   assert.match(context, /persona create/);
   assert.match(context, /memory auto on/);
   assert.match(context, /\?\?tech/);
+  assert.match(context, /\?\?excel <URL>/);
+  assert.match(context, /\?\?pdf <URL>/);
   for (const prefix of ["!!", "!m", "+"]) {
     const json = buildHelpEmbed("fr", 1, prefix).toJSON();
     assert.ok(json.fields![0]!.value.includes(`\`${prefix}say\``), prefix);
@@ -105,6 +107,8 @@ test("The public command overview never advertises a slash-only command with a f
   const sources = [messageHandler, ...["message-ai-commands", "message-game-commands", "admin-message-commands"]
     .map((name) => readFileSync(`src/discord/${name}.ts`, "utf8"))];
   const implemented = new Set(sources.flatMap((source) => [...source.matchAll(/case "([\w-]+)":/g)].map((match) => match[1])));
+  const dataExport = readFileSync("src/discord/data-export.ts", "utf8");
+  for (const match of dataExport.matchAll(/command === "(excel|pdf)"/g)) implemented.add(match[1]);
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   const documented = [...all.matchAll(/`!([a-z][\w-]*)\b/gi)].map((match) => match[1]);
   assert.deepEqual([...new Set(documented.filter((root) => !implemented.has(root)))], []);

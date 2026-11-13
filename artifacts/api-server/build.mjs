@@ -145,6 +145,7 @@ async function buildAll() {
       "playwright",
       "puppeteer",
       "puppeteer-core",
+      "jsdom",
       "electron",
       "@discordjs/opus",
       "@snazzah/davey",
