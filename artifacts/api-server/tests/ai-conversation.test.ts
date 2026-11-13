@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type OpenAI from "openai";
 import type { Message } from "discord.js";
+import type { AiPersonaRecord } from "../src/lib/db.js";
 import { createReliableCompletion } from "../src/discord/ai-reliable-completion.js";
 import { buildSpeakerContext, currentUserTurn } from "../src/discord/ai-speaker-context.js";
 import { DISCORD_IDENTITY_GUIDANCE, removeUnrequestedDiscordIds } from "../src/discord/ai-identity-output.js";
@@ -12,6 +13,8 @@ import {
   isAiPersonaVisibleToViewer,
 } from "../src/lib/ai-persona-public-view.js";
 import { updatePersonaSessionFromReaction } from "../src/discord/ai-persona-reaction-policy.js";
+import { selectPersonaSession, stopPersonaSession } from "../src/discord/ai-persona-session-policy.js";
+import { applyPersonaEdit, parsePersonaEditInput } from "../src/discord/persona-input-policy.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
 import { researchForTurn } from "../src/discord/ai-research-service.js";
 import {
@@ -181,6 +184,63 @@ test("Persona reactions activate the member's own last selection and removal sto
   assert.equal(updatePersonaSessionFromReaction({
     ...first, activePersonaId: "public-1",
   }, true, true), null);
+});
+
+test("Persona picker switches and stops only the requesting user's scoped session", () => {
+  const alice = selectPersonaSession("alice", "guild-a", "persona-a");
+  const bob = selectPersonaSession("bob", "guild-a", "persona-b");
+  assert.deepEqual(alice, {
+    userId: "alice", guildId: "guild-a", activePersonaId: "persona-a", lastPersonaId: "persona-a",
+  });
+  assert.deepEqual(bob, {
+    userId: "bob", guildId: "guild-a", activePersonaId: "persona-b", lastPersonaId: "persona-b",
+  });
+  const stopped = stopPersonaSession(alice);
+  assert.deepEqual(stopped, {
+    userId: "alice", guildId: "guild-a", activePersonaId: null, lastPersonaId: "persona-a",
+  });
+  assert.equal(bob.activePersonaId, "persona-b");
+  assert.equal(selectPersonaSession("alice", null, "persona-private").guildId, null);
+});
+
+test("Persona editing accepts a complete replacement description and keeps embedded separators", () => {
+  assert.deepEqual(parsePersonaEditInput("Azumi la guide | Calme et attentive, aime les trains | parle avec humour."), {
+    selector: "Azumi la guide",
+    description: "Calme et attentive, aime les trains | parle avec humour.",
+  });
+  assert.equal(parsePersonaEditInput("Azumi sans séparateur"), null);
+  assert.equal(parsePersonaEditInput("Azumi | court"), null);
+  assert.equal(parsePersonaEditInput(`Azumi | ${"x".repeat(2_001)}`), null);
+});
+
+test("Editing refreshes generated content but preserves visibility, consent, memories and custom images", () => {
+  const original = {
+    id: "persona-id", ownerId: "creator", guildId: "guild-a", name: "Azumi",
+    description: "Old description", profile: "Old profile", visualDescription: "Old look",
+    visibility: "public", avatarConsent: true, generatedAvatarBase64: "generated-avatar",
+    avatarCdnUrl: "old-cdn", knowledgeSummaries: ["private summary"],
+    learnedMessageIds: ["message-1"], messagesAnalyzedTotal: 12, learningConsent: true,
+    createdAt: "2026-01-01", updatedAt: "2026-01-01",
+  } as AiPersonaRecord;
+  const updated = applyPersonaEdit(original, "New description", {
+    profile: "New profile", visualDescription: "New look",
+  }, "2026-11-13");
+  assert.equal(updated.description, "New description");
+  assert.equal(updated.profile, "New profile");
+  assert.equal(updated.visualDescription, "New look");
+  assert.equal(updated.visibility, "public");
+  assert.equal(updated.guildId, "guild-a");
+  assert.equal(updated.avatarConsent, true);
+  assert.equal(updated.learningConsent, true);
+  assert.deepEqual(updated.knowledgeSummaries, ["private summary"]);
+  assert.deepEqual(updated.learnedMessageIds, ["message-1"]);
+  assert.equal(updated.generatedAvatarBase64, undefined);
+  assert.equal(updated.avatarCdnUrl, undefined);
+
+  const custom = applyPersonaEdit({ ...original, customAvatarBase64: "creator-image" }, "New description", {
+    profile: "New profile", visualDescription: "New look",
+  }, "2026-11-13");
+  assert.equal(custom.customAvatarBase64, "creator-image");
 });
 
 test("The server Bully has one stable public identity per guild and requires personal activation", () => {

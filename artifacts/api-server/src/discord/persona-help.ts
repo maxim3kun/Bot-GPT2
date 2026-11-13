@@ -11,13 +11,14 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
   const labels = fr ? ["Démarrer", "Discuter", "Images", "Mémoire & gestion"] : ["Get started", "Chat", "Images", "Memory & settings"];
   const pages = fr ? [
     {
-      title: "Ton personnage, ta conversation",
-      description: "Crée une personnalité, choisis son apparence et discute avec elle.\nCommence avec cet exemple, puis explore les onglets ci-dessous.",
+      title: "Créer et piloter ton persona",
+      description: "Choisis un persona selon sa description, puis active-le pour toi. Sa mémoire et son apparence restent séparées de celles des autres.",
       fields: [
-        { name: "1. Créer Azumi", value: cmd("create Azumi | Une amie chaleureuse et drôle, aux cheveux argentés et aux yeux bleus.") },
-        { name: "2. Lui parler", value: cmd("Azumi | Coucou, comment vas-tu ?") },
-        { name: "3. Continuer naturellement", value: `${cmd("start Azumi")}\nActive Azumi pour toi. Mentionne ensuite le bot dans le salon, ou parle-lui en DM.\n${cmd("stop")} pour revenir au bot habituel.` },
-        { name: "Ou laisse-toi guider", value: "Mentionne le bot avec « crée un persona… » : il te pose les questions nécessaires et l’active pour toi." },
+        { name: "Créer", value: `${cmd("create Azumi | Une amie chaleureuse et drôle, aux cheveux argentés et aux yeux bleus.")}\nDécris son caractère, ses goûts, son ton et son apparence si tu veux. Privé par défaut ; ajoute \`public |\` pour le partager ici.` },
+        { name: "Lui parler", value: `${cmd("Azumi | Coucou, comment vas-tu ?")}\nLe nom complet ou l’identifiant fonctionne ; \`|\` est facultatif.` },
+        { name: "Modifier sa description", value: `${cmd("edit Azumi | Une amie calme qui aime la musique et répond avec humour.")}\nRemplace sa personnalité et son apparence décrites ; visibilité, fiche publique et souvenirs restent inchangés.` },
+        { name: "Choisir, changer ou arrêter", value: `${cmd("list")} affiche les descriptions et le menu de choix privé.\n${cmd("start Azumi")} l’active pour toi ; ${cmd("stop")} l’arrête. Le bouton d’arrêt apparaît aussi dans la liste quand un persona est actif.` },
+        { name: "Création guidée", value: "Mentionne le bot avec « crée un persona… » : réponds à ses questions, il le crée et l’active pour toi. Dis « annule » pour arrêter." },
       ],
     },
     {
@@ -26,7 +27,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       fields: [
         { name: "Un message ponctuel", value: `${cmd("Azumi | Raconte-moi ta journée")}\nLe nom complet ou l’identifiant du persona fonctionne. Le séparateur \`|\` est facultatif.` },
         { name: "Activer ou reprendre", value: `${cmd("start Azumi")}\n${cmd("start")} reprend ton dernier persona ; ${cmd("stop")} l’arrête pour toi. Sélectionne aussi un persona avec ${cmd("list")} ; la réaction 🎭 sous une réponse générale l’active, son retrait l’arrête.` },
-        { name: "Retrouver tes personnages", value: `${cmd("list")} — liste des personas accessibles.\n${cmd("show <nom ou id>")} — fiche détaillée.\nCes informations personnelles restent envoyées en privé.` },
+        { name: "Retrouver tes personnages", value: `${cmd("list")} — descriptions et choix privé ; si un persona est actif, un bouton l’arrête.\n${cmd("show <nom ou id>")} — fiche détaillée.\nCes informations restent envoyées en privé.` },
         { name: "Privé ou partagé", value: `${cmd("create public | Azumi | Une guide curieuse et bienveillante.")}\nCrée un persona utilisable dans ce serveur. Une activation est personnelle : elle ne change pas le bot pour tous les membres.` },
         { name: "Persona Bully", value: `${cmd("bully")} l’active uniquement pour toi dans ce serveur ; ${cmd("stop")} l’arrête. Ses piques ne visent que toi, jamais les autres membres ni les caractéristiques sensibles. Ce persona ne change pas les rappels de quêtes.` },
       ],
@@ -55,13 +56,14 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
     },
   ] : [
     {
-      title: "Your character, your conversation",
-      description: "Create a personality, choose their appearance and start chatting.\nTry this example, then explore the tabs below.",
+      title: "Create and control your persona",
+      description: "Choose a persona by its description, then activate it for yourself. Its memory and appearance remain separate from other users'.",
       fields: [
-        { name: "1. Create Azumi", value: cmd("create Azumi | A warm, funny friend with silver hair and blue eyes.") },
-        { name: "2. Say hello", value: cmd("Azumi | Hi, how are you?") },
-        { name: "3. Keep chatting naturally", value: `${cmd("start Azumi")}\nActivate Azumi for yourself. Then mention the bot in the channel, or chat by DM.\n${cmd("stop")} returns to the usual bot.` },
-        { name: "Prefer a guided setup?", value: "Mention the bot with “create a persona…”: it asks the necessary questions and activates it for you." },
+        { name: "Create", value: `${cmd("create Azumi | A warm, funny friend with silver hair and blue eyes.")}\nDescribe its personality, interests, reply style and optional appearance. Private by default; add \`public |\` to share it here.` },
+        { name: "Chat", value: `${cmd("Azumi | Hi, how are you?")}\nUse its full name or ID; the \`|\` separator is optional.` },
+        { name: "Edit its description", value: `${cmd("edit Azumi | A calm friend who loves music and replies with humor.")}\nReplaces its personality and described appearance; visibility, public profile and memories stay unchanged.` },
+        { name: "Choose, switch or stop", value: `${cmd("list")} shows descriptions and a private selector.\n${cmd("start Azumi")} activates it for you; ${cmd("stop")} stops it. The list also has a stop button when one is active.` },
+        { name: "Guided setup", value: "Mention the bot with “create a persona…”: answer its prompts and it creates and activates it. Say “cancel” to stop." },
       ],
     },
     {
@@ -70,7 +72,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       fields: [
         { name: "One message", value: `${cmd("Azumi | Tell me about your day")}\nUse the full persona name or ID. The \`|\` separator is optional.` },
         { name: "Activate or resume", value: `${cmd("start Azumi")}\n${cmd("start")} resumes your last persona; ${cmd("stop")} stops it for you. Select one with ${cmd("list")} too; add 🎭 under a general reply to activate it and remove your reaction to stop it.` },
-        { name: "Find your characters", value: `${cmd("list")} — available personas.\n${cmd("show <name or id>")} — detailed profile.\nThese personal details are still sent privately.` },
+        { name: "Find your characters", value: `${cmd("list")} — descriptions and a private selector; if a persona is active, it also has a stop button.\n${cmd("show <name or id>")} — detailed profile.\nThese details remain private.` },
         { name: "Private or shared", value: `${cmd("create public | Azumi | A curious, friendly guide.")}\nCreates a persona usable in this server. Activation is personal: it does not change the bot for everyone.` },
         { name: "Bully persona", value: `${cmd("bully")} activates it only for you in this server; ${cmd("stop")} turns it off. Its jabs target only you, never other members or sensitive traits. This persona does not change quest reminders.` },
       ],

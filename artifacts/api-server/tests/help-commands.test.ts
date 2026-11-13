@@ -206,13 +206,22 @@ test("Persona help has short themed pages, real examples and the current command
       assert.match(json.footer!.text, new RegExp(`${page + 1}/4`));
       all.push(text);
     }
-    for (const action of ["create", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "profile", "delete"]) {
+    for (const action of ["create", "edit", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "profile", "delete"]) {
       assert.ok(all.join("\n").includes(`??persona ${action}`), `${language}/${action}`);
     }
     assert.ok(all.join("\n").includes("??persona bully"), `${language}/bully`);
     assert.match(all.join("\n"), /quest reminders|rappels de quêtes/);
     assert.match(all.join("\n"), /🎭/);
   }
+  const frenchStart = JSON.stringify(buildPersonaHelp("fr", 0, "??").toJSON());
+  assert.match(frenchStart, /personality|personnalité|description/i);
+  assert.match(frenchStart, /\?\?persona edit/);
+  assert.match(frenchStart, /bouton d’arrêt/i);
+  const englishStart = JSON.stringify(buildPersonaHelp("en", 0, "??").toJSON());
+  assert.match(englishStart, /\?\?persona edit/);
+  assert.match(englishStart, /stop button/i);
+  const personaCommands = readFileSync("src/discord/ai-personas.ts", "utf8");
+  assert.match(personaCommands, /case "edit":\s*case "modifier":\s*await editPersona/);
 });
 
 test("Persona help stays in the requesting channel, supports every tab and never sends a DM", async () => {
