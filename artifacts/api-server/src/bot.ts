@@ -3,13 +3,12 @@ import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
-import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles } from "./discord/voice";
+import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
 import { addToPlaylist, removePlaylist, listPlaylists, showPlaylist, playPlaylist } from "./discord/playlist";
 import { generateMusicTrack, handleSunoBalanceCommand } from "./discord/music-generation-commands.js";
-import { generateSong, pollSong, getCredits } from "./lib/suno-client.js";
 import { handleBirthday, startBirthdayScheduler } from "./discord/birthdays";
 import { startQuestSetup, showQuestList, markQuestDone, markAllQuestsDone, showQuestProfile, resetQuests, setBullyMode, startQuestReminders, addQuestWithCoach, setReminderChannel, setSchedule, showQuestStats, getUserQuestData, negotiateQuests, handleQuestReminderButton, MAX_WEEKLY_QUEST_REMINDERS } from "./discord/quests";
 import { shazam } from "./discord/shazam";
@@ -50,6 +49,9 @@ import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
 import { openDjConsole, handleDjButton, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
 import { handleConsentButton, handleMemoryConsentButton } from "./discord/ai-consent.js";
+import { getConsent, requireConsent } from "./discord/ai-consent.js";
+import { isFeatureEnabled } from "./bootstrap/feature-flags.js";
+import { getGuildFeatures } from "./lib/features-store.js";
 import { getAiPromptContext } from "./discord/ai-memory.js";
 import { handleAiPersonaControlReaction, handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
@@ -506,6 +508,74 @@ export function startBot(): void {
     }
   };
 
+  let voiceTurnSequence = 0;
+  setVoiceChatTurnHandler(async ({ guildId, userId, transcript, message: contextMessage }) => {
+    const language = getEffectiveLanguage(guildId, userId);
+    if (!await requireConsent(contextMessage, language) || await getConsent(userId) !== "accepted") return false;
+
+    const block = checkCommandBlock(userId);
+    if (block.blocked) {
+      await sendBlockedMessage(contextMessage, block, await getPrefix(guildId));
+      return false;
+    }
+
+    let guildFeatures;
+    try {
+      guildFeatures = await getGuildFeatures(guildId, { failClosed: true });
+    } catch {
+      await (contextMessage.channel as import("discord.js").TextChannel).send(
+        "🔒 Je ne peux pas vérifier les réglages IA de ce serveur; le chat vocal est arrêté.",
+      ).catch(() => null);
+      return false;
+    }
+    const aiEnabled = isFeatureEnabled("ai") && isFeatureEnabled("voice")
+      && guildFeatures.find(feature => feature.name === "ai_chat")?.enabled === true;
+    if (!aiEnabled) {
+      await (contextMessage.channel as import("discord.js").TextChannel).send(
+        "Le chat vocal IA est désactivé sur ce serveur. Ta voix ne sera plus écoutée.",
+      ).catch(() => null);
+      return false;
+    }
+    if (!openai) {
+      await (contextMessage.channel as import("discord.js").TextChannel).send(
+        "Les réponses IA ne sont pas configurées. Ta voix ne sera plus écoutée.",
+      ).catch(() => null);
+      return false;
+    }
+
+    const base = contextMessage;
+    const textChannel = base.channel as import("discord.js").TextChannel;
+    const voiceRepliesEnabled = isFeatureEnabled("voice")
+      && guildFeatures.find(feature => feature.name === "voice_tts")?.enabled === true;
+    const voiceMessage = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property === "content") return transcript;
+        if (property === "id") return `${target.id}:voice:${Date.now()}:${++voiceTurnSequence}`;
+        if (property === "reference") return null;
+        if (property === "reply") {
+          return async (payload: string | Record<string, unknown>) => {
+            const outgoing = typeof payload === "string"
+              ? { content: payload, allowedMentions: { parse: [] } }
+              : { ...payload, allowedMentions: { parse: [] } };
+            const text = typeof payload === "string"
+              ? payload
+              : typeof payload.content === "string" ? payload.content : "";
+            return sendVoiceChatResponse(
+              () => textChannel.send(outgoing as Parameters<typeof textChannel.send>[0]),
+              text && voiceRepliesEnabled
+                ? () => speakText(guildId, text, language, client.user?.username)
+                : null,
+            );
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    await answerAiQuestion(voiceMessage, transcript, language, await getPrefix(guildId));
+    return true;
+  });
+
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -702,86 +772,16 @@ export function startBot(): void {
 
         case "music": {
           const prompt = interaction.options.getString("prompt", true);
-          if (!process.env["SUNO_API_KEY"]) { await interaction.editReply("❌ Music generation is not configured. Ask a moderator to set it up — use `!mode d'emploi` for instructions."); break; }
-
-          const startEmbed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle("🎵 Generating your track…")
-            .setDescription(`**Prompt:** ${prompt}`)
-            .setFooter({ text: "Suno is generating your track, around 30-60 seconds ⏳" });
-          await interaction.editReply({ embeds: [startEmbed] });
-
-          let taskId: string;
-          try {
-            taskId = await generateSong({ prompt });
-            } catch (err) {
-              await reportModuleFailure(interaction, "music", err, "suno");
-            logger.error({ err }, "Suno /music error");
-            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Error").setDescription(`Failed to start: ${String(err)}`)] });
-            break;
-          }
-
-          const SL_POLL_INTERVAL = 8000;
-          const SL_POLL_MAX = 15;
-          let generationFinished = false;
-          let lastPollError: unknown = null;
-          for (let attempt = 1; attempt <= SL_POLL_MAX; attempt++) {
-            await new Promise((r) => setTimeout(r, SL_POLL_INTERVAL));
-            let result;
-            try {
-              result = await pollSong(taskId);
-              lastPollError = null;
-              recordModuleSuccess("music", "suno");
-            } catch (err) {
-              lastPollError = err;
-              await reportModuleFailure(interaction, "music", err, "suno");
-              logger.warn({ err, attempt }, "Suno poll retry");
-              continue;
-            }
-            const st = result.status.toUpperCase();
-            if (st === "ERROR" || st === "FAILED" || st === "FAILURE") {
-              await reportModuleFailure(interaction, "music", new Error(`Suno generation status: ${st}`), "suno");
-              await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle("❌ Generation Failed").setDescription("Suno returned an error. Try a different prompt.")] });
-              generationFinished = true;
-              break;
-            }
-            if (result.done && result.clips.length > 0) {
-              const embeds = result.clips.filter((c) => c.audio_url).map((clip) => {
-                const e = new EmbedBuilder()
-                  .setColor(0x57f287)
-                  .setTitle(`🎶 ${clip.title ?? "Generated Track"}`)
-                  .setDescription(`**Prompt:** ${clip.prompt ?? prompt}`)
-                  .addFields({ name: "🎵 Listen", value: clip.audio_url! })
-                  .setFooter({ text: `Task ID: ${taskId}` });
-                if (clip.image_url) e.setThumbnail(clip.image_url);
-                if (clip.duration) e.addFields({ name: "⏱ Duration", value: `${Math.round(clip.duration)}s`, inline: true });
-                if (clip.tags) e.addFields({ name: "🎸 Style", value: clip.tags.slice(0, 100), inline: true });
-                return e;
-              });
-              if (embeds.length > 0) {
-                await interaction.editReply({ embeds });
-                generationFinished = true;
-                break;
-              }
-            }
-            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle("🎵 Generating…").setDescription(`**Prompt:** ${prompt}`).addFields({ name: "Status", value: result.status, inline: true }, { name: "Attempt", value: `${attempt}/${SL_POLL_MAX}`, inline: true }).setFooter({ text: "Suno is working on it ⏳" })] });
-          }
-          if (!generationFinished) {
-            await reportModuleFailure(
-              interaction,
-              "music",
-              lastPollError ?? new Error("Suno generation timed out"),
-              "suno",
-            );
-            await interaction.editReply({
-              embeds: [
-                new EmbedBuilder()
-                  .setColor(0xed4245)
-                  .setTitle("❌ Generation timed out")
-                  .setDescription("Suno did not finish the track in time. Try again later."),
-              ],
-            });
-          }
+          await runModuleWithFallback(
+            fakeMsg,
+            "music",
+            () => generateMusicTrack(fakeMsg, prompt, "slash music"),
+            async () => {
+              await fakeMsg.reply(moduleFallbackMessage("music", responseLang));
+              return false;
+            },
+            "suno",
+          );
           break;
         }
 
@@ -2128,6 +2128,7 @@ export function startBot(): void {
               () => generateMusicTrack(message, prompt),
               async () => {
                 await message.reply(moduleFallbackMessage("music", responseLang));
+                return false;
               },
               process.env["SUNO_API_KEY"] ? "suno" : undefined,
             );
@@ -2175,6 +2176,7 @@ export function startBot(): void {
             () => generateMusicTrack(message, genPrompt, "generator music"),
             async () => {
               await message.reply(moduleFallbackMessage("music", responseLang));
+              return false;
             },
             process.env["SUNO_API_KEY"] ? "suno" : undefined,
           );
@@ -2188,6 +2190,7 @@ export function startBot(): void {
             () => handleSunoBalanceCommand(message),
             async () => {
               await message.reply(moduleFallbackMessage("music", responseLang));
+              return false;
             },
             process.env["SUNO_API_KEY"] ? "suno" : undefined,
           );
@@ -3588,18 +3591,7 @@ export function startBot(): void {
                 break;
               }
               case "balance":
-                if (!process.env["SUNO_API_KEY"]) { await message.reply("❌ Suno not configured."); break; }
-                try {
-                  const bal = await getCredits();
-                  const balEmbed = new EmbedBuilder()
-                    .setColor(bal > 10 ? 0x57f287 : bal > 0 ? 0xfee75c : 0xed4245)
-                    .setTitle("💳 Suno Credits")
-                    .addFields({ name: "Remaining credits", value: `${bal}`, inline: true })
-                    .setFooter({ text: "Each generation consumes credits from sunoapi.org" });
-                  await message.reply({ embeds: [balEmbed] });
-                } catch (err) {
-                  await message.reply(`❌ Could not fetch credits: ${String(err)}`);
-                }
+                await handleSunoBalanceCommand(message);
                 break;
               case "radio":
                 await playRadio(message, args.join(" ") || "list");

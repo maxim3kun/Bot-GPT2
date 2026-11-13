@@ -33,6 +33,12 @@ Do not enable a paid voice service for this bot.
 
 **How to apply:** Distinguish local open-source voice processing from free API quotas; never promise unlimited free service or automatic paid fallback.
 
+Joining voice must never start capture. Each speaker explicitly opts in, existing AI consent covers the disclosed Groq transcription, and raw audio is not retained. Deliver the text answer before best-effort voice playback.
+
+**Why:** This keeps non-consenting members out of transcription and ensures a voice-service failure does not erase the AI reply.
+
+**How to apply:** Recheck consent, channel membership, permissions and AI feature settings before capture and before sending audio externally; stop that speaker's stream immediately on opt-out or revoked access.
+
 The user runs the bot on Railway.
 
 **Why:** The user explicitly said they run the code via Railway.

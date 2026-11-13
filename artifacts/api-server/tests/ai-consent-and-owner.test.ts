@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Client, Message } from "discord.js";
-import { applyConsentRequirement } from "../src/discord/ai-consent.js";
+import { applyConsentRequirement, buildConsentPrompt } from "../src/discord/ai-consent.js";
 import { handleAdminUnlockTrigger, isVerifiedCreatorUser } from "../src/discord/admin-unlock.js";
 
 function fakeMessage(authorId = "user-id") {
@@ -32,6 +32,17 @@ test("Unknown AI consent asks once, while accepted consent proceeds silently", a
   const accepted = fakeMessage();
   assert.equal(await applyConsentRequirement(accepted.message, "accepted", "fr"), true);
   assert.deepEqual(accepted.replies, []);
+});
+
+test("AI consent clearly discloses opt-in voice capture and external transcription", () => {
+  const french = buildConsentPrompt("fr").embeds[0]!.toJSON().description ?? "";
+  const english = buildConsentPrompt("en").embeds[0]!.toJSON().description ?? "";
+  for (const description of [french, english]) {
+    assert.match(description, /voice chat|chat vocal/i);
+    assert.match(description, /Groq/);
+    assert.match(description, /not kept|n’est pas conservé/i);
+    assert.match(description, /voice chat on/);
+  }
 });
 
 test("Only the configured creator identity is accepted for bot-wide admin unlock", async () => {

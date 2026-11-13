@@ -13,7 +13,7 @@ async function getCol() {
 }
 
 type ConsentStatus = "accepted" | "declined" | "unknown";
-const AI_CONSENT_VERSION = 4;
+const AI_CONSENT_VERSION = 5;
 type ConsentDoc = {
   userId: string;
   status: ConsentStatus;
@@ -92,8 +92,8 @@ export function buildConsentPrompt(language: UserLang = "en"): { embeds: EmbedBu
     .setTitle(isFrench ? "🤖 Fonction IA — consentement" : "🤖 AI Feature — One-time Consent")
     .setDescription(
       isFrench
-        ? "Le texte nécessaire à ta demande sera transmis à **Groq**. Si tu demandes une image, sa description sera transmise à **Cloudflare Workers AI**, ou à **Hugging Face** en secours si configuré. Si tu actives les réponses vocales, le texte de la réponse sera envoyé à **Google Traduction** pour la synthèse vocale. Une analyse peut inclure jusqu’à 100 messages récents accessibles à toi et au bot. Les messages bruts ne sont pas conservés. Les profils de persona et leurs fiches visuelles sont conservés chiffrés dans MongoDB. Si tu confirmes séparément l’apprentissage d’un persona, ses résumés de mémoire sont aussi chiffrés.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
-        : "The text needed for your request will be sent to **Groq**. If you request an image, its description will be sent to **Cloudflare Workers AI**, or to **Hugging Face** as a fallback if configured. If you enable voice replies, the reply text will be sent to **Google Translate** for speech synthesis. An analysis may include up to 100 recent messages accessible to you and the bot. Raw messages are not stored. Persona profiles and their visual references are stored encrypted in MongoDB. If you separately confirm persona learning, its memory summaries are encrypted as well.\n\nDo you agree to use AI features?",
+        ? "Le texte nécessaire à ta demande sera transmis à **Groq**. Si tu demandes une image, sa description sera transmise à **Cloudflare Workers AI**, ou à **Hugging Face** en secours si configuré. Le chat vocal n’écoute que les membres qui l’activent avec `!voice chat on`; leur extrait audio est envoyé à **Groq** pour transcription et n’est pas conservé par le bot. Si tu actives les réponses vocales, le texte de la réponse peut être envoyé à **Google Traduction** pour la synthèse vocale. Une analyse peut inclure jusqu’à 100 messages récents accessibles à toi et au bot. Les messages bruts ne sont pas conservés. Les profils de persona et leurs fiches visuelles sont conservés chiffrés dans MongoDB. Si tu confirmes séparément l’apprentissage d’un persona, ses résumés de mémoire sont aussi chiffrés.\n\nAcceptes-tu d’utiliser les fonctions IA ?"
+        : "The text needed for your request will be sent to **Groq**. If you request an image, its description will be sent to **Cloudflare Workers AI**, or to **Hugging Face** as a fallback if configured. Voice chat listens only to members who enable it with `!voice chat on`; their audio clips are sent to **Groq** for transcription and are not kept by the bot. If you enable voice replies, reply text may be sent to **Google Translate** for speech synthesis. An analysis may include up to 100 recent messages accessible to you and the bot. Raw messages are not stored. Persona profiles and their visual references are stored encrypted in MongoDB. If you separately confirm persona learning, its memory summaries are encrypted as well.\n\nDo you agree to use AI features?",
     )
     .setFooter({ text: isFrench ? "Ton choix est enregistré. Utilise !ai reset pour le modifier." : "Your choice is saved. Use !ai reset to change it later." });
 

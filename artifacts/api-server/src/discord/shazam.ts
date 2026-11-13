@@ -5,6 +5,9 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { radioStates, RADIO_STATIONS } from "./radio";
 import { logger } from "../lib/logger";
+import { getEffectiveLanguage } from "./effective-language.js";
+import { isFeatureEnabled } from "../bootstrap/feature-flags.js";
+import { getGuildFeatures } from "../lib/features-store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -70,9 +73,9 @@ async function captureAudioBytes(url: string, hops = 0): Promise<Buffer> {
 
 // ── AudD.io API — file-upload identification ──────────────────────────────────
 
-interface AuddResult {
-  title:        string;
-  artist:       string;
+export interface AuddResult {
+  title?:       string;
+  artist?:      string;
   album?:       string;
   release_date?: string;
   song_link?:   string;
@@ -82,6 +85,12 @@ interface AuddResult {
     external_urls?: { spotify?: string };
   };
   apple_music?: { url?: string };
+}
+
+export interface ShazamDependencies {
+  captureAudioBytes: (url: string) => Promise<Buffer>;
+  getYoutubeDirectUrl: (url: string) => Promise<string>;
+  identify: (apiKey: string, audioBytes: Buffer) => Promise<AuddResult | null>;
 }
 
 async function queryAuddByFile(apiKey: string, audioBytes: Buffer): Promise<AuddResult | null> {
@@ -108,11 +117,23 @@ async function queryAuddByFile(apiKey: string, audioBytes: Buffer): Promise<Audd
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
+        let total = 0;
+        if (res.statusCode && res.statusCode >= 400) {
+          res.resume();
+          reject(new Error(`AudD HTTP ${res.statusCode}`));
+          return;
+        }
+        res.on("data", (c: Buffer) => {
+          total += c.length;
+          if (total > 128 * 1024) {
+            res.destroy(new Error("AudD response too large"));
+            return;
+          }
+          chunks.push(c);
+        });
         res.on("end", () => {
           try {
             const raw = Buffer.concat(chunks).toString("utf8");
-            logger.debug({ raw }, "AudD raw response");
             const data = JSON.parse(raw) as {
               status: string;
               result?: AuddResult;
@@ -131,6 +152,7 @@ async function queryAuddByFile(apiKey: string, audioBytes: Buffer): Promise<Audd
       },
     );
     req.on("error", reject);
+    req.setTimeout(20_000, () => req.destroy(new Error("AudD request timed out")));
     req.write(body);
     req.end();
   });
@@ -138,59 +160,129 @@ async function queryAuddByFile(apiKey: string, audioBytes: Buffer): Promise<Audd
 
 // ── Public command ────────────────────────────────────────────────────────────
 
-export async function shazam(message: Message): Promise<void> {
+const DEFAULT_DEPENDENCIES: ShazamDependencies = {
+  captureAudioBytes,
+  getYoutubeDirectUrl,
+  identify: queryAuddByFile,
+};
+
+function shazamCopy(isFrench: boolean) {
+  return isFrench
+    ? {
+        config: "❌ Shazam n’est pas configuré. Demande à un modérateur de l’activer.",
+        guild: "❌ Cette commande fonctionne uniquement dans un serveur.",
+        disabled: "🔒 Shazam est désactivé sur ce serveur.",
+        noTrack: "❌ Le bot ne diffuse rien. Lance une radio ou une vidéo YouTube avant `!shazam`.",
+        source: "Un court extrait de la source en cours est envoyé à AudD pour identifier le morceau.",
+        noMatch: "🤷 Je n’ai pas identifié le morceau. Il a peut-être changé ou n’est pas dans la base.",
+        streamError: "❌ Impossible de récupérer l’extrait audio de la source.",
+        identifyError: "❌ Le service d’identification n’a pas répondu correctement. Réessaie plus tard.",
+        identifying: "🎵 Identification en cours…",
+        title: "🎤 Titre",
+        artist: "🎸 Artiste",
+        album: "💿 Album",
+        year: "📅 Année",
+        listen: "🔗 Écouter",
+        identified: "Morceau identifié",
+        footer: "Fourni par AudD.io · Source",
+      }
+    : {
+        config: "❌ Shazam is not configured. Ask a moderator to enable it.",
+        guild: "❌ This command only works in a server.",
+        disabled: "🔒 Shazam is disabled on this server.",
+        noTrack: "❌ The bot is not playing anything. Start radio or YouTube before `!shazam`.",
+        source: "A short excerpt of the current source will be sent to AudD to identify the song.",
+        noMatch: "🤷 I couldn't identify the song. It may have just changed or may not be in the database.",
+        streamError: "❌ Couldn't retrieve audio from the current source.",
+        identifyError: "❌ The identification service didn't respond correctly. Try again later.",
+        identifying: "🎵 Identifying the current track…",
+        title: "🎤 Title",
+        artist: "🎸 Artist",
+        album: "💿 Album",
+        year: "📅 Year",
+        listen: "🔗 Listen",
+        identified: "Song identified!",
+        footer: "Powered by AudD.io · Source",
+      };
+}
+
+export async function shazam(message: Message, dependencies: ShazamDependencies = DEFAULT_DEPENDENCIES): Promise<void> {
+  const isFrench = message.guildId ? getEffectiveLanguage(message.guildId, message.author.id) === "fr" : false;
+  const copy = shazamCopy(isFrench);
   const apiKey = process.env["AUDD_API_KEY"];
   if (!apiKey) {
-    await message.reply("❌ Shazam is not configured. Ask a moderator to set it up.");
+    await message.reply(copy.config);
     return;
   }
 
   const guildId = message.guildId;
-  if (!guildId) return;
+  if (!guildId) {
+    await message.reply(copy.guild);
+    return;
+  }
+
+  if (!isFeatureEnabled("music")) {
+    await message.reply(copy.disabled);
+    return;
+  }
+  let guildFeatures;
+  try {
+    guildFeatures = await getGuildFeatures(guildId, { failClosed: true });
+  } catch {
+    await message.reply(copy.disabled);
+    return;
+  }
+  if (guildFeatures.find(feature => feature.name === "shazam")?.enabled !== true
+    || guildFeatures.find(feature => feature.name === "music")?.enabled !== true) {
+    await message.reply(copy.disabled);
+    return;
+  }
 
   const state = radioStates.get(guildId);
   if (!state || (!state.stationKey && !state.youtubeUrl)) {
-    await message.reply("❌ The bot isn't playing anything right now. Use `!radio <station>` or `!youtube <url>` first.");
+    await message.reply(copy.noTrack);
     return;
   }
 
   if (state.stationKey) {
     const station = RADIO_STATIONS[state.stationKey];
-    if (!station) { await message.reply("❌ Can't identify: unknown station."); return; }
+    if (!station) { await message.reply(copy.noTrack); return; }
 
-    const waitMsg = await message.reply(`🎵 Identifying song on **${station.name}**…`);
+    const waitMsg = await message.reply(`${copy.source}\n${copy.identifying} **${station.name}**`);
     try {
       logger.debug({ url: station.url }, "Shazam: capturing audio from radio stream");
-      const audioBytes = await captureAudioBytes(station.url);
+      const audioBytes = await dependencies.captureAudioBytes(station.url);
       logger.debug({ bytes: audioBytes.length }, "Shazam: audio captured, querying AudD");
-      const result = await queryAuddByFile(apiKey, audioBytes);
-      await buildAndSendResult(waitMsg, result, station.name);
+      if (!audioBytes.length || audioBytes.length > CAPTURE_BYTES) throw new Error("Invalid audio excerpt");
+      const result = await dependencies.identify(apiKey, audioBytes);
+      await buildAndSendResult(waitMsg, result, station.name, copy);
     } catch (err) {
       logger.error({ err }, "Shazam error (radio)");
-      await waitMsg.edit("❌ Something went wrong while identifying the song. Please try again!");
+      await waitMsg.edit(copy.identifyError);
     }
 
   } else {
     // YouTube — get direct stream URL via yt-dlp, then capture bytes
-    const waitMsg = await message.reply(`🔗 Getting audio stream from **${state.youtubeTitle ?? "YouTube"}**…`);
+    const waitMsg = await message.reply(`${copy.source}\n🔗 ${state.youtubeTitle ?? "YouTube"} · ${copy.identifying}`);
     const sourceLabel = state.youtubeTitle ?? "YouTube";
     let directUrl: string;
     try {
-      directUrl = await getYoutubeDirectUrl(state.youtubeUrl!);
+      directUrl = await dependencies.getYoutubeDirectUrl(state.youtubeUrl!);
     } catch (err) {
       logger.error({ err }, "Shazam: failed to get YouTube direct URL");
-      await waitMsg.edit("❌ Couldn't get the audio stream from YouTube. Try again.");
+      await waitMsg.edit(copy.streamError);
       return;
     }
 
-    await waitMsg.edit(`🔍 Identifying the song…`);
+    await waitMsg.edit(`${copy.source}\n🔍 ${copy.identifying}`);
     try {
-      const audioBytes = await captureAudioBytes(directUrl);
-      const result = await queryAuddByFile(apiKey, audioBytes);
-      await buildAndSendResult(waitMsg, result, sourceLabel);
+      const audioBytes = await dependencies.captureAudioBytes(directUrl);
+      if (!audioBytes.length || audioBytes.length > CAPTURE_BYTES) throw new Error("Invalid audio excerpt");
+      const result = await dependencies.identify(apiKey, audioBytes);
+      await buildAndSendResult(waitMsg, result, sourceLabel, copy);
     } catch (err) {
       logger.error({ err }, "Shazam error (youtube)");
-      await waitMsg.edit("❌ Something went wrong while identifying the song. Please try again!");
+      await waitMsg.edit(copy.identifyError);
     }
   }
 }
@@ -201,12 +293,10 @@ async function buildAndSendResult(
   waitMsg: Awaited<ReturnType<Message["reply"]>>,
   result: AuddResult | null,
   sourceLabel: string,
+  copy: ReturnType<typeof shazamCopy>,
 ): Promise<void> {
-  if (!result) {
-    await waitMsg.edit(
-      "🤷 Couldn't identify the song — the track may have just changed or isn't in the database.\n" +
-      "Try again in a few seconds!",
-    );
+  if (!result?.title?.trim() || !result.artist?.trim()) {
+    await waitMsg.edit(copy.noMatch);
     return;
   }
 
@@ -218,15 +308,15 @@ async function buildAndSendResult(
 
   const embed = new EmbedBuilder()
     .setColor(0x1db954)
-    .setTitle("🎵 Song identified!")
+    .setTitle(`🎵 ${copy.identified}`)
     .addFields(
-      { name: "🎤 Title",  value: result.title,  inline: true },
-      { name: "🎸 Artist", value: result.artist, inline: true },
-      ...(albumName ? [{ name: "💿 Album",  value: albumName,                   inline: true }] : []),
-      ...(year      ? [{ name: "📅 Year",   value: year,                         inline: true }] : []),
-      ...(listenUrl ? [{ name: "🔗 Listen", value: `[Open link](${listenUrl})`, inline: true }] : []),
+      { name: copy.title,  value: result.title.trim(),  inline: true },
+      { name: copy.artist, value: result.artist.trim(), inline: true },
+      ...(albumName ? [{ name: copy.album,  value: albumName,                   inline: true }] : []),
+      ...(year      ? [{ name: copy.year,   value: year,                         inline: true }] : []),
+      ...(listenUrl ? [{ name: copy.listen, value: `[Open link](${listenUrl})`, inline: true }] : []),
     )
-    .setFooter({ text: `Powered by AudD.io · Identified from: ${sourceLabel}` });
+    .setFooter({ text: `${copy.footer}: ${sourceLabel}` });
 
   if (albumArt) embed.setThumbnail(albumArt);
 

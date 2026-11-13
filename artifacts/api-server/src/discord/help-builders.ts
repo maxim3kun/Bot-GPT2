@@ -182,7 +182,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[tl] ?? "🎙️ Voice",
         value: [
           `\`${p}join\` 🔊 · \`${p}leave\` 👋 · \`${p}subtitles\` 📝`,
-          `\`${p}voice say <text>\` 🗣️ · \`${p}voice stop\` · \`${p}voice resume\``,
+          `\`${p}voice chat on/off\` 🎧 · \`${p}voice say <text>\` 🗣️`,
+          `\`${p}voice stop\` · \`${p}voice resume\``,
         ].join("\n"),
       },
     );
@@ -440,8 +441,9 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle({ en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[tl] ?? "🎙️ Voice");
       embed.addFields(
         { name: `\`${p}join\`  \`${p}leave\``, value: { en: "Join or leave your voice channel.", fr: "Rejoindre ou quitter ton salon vocal.", es: "Unirse o salir de tu canal de voz.", de: "Sprachkanal betreten oder verlassen.", pt: "Entrar ou sair do canal de voz.", it: "Entra o esci dal canale vocale." }[tl] ?? "" },
+        { name: `\`${p}voice chat on/off\``, value: { en: "Each speaker must opt in. Their speech is sent to Groq for transcription; AI replies stay in text if voice playback fails.", fr: "Chaque personne active sa propre écoute. Sa voix est transmise à Groq pour transcription; la réponse IA reste écrite si la voix échoue.", es: "Cada persona debe activarlo. Su voz se envía a Groq para transcribir; la respuesta queda por escrito si falla el audio.", de: "Jede Person muss selbst zustimmen. Ihre Stimme wird zur Transkription an Groq gesendet; die KI-Antwort bleibt bei Audiofehlern als Text.", pt: "Cada pessoa tem de ativar. A voz é enviada à Groq para transcrição; a resposta fica em texto se o áudio falhar.", it: "Ogni persona deve attivarlo. La voce viene inviata a Groq per la trascrizione; la risposta resta testuale se l’audio non funziona." }[tl] ?? "" },
         { name: `\`${p}voice say <text>\``, value: { en: "Make the bot speak in the voice channel (Google TTS).", fr: "Faire parler le bot dans le vocal (Google TTS).", es: "Hacer que el bot hable en el canal de voz (Google TTS).", de: "Bot im Sprachkanal sprechen lassen (Google TTS).", pt: "Fazer o bot falar no canal de voz (Google TTS).", it: "Far parlare il bot nel canale vocale (Google TTS)." }[tl] ?? "" },
-        { name: `\`${p}subtitles\``, value: { en: "Toggle live speech-to-text captions (Groq Whisper).", fr: "Activer/désactiver les sous-titres live (Groq Whisper).", es: "Activar/desactivar subtítulos en vivo (Groq Whisper).", de: "Live-Untertitel ein-/ausschalten (Groq Whisper).", pt: "Ativar/desativar legendas ao vivo (Groq Whisper).", it: "Attiva/disattiva i sottotitoli live (Groq Whisper)." }[tl] ?? "" },
+        { name: `\`${p}subtitles\``, value: { en: "Show or hide transcriptions. It does not enable listening; each person opts in with `voice chat on`.", fr: "Afficher ou masquer les transcriptions. Cela n’active pas l’écoute; chacun doit activer `voice chat on`.", es: "Mostrar u ocultar transcripciones. No activa la escucha; cada persona debe activar `voice chat on`.", de: "Transkripte anzeigen oder ausblenden. Das aktiviert das Zuhören nicht; jede Person muss `voice chat on` einschalten.", pt: "Mostrar ou ocultar transcrições. Isto não ativa a escuta; cada pessoa tem de ativar `voice chat on`.", it: "Mostra o nascondi le trascrizioni. Non attiva l’ascolto; ogni persona deve attivare `voice chat on`." }[tl] ?? "" },
         { name: `\`${p}voice stop\`  \`${p}voice resume\``, value: { en: "Pause or resume voice replies (subtitle-only mode).", fr: "Mettre en pause ou reprendre les réponses vocales.", es: "Pausar o reanudar las respuestas de voz.", de: "Sprachantworten pausieren oder fortsetzen.", pt: "Pausar ou retomar respostas de voz.", it: "Metti in pausa o riprendi le risposte vocali." }[tl] ?? "" },
       );
       break;

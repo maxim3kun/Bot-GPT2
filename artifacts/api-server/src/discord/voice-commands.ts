@@ -1,13 +1,27 @@
 import type { Message } from "discord.js";
 import { getEffectiveLanguage } from "./effective-language.js";
 import { getPrefix } from "./prefix-store.js";
-import { isInVoice, speakText, voiceStop, voiceResume } from "./voice.js";
+import { disableVoiceChat, enableVoiceChat, isInVoice, speakText, voiceStop, voiceResume } from "./voice.js";
 import { handleBotVoiceSelection } from "./voice-settings.js";
 
 export async function handleVoiceCommand(message: Message, args: string[]): Promise<void> {
   const action = args[0]?.toLowerCase();
   if (action === "stop") return voiceStop(message);
   if (action === "resume") return voiceResume(message);
+  if (action === "chat") {
+    const setting = args[1]?.toLowerCase();
+    if (setting === "on" || setting === "start") {
+      await enableVoiceChat(message);
+      return;
+    }
+    if (setting === "off" || setting === "stop") {
+      await disableVoiceChat(message);
+      return;
+    }
+    const prefix = await getPrefix(message.guildId);
+    await message.reply(`Utilise \`${prefix}voice chat on\` pour autoriser ta voix, ou \`${prefix}voice chat off\` pour arrêter.`);
+    return;
+  }
   if (action !== "say") return handleBotVoiceSelection(message, action);
   const lang = getEffectiveLanguage(message.guildId, message.author.id);
   const prefix = await getPrefix(message.guildId);

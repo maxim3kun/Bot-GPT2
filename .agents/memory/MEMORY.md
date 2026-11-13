@@ -14,7 +14,7 @@
 - [Node test runner](node-test-runner.md) — Cached external-package node:test bundles need direct execution rather than CLI discovery inside node_modules.
 - [Research evidence review](research-evidence-review.md) — Prefer supported partial replies; recheck objections without automatic agreement, and keep private history out of public search.
 - [Image provider contracts](image-provider-contracts.md) — Trust strict model schemas over conflicting examples; a generic image test does not validate persona-specific requests.
-- [Bot experience](bot-experience-requirements.md) — Separate image quotas, concise help, self-declared birthdays only, and no paid voice service.
+- [Bot experience](bot-experience-requirements.md) — Separate image quotas, concise help, self-declared birthdays, no paid voice service, and per-speaker voice consent.
 - [Repository context boundaries](repository-context-boundaries.md) — When the user says a repository changed, do not carry over prior project requests they identify as unrelated.
 - [Transport in the Discord bot](transport-bot-scope.md) — France/Québec data and verified routes; MongoDB caches transport metadata, not schedules.
 - [England transport access](england-source-contracts.md) — BODS API needs registration; TfL uses app_key; Darwin JSON needs licensed access and independently verified free terms.
