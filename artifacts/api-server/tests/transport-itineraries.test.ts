@@ -212,10 +212,41 @@ test("provider client uses only fixed HTTPS PRIM, encodes places, disables redir
     count++; const u = new URL(String(url));
     assert.equal(u.origin, "https://prim.iledefrance-mobilites.fr"); assert.equal(init?.redirect, "error");
     assert.equal(u.searchParams.get("q"), "Dugommier & autre"); assert.ok(init?.signal);
+    assert.deepEqual(u.searchParams.getAll("type[]"), ["stop_area", "address", "poi"]);
     return Response.json(placeBody(origin));
   }, () => NOW, () => "fixture-credential");
   await Promise.all([client.places("Dugommier & autre"), client.places("Dugommier & autre")]);
   assert.equal(count, 1);
+});
+test("official address and POI results can be selected as itinerary endpoints", async () => {
+  const from: OfficialPlace = { id: "2.35;48.84", ids: ["address:from"], name: "Rue de Rivoli",
+    label: "10 rue de Rivoli, Paris", longitude: 2.35, latitude: 48.84 };
+  const to: OfficialPlace = { id: "2.37;48.86", ids: ["poi:to"], name: "Place de la République",
+    label: "Place de la République, Paris", longitude: 2.37, latitude: 48.86 };
+  const body = journeyBody();
+  body.journeys[0]!.sections[0]!.from = { id: "address:from", name: from.label, embedded_type: "address",
+    address: { coord: { lon: "2.35", lat: "48.84" } } };
+  body.journeys[0]!.sections.at(-1)!.to = { id: "poi:to", name: to.label, embedded_type: "poi",
+    poi: { coord: { lon: "2.37", lat: "48.86" } } };
+  const client = new IdfmPlanner(async url => {
+    const u = new URL(String(url));
+    if (u.pathname.endsWith("/places")) {
+      if (u.searchParams.get("q") === "10 rue de Rivoli") return Response.json({ places: [
+        { id: "address:from", name: from.name, embedded_type: "address",
+          address: { name: from.name, label: from.label, coord: { lon: "2.35", lat: "48.84" } } },
+      ] });
+      return Response.json({ places: [{ id: "poi:to", name: to.name, embedded_type: "poi",
+        poi: { name: to.name, label: to.label, coord: { lon: "2.37", lat: "48.86" } } }] });
+    }
+    assert.equal(u.searchParams.get("from"), from.id);
+    assert.equal(u.searchParams.get("to"), to.id);
+    return Response.json(body);
+  }, () => NOW, () => "fixture-credential");
+  const [resolvedFrom] = await client.places("10 rue de Rivoli");
+  const [resolvedTo] = await client.places("Place de la République");
+  assert.equal(resolvedFrom!.id, from.id); assert.equal(resolvedTo!.id, to.id);
+  assert.equal((await client.journeys(resolvedFrom!, resolvedTo!, requestAt, "departure")).length, 1);
+  await assert.rejects(client.journeys({ ...from, latitude: 50, id: "2.35;50" }, to, requestAt, "departure"), PlannerError);
 });
 for (const [status, code] of [[401, "access"], [403, "access"], [429, "quota"], [503, "unavailable"]] as const)
   test(`HTTP ${status} is safely classified and failure-cached`, async () => {

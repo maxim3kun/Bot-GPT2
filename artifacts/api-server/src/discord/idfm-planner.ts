@@ -64,13 +64,18 @@ export class IdfmPlanner implements ItineraryProvider {
 
   async places(query: string, fresh = false) {
     if (!query.trim() || query.length > 140) throw new PlannerError("invalid");
-    return parsePlaces(await this.request("places", new URLSearchParams({
-      q: query, "type[]": "stop_area", count: "10", depth: "2",
-    }), 30 * 60_000, fresh));
+    const params = new URLSearchParams({ q: query, count: "10", depth: "2" });
+    for (const type of ["stop_area", "address", "poi"]) params.append("type[]", type);
+    return parsePlaces(await this.request("places", params, 30 * 60_000, fresh));
   }
 
   async journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure", fresh = false) {
-    if (![from, to].every(p => idfmId(p.id) && p.id.startsWith("stop_area:")) || !Number.isFinite(at))
+    const verifiedEndpoint = (place: OfficialPlace) => place.id.startsWith("stop_area:")
+      ? idfmId(place.id)
+      : Number.isFinite(place.latitude) && Number.isFinite(place.longitude) &&
+        place.id === `${place.longitude};${place.latitude}` &&
+        place.longitude! >= 1 && place.longitude! <= 4 && place.latitude! >= 48 && place.latitude! <= 49.5;
+    if (![from, to].every(verifiedEndpoint) || !Number.isFinite(at))
       throw new PlannerError("invalid");
     const body = await this.request("journeys", new URLSearchParams({
       from: from.id, to: to.id, datetime: plannerDate(at), datetime_represents: represents,
