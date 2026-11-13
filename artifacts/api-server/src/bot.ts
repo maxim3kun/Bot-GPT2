@@ -46,6 +46,7 @@ import { isSelfPhotoRequest, sendFictionalAssistantPhoto } from "./discord/perso
 import { extractNaturalHelpCommand, extractPokemonQuery, isTopListQuery } from "./lib/ai-functions.js";
 import { handleWelcomeCommand } from "./discord/welcome.js";
 import { handleScheduleCommand, startScheduler } from "./discord/schedule.js";
+import { handlePrivateAgendaCommand, handlePrivateTimerCommand, startPrivateAgendaReminderScheduler } from "./discord/private-agenda.js";
 import { openDjConsole, handleDjButton, hasDjPendingAdd, consumeDjPendingAdd } from "./discord/dj.js";
 import { openSoundboard, handleSoundboardButton, addCustomSound, removeCustomSound, getCustomSounds, loadCustomSounds, buildSoundboardEmbed, buildSoundboardRows, type SoundPad } from "./discord/soundboard.js";
 import { handleConsentButton, handleMemoryConsentButton } from "./discord/ai-consent.js";
@@ -3759,6 +3760,17 @@ export function startBot(): void {
           break;
         }
 
+        // ── Private agenda and timers ──────────────────────────────────────────
+        case "agenda":
+        case "calendar": {
+          await handlePrivateAgendaCommand(message, args, guildPrefix);
+          break;
+        }
+        case "timer": {
+          await handlePrivateTimerCommand(message, args, guildPrefix);
+          break;
+        }
+
       }
     } catch (err) {
       logger.error({ err, command }, "Command error");
@@ -3782,6 +3794,7 @@ export function startBot(): void {
     startBirthdayScheduler(client);
     startQuestReminders(client, openai);
     startScheduler(client);
+    startPrivateAgendaReminderScheduler(client);
     startTechnicianDigest(client);
     if (client.user) {
       registerSlashCommands(client.user.id, token)

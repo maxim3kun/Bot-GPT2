@@ -30,6 +30,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:commands": "esbuild tests/help-commands.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/help-commands.test.mjs && node node_modules/.cache/help-commands.test.mjs",
+    "test:private-agenda": "esbuild tests/private-agenda.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/private-agenda.test.mjs && node node_modules/.cache/private-agenda.test.mjs",
     "test:ai-consent": "esbuild tests/ai-consent-and-owner.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-consent-and-owner.test.mjs && node node_modules/.cache/ai-consent-and-owner.test.mjs",
     "test:ai-travel-research": "esbuild tests/ai-travel-research.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-travel-research.test.mjs && node node_modules/.cache/ai-travel-research.test.mjs",
     "test:images": "node tests/run-images.mjs",

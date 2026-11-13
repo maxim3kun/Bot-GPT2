@@ -108,6 +108,10 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎂 Birthdays", fr: "🎂 Anniversaires", es: "🎂 Cumpleaños", de: "🎂 Geburtstage", pt: "🎂 Aniversários", it: "🎂 Compleanni" }[tl] ?? "🎂 Birthdays",
         value: `\`${p}birthday add DD/MM\` · \`${p}birthday list\` · \`${p}birthday remove\``,
       },
+      {
+        name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
+        value: `\`${p}agenda add YYYY-MM-DD HH:MM <title>\` · \`${p}agenda list\` · \`${p}timer 20m <label>\``,
+      },
     );
 
   // ── Page 2 — Games & Tools ─────────────────────────────────────────────────
@@ -276,7 +280,7 @@ export async function sendHelpPaginator(
 export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
-  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "food"
+  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food"
   | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics";
 
 export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { topic: HelpTopic; lang: HelpLanguage } | null {
@@ -320,6 +324,8 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
     schedule: { topic: "schedule" }, planification: { topic: "schedule", lang: "fr" },
     programación: { topic: "schedule", lang: "es" }, planung: { topic: "schedule", lang: "de" },
     agendamento: { topic: "schedule", lang: "pt" }, pianificazione: { topic: "schedule", lang: "it" },
+    agenda: { topic: "agenda" }, calendar: { topic: "agenda" }, calendrier: { topic: "agenda", lang: "fr" },
+    calendario: { topic: "agenda", lang: "es" }, kalender: { topic: "agenda", lang: "de" },
     food: { topic: "food" }, nourriture: { topic: "food", lang: "fr" },
     comida: { topic: "food", lang: "es" }, essen: { topic: "food", lang: "de" },
     comida_pt: { topic: "food", lang: "pt" }, cibo: { topic: "food", lang: "it" },
@@ -562,6 +568,16 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
         { name: `\`${p}schedule set HH:MM #channel <msg>\``, value: { en: "Schedule a one-time message at a specific time (UTC).", fr: "Planifier un message unique à une heure précise (UTC).", es: "Programar un mensaje único a una hora específica (UTC).", de: "Eine einmalige Nachricht zu einer bestimmten Uhrzeit planen (UTC).", pt: "Agendar uma mensagem única em um horário específico (UTC).", it: "Pianificare un messaggio una tantum a un'ora specifica (UTC)." }[tl] ?? "" },
         { name: `\`${p}schedule daily HH:MM #channel <msg>\``, value: { en: "Schedule a message sent every day at that time (UTC).", fr: "Planifier un message envoyé chaque jour à cette heure (UTC).", es: "Programar un mensaje enviado cada día a esa hora (UTC).", de: "Eine täglich gesendete Nachricht zu einer bestimmten Uhrzeit planen (UTC).", pt: "Agendar uma mensagem enviada todos os dias naquele horário (UTC).", it: "Pianificare un messaggio inviato ogni giorno a quell'ora (UTC)." }[tl] ?? "" },
         { name: `\`${p}schedule list\`  ·  \`${p}schedule cancel <ID>\``, value: { en: "View all scheduled messages or cancel one by ID.", fr: "Voir tous les messages planifiés ou en annuler un par ID.", es: "Ver todos los mensajes programados o cancelar uno por ID.", de: "Alle geplanten Nachrichten anzeigen oder eine nach ID abbrechen.", pt: "Ver todas as mensagens agendadas ou cancelar uma por ID.", it: "Vedi tutti i messaggi pianificati o annullane uno per ID." }[tl] ?? "" },
+      );
+      break;
+
+    case "agenda":
+      embed.setTitle({ en: "📅 Private Agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private Agenda");
+      embed.addFields(
+        { name: `\`${p}agenda timezone Europe/Paris\``, value: { en: "Set the time zone used for your private events.", fr: "Définir le fuseau horaire de tes événements privés.", es: "Configura la zona horaria de tus eventos privados.", de: "Lege die Zeitzone deiner privaten Termine fest.", pt: "Defina o fuso horário dos seus eventos privados.", it: "Imposta il fuso orario dei tuoi eventi privati." }[tl] ?? "" },
+        { name: `\`${p}agenda add ${tl === "fr" ? "AAAA-MM-JJ" : "YYYY-MM-DD"} HH:MM [${tl === "fr" ? "--rappel" : "--remind"} 10m] <${tl === "fr" ? "titre" : "title"}>\``, value: { en: "Create a private event. Reminders default to 10 minutes before.", fr: "Créer un événement privé. Le rappel par défaut est envoyé 10 minutes avant.", es: "Crea un evento privado. El recordatorio predeterminado se envía 10 minutos antes.", de: "Erstelle einen privaten Termin. Standardmäßig erfolgt die Erinnerung 10 Minuten vorher.", pt: "Crie um evento privado. O lembrete padrão é enviado 10 minutos antes.", it: "Crea un evento privato. Il promemoria predefinito arriva 10 minuti prima." }[tl] ?? "" },
+        { name: `\`${p}agenda list\` · \`${p}agenda edit <ID> ...\``, value: { en: "View or edit your events; use `cancel`, `remind` or `delete` with an ID.", fr: "Voir ou modifier tes événements; utilise `cancel`, `remind` ou `delete` avec un ID.", es: "Consulta o modifica tus eventos; usa `cancel`, `remind` o `delete` con un ID.", de: "Zeige Termine an oder bearbeite sie; nutze `cancel`, `remind` oder `delete` mit einer ID.", pt: "Consulte ou edite seus eventos; use `cancel`, `remind` ou `delete` com um ID.", it: "Visualizza o modifica gli eventi; usa `cancel`, `remind` o `delete` con un ID." }[tl] ?? "" },
+        { name: `\`${p}timer 20m <label>\` · \`${p}timer cancel <ID>\``, value: { en: "Start or cancel a private timer. Events and reminders are sent only in DMs.", fr: "Créer ou annuler un minuteur privé. Les événements et rappels sont envoyés uniquement en message privé.", es: "Inicia o cancela un temporizador privado. Los eventos y recordatorios solo se envían por mensaje privado.", de: "Starte oder beende einen privaten Timer. Termine und Erinnerungen werden nur per Direktnachricht gesendet.", pt: "Inicie ou cancele um temporizador privado. Eventos e lembretes são enviados apenas por mensagem privada.", it: "Avvia o annulla un timer privato. Eventi e promemoria vengono inviati solo in messaggio privato." }[tl] ?? "" },
       );
       break;
 

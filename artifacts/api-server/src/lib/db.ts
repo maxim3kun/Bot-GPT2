@@ -87,6 +87,27 @@ export interface UserData {
   likes?: LikedTrack[];
 }
 
+export type PrivateAgendaReminderStatus = "pending" | "sending" | "sent" | "cancelled" | "failed";
+export interface PrivateAgendaEvent {
+  id: string;
+  kind: "event" | "timer";
+  title: string;
+  startsAt: string;
+  reminderAt: string | null;
+  reminderLeadMs: number;
+  reminderStatus: PrivateAgendaReminderStatus;
+  reminderClaimedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrivateAgendaData {
+  userId: string;
+  timezone: string;
+  events: PrivateAgendaEvent[];
+  updatedAt: string;
+}
+
 export interface AiMemoryEntry {
   id: string;
   text: string;
@@ -197,6 +218,12 @@ interface AiPersonaPublicProfileDoc {
   _id: string;
   ownerKey: string;
   guildKey: string;
+  encryptedData: string;
+  updatedAt: Date;
+}
+
+interface PrivateAgendaDoc {
+  _id: string; // hashed Discord user id; contents are AES-GCM encrypted
   encryptedData: string;
   updatedAt: Date;
 }
@@ -330,6 +357,7 @@ export let aiPersonasCol: Collection<AiPersonaDoc> | null = null;
 export let aiPersonaSessionsCol: Collection<AiPersonaSessionDoc> | null = null;
 export let aiPersonaPublicProfilesCol: Collection<AiPersonaPublicProfileDoc> | null = null;
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
+let privateAgendaCol: Collection<PrivateAgendaDoc> | null = null;
 let transportPreferencesCol: Collection<TransportPreferencesDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
@@ -397,6 +425,7 @@ export async function connectDb(): Promise<void> {
     aiPersonaSessionsCol = db.collection<AiPersonaSessionDoc>("ai_persona_sessions");
     aiPersonaPublicProfilesCol = db.collection<AiPersonaPublicProfileDoc>("ai_persona_public_profiles");
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
+    privateAgendaCol = db.collection<PrivateAgendaDoc>("private_agendas");
     transportPreferencesCol = db.collection<TransportPreferencesDoc>("transport_preferences");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
@@ -407,6 +436,7 @@ export async function connectDb(): Promise<void> {
     await aiPersonaSessionsCol.createIndex({ ownerKey: 1, scopeKey: 1 }, { unique: true });
     await aiPersonaPublicProfilesCol.createIndex({ ownerKey: 1, guildKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
+    await privateAgendaCol.createIndex({ updatedAt: -1 });
     await dailyImageQuotaCol.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
     await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
@@ -920,6 +950,101 @@ export async function deleteAiPersona(id: string, ownerId: string): Promise<bool
   const collection = requireAiPersonaStorage();
   const result = await collection.deleteOne({ _id: id, ownerKey: hashUserId(ownerId) });
   return result.deletedCount > 0;
+}
+
+// ── Encrypted personal agenda ────────────────────────────────────────────────
+
+function requirePrivateAgendaCollection(): Collection<PrivateAgendaDoc> {
+  if (!privateAgendaCol || !encKey) {
+    throw new Error("Encrypted private agenda storage is unavailable");
+  }
+  return privateAgendaCol;
+}
+
+function isPrivateAgendaPayload(value: unknown): value is PrivateAgendaData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Partial<PrivateAgendaData>;
+  if (typeof data.userId !== "string" || typeof data.timezone !== "string" || data.timezone.length > 100
+    || typeof data.updatedAt !== "string" || !Number.isFinite(Date.parse(data.updatedAt)) || !Array.isArray(data.events)) {
+    return false;
+  }
+  return data.events.every((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const event = candidate as Partial<PrivateAgendaEvent>;
+    return typeof event.id === "string" && event.id.length > 0 && event.id.length <= 32
+      && (event.kind === "event" || event.kind === "timer")
+      && typeof event.title === "string" && event.title.length > 0 && event.title.length <= 120
+      && typeof event.startsAt === "string" && Number.isFinite(Date.parse(event.startsAt))
+      && (event.reminderAt === null || (typeof event.reminderAt === "string" && Number.isFinite(Date.parse(event.reminderAt))))
+      && Number.isSafeInteger(event.reminderLeadMs) && (event.reminderLeadMs ?? -1) >= 0
+      && ["pending", "sending", "sent", "cancelled", "failed"].includes(event.reminderStatus ?? "")
+      && typeof event.createdAt === "string" && Number.isFinite(Date.parse(event.createdAt))
+      && typeof event.updatedAt === "string" && Number.isFinite(Date.parse(event.updatedAt));
+  });
+}
+
+export async function getPrivateAgenda(discordId: string): Promise<PrivateAgendaData | null> {
+  const collection = requirePrivateAgendaCollection();
+  const ownerKey = hashUserId(discordId);
+  let doc: PrivateAgendaDoc | null;
+  try {
+    doc = await collection.findOne({ _id: ownerKey });
+  } catch {
+    throw new Error("Private agenda storage could not be read");
+  }
+  if (!doc) return null;
+  try {
+    const data: unknown = JSON.parse(decrypt(doc.encryptedData));
+    if (!isPrivateAgendaPayload(data) || data.userId !== discordId) {
+      throw new Error("Private agenda owner or payload is invalid");
+    }
+    return data;
+  } catch {
+    logger.error({ ownerKey }, "Private agenda could not be decrypted or validated");
+    throw new Error("Private agenda data could not be verified");
+  }
+}
+
+export async function savePrivateAgenda(discordId: string, data: PrivateAgendaData): Promise<void> {
+  const collection = requirePrivateAgendaCollection();
+  if (!isPrivateAgendaPayload(data) || data.userId !== discordId) {
+    throw new Error("Private agenda owner or payload is invalid");
+  }
+  const ownerKey = hashUserId(discordId);
+  try {
+    const updatedAt = new Date();
+    const encryptedData = encrypt(JSON.stringify({ ...data, userId: discordId, updatedAt: updatedAt.toISOString() }));
+    await collection.updateOne(
+      { _id: ownerKey },
+      { $set: { encryptedData, updatedAt } },
+      { upsert: true },
+    );
+  } catch {
+    throw new Error("Private agenda could not be saved securely");
+  }
+}
+
+export async function getAllPrivateAgendas(): Promise<PrivateAgendaData[]> {
+  const collection = requirePrivateAgendaCollection();
+  let docs: PrivateAgendaDoc[];
+  try {
+    docs = await collection.find({}).toArray();
+  } catch {
+    throw new Error("Private agenda storage could not be read");
+  }
+  const agendas: PrivateAgendaData[] = [];
+  for (const doc of docs) {
+    try {
+      const data: unknown = JSON.parse(decrypt(doc.encryptedData));
+      if (!isPrivateAgendaPayload(data) || hashUserId(data.userId) !== doc._id) {
+        throw new Error("Owner key does not match the encrypted payload");
+      }
+      agendas.push(data);
+    } catch {
+      logger.error({ ownerKey: doc._id }, "Private agenda record skipped because it could not be verified");
+    }
+  }
+  return agendas;
 }
 
 // ── User CRUD ──────────────────────────────────────────────────────────

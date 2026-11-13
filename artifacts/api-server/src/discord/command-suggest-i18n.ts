@@ -288,6 +288,20 @@ const SUGGESTION_STATUS_LABELS: Record<UserLang, [string, string, string]> = {
   tr: ["açık", "kapalı", "henüz ayarlanmadı"],
 };
 
+const EXTRA_COMMAND_DESCRIPTIONS: Record<UserLang, Record<string, string>> = {
+  en: { agenda: "Private agenda and reminders", timer: "Start or cancel a private timer" },
+  fr: { agenda: "Agenda privé et rappels", timer: "Créer ou annuler un minuteur privé" },
+  es: { agenda: "Agenda privado y recordatorios", timer: "Iniciar o cancelar un temporizador privado" },
+  de: { agenda: "Privater Kalender und Erinnerungen", timer: "Einen privaten Timer starten oder abbrechen" },
+  pt: { agenda: "Agenda privado e lembretes", timer: "Iniciar ou cancelar um temporizador privado" },
+  it: { agenda: "Agenda privata e promemoria", timer: "Avviare o annullare un timer privato" },
+  ja: { agenda: "個人用予定表とリマインダー", timer: "個人用タイマーを開始またはキャンセル" },
+  nl: { agenda: "Privéagenda en herinneringen", timer: "Een privétimer starten of annuleren" },
+  ru: { agenda: "Личный календарь и напоминания", timer: "Запустить или отменить личный таймер" },
+  pl: { agenda: "Prywatny kalendarz i przypomnienia", timer: "Uruchom lub anuluj prywatny minutnik" },
+  tr: { agenda: "Özel takvim ve hatırlatıcılar", timer: "Özel zamanlayıcı başlat veya iptal et" },
+};
+
 export function commandSuggestStatus(
   language: UserLang,
   preference: boolean | null,
@@ -303,6 +317,8 @@ export function commandSuggestStatus(
 }
 
 export function commandDescription(language: UserLang, command: string, fallback: string): string {
+  const extraDescription = EXTRA_COMMAND_DESCRIPTIONS[language][command];
+  if (extraDescription) return extraDescription;
   const index = COMMAND_DESCRIPTION_KEYS.indexOf(command as typeof COMMAND_DESCRIPTION_KEYS[number]);
   return index < 0 ? fallback : DESCRIPTIONS[language][index] ?? fallback;
 }
