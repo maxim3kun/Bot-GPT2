@@ -174,6 +174,29 @@ test("countries without a verified region index do not replace zone browsing wit
   card.collector.stop("cancelled");
 });
 
+test("all currently covered Mobility countries keep a working commune fallback when zones are unverified", async () => {
+  const mobilityCodes = [
+    "AL", "DZ", "AU", "AT", "BE", "BO", "BG", "CA", "CN", "HR", "CZ", "DK", "EG", "FI", "FR", "DE",
+    "GR", "HU", "IT", "JP", "LA", "LU", "MT", "MA", "NL", "NZ", "PL", "PT", "RS", "SK", "SI", "ES",
+    "LK", "CH", "TH", "TN", "TR", "UA", "GB", "US",
+  ];
+  const builtInWithoutRegionIndex = ["qc", "en", "lu", "ch", "no", "is", "sg", "lv", "cz", "pt", "au", "ua"];
+  for (const territory of [
+    ...builtInWithoutRegionIndex,
+    ...mobilityCodes.map(code => `mobility:${code}`),
+  ]) {
+    const d = fakeDiscord({ channelId: `zones-${territory}` });
+    const s = service();
+    await handleTransportSearch(d.message, { place: "", territory, mode: "bus" } as any, "fr", "!", s.value);
+    const card = d.cards[0]!;
+    assert.ok(card.custom("zones"), `${territory}: zones button should be available`);
+    await click(card, "zones");
+    assert.match(card.last.content!, /Aucune liste de zones avec lignes vérifiées/, `${territory}: clear fallback`);
+    assert.ok(card.custom("city"), `${territory}: commune fallback should be available`);
+    card.collector.stop("cancelled");
+  }
+});
+
 test("an unavailable Irish feed keeps the county but hides technical source names", async () => {
   const title = "NTA GTFS and GTFS Realtime";
   const network = { id: "ie:national-gtfs", title, page_url: "https://data.gov.ie/dataset/nta-gtfs",
