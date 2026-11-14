@@ -9,7 +9,7 @@ import {
 import { HelpEmbedBuilder as EmbedBuilder, HELP_PREFIX_TOKEN } from "./help-embed.js";
 import { getPrefix } from "./prefix-store.js";
 import { replyToSlash } from "./slash-message-adapter.js";
-import { extraHelpPage, ADMIN_SLASH_COMMANDS } from "./help-extra-pages.js";
+import { ADMIN_SLASH_COMMANDS } from "./help-extra-pages.js";
 import { SLASH_COMMANDS } from "./slash.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 import { buildPersonaHelp, PERSONA_HELP_PAGES, personaHelpTabLabels } from "./persona-help.js";
@@ -18,8 +18,8 @@ import { commandFavorites, type CommandFavoritesStore } from "./command-favorite
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
-export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
-export const HELP_TOTAL_PAGES = 6;
+export type HelpPage = 1 | 2 | 3 | 4 | 5;
+export const HELP_TOTAL_PAGES = 5;
 export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
@@ -109,10 +109,10 @@ const FAVORITE_COMMANDS: FavoriteCommand[] = [
   { id: "vote", page: 5, command: "!vote", topics: ["civic"] },
   { id: "loi", page: 5, command: "!loi", topics: ["civic"] },
   { id: "feries", page: 5, command: "!feries", topics: ["civic"] },
-  { id: "help-persona", page: 6, command: "!help persona", topics: ["persona"] },
-  { id: "help-memory", page: 6, command: "!help memory", topics: ["memory"] },
-  { id: "help-language", page: 6, command: "!help language", topics: ["language"] },
-  { id: "help-diagnostics", page: 6, command: "!help diagnostics", topics: ["diagnostics"] },
+  { id: "help-language", page: 1, command: "!help language", topics: ["language"] },
+  { id: "help-persona", page: 5, command: "!help persona", topics: ["persona"] },
+  { id: "help-memory", page: 5, command: "!help memory", topics: ["memory"] },
+  { id: "help-diagnostics", page: 5, command: "!help diagnostics", topics: ["diagnostics"] },
 ];
 
 const MAX_FAVORITE_CHOICES = 25;
@@ -161,6 +161,14 @@ const COLORS: Record<HelpLanguage, number> = {
   ja: 0xff0000, nl: 0xff6600, ru: 0x2166ac, pl: 0xdc143c, tr: 0xe30a17,
 };
 
+const PAGE_TITLES: Record<HelpPage, Record<TextLang, string>> = {
+  1: { en: "🌟 Start here", fr: "🌟 Pour commencer", es: "🌟 Empieza aquí", de: "🌟 Erste Schritte", pt: "🌟 Começa aqui", it: "🌟 Per iniziare" },
+  2: { en: "🎮 Games & tools", fr: "🎮 Jeux & outils", es: "🎮 Juegos y herramientas", de: "🎮 Spiele & Werkzeuge", pt: "🎮 Jogos e ferramentas", it: "🎮 Giochi e strumenti" },
+  3: { en: "🎵 Music & radio", fr: "🎵 Musique & radio", es: "🎵 Música y radio", de: "🎵 Musik & Radio", pt: "🎵 Música e rádio", it: "🎵 Musica e radio" },
+  4: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" },
+  5: { en: "🤖 AI & useful info", fr: "🤖 IA & infos utiles", es: "🤖 IA e información", de: "🤖 KI & Infos", pt: "🤖 IA e informações", it: "🤖 IA e informazioni" },
+};
+
 // ── Nav row ───────────────────────────────────────────────────────────────────
 
 function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder> {
@@ -170,9 +178,10 @@ function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): Acti
   );
 }
 
-const HELP_FAVORITE_SELECT = "help_favorite_select";
-const HELP_FAVORITE_TOGGLE = "help_favorite_toggle";
+const HELP_FAVORITE_MANAGER = "help_favorite_manage";
+const HELP_FAVORITE_MANAGE_SELECT = "help_favorite_manage_select";
 const HELP_FAVORITES_LIST = "help_favorites_list";
+const HELP_FAVORITE_RUN = "help_favorite_run";
 const HELP_PERSONA_BUTTON = "help_personas";
 const HELP_PERSONA_TAB_PREFIX = "help_persona_tab_";
 const HELP_PERSONA_BACK = "help_persona_back";
@@ -209,68 +218,61 @@ function favoriteCommandsForTopic(topic: HelpTopic): FavoriteCommand[] {
 }
 
 function buildFavoriteSelectRow(
-  commands: FavoriteCommand[], prefix: string, lang: HelpLanguage, disabled = false,
+  commands: FavoriteCommand[], prefix: string, lang: HelpLanguage, savedIds: string[] = [], disabled = false,
 ): ActionRowBuilder<StringSelectMenuBuilder> | undefined {
   if (!commands.length) return undefined;
   const fr = textLang(lang) === "fr";
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId(HELP_FAVORITE_SELECT)
-      .setPlaceholder(fr ? "Choisis une commande à garder" : "Choose a command to save")
+      .setCustomId(HELP_FAVORITE_MANAGE_SELECT)
+      .setPlaceholder(fr ? "Ajouter ou retirer une commande" : "Add or remove a command")
       .setDisabled(disabled)
       .addOptions(commands.map(command => ({
         label: favoriteCommandLabel(command, prefix, lang).slice(0, 100),
         value: command.id,
+        description: savedIds.includes(command.id)
+          ? (fr ? "⭐ Enregistrée · appuie pour retirer" : "⭐ Saved · select to remove")
+          : (fr ? "Appuie pour ajouter aux favoris" : "Select to add to favorites"),
       }))),
   );
 }
 
-function buildFavoriteActionsRow(lang: HelpLanguage, disabled = false, includePersonas = false): ActionRowBuilder<ButtonBuilder> {
-  const fr = textLang(lang) === "fr";
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(HELP_FAVORITE_TOGGLE)
-      .setEmoji("⭐").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-    new ButtonBuilder().setCustomId(HELP_FAVORITES_LIST)
-      .setLabel(fr ? "Mes favoris" : "My favorites").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-  );
-  if (includePersonas) {
-    row.addComponents(new ButtonBuilder()
-      .setCustomId(HELP_PERSONA_BUTTON)
-      .setEmoji("🤹‍♂️")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(disabled));
-  }
-  return row;
+function buildFavoriteButton(disabled = false): ButtonBuilder {
+  return new ButtonBuilder().setCustomId(HELP_FAVORITE_MANAGER)
+    .setEmoji("⭐").setStyle(ButtonStyle.Secondary).setDisabled(disabled);
 }
 
-function buildHelpRows(page: HelpPage, lang: HelpLanguage, prefix: string, disabled = false): ActionRowBuilder<any>[] {
-  const rows: ActionRowBuilder<any>[] = [buildNavRow(page, lang, disabled)];
-  const selectRow = buildFavoriteSelectRow(favoriteCommandsForPage(page), prefix, lang, disabled);
-  if (selectRow) rows.push(selectRow);
-  rows.push(buildFavoriteActionsRow(lang, disabled, true));
-  return rows;
+function buildPersonaHelpButton(disabled = false): ButtonBuilder {
+  return new ButtonBuilder().setCustomId(HELP_PERSONA_BUTTON)
+    .setEmoji("🤹‍♂️").setStyle(ButtonStyle.Secondary).setDisabled(disabled);
 }
 
-function buildTopicHelpRows(topic: HelpTopic, lang: HelpLanguage, prefix: string, disabled = false): ActionRowBuilder<any>[] {
-  const commands = favoriteCommandsForTopic(topic);
-  const selectRow = buildFavoriteSelectRow(commands.length ? commands : [{
-    id: `help:${topic}`, page: 6, command: `!help ${topic}`, topics: [topic],
-  }], prefix, lang, disabled);
-  return selectRow ? [selectRow, buildFavoriteActionsRow(lang, disabled)] : [buildFavoriteActionsRow(lang, disabled)];
+function buildFavoriteActionsRow(disabled = false): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(buildFavoriteButton(disabled));
+}
+
+function buildHelpRows(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+  const row = buildNavRow(page, lang, disabled);
+  row.addComponents(buildFavoriteButton(disabled), buildPersonaHelpButton(disabled));
+  return [row];
+}
+
+function buildTopicHelpRows(disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+  return [buildFavoriteActionsRow(disabled)];
 }
 
 function favoriteListMessage(commandIds: string[], prefix: string, lang: HelpLanguage): string {
   const fr = textLang(lang) === "fr";
   if (!commandIds.length) {
     return fr
-      ? "Tu n’as pas encore de commande favorite. Choisis-en une dans la liste puis appuie sur ⭐."
-      : "You have no favorite commands yet. Choose one from the list, then press ⭐.";
+      ? "Tu n’as pas encore de commande favorite. Appuie sur ⭐ dans l’aide pour en choisir une."
+      : "You have no favorite commands yet. Press ⭐ in Help to choose one.";
   }
   const commands = commandIds.map(id => favoriteCommandForId(id, prefix, lang))
     .filter((value): value is string => Boolean(value));
   const heading = fr ? `⭐ Tes commandes favorites (${commands.length})` : `⭐ Your favorite commands (${commands.length})`;
-  const hint = fr ? "Pour les modifier, choisis une commande dans l’aide et appuie sur ⭐."
-    : "To change them, choose a command in Help and press ⭐.";
+  const hint = fr ? "Appuie sur ⭐ dans l’aide pour les modifier."
+    : "Press ⭐ in Help to manage them.";
   return `${heading}\n${commands.map(command => `• \`${command}\``).join("\n")}\n\n${hint}`;
 }
 
@@ -294,7 +296,7 @@ async function replyWithFavoriteList(
   const components = runner && available.length
     ? [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
-        .setCustomId("help_favorite_run")
+        .setCustomId(HELP_FAVORITE_RUN)
         .setPlaceholder(textLang(lang) === "fr" ? "Choisis un favori à lancer" : "Choose a favorite to run")
         .addOptions(available),
     )]
@@ -306,7 +308,7 @@ async function replyWithFavoriteList(
   const collector = reply.createMessageComponentCollector({
     time: 120_000,
     max: 1,
-    filter: component => component.customId === "help_favorite_run" && component.user.id === userId,
+    filter: component => component.customId === HELP_FAVORITE_RUN && component.user.id === userId,
   });
   collector.on("collect", async component => {
     try {
@@ -350,35 +352,81 @@ async function replyWithFavoriteList(
   });
 }
 
-async function replyWithFavoriteToggle(
-  interaction: { reply: (payload: { content: string; ephemeral: true }) => Promise<unknown> },
-  userId: string, commandId: string | null, prefix: string, lang: HelpLanguage, store: CommandFavoritesStore,
+async function replyWithFavoriteManager(
+  interaction: {
+    reply: (payload: { content: string; components?: ActionRowBuilder<any>[]; ephemeral: true }) => Promise<unknown>;
+    fetchReply?: () => Promise<Message>;
+  },
+  source: Message | ChatInputCommandInteraction,
+  userId: string, commands: FavoriteCommand[], prefix: string, lang: HelpLanguage,
+  store: CommandFavoritesStore, runner?: FavoriteCommandRunner,
 ): Promise<void> {
   const fr = textLang(lang) === "fr";
-  if (!commandId) {
-    await interaction.reply({
-      content: fr ? "Choisis d’abord une commande dans la liste." : "Choose a command from the list first.",
-      ephemeral: true,
-    });
-    return;
-  }
-  const command = favoriteCommandForId(commandId, prefix, lang);
-  if (!command) {
-    await interaction.reply({
-      content: fr ? "Cette commande n’est plus disponible dans l’aide." : "This command is no longer available in Help.",
-      ephemeral: true,
-    });
-    return;
-  }
-  const result = await store.toggle(userId, commandId);
-  const content = !result.ok
-    ? (fr ? "Impossible d’enregistrer tes favoris pour le moment." : "Your favorites could not be saved right now.")
-    : result.limitReached
-      ? (fr ? "Tu as atteint la limite de 25 favoris." : "You have reached the 25-favorite limit.")
-      : result.saved
-        ? (fr ? `\`${command}\` ajouté à tes favoris.` : `\`${command}\` added to your favorites.`)
-        : (fr ? `\`${command}\` retiré de tes favoris.` : `\`${command}\` removed from your favorites.`);
-  await interaction.reply({ content, ephemeral: true });
+  const allowed = new Set(commands.map(command => command.id));
+  const buildPanel = async () => {
+    const saved = await store.get(userId);
+    const components: ActionRowBuilder<any>[] = [];
+    const select = buildFavoriteSelectRow(commands, prefix, lang, saved ?? []);
+    if (select) components.push(select);
+    const hasRunnableFavorite = runner && (saved ?? []).some(id => Boolean(favoriteCommandForId(id, prefix, lang)));
+    if (hasRunnableFavorite) {
+      components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(HELP_FAVORITES_LIST)
+          .setLabel(fr ? "Lancer un favori" : "Run a favorite")
+          .setEmoji("▶️").setStyle(ButtonStyle.Secondary),
+      ));
+    }
+    const content = saved === null
+      ? (fr ? "Tes favoris sont indisponibles. Tu peux quand même en ajouter ou en retirer."
+        : "Your favorites are unavailable. You can still add or remove one.")
+      : fr ? "Sélectionne une commande pour l’ajouter ou la retirer de tes favoris."
+        : "Select a command to add or remove it from your favorites.";
+    return { content, components };
+  };
+
+  await interaction.reply({ ...(await buildPanel()), ephemeral: true });
+  if (!interaction.fetchReply) return;
+  const reply = await interaction.fetchReply();
+  const collector = reply.createMessageComponentCollector({
+    time: 120_000,
+    filter: component => [HELP_FAVORITE_MANAGE_SELECT, HELP_FAVORITES_LIST].includes(component.customId) &&
+      component.user.id === userId,
+  });
+  collector.on("collect", async component => {
+    try {
+      if (component.customId === HELP_FAVORITES_LIST) {
+        await replyWithFavoriteList(component, source, userId, prefix, lang, store, runner);
+        return;
+      }
+      if (typeof component.isStringSelectMenu !== "function" || !component.isStringSelectMenu()) return;
+      const commandId = component.values[0] ?? "";
+      const command = allowed.has(commandId) ? favoriteCommandForId(commandId, prefix, lang) : undefined;
+      if (!command) {
+        await component.update({
+          content: fr ? "Cette commande n’est plus disponible dans ce guide." : "That command is no longer available in this guide.",
+          components: [],
+        });
+        return;
+      }
+      const result = await store.toggle(userId, commandId);
+      const content = !result.ok
+        ? (fr ? "Impossible d’enregistrer tes favoris pour le moment." : "Your favorites could not be saved right now.")
+        : result.limitReached
+          ? (fr ? "Tu as atteint la limite de 25 favoris." : "You have reached the 25-favorite limit.")
+          : result.saved
+            ? (fr ? `\`${command}\` ajouté aux favoris.` : `\`${command}\` added to favorites.`)
+            : (fr ? `\`${command}\` retiré des favoris.` : `\`${command}\` removed from favorites.`);
+      await component.update({ ...(await buildPanel()), content });
+    } catch (error) {
+      recordDiagnosticMetadata("help", error);
+      if (!component.replied && !component.deferred) {
+        await component.reply({
+          content: fr ? "Impossible de modifier tes favoris pour le moment." : "Favorites could not be updated right now.",
+          ephemeral: true,
+        }).catch(() => null);
+      }
+    }
+  });
 }
 
 function buildPersonaHelpRows(
@@ -401,8 +449,8 @@ function buildPersonaHelpRows(
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(disabled),
       new ButtonBuilder()
-        .setCustomId(HELP_FAVORITES_LIST)
-        .setLabel(textLang(lang) === "fr" ? "Mes favoris" : "My favorites")
+        .setCustomId(HELP_FAVORITE_MANAGER)
+        .setEmoji("⭐")
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(disabled),
     ),
@@ -417,7 +465,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
   const embed = new EmbedBuilder()
     .setCommandPrefix(prefix)
     .setCompact()
-    .setTitle(t("title", lang))
+    .setTitle(PAGE_TITLES[page][tl])
     .setColor(COLORS[lang])
     .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES} · ${t("nav", lang).split("•").at(-1)!.trim().replaceAll("!help", `${p}help`)}` });
 
@@ -434,7 +482,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
           `\`@bot <question>\` 🤖 · \`${p}image <description>\` 🎨`,
-          `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\``,
+          `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\` · \`/help\``,
         ].join("\n"),
       },
       {
@@ -447,9 +495,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[tl] ?? "🎉 Fun",
         value: [
-          `\`${p}joke\` 😄  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
-          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲`,
-          `> ` + { en: "Append a lang code: `!joke fr`, `!joke ja`, `!joke ru`…", fr: "Ajoute le code langue : `!joke fr`, `!joke ja`, `!joke ru`…", es: "Añade código de idioma: `!joke fr`, `!joke ja`, `!joke ru`…", de: "Sprachkürzel anhängen: `!joke fr`, `!joke ja`, `!joke ru`…", pt: "Adicione o código do idioma: `!joke fr`, `!joke ja`, `!joke ru`…", it: "Aggiungi il codice lingua: `!joke fr`, `!joke ja`, `!joke ru`…" }[tl],
+          `\`${p}joke\` 😄  \`/joke\`  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
+          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲 · \`/roll\``,
         ].join("\n"),
       },
       {
@@ -459,7 +506,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
         value: `\`${p}agenda add ${agendaDateTime} <${agendaTitle}>\` · \`${p}agenda list\` · \`${p}timer 20m <${agendaTitle}>\`\n` +
-          ({ en: "Reminders are sent by DM.", fr: "Rappels envoyés par DM.", es: "Recordatorios por DM.", de: "Erinnerungen per DM.", pt: "Lembretes por DM.", it: "Promemoria via DM." }[tl] ?? "Reminders are sent by DM."),
+          ({ en: "Private reminders by DM.", fr: "Rappels privés par DM.", es: "Avisos privados por DM.", de: "Private Erinnerungen per DM.", pt: "Lembretes privados por DM.", it: "Promemoria privati via DM." }[tl] ?? "Private reminders by DM."),
       },
     );
 
@@ -472,26 +519,24 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[tl] ?? "🎮 Games",
         value: [
           `\`${p}minesweeper\` 💣  \`${p}geo\` 🌍  \`${p}trivia\` 🧠  \`${p}guessnumber\` 🎯`,
-          `\`${p}hangman\` / \`${p}pendu\` 🪢 — ` + { en: "Guess a word, one letter at a time (6 errors max).", fr: "Devine un mot, une lettre à la fois (6 erreurs max).", es: "Adivina una palabra, una letra cada vez (máximo 6 errores).", de: "Errate ein Wort, Buchstabe für Buchstabe (höchstens 6 Fehler).", pt: "Adivinhe uma palavra, uma letra por vez (máximo de 6 erros).", it: "Indovina una parola, una lettera alla volta (massimo 6 errori)." }[tl],
-          `\`${p}connect4 solo|@user\` 🔴🟡  \`${p}guessthelogo\` 🏷️  \`/shellgame\` 🥤`,
-          `> ` + { en: "Some games support `easy|medium|hard`  •  `!help games` for details", fr: "Certains jeux proposent `easy|medium|hard`  •  `!help jeux` pour les détails", es: "Algunos juegos ofrecen `easy|medium|hard`  •  `!help juegos` para detalles", de: "Einige Spiele bieten `easy|medium|hard`  •  `!help spiele` für Details", pt: "Alguns jogos oferecem `easy|medium|hard`  •  `!help jogos` para detalhes", it: "Alcuni giochi offrono `easy|medium|hard`  •  `!help giochi` per dettagli" }[tl],
+          `\`${p}hangman\` / \`${p}pendu\` 🪢 · \`${p}connect4 solo|@user\` 🔴🟡`,
+          `\`${p}guessthelogo\` 🏷️ · \`/shellgame\` 🥤 · \`${p}help games\``,
         ].join("\n"),
       },
       {
         name: { en: "🆕 New Games", fr: "🆕 Nouveaux jeux", es: "🆕 Nuevos juegos", de: "🆕 Neue Spiele", pt: "🆕 Novos jogos", it: "🆕 Nuovi giochi" }[tl] ?? "🆕 New Games",
         value: [
-          `\`${p}tierlist [theme]\` 🏆  \`${p}blindtest [theme] [easy|hard]\` 🎵  \`${p}milliongame\` 💰`,
-          `> ` + { en: "Themes and instructions: `!help tierlist`, `!help blindtest`, `!help million`", fr: "Thèmes et règles : `!help tierlist`, `!help blindtest`, `!help million`", es: "Temas e instrucciones: `!help tierlist`, `!help blindtest`, `!help million`", de: "Themen und Regeln: `!help tierlist`, `!help blindtest`, `!help million`", pt: "Temas e regras: `!help tierlist`, `!help blindtest`, `!help million`", it: "Temi e regole: `!help tierlist`, `!help blindtest`, `!help million`" }[tl],
+          `\`${p}tierlist [theme]\` 🏆 · \`${p}blindtest [theme]\` 🎵 · \`${p}milliongame\` 💰`,
+          `\`${p}help tierlist\` · \`${p}help blindtest\` · \`${p}help million\``,
         ].join("\n"),
       },
       {
         name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools",
         value: [
-          `\`${p}define <word>\` 📖  \`${p}pokemon <name>\` 🔴  \`${p}qr <text>\` 📷`,
-          `\`${p}echo\` 🦜  \`${p}food\` 🥗  \`${p}rate <food>\` ⭐  \`${p}shazam\` 🎵`,
-          `\`${p}translate <lang> <text>\` 🌐  \`${p}meme <top> | <bottom>\` 🖼️`,
-          `\`${p}excel <URL>\` 📊  \`${p}pdf <URL>\` 📄`,
-          `> ` + { en: "`!help <tool>` for details", fr: "`!help <outil>` pour les détails", es: "`!help <herramienta>` para detalles", de: "`!help <Werkzeug>` für Details", pt: "`!help <ferramenta>` para detalhes", it: "`!help <strumento>` per i dettagli" }[tl],
+          `\`${p}define <word>\` 📖 · \`${p}pokemon <name>\` 🔴 · \`${p}qr <text>\` 📷`,
+          `\`${p}echo\` 🦜 · \`${p}food\` 🥗 · \`${p}rate <food>\` ⭐`,
+          `\`${p}translate\` 🌐 · \`${p}meme\` 🖼️ · \`${p}shazam\` 🎵`,
+          `\`${p}excel <URL>\` 📊 · \`${p}pdf <URL>\` 📄 · \`${p}help tools\``,
         ].join("\n"),
       },
     );
@@ -544,47 +589,48 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
     );
 
-  // ── Page 5 — AI & Quests ───────────────────────────────────────────────────
+  // ── Page 5 — AI, memory & useful information ────────────────────────────────
   } else if (page === 5) {
-    const desc = { en: "AI & quests.", fr: "IA & quêtes.", es: "IA & misiones.", de: "KI & Quests.", pt: "IA & missões.", it: "IA & missioni." };
+    const desc = { en: "AI, personal goals and verified information.", fr: "IA, objectifs personnels et informations vérifiées.", es: "IA, objetivos personales e información verificada.", de: "KI, persönliche Ziele und geprüfte Informationen.", pt: "IA, objetivos pessoais e informações verificadas.", it: "IA, obiettivi personali e informazioni verificate." };
     const questGoalArgument = tl === "fr" ? "objectif" : "goal";
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
         name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
         value: [
-          `\`@bot analyse [@membre] [100 messages]\` — ` + { en: "Recent-message analysis (permissions and consent required)", fr: "Analyse des messages récents (droits et accord requis)", es: "Análisis de mensajes (permisos y consentimiento)", de: "Nachrichtenanalyse (Berechtigungen und Einwilligung)", pt: "Análise de mensagens (permissões e consentimento)", it: "Analisi messaggi (permessi e consenso)" }[tl],
-          `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy [topic]\` 🕵️`,
-          `\`${p}ai enable\` · \`${p}ai reset\` — ` + { en: "enable or reset AI consent", fr: "activer ou réinitialiser l’accord IA", es: "activar o restablecer el consentimiento IA", de: "KI-Einwilligung aktivieren oder zurücksetzen", pt: "ativar ou redefinir o consentimento IA", it: "attivare o reimpostare il consenso IA" }[tl],
+          `\`@bot <question>\` · \`@bot analyse [@membre]\``,
+          `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy\` 🕵️`,
+          `\`${p}ai enable\` · \`${p}ai reset\` · \`${p}help ai\``,
         ].join("\n"),
       },
       {
-        name: { en: "🎯 Quests & Levels", fr: "🎯 Quêtes & Niveaux", es: "🎯 Misiones & Niveles", de: "🎯 Quests & Level", pt: "🎯 Missões & Níveis", it: "🎯 Missioni & Livelli" }[tl] ?? "🎯 Quests",
+        name: { en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory",
+        value: [
+          `\`${p}ai remember <info>\` · \`${p}ai memory\` · \`${p}ai forget <N|all>\``,
+          `\`${p}ai memory auto on\` · \`${p}ai memory auto off\` · \`${p}help memory\``,
+        ].join("\n"),
+      },
+      {
+        name: { en: "🎯 Quests & levels", fr: "🎯 Quêtes & niveaux", es: "🎯 Misiones y niveles", de: "🎯 Quests & Level", pt: "🎯 Missões e níveis", it: "🎯 Missioni e livelli" }[tl] ?? "🎯 Quests & levels",
         value: [
           `\`${p}quest start\` · \`${p}quest add <${questGoalArgument}>\` · \`${p}quest list\``,
           `\`${p}quest done <N|all>\` · \`${p}quest negotiate\` · \`${p}quest profile\` · \`${p}quest stats\``,
-          `\`${p}quest remind\` · \`${p}quest bully on|off\` · \`${p}quest reset\``,
-          `> \`${p}help quest\` ` + { en: "for full details", fr: "pour les détails", es: "para detalles", de: "für Details", pt: "para detalhes", it: "per i dettagli" }[tl],
+          `\`${p}quest remind\` · \`${p}quest bully on|off\` · \`${p}quest reset\` · \`${p}help quest\``,
         ].join("\n"),
       },
-        {
-          name: { en: "📚 Verified civic data", fr: "📚 Informations civiques vérifiées", es: "📚 Datos cívicos verificados", de: "📚 Geprüfte Bürgerdaten", pt: "📚 Dados cívicos verificados", it: "📚 Dati civici verificati" }[tl] ?? "📚 Verified civic data",
+      {
+          name: { en: "📚 Civic information", fr: "📚 Infos civiques", es: "📚 Información cívica", de: "📚 Bürgerinfos", pt: "📚 Dados cívicos", it: "📚 Dati civici" }[tl] ?? "📚 Civic information",
           value: [
             `\`${p}vote <topic>\` · \`${p}loi <article>\` · \`${p}feries <country> [year]\``,
-            { en: "`!vote` shows recent National Assembly votes; `!law` cites Legifrance; `!holidays` lists sourced dates.",
-              fr: "`!vote` affiche les scrutins récents ; `!loi` cite Légifrance ; `!feries` liste les dates et leur source.",
-              es: "`!vote` muestra votaciones recientes; `!law` cita Legifrance; `!holidays` indica las fechas y su fuente.",
-              de: "`!vote` zeigt Abstimmungen; `!law` zitiert Legifrance; `!holidays` nennt Daten und Quelle.",
-              pt: "`!vote` mostra votações; `!law` cita Legifrance; `!holidays` apresenta datas e fontes.",
-              it: "`!vote` mostra le votazioni; `!law` cita Legifrance; `!holidays` indica date e fonti." }[tl] ?? "",
+            { en: "Assembly votes · Legifrance · sourced holiday dates.",
+              fr: "Scrutins de l’Assemblée · Légifrance · jours fériés sourcés.",
+              es: "Votos oficiales · Legifrance · festivos con fuente.",
+              de: "Abstimmungen · Legifrance · Feiertage mit Quelle.",
+              pt: "Votações · Legifrance · feriados com fonte.",
+              it: "Votazioni · Legifrance · festività con fonte." }[tl] ?? "",
           ].join("\n"),
         },
     );
-
-  // ── Personas, private memory, administration and actual slash catalogue ────
-  } else {
-    const extra = extraHelpPage(page, tl, p);
-    embed.setDescription(extra.title).addFields(extra.fields);
   }
 
   return embed;
@@ -605,12 +651,11 @@ export async function sendHelpPaginator(
   let page: HelpPage = startPage;
   let view: "help" | "persona" = "help";
   let personaPage = 0;
-  let selectedCommandId: string | null = null;
   const currentEmbed = () => view === "help"
     ? buildHelpEmbed(lang, page, prefix)
     : buildPersonaHelp(lang, personaPage, prefix);
   const currentComponents = (disabled = false) => view === "help"
-    ? buildHelpRows(page, lang, prefix, disabled)
+    ? buildHelpRows(page, lang, disabled)
     : buildPersonaHelpRows(lang, personaPage, prefix, disabled);
 
   const reply = isInteraction
@@ -619,7 +664,7 @@ export async function sendHelpPaginator(
 
   const collector = reply.createMessageComponentCollector({
     time: 120_000,
-    filter: (interaction) => [HELP_FAVORITE_SELECT, HELP_FAVORITE_TOGGLE, HELP_FAVORITES_LIST,
+    filter: (interaction) => [HELP_FAVORITE_MANAGER,
       "help_prev", "help_next", HELP_PERSONA_BUTTON, HELP_PERSONA_BACK].includes(interaction.customId) ||
       interaction.customId.startsWith(HELP_PERSONA_TAB_PREFIX),
   });
@@ -630,43 +675,22 @@ export async function sendHelpPaginator(
         await i.reply({ content: t("unauthorized", lang), ephemeral: true });
         return;
       }
-      if (typeof i.isStringSelectMenu === "function" && i.isStringSelectMenu() && i.customId === HELP_FAVORITE_SELECT) {
-        const selected = i.values[0] ?? "";
-        const valid = view === "help" && favoriteCommandsForPage(page).some(command => command.id === selected);
-        selectedCommandId = valid ? selected : null;
-        const command = selectedCommandId ? favoriteCommandForId(selectedCommandId, prefix, lang) : undefined;
-        await i.reply({
-          content: command
-            ? (textLang(lang) === "fr" ? `\`${command}\` sélectionnée. Appuie sur ⭐ pour l’ajouter ou la retirer.`
-              : `\`${command}\` selected. Press ⭐ to add or remove it.`)
-            : (textLang(lang) === "fr" ? "Cette commande n’est pas disponible sur cette page." : "That command is not available on this page."),
-          ephemeral: true,
-        });
-        return;
-      }
-      if (i.customId === HELP_FAVORITES_LIST) {
-        await replyWithFavoriteList(i, source, i.user.id, prefix, lang, favoritesStore, runner);
-        return;
-      }
-      if (i.customId === HELP_FAVORITE_TOGGLE) {
-        await replyWithFavoriteToggle(i, i.user.id, selectedCommandId, prefix, lang, favoritesStore);
+      if (i.customId === HELP_FAVORITE_MANAGER) {
+        const commands = view === "help" ? favoriteCommandsForPage(page) : favoriteCommandsForTopic("persona");
+        await replyWithFavoriteManager(i, source, i.user.id, commands, prefix, lang, favoritesStore, runner);
         return;
       }
       if (view === "help") {
         if (i.customId === HELP_PERSONA_BUTTON) {
           view = "persona";
           personaPage = 0;
-          selectedCommandId = null;
         } else if (i.customId === "help_prev") {
           page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
-          selectedCommandId = null;
         } else if (i.customId === "help_next") {
           page = (page === HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
-          selectedCommandId = null;
         }
       } else if (i.customId === HELP_PERSONA_BACK) {
         view = "help";
-        selectedCommandId = null;
       } else if (i.customId.startsWith(HELP_PERSONA_TAB_PREFIX)) {
         const next = Number(i.customId.slice(HELP_PERSONA_TAB_PREFIX.length));
         if (Number.isInteger(next) && next >= 0 && next < PERSONA_HELP_PAGES) personaPage = next;
@@ -752,12 +776,22 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
 }
 
 export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
-  if (topic === "memory") return buildHelpEmbed(lang, 6, prefix);
+  const p = HELP_PREFIX_TOKEN;
+  const tl = textLang(lang);
+  if (topic === "memory") {
+    return new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang])
+      .setTitle({ en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory")
+      .setDescription({ en: "Optional, encrypted personal memory. A refusal is respected.", fr: "Mémoire personnelle chiffrée et facultative. Un refus est respecté.", es: "Memoria personal cifrada y opcional. Se respeta el rechazo.", de: "Optionale, verschlüsselte persönliche Erinnerung. Eine Ablehnung wird respektiert.", pt: "Memória pessoal criptografada e opcional. A recusa é respeitada.", it: "Memoria personale crittografata e facoltativa. Il rifiuto viene rispettato." }[tl] ?? "")
+      .addFields(
+        { name: { en: "Manage", fr: "Gérer", es: "Gestionar", de: "Verwalten", pt: "Gerir", it: "Gestire" }[tl] ?? "Manage",
+          value: `\`${p}ai remember <information>\` · \`${p}ai memory\` · \`${p}ai forget <number|all>\`` },
+        { name: { en: "Automatic summaries", fr: "Résumés automatiques", es: "Resúmenes automáticos", de: "Automatische Zusammenfassungen", pt: "Resumos automáticos", it: "Riepiloghi automatici" }[tl] ?? "Automatic summaries",
+          value: `\`${p}ai memory auto on\` · \`${p}ai memory auto off\`` },
+      );
+  }
   if (topic === "persona") return new EmbedBuilder().setTitle("Persona").setDescription(`\`${prefix}persona help\``);
   if (topic === "diagnostics") return new EmbedBuilder().setTitle(lang === "fr" ? "Diagnostic" : "Diagnostics")
     .setDescription(`\`${prefix}tech status\` — ${lang === "fr" ? "Diagnostic des modules réservé aux administrateurs." : "Module diagnostics for administrators only."}`);
-  const p = HELP_PREFIX_TOKEN;
-  const tl = textLang(lang);
   const embed = new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang]);
 
   switch (topic) {
@@ -1090,43 +1124,24 @@ export async function sendHelpTopic(
   runner: FavoriteCommandRunner | undefined = favoriteCommandRunner,
 ): Promise<void> {
   const topicCommands = favoriteCommandsForTopic(topic);
-  const allowedCommandIds = new Set((topicCommands.length ? topicCommands : [{ id: `help:${topic}` }]).map(item => item.id));
-  let selectedCommandId: string | null = null;
   const reply = await source.reply({
     embeds: [buildTopicEmbed(topic, lang, prefix)],
-    components: buildTopicHelpRows(topic, lang, prefix),
+    components: buildTopicHelpRows(),
     allowedMentions: { parse: [] },
   });
   const collector = reply.createMessageComponentCollector({ time: 120_000 });
   collector.on("collect", async interaction => {
-    if (![HELP_FAVORITE_SELECT, HELP_FAVORITE_TOGGLE, HELP_FAVORITES_LIST].includes(interaction.customId)) return;
+    if (interaction.customId !== HELP_FAVORITE_MANAGER) return;
     try {
       if (interaction.user.id !== source.author.id) {
         await interaction.reply({ content: t("unauthorized", lang), ephemeral: true });
         return;
       }
-      if (typeof interaction.isStringSelectMenu === "function" && interaction.isStringSelectMenu() &&
-          interaction.customId === HELP_FAVORITE_SELECT) {
-        const selected = interaction.values[0] ?? "";
-        selectedCommandId = allowedCommandIds.has(selected) ? selected : null;
-        const command = selectedCommandId ? favoriteCommandForId(selectedCommandId, prefix, lang) : undefined;
-        await interaction.reply({
-          content: command
-            ? (textLang(lang) === "fr" ? `\`${command}\` sélectionnée. Appuie sur ⭐ pour l’ajouter ou la retirer.`
-              : `\`${command}\` selected. Press ⭐ to add or remove it.`)
-            : (textLang(lang) === "fr" ? "Cette commande n’est pas disponible dans ce guide."
-              : "That command is not available in this guide."),
-          ephemeral: true,
-        });
-        return;
-      }
-      if (interaction.customId === HELP_FAVORITES_LIST) {
-        await replyWithFavoriteList(interaction, source, interaction.user.id, prefix, lang, favoritesStore, runner);
-        return;
-      }
-      if (interaction.customId === HELP_FAVORITE_TOGGLE) {
-        await replyWithFavoriteToggle(interaction, interaction.user.id, selectedCommandId, prefix, lang, favoritesStore);
-      }
+      const commands = topicCommands.length ? topicCommands : [{
+        id: `help:${topic}`, page: 5 as HelpPage, command: `!help ${topic}`, topics: [topic],
+      }];
+      await replyWithFavoriteManager(interaction, source, interaction.user.id,
+        commands, prefix, lang, favoritesStore, runner);
     } catch (error) {
       recordDiagnosticMetadata("help", error);
       if (!interaction.replied && !interaction.deferred) {
@@ -1138,7 +1153,7 @@ export async function sendHelpTopic(
     }
   });
   collector.on("end", async () => {
-    try { await reply.edit({ components: buildTopicHelpRows(topic, lang, prefix, true) }); }
+    try { await reply.edit({ components: buildTopicHelpRows(true) }); }
     catch { /* message may have been deleted */ }
   });
 }
