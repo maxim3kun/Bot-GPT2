@@ -207,39 +207,67 @@ interface FootballLeague {
   slug: string;
   name: string;
   aliases: string[];
+  standingsId?: number;
   teams?: Array<{ aliases: string[]; matches: string[] }>;
 }
 
 const FOOTBALL_LEAGUES: FootballLeague[] = [
-  { slug: "fra.1", name: "Ligue 1", aliases: ["ligue 1", "ligue1"], teams: [
+  { slug: "fra.1", name: "Ligue 1", aliases: ["ligue 1", "ligue1", "championnat de france"], standingsId: 4334, teams: [
     { aliases: ["psg", "paris saint germain"], matches: ["paris saint germain", "psg"] },
     { aliases: ["marseille", "om"], matches: ["marseille"] }, { aliases: ["lyon", "ol"], matches: ["lyon"] },
     { aliases: ["monaco"], matches: ["monaco"] }, { aliases: ["lille"], matches: ["lille"] },
+    { aliases: ["rennes"], matches: ["rennes"] }, { aliases: ["lens"], matches: ["lens"] },
+    { aliases: ["nice"], matches: ["nice"] }, { aliases: ["nantes"], matches: ["nantes"] },
+    { aliases: ["strasbourg"], matches: ["strasbourg"] }, { aliases: ["toulouse"], matches: ["toulouse"] },
+    { aliases: ["auxerre"], matches: ["auxerre"] }, { aliases: ["montpellier"], matches: ["montpellier"] },
   ] },
-  { slug: "eng.1", name: "Premier League", aliases: ["premier league"], teams: [
+  { slug: "fra.2", name: "Ligue 2", aliases: ["ligue 2", "ligue2", "championnat de france de ligue 2"], standingsId: 4401 },
+  { slug: "eng.1", name: "Premier League", aliases: ["premier league", "english premier league"], standingsId: 4328, teams: [
     { aliases: ["arsenal"], matches: ["arsenal"] }, { aliases: ["chelsea"], matches: ["chelsea"] },
     { aliases: ["liverpool"], matches: ["liverpool"] }, { aliases: ["manchester city", "man city"], matches: ["manchester city"] },
     { aliases: ["manchester united", "man united", "man utd"], matches: ["manchester united"] },
-    { aliases: ["tottenham", "spurs"], matches: ["tottenham"] },
+    { aliases: ["tottenham", "spurs"], matches: ["tottenham"] }, { aliases: ["newcastle"], matches: ["newcastle"] },
+    { aliases: ["aston villa"], matches: ["aston villa"] }, { aliases: ["brighton"], matches: ["brighton"] },
+    { aliases: ["west ham"], matches: ["west ham"] }, { aliases: ["everton"], matches: ["everton"] },
+    { aliases: ["fulham"], matches: ["fulham"] }, { aliases: ["nottingham forest"], matches: ["nottingham forest"] },
   ] },
-  { slug: "ger.1", name: "Bundesliga", aliases: ["bundesliga"], teams: [
+  { slug: "eng.2", name: "Championship", aliases: ["championship", "efl championship", "english championship"], standingsId: 4329 },
+  { slug: "ger.1", name: "Bundesliga", aliases: ["bundesliga", "german bundesliga", "1. bundesliga"], standingsId: 4331, teams: [
     { aliases: ["bayern", "bayern munich"], matches: ["bayern"] },
     { aliases: ["borussia dortmund", "dortmund"], matches: ["borussia dortmund"] },
-    { aliases: ["leverkusen"], matches: ["leverkusen"] },
+    { aliases: ["leverkusen"], matches: ["leverkusen"] }, { aliases: ["rb leipzig", "leipzig"], matches: ["leipzig"] },
+    { aliases: ["eintracht frankfurt", "frankfurt"], matches: ["frankfurt"] },
   ] },
-  { slug: "esp.1", name: "LaLiga", aliases: ["la liga", "laliga"], teams: [
+  { slug: "ger.2", name: "2. Bundesliga", aliases: ["2 bundesliga", "2. bundesliga", "zweite bundesliga"], standingsId: 4399 },
+  { slug: "esp.1", name: "LaLiga", aliases: ["la liga", "laliga", "primera division", "spanish la liga"], standingsId: 4335, teams: [
     { aliases: ["real madrid"], matches: ["real madrid"] }, { aliases: ["barcelona", "barca"], matches: ["barcelona"] },
     { aliases: ["atletico madrid", "atletico"], matches: ["atletico madrid"] },
+    { aliases: ["athletic bilbao"], matches: ["athletic bilbao"] }, { aliases: ["real sociedad"], matches: ["real sociedad"] },
+    { aliases: ["villarreal"], matches: ["villarreal"] }, { aliases: ["valencia"], matches: ["valencia"] },
   ] },
-  { slug: "ita.1", name: "Serie A", aliases: ["serie a"], teams: [
+  { slug: "esp.2", name: "Segunda División", aliases: ["segunda division", "segunda", "la liga 2", "laliga 2"] },
+  { slug: "ita.1", name: "Serie A", aliases: ["serie a", "italian serie a"], standingsId: 4332, teams: [
     { aliases: ["juventus", "juve"], matches: ["juventus"] }, { aliases: ["inter milan", "inter"], matches: ["inter"] },
     { aliases: ["ac milan", "milan"], matches: ["milan"] }, { aliases: ["napoli"], matches: ["napoli"] },
+    { aliases: ["roma"], matches: ["roma"] }, { aliases: ["lazio"], matches: ["lazio"] },
+    { aliases: ["atalanta"], matches: ["atalanta"] }, { aliases: ["fiorentina"], matches: ["fiorentina"] },
   ] },
-  { slug: "ned.1", name: "Eredivisie", aliases: ["eredivisie"], teams: [
+  { slug: "ita.2", name: "Serie B", aliases: ["serie b", "italian serie b"] },
+  { slug: "ned.1", name: "Eredivisie", aliases: ["eredivisie", "dutch eredivisie"], standingsId: 4337, teams: [
     { aliases: ["ajax"], matches: ["ajax"] }, { aliases: ["psv eindhoven", "psv"], matches: ["psv"] },
     { aliases: ["feyenoord"], matches: ["feyenoord"] },
   ] },
-  { slug: "uefa.champions", name: "Ligue des champions UEFA", aliases: ["champions league", "ligue des champions", "uefa champions"] },
+  { slug: "por.1", name: "Primeira Liga", aliases: ["primeira liga", "portuguese league", "liga portugal"], standingsId: 4344 },
+  { slug: "sco.1", name: "Scottish Premiership", aliases: ["scottish premiership", "scottish premier league", "spl"] },
+  { slug: "usa.1", name: "MLS", aliases: ["mls", "major league soccer", "major league soccer usa"], standingsId: 4346 },
+  { slug: "bra.1", name: "Brasileirão Série A", aliases: ["brasileirao", "brasileirao serie a", "brazilian serie a"] },
+  { slug: "arg.1", name: "Primera División Argentina", aliases: ["primera division argentina", "argentine primera division", "liga profesional argentina"] },
+  { slug: "uefa.champions", name: "Ligue des champions UEFA", aliases: ["champions league", "ligue des champions", "uefa champions", "uefa champions league"] },
+  { slug: "uefa.europa", name: "Ligue Europa UEFA", aliases: ["ligue europa", "europa league", "uefa europa league"] },
+  { slug: "uefa.europa.conf", name: "Ligue Conférence UEFA", aliases: ["conference league", "ligue conference", "uefa conference league"] },
+  { slug: "uefa.nations", name: "Ligue des nations UEFA", aliases: ["nations league", "ligue des nations", "uefa nations league"] },
+  { slug: "fifa.world", name: "Coupe du monde FIFA", aliases: ["coupe du monde", "world cup", "fifa world cup"] },
+  { slug: "concacaf.gold", name: "Gold Cup CONCACAF", aliases: ["gold cup", "concacaf gold cup"] },
 ];
 
 export function isSupportedFootballQuery(text: string): boolean {
@@ -247,6 +275,10 @@ export function isSupportedFootballQuery(text: string): boolean {
   return FOOTBALL_LEAGUES.some((league) =>
     league.aliases.some((alias) => value.includes(normalize(alias))) ||
     Boolean(league.teams?.some((team) => team.aliases.some((alias) => value.includes(normalize(alias))))));
+}
+
+function isFootballStandingsQuery(text: string): boolean {
+  return /\b(?:classement|classements|standings?|league table|tableau|ranking|rankings|tabelle)\b/.test(normalize(text));
 }
 
 interface EspnFootballEvent {
@@ -264,6 +296,23 @@ interface EspnFootballEvent {
 interface EspnScoreboard {
   events?: unknown;
   leagues?: Array<{ calendar?: unknown; name?: unknown }>;
+}
+
+interface SportsDbStanding {
+  idLeague?: unknown;
+  strLeague?: unknown;
+  strSeason?: unknown;
+  dateUpdated?: unknown;
+  intRank?: unknown;
+  strTeam?: unknown;
+  intPlayed?: unknown;
+  intWin?: unknown;
+  intDraw?: unknown;
+  intLoss?: unknown;
+  intGoalsFor?: unknown;
+  intGoalsAgainst?: unknown;
+  intGoalDifference?: unknown;
+  intPoints?: unknown;
 }
 
 function utcDateKey(date: Date): string {
@@ -331,6 +380,49 @@ function eventEvidence(event: EspnFootballEvent, leagueName: string, checkedAt: 
   };
 }
 
+async function fetchFootballStandingsEvidence(
+  league: FootballLeague, now: Date, fetcher: typeof fetch,
+): Promise<WebSearchResult[]> {
+  if (!league.standingsId) return [];
+  const sourceUrl = new URL("https://www.thesportsdb.com/api/v1/json/123/lookuptable.php");
+  sourceUrl.searchParams.set("l", String(league.standingsId));
+  const response = await fetcher(sourceUrl, {
+    signal: AbortSignal.timeout(8_000), headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`TheSportsDB returned HTTP ${response.status}`);
+  const body: unknown = await response.json();
+  if (!body || typeof body !== "object" || !Array.isArray((body as { table?: unknown }).table)) {
+    throw new Error("TheSportsDB returned an invalid standings table");
+  }
+  const table = (body as { table: SportsDbStanding[] }).table;
+  const rows = table.filter((row) =>
+    row && String(row.idLeague) === String(league.standingsId) &&
+    typeof row.strTeam === "string" && row.strTeam.trim() &&
+    Number.isInteger(Number(row.intRank)) && Number(row.intRank) > 0 &&
+    Number.isFinite(Number(row.intPoints)) && Number.isFinite(Number(row.intPlayed)));
+  if (rows.length === 0) return [];
+  const first = rows[0]!;
+  const sourceLeague = typeof first.strLeague === "string" ? first.strLeague : league.name;
+  const season = typeof first.strSeason === "string" ? first.strSeason : "season not specified";
+  const sourceUpdated = typeof first.dateUpdated === "string" && !Number.isNaN(Date.parse(first.dateUpdated))
+    ? first.dateUpdated : "not supplied";
+  const lines = rows.slice(0, 10).map((row) =>
+    `${row.intRank}. ${row.strTeam} — ${row.intPoints} points, ${row.intPlayed} played ` +
+    `(${row.intWin ?? "?"}W ${row.intDraw ?? "?"}D ${row.intLoss ?? "?"}L; ` +
+    `${row.intGoalsFor ?? "?"} goals for, ${row.intGoalsAgainst ?? "?"} against, GD ${row.intGoalDifference ?? "?"})`);
+  return [{
+    title: `${sourceLeague} · standings`,
+    url: sourceUrl.toString(),
+    snippet: `${season} · source updated ${sourceUpdated} · checked ${now.toISOString()}`,
+    publishedAt: Number.isNaN(Date.parse(sourceUpdated)) ? undefined : new Date(sourceUpdated).toISOString(),
+    qualityScore: 12,
+    content: `Public ${sourceLeague} league table from TheSportsDB. Season: ${season}. ` +
+      `The source's update date is ${sourceUpdated}; this lookup was made at ${now.toISOString()}. ` +
+      `Top ten positions supplied by the source:\n${lines.join("\n")}\n` +
+      `Competition data page: ${sourceUrl.toString()}. This is a partial source view, not a guarantee that all competitions or divisions are covered.`,
+  }];
+}
+
 export async function fetchFootballEvidence(
   text: string, now = new Date(), fetcher: typeof fetch = fetch,
 ): Promise<WebSearchResult[] | null> {
@@ -338,6 +430,7 @@ export async function fetchFootballEvidence(
   const league = FOOTBALL_LEAGUES.find((item) => item.aliases.some((alias) => value.includes(normalize(alias))))
     ?? FOOTBALL_LEAGUES.find((item) => item.teams?.some((team) => team.aliases.some((alias) => value.includes(normalize(alias)))));
   if (!league) return null;
+  if (isFootballStandingsQuery(text)) return fetchFootballStandingsEvidence(league, now, fetcher);
   const endpoint = `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.slug}/scoreboard`;
   const currentKey = utcDateKey(now);
   const baseUrl = new URL(endpoint);
@@ -396,7 +489,12 @@ export async function fetchFootballEvidence(
   return matches.slice(0, team ? 5 : 6);
 }
 
-export function noFootballEvidenceReply(language: string): string {
+export function noFootballEvidenceReply(language: string, text = ""): string {
+  if (isFootballStandingsQuery(text)) {
+    return language === "fr"
+      ? "Je n’ai pas trouvé de classement vérifiable pour cette compétition dans les sources publiques disponibles. La couverture des divisions est partielle; vérifie la page officielle de la ligue."
+      : "I couldn't verify a standings table for this competition in the available public sources. Division coverage is partial; check the league's official page.";
+  }
   return language === "fr"
     ? "Je n’ai pas trouvé de match récent ou à venir vérifiable dans cette source. Elle couvre certaines compétitions seulement; précise la ligue ou le club si tu veux réessayer."
     : "I couldn't verify a recent or upcoming match in this source. It covers selected competitions only; specify a league or club to try again.";

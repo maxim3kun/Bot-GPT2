@@ -338,3 +338,55 @@ test("football answers separate fresh fixtures from final scores and reject stal
     "Quel est le prochain match Arsenal Premier League ?", "fr", async () => [], async () => { throw new Error("offline"); });
   assert.match(unavailable.immediateReply!, /source de résultats de football n’a pas pu être chargée/);
 });
+
+test("football coverage includes more divisions and verified public league tables", async () => {
+  const now = new Date("2026-11-14T12:00:00.000Z");
+  assert.equal(classifyAiMessage("Quel est le classement de Ligue 2 ?").needsResearch, true);
+  assert.equal(classifyAiMessage("What are the MLS standings?").needsResearch, true);
+  assert.equal(classifyAiMessage("Quel est le classement de la Ligue Europa ?").needsResearch, true);
+
+  let tableUrl = "";
+  const standings = await fetchFootballEvidence("Classement Ligue 1", now, async (input) => {
+    tableUrl = String(input);
+    assert.match(tableUrl, /thesportsdb\.com\/api\/v1\/json\/123\/lookuptable\.php\?l=4334/);
+    return new Response(JSON.stringify({ table: [
+      {
+        idLeague: "4334", strLeague: "French Ligue 1", strSeason: "2026-2027",
+        dateUpdated: "2026-11-13 05:01:00", intRank: "1", strTeam: "Paris Saint-Germain",
+        intPlayed: "12", intWin: "9", intDraw: "2", intLoss: "1",
+        intGoalsFor: "28", intGoalsAgainst: "9", intGoalDifference: "19", intPoints: "29",
+      },
+      {
+        idLeague: "9999", strLeague: "Unrelated league", strSeason: "2026",
+        dateUpdated: "2026-11-13", intRank: "1", strTeam: "Wrong Team",
+        intPlayed: "1", intPoints: "3",
+      },
+    ] }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  assert.equal(standings?.length, 1);
+  assert.match(standings?.[0]?.title!, /French Ligue 1/);
+  assert.match(standings?.[0]?.content!, /Season: 2026-2027/);
+  assert.match(standings?.[0]?.content!, /source's update date is 2026-11-13 05:01:00/);
+  assert.match(standings?.[0]?.content!, /lookup was made at 2026-11-14T12:00:00.000Z/);
+  assert.match(standings?.[0]?.content!, /1\. Paris Saint-Germain — 29 points/);
+  assert.doesNotMatch(standings?.[0]?.content!, /Wrong Team/);
+
+  let divisionEndpoint = "";
+  const championship = await fetchFootballEvidence("Championship fixtures", now, async (input) => {
+    divisionEndpoint = String(input);
+    return new Response(JSON.stringify({
+      leagues: [{ calendar: ["2026-11-14T07:00Z"] }], events: [],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  assert.match(divisionEndpoint, /soccer\/eng\.2\/scoreboard/);
+  assert.deepEqual(championship, []);
+
+  const unavailableTable = await researchForTurn(message, "Classement Ligue Europa", [], true,
+    "Classement Ligue Europa", "fr", async () => {
+      throw new Error("Standings must use the structured public table source");
+    }, async () => {
+      throw new Error("This competition has no configured standings source");
+    });
+  assert.match(unavailableTable.immediateReply!, /pas trouvé de classement vérifiable/);
+  assert.match(unavailableTable.immediateReply!, /couverture des divisions est partielle/);
+});

@@ -92,7 +92,7 @@ export async function researchForTurn(
         results: [], correction, guidance: "", immediateReply: unsupportedFootballReply(language),
       };
       if (results.length === 0) return {
-        results: [], correction, guidance: "", immediateReply: noFootballEvidenceReply(language),
+        results: [], correction, guidance: "", immediateReply: noFootballEvidenceReply(language, liveQuery),
       };
       return { results, correction, guidance: liveServiceGuidance("football", checkedOn, language) };
     } catch {
