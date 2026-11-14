@@ -7,7 +7,7 @@ import { isLatestNewsRequest } from "./ai-router.js";
 import { researchNotice } from "./ai-research-i18n.js";
 import { travelEvidenceFreshness, travelResearchClarification, travelResearchGuidance, travelResearchKind } from "./ai-travel-research.js";
 import {
-  fetchCurrencyEvidence, fetchTvScheduleEvidence, findTvCountry, formatLiveLookupFailure,
+  fetchCurrencyEvidence, fetchTvScheduleEvidence, findTvCountry, formatLiveLookupFailure, noTvListingsReply,
   hasExplicitTvCountry, liveServiceGuidance, liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
 } from "./ai-live-services.js";
 import {
@@ -137,7 +137,15 @@ export async function researchForTurn(
   const searchQuery = query;
   const effectiveSearchQuery = liveKind === "tv"
     ? liveServiceSearchQuery(searchQuery, "tv", language) : searchQuery;
-  const fetched = await search(effectiveSearchQuery.replace(/<@!?\d+>/g, "[Discord member]"), { verify: !!correction });
+  let fetched;
+  try {
+    fetched = await search(effectiveSearchQuery.replace(/<@!?\d+>/g, "[Discord member]"), { verify: !!correction });
+  } catch (error) {
+    if (liveKind === "tv") return {
+      results: [], correction, guidance: "", immediateReply: formatLiveLookupFailure("tv", language),
+    };
+    throw error;
+  }
   let results = !correction && isLatestNewsRequest(text) ? fetched : prepareEvidence(fetched, Date.now(), query);
   let staleOfficialTravelSource = false;
   if (travelKind === "visa" || travelKind === "country") {
@@ -146,7 +154,9 @@ export async function researchForTurn(
     staleOfficialTravelSource = official.length > 0 && results.length === 0;
   }
   if (!results.some((result) => result.content?.trim())) return {
-    results: [], correction, guidance, immediateReply: travelKind === "visa"
+    results: [], correction, guidance, immediateReply: liveKind === "tv"
+      ? noTvListingsReply(language)
+      : travelKind === "visa"
       ? staleOfficialTravelSource
         ? language === "fr"
           ? "J’ai trouvé une page officielle, mais sa date est trop ancienne pour confirmer que les conditions de visa sont encore valables. Vérifie auprès de l’autorité du pays."

@@ -24,17 +24,17 @@ export function liveServiceSearchQuery(
   query: string, kind: Exclude<LiveServiceKind, null>, language = "en",
 ): string {
   const suffixes: Record<string, Record<Exclude<LiveServiceKind, null>, string>> = {
-    fr: { jobs: "offres d’emploi récentes annonce employeur", football: "football calendrier résultat match date", tv: "programme télévision grille horaires date", currency: "taux de change référence date devise" },
-    en: { jobs: "recent job vacancies employer", football: "football fixtures results match date", tv: "television schedule listings date", currency: "exchange rate reference date currency" },
-    de: { jobs: "aktuelle Stellenangebote Arbeitgeber", football: "Fußball Spielplan Ergebnisse Datum", tv: "Fernsehprogramm Sendetermine", currency: "Wechselkurs Referenzkurs Datum Währung" },
-    es: { jobs: "ofertas de empleo recientes empresa", football: "fútbol calendario resultados fecha", tv: "programación de televisión horarios", currency: "tipo de cambio referencia fecha moneda" },
-    it: { jobs: "offerte di lavoro recenti azienda", football: "calcio calendario risultati data", tv: "programmazione televisiva orari", currency: "tasso di cambio riferimento data valuta" },
-    pt: { jobs: "vagas de emprego recentes empregador", football: "futebol calendário resultados data", tv: "programação de televisão horários", currency: "taxa de câmbio referência data moeda" },
-    ja: { jobs: "最新 求人 企業", football: "サッカー 試合日程 結果 日付", tv: "テレビ番組 放送予定", currency: "為替レート 基準日 通貨" },
-    nl: { jobs: "recente vacatures werkgever", football: "voetbal wedstrijden uitslagen datum", tv: "televisiegids programma tijden", currency: "wisselkoers referentiekoers datum valuta" },
-    ru: { jobs: "актуальные вакансии работодатель", football: "футбол расписание результаты дата", tv: "телепрограмма расписание", currency: "обменный курс справочный дата валюта" },
-    pl: { jobs: "aktualne oferty pracy pracodawca", football: "piłka nożna terminarz wyniki data", tv: "program telewizyjny godziny", currency: "kurs walut data kurs referencyjny" },
-    tr: { jobs: "güncel iş ilanları işveren", football: "futbol fikstür sonuç tarih", tv: "televizyon yayın akışı", currency: "döviz kuru referans tarih para birimi" },
+    fr: { jobs: "offres d’emploi récentes annonce employeur", football: "football calendrier résultat match date", tv: "grille publique télévision chaînes diffuseur horaires date", currency: "taux de change référence date devise" },
+    en: { jobs: "recent job vacancies employer", football: "football fixtures results match date", tv: "public television guide channel broadcaster schedule listings date", currency: "exchange rate reference date currency" },
+    de: { jobs: "aktuelle Stellenangebote Arbeitgeber", football: "Fußball Spielplan Ergebnisse Datum", tv: "öffentliches Fernsehprogramm Sender Sendezeiten", currency: "Wechselkurs Referenzkurs Datum Währung" },
+    es: { jobs: "ofertas de empleo recientes empresa", football: "fútbol calendario resultados fecha", tv: "guía pública televisión canales horarios programación fecha", currency: "tipo de cambio referencia fecha moneda" },
+    it: { jobs: "offerte di lavoro recenti azienda", football: "calcio calendario risultati data", tv: "guida pubblica televisione canali orari palinsesto data", currency: "tasso di cambio riferimento data valuta" },
+    pt: { jobs: "vagas de emprego recentes empregador", football: "futebol calendário resultados data", tv: "guia pública televisão canais horários programação data", currency: "taxa de câmbio referência data moeda" },
+    ja: { jobs: "最新 求人 企業", football: "サッカー 試合日程 結果 日付", tv: "公開 テレビ 番組表 放送局 放送時間", currency: "為替レート 基準日 通貨" },
+    nl: { jobs: "recente vacatures werkgever", football: "voetbal wedstrijden uitslagen datum", tv: "openbare tv gids zenders programmatijden datum", currency: "wisselkoers referentiekoers datum valuta" },
+    ru: { jobs: "актуальные вакансии работодатель", football: "футбол расписание результаты дата", tv: "телепрограмма телеканалов программа передач дата", currency: "обменный курс справочный дата валюта" },
+    pl: { jobs: "aktualne oferty pracy pracodawca", football: "piłka nożna terminarz wyniki data", tv: "publiczny program telewizyjny kanały godziny data", currency: "kurs walut data kurs referencyjny" },
+    tr: { jobs: "güncel iş ilanları işveren", football: "futbol fikstür sonuç tarih", tv: "televizyon yayın rehberi kanallar yayın saatleri tarih", currency: "döviz kuru referans tarih para birimi" },
   };
   const suffix = (suffixes[language] ?? suffixes.en)![kind];
   return `${query.trim()} ${suffix}`.trim().slice(0, 300);
@@ -47,7 +47,7 @@ export function liveServiceGuidance(
   const details: Record<Exclude<LiveServiceKind, null>, string> = {
     jobs: "For job searches, list only vacancies that are visibly present in the evidence. Include the role, employer, location, posting/deadline date only when shown, and direct listing link. Never invent salary, eligibility or availability; do not apply or contact employers for the user. State when the search is incomplete or no listings could be verified.",
     football: "For football, keep competition, teams and UTC kickoff attached to each fixture. Distinguish confirmed final scores, scheduled fixtures and live scores; use a live label only when the source explicitly marks the event live, report our lookup time separately, and disclose if the source has no own update timestamp. Never infer a result or claim exhaustive league coverage.",
-    tv: "For television listings, report the country, local timezone, channel/platform, airtime and programme only when shown. A TVMaze or search result list may be incomplete and must not be presented as the complete national schedule. Distinguish a published schedule from a live broadcast and note that schedules may change.",
+    tv: "The direct TVMaze schedule lookup in this service covers only FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG. For other countries, use only country-specific public guide or broadcaster pages present in the search evidence. State which sources, channels/platforms and dates were actually found; do not imply broader country coverage or a complete national schedule. Call a listing current for the requested date only when the source explicitly dates it for that day; otherwise label its date as unconfirmed. Include a timezone only when the listing source explicitly confirms it. Do not infer one from the country or from an airtime. Distinguish a published schedule from a live broadcast and note that schedules may change.",
     currency: "For exchange rates, distinguish a dated reference rate from a live market quote. Show the source's rate date and the lookup time separately, identify both currencies, and do not describe the rate as a bank/card rate or promise the amount a user will receive.",
   };
   const languageNote = language === "fr" ? "Answer in French." : `Answer in ${language}.`;
@@ -210,12 +210,18 @@ export async function fetchTvScheduleEvidence(
         url: episodeUrl,
         snippet: `${airtime} · ${network} · ${country.code} · ${date}`,
         qualityScore: 12,
-        content: `TVMaze schedule for ${country.code}, queried date ${date}; the date was selected using ${country.timezone} as a reference timezone. ` +
-          `Programme: ${title}${episodeName}. Airtime shown by TVMaze: ${airtime}; the response does not identify an IANA timezone for this airing. ` +
+        content: `TVMaze schedule for ${country.code}, queried date ${date}. ` +
+          `Programme: ${title}${episodeName}. Airtime shown by TVMaze: ${airtime}. No timezone is supplied by the schedule source. ` +
           `Channel/platform: ${network}. TVMaze episode or show page: ${episodeUrl}. ` +
           "This entry is a listed TV episode and does not establish complete national TV coverage.",
       };
     });
+}
+
+export function noTvListingsReply(language: string): string {
+  return language === "fr"
+    ? "Je n’ai pas trouvé de grille publiée que je puisse vérifier pour ce pays dans les sources publiques consultées. Cela ne prouve pas qu’aucun programme n’est diffusé; la couverture des guides peut être partielle."
+    : "I couldn't verify a published TV schedule for this country in the public sources searched. This does not mean no programmes are airing; guide coverage may be partial.";
 }
 
 export function formatLiveLookupFailure(kind: Exclude<LiveServiceKind, null>, language: string): string {

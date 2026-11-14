@@ -131,8 +131,12 @@ test("TV schedules require an explicit supported country and use its local date"
     }, () => new Date("2026-11-14T22:30:00.000Z"));
   assert.equal(result.results.length, 1);
   assert.match(result.results[0]!.content!, /Airtime shown by TVMaze: 20:15/);
-  assert.match(result.results[0]!.content!, /does not identify an IANA timezone/);
-  assert.match(result.guidance, /not be presented as the complete national schedule/);
+  assert.match(result.results[0]!.content!, /No timezone is supplied by the schedule source/);
+  assert.doesNotMatch(result.results[0]!.content!, /Europe\/Paris/);
+  assert.match(result.guidance, /do not imply broader country coverage or a complete national schedule/);
+  assert.match(result.guidance, /only FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG/);
+  assert.match(result.guidance, /Call a listing current for the requested date only when the source explicitly dates it for that day/);
+  assert.match(result.guidance, /Include a timezone only when the listing source explicitly confirms it/);
 
   const staleSchedule = await researchForTurn(message, "Programme TV ce soir en France", [], true,
     "Programme TV ce soir en France", "fr", async () => [], async () => new Response(JSON.stringify([
@@ -165,7 +169,23 @@ test("TV schedules require an explicit supported country and use its local date"
       throw new Error("Unsupported country should use sourced web search, not TVMaze");
     });
   assert.match(fallbackQuery, /Portugal/);
+  assert.match(fallbackQuery, /grille publique télévision chaînes diffuseur horaires date/);
   assert.equal(unsupportedCountry.results.length, 1);
+  assert.match(unsupportedCountry.guidance, /State which sources, channels\/platforms and dates were actually found/);
+
+  const noPublicListings = await researchForTurn(message, "Programme TV ce soir au Portugal", [], true,
+    "Programme TV ce soir au Portugal", "fr", async () => [], async () => {
+      throw new Error("Unsupported countries must use public web search");
+    });
+  assert.match(noPublicListings.immediateReply!, /Je n’ai pas trouvé de grille publiée que je puisse vérifier/);
+  assert.match(noPublicListings.immediateReply!, /Cela ne prouve pas qu’aucun programme n’est diffusé/);
+
+  const unavailableSearch = await researchForTurn(message, "Programme TV ce soir au Portugal", [], true,
+    "Programme TV ce soir au Portugal", "fr", async () => {
+      throw new Error("public search unavailable");
+    });
+  assert.match(unavailableSearch.immediateReply!, /grille TV n’a pas pu être chargée/);
+  assert.doesNotMatch(unavailableSearch.immediateReply!, /Je n’ai pas trouvé de grille publiée/);
 });
 
 test("job search asks for missing details and keeps the requested location and role", async () => {
