@@ -10,6 +10,10 @@ import {
   fetchCurrencyEvidence, fetchTvScheduleEvidence, findTvCountry, formatLiveLookupFailure,
   hasExplicitTvCountry, liveServiceGuidance, liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
 } from "./ai-live-services.js";
+import {
+  fetchFootballEvidence, fetchJobEvidence, jobSearchClarification, noFootballEvidenceReply,
+  noJobEvidenceReply, unsupportedFootballReply,
+} from "./ai-public-sports-jobs.js";
 
 export interface TurnResearch {
   results: WebSearchResult[];
@@ -45,6 +49,7 @@ export async function researchForTurn(
   const clarification = travelResearchClarification(correction?.question ?? text, language);
   if (clarification) return { results: [], correction, guidance: "", immediateReply: clarification };
   const liveKind = liveServiceKind(correction?.question ?? text);
+  const liveQuery = correction?.question ?? text;
   const now = clock();
   const checkedOn = new Intl.DateTimeFormat(language === "fr" ? "fr-FR" : "en-GB", {
     timeZone: "Europe/Paris", dateStyle: "long",
@@ -65,6 +70,33 @@ export async function researchForTurn(
       };
     } catch {
       return { results: [], correction, guidance: "", immediateReply: formatLiveLookupFailure("currency", language) };
+    }
+  }
+  if (liveKind === "jobs") {
+    const clarification = jobSearchClarification(liveQuery, language);
+    if (clarification) return { results: [], correction, guidance: "", immediateReply: clarification };
+    try {
+      const results = await fetchJobEvidence(liveQuery, now, fetcher);
+      if (results.length === 0) return {
+        results: [], correction, guidance: "", immediateReply: noJobEvidenceReply(language),
+      };
+      return { results, correction, guidance: liveServiceGuidance("jobs", checkedOn, language) };
+    } catch {
+      return { results: [], correction, guidance: "", immediateReply: formatLiveLookupFailure("jobs", language) };
+    }
+  }
+  if (liveKind === "football") {
+    try {
+      const results = await fetchFootballEvidence(liveQuery, now, fetcher);
+      if (results === null) return {
+        results: [], correction, guidance: "", immediateReply: unsupportedFootballReply(language),
+      };
+      if (results.length === 0) return {
+        results: [], correction, guidance: "", immediateReply: noFootballEvidenceReply(language),
+      };
+      return { results, correction, guidance: liveServiceGuidance("football", checkedOn, language) };
+    } catch {
+      return { results: [], correction, guidance: "", immediateReply: formatLiveLookupFailure("football", language) };
     }
   }
   if (liveKind === "tv") {
@@ -102,8 +134,7 @@ export async function researchForTurn(
     (travelKind ? `\n${travelResearchGuidance(travelKind, checkedOn)}` : "") +
     (liveKind ? `\n${liveServiceGuidance(liveKind, checkedOn, language)}` : "");
   if (!requested) return { results: [], guidance };
-  const searchQuery = liveKind && (liveKind === "jobs" || liveKind === "football")
-    ? liveServiceSearchQuery(query, liveKind, language) : query;
+  const searchQuery = query;
   const effectiveSearchQuery = liveKind === "tv"
     ? liveServiceSearchQuery(searchQuery, "tv", language) : searchQuery;
   const fetched = await search(effectiveSearchQuery.replace(/<@!?\d+>/g, "[Discord member]"), { verify: !!correction });
