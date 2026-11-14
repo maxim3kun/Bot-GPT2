@@ -33,7 +33,7 @@ import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
 import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage } from "./discord/responses.js";
-import { type HelpLanguage, resolveTopicKey, buildTopicEmbed, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { type HelpLanguage, resolveTopicKey, sendHelpTopic, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
 import { createSlashMessageAdapter, replyToSlash } from "./discord/slash-message-adapter.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
@@ -3409,7 +3409,7 @@ export function startBot(): void {
               await message.reply({ content: "🔒 The `!help guesslogo` page is restricted to moderators (requires **Manage Server** permission).", ephemeral: true } as Parameters<typeof message.reply>[0]);
               break;
             }
-            await message.reply({ embeds: [buildTopicEmbed(detected.topic, detected.lang, guildPrefix)] });
+            await sendHelpTopic(message, detected.topic, detected.lang, guildPrefix);
           } else {
             await sendHelpPaginator(message, responseLang);
           }

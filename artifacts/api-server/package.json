@@ -29,7 +29,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:commands": "esbuild tests/help-commands.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/help-commands.test.mjs && node node_modules/.cache/help-commands.test.mjs",
+    "test:commands": "esbuild tests/help-commands.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/help-commands.test.mjs && node node_modules/.cache/help-commands.test.mjs && esbuild tests/command-favorites-store.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/command-favorites-store.test.mjs && node node_modules/.cache/command-favorites-store.test.mjs",
     "test:civic": "esbuild tests/civic-data.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/civic-data.test.mjs && node node_modules/.cache/civic-data.test.mjs",
     "test:content-tools": "esbuild tests/content-tools.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/content-tools.test.mjs && node node_modules/.cache/content-tools.test.mjs",
     "test:food-language": "esbuild tests/food-language.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/food-language.test.mjs && node node_modules/.cache/food-language.test.mjs",

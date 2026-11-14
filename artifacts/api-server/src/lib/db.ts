@@ -324,6 +324,9 @@ export function getWeatherCacheCollection<T extends import("mongodb").Document>(
 export function getTransportPreferencesCollection(): Collection<TransportPreferencesDoc> | null {
   return transportPreferencesCol;
 }
+export function getCommandFavoritesCollection(): Collection<CommandFavoritesDoc> | null {
+  return commandFavoritesCol;
+}
 export function getConversationMemoryCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("ai_conversation_memory") ?? null;
 }
@@ -339,6 +342,11 @@ interface DailyImageQuotaDoc {
   updatedAt: Date;
 }
 interface TransportPreferencesDoc {
+  _id: string; // hashed Discord user id
+  encryptedData: string;
+  updatedAt: Date;
+}
+interface CommandFavoritesDoc {
   _id: string; // hashed Discord user id
   encryptedData: string;
   updatedAt: Date;
@@ -365,6 +373,7 @@ export let aiPersonaPublicProfilesCol: Collection<AiPersonaPublicProfileDoc> | n
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 let privateAgendaCol: Collection<PrivateAgendaDoc> | null = null;
 let transportPreferencesCol: Collection<TransportPreferencesDoc> | null = null;
+let commandFavoritesCol: Collection<CommandFavoritesDoc> | null = null;
 let legifranceOAuthTokensCol: Collection<LegifranceOAuthTokenDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
@@ -453,6 +462,7 @@ export async function connectDb(): Promise<void> {
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
     privateAgendaCol = db.collection<PrivateAgendaDoc>("private_agendas");
     transportPreferencesCol = db.collection<TransportPreferencesDoc>("transport_preferences");
+    commandFavoritesCol = db.collection<CommandFavoritesDoc>("command_favorites");
     legifranceOAuthTokensCol = db.collection<LegifranceOAuthTokenDoc>("civic_oauth_tokens");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
@@ -485,6 +495,7 @@ export async function connectDb(): Promise<void> {
     aiMemoryCol = null;
     aiPersonaPublicProfilesCol = null;
     transportPreferencesCol = null;
+    commandFavoritesCol = null;
     betaTestersCol = null;
   }
 }

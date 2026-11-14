@@ -382,6 +382,71 @@ test("favorite command clearly handles an empty list and offers a chooser for se
   selected.cards.forEach(card => card.collector.stop("cancelled"));
 });
 
+test("the generic transport menu shows all saved trips from its first screen", async () => {
+  const d = fakeDiscord({ userId: "owner" }), s = service();
+  const favorites: TransportFavorite[] = [
+    { key: "bus", territory: "fr", mode: "bus", place: "Beauvais", cityId: "60057",
+      routeId: "601", resourceId: 1, lineLabel: "601", originIds: ["O"], originLabel: "Gare",
+      arrivalIds: ["D"], arrivalLabel: "Centre" },
+    { key: "metro", territory: "fr", mode: "metro", place: "Paris", cityId: "75056",
+      routeId: "8", resourceId: 2, lineLabel: "8", originIds: ["M1"], originLabel: "République",
+      arrivalIds: ["M2"], arrivalLabel: "Concorde" },
+  ];
+  const store = preferenceStore({ favorites });
+  await handleTransportCommand(d.message, [], "fr", "!", null, s.value, 45_000, store);
+  const menu = d.cards[0]!;
+  const favoriteButton = menu.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.endsWith(":favorites")) as any;
+  assert.ok(favoriteButton, "the initial !transport choice screen must expose favorites");
+  assert.equal(favoriteButton.emoji.name, "⭐");
+  await click(menu, "favorites");
+  await settle(() => d.cards.length === 2);
+  const selector = d.cards[1]!.last.components.flatMap(row => row.components)
+    .find((component: any) => component.options) as any;
+  assert.equal(selector.options.length, 2);
+  assert.deepEqual(selector.options.map((option: any) => option.description), [
+    "France · Bus", "France · Métro",
+  ]);
+  d.cards.forEach(card => card.collector.stop("cancelled"));
+});
+
+test("a mode-specific transport menu filters its star list to that mode", async () => {
+  const d = fakeDiscord({ userId: "owner" }), s = service();
+  const favorites: TransportFavorite[] = [
+    ...["601", "602"].map((lineLabel, index): TransportFavorite => ({
+      key: `bus-${index}`, territory: "fr", mode: "bus", place: "Beauvais", cityId: "60057",
+      routeId: lineLabel, resourceId: 1, lineLabel, originIds: ["O"], originLabel: "Gare",
+      arrivalIds: ["D"], arrivalLabel: "Centre",
+    })),
+    { key: "metro", territory: "fr", mode: "metro", place: "Paris", cityId: "75056",
+      routeId: "8", resourceId: 2, lineLabel: "8", originIds: ["M1"], originLabel: "République",
+      arrivalIds: ["M2"], arrivalLabel: "Concorde" },
+  ];
+  await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, preferenceStore({ favorites }));
+  const menu = d.cards[0]!;
+  assert.ok(menu.last.components.flatMap(row => row.components)
+    .some((component: any) => component.custom_id?.endsWith(":favorites")));
+  await click(menu, "favorites");
+  await settle(() => d.cards.length === 2);
+  const selector = d.cards[1]!.last.components.flatMap(row => row.components)
+    .find((component: any) => component.options) as any;
+  assert.equal(selector.options.length, 2);
+  assert.ok(selector.options.every((option: any) => option.description.endsWith("· Bus")));
+  assert.ok(selector.options.every((option: any) => !option.label.startsWith("8 ·")));
+  d.cards.forEach(card => card.collector.stop("cancelled"));
+});
+
+test("a mode-specific favorites button explains when that mode has no saved trips", async () => {
+  const d = fakeDiscord(), s = service();
+  const metroOnly: TransportFavorite[] = [{
+    key: "metro", territory: "fr", mode: "metro", place: "Paris", cityId: "75056",
+    routeId: "8", resourceId: 2, lineLabel: "8", originIds: ["M1"], originLabel: "République",
+    arrivalIds: ["M2"], arrivalLabel: "Concorde",
+  }];
+  await handleTransportFavoritesCommand(d.message, "fr", "!", s.value, preferenceStore({ favorites: metroOnly }), "bus");
+  assert.match(d.replies[0]!.content!, /Aucun favori bus enregistré/);
+});
+
 test("saved territory is first but every territory remains selectable", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore({ preferredTerritory: "en", favorites: [] });
   await handleTransportCommand(d.message, ["60000"], "fr", "!", "bus", s.value, 45_000, store);

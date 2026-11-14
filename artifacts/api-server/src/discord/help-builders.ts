@@ -2,7 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ComponentType,
+  StringSelectMenuBuilder,
   type Message,
   type ChatInputCommandInteraction,
 } from "discord.js";
@@ -13,12 +13,109 @@ import { extraHelpPage, ADMIN_SLASH_COMMANDS } from "./help-extra-pages.js";
 import { SLASH_COMMANDS } from "./slash.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
 import { buildPersonaHelp, PERSONA_HELP_PAGES, personaHelpTabLabels } from "./persona-help.js";
+import { commandFavorites, type CommandFavoritesStore } from "./command-favorites-store.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type HelpLanguage = "en" | "fr" | "es" | "de" | "pt" | "it" | "ja" | "nl" | "ru" | "pl" | "tr";
 export type HelpPage = 1 | 2 | 3 | 4 | 5 | 6;
 export const HELP_TOTAL_PAGES = 6;
+export type HelpTopic =
+  | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
+  | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
+  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food" | "civic"
+  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme";
+
+interface FavoriteCommand {
+  id: string;
+  page: HelpPage;
+  command: string;
+  frenchCommand?: string;
+  topics: HelpTopic[];
+}
+
+const FAVORITE_COMMANDS: FavoriteCommand[] = [
+  { id: "say", page: 1, command: "!say", topics: ["general"] },
+  { id: "poll", page: 1, command: "/poll", topics: ["general"] },
+  { id: "profile", page: 1, command: "!profile", topics: ["general"] },
+  { id: "website", page: 1, command: "!website", topics: ["general"] },
+  { id: "image", page: 1, command: "!image", topics: ["general"] },
+  { id: "transport", page: 1, command: "!transport", topics: ["ai"] },
+  { id: "bus", page: 1, command: "!bus", topics: ["ai"] },
+  { id: "metro", page: 1, command: "!metro", topics: ["ai"] },
+  { id: "train", page: 1, command: "!train", topics: ["ai"] },
+  { id: "favorites", page: 1, command: "!favorites", frenchCommand: "!favoris", topics: ["ai"] },
+  { id: "joke", page: 1, command: "!joke", topics: ["general"] },
+  { id: "compliment", page: 1, command: "!compliment", topics: ["general"] },
+  { id: "hug", page: 1, command: "!hug", topics: ["general"] },
+  { id: "encouragement", page: 1, command: "!encouragement", topics: ["general"] },
+  { id: "8ball", page: 1, command: "!8ball", topics: ["general"] },
+  { id: "dice", page: 1, command: "!dice", topics: ["general"] },
+  { id: "birthday", page: 1, command: "!birthday", topics: ["birthday"] },
+  { id: "agenda", page: 1, command: "!agenda", topics: ["agenda"] },
+  { id: "timer", page: 1, command: "!timer", topics: ["agenda"] },
+  { id: "minesweeper", page: 2, command: "!minesweeper", topics: ["games"] },
+  { id: "geo", page: 2, command: "!geo", topics: ["games"] },
+  { id: "trivia", page: 2, command: "!trivia", topics: ["games"] },
+  { id: "guessnumber", page: 2, command: "!guessnumber", topics: ["games"] },
+  { id: "hangman", page: 2, command: "!hangman", topics: ["games"] },
+  { id: "pendu", page: 2, command: "!pendu", topics: ["games"] },
+  { id: "connect4", page: 2, command: "!connect4", topics: ["games"] },
+  { id: "guessthelogo", page: 2, command: "!guessthelogo", topics: ["games", "guesslogo"] },
+  { id: "tierlist", page: 2, command: "!tierlist", topics: ["tierlist"] },
+  { id: "blindtest", page: 2, command: "!blindtest", topics: ["blindtest"] },
+  { id: "milliongame", page: 2, command: "!milliongame", topics: ["milliongame"] },
+  { id: "define", page: 2, command: "!define", topics: ["tools", "dictionary"] },
+  { id: "pokemon", page: 2, command: "!pokemon", topics: ["tools", "pokemon"] },
+  { id: "qr", page: 2, command: "!qr", topics: ["tools", "qr"] },
+  { id: "echo", page: 2, command: "!echo", topics: ["tools", "echo"] },
+  { id: "food", page: 2, command: "!food", topics: ["tools", "food"] },
+  { id: "rate", page: 2, command: "!rate", topics: ["tools", "food"] },
+  { id: "shazam", page: 2, command: "!shazam", topics: ["tools"] },
+  { id: "translate", page: 2, command: "!translate", topics: ["tools", "translation"] },
+  { id: "meme", page: 2, command: "!meme", topics: ["tools", "meme"] },
+  { id: "excel", page: 2, command: "!excel", topics: ["tools"] },
+  { id: "pdf", page: 2, command: "!pdf", topics: ["tools"] },
+  { id: "play", page: 3, command: "/play", topics: ["youtube"] },
+  { id: "y", page: 3, command: "!y", topics: ["youtube"] },
+  { id: "np", page: 3, command: "!np", topics: ["youtube"] },
+  { id: "skip", page: 3, command: "!skip", topics: ["youtube"] },
+  { id: "voteskip", page: 3, command: "!voteskip", topics: ["youtube"] },
+  { id: "queue", page: 3, command: "!queue", topics: ["youtube"] },
+  { id: "likes", page: 3, command: "!likes", topics: ["youtube"] },
+  { id: "playlist", page: 3, command: "!playlist", topics: ["playlist"] },
+  { id: "dj", page: 3, command: "!dj", topics: ["dj"] },
+  { id: "radio", page: 3, command: "!radio", topics: ["radio"] },
+  { id: "karaoke", page: 3, command: "!karaoke", topics: ["karaoke"] },
+  { id: "music-generator", page: 3, command: "!music generator", topics: ["music"] },
+  { id: "music-prompt", page: 3, command: "!music prompt", topics: ["music"] },
+  { id: "balance", page: 3, command: "!balance", topics: ["music"] },
+  { id: "join", page: 4, command: "!join", topics: ["voice"] },
+  { id: "leave", page: 4, command: "!leave", topics: ["voice"] },
+  { id: "subtitles", page: 4, command: "!subtitles", topics: ["voice"] },
+  { id: "voice-chat", page: 4, command: "!voice chat", topics: ["voice"] },
+  { id: "voice-say", page: 4, command: "!voice say", topics: ["voice"] },
+  { id: "voice-stop", page: 4, command: "!voice stop", topics: ["voice"] },
+  { id: "voice-resume", page: 4, command: "!voice resume", topics: ["voice"] },
+  { id: "weather", page: 5, command: "!meteo", topics: ["ai"] },
+  { id: "driving", page: 5, command: "!trajet voiture", topics: ["ai"] },
+  { id: "ai-analyze", page: 5, command: "@bot analyse", topics: ["ai"] },
+  { id: "ai-battle", page: 5, command: "!ai battle", topics: ["ai"] },
+  { id: "ai-stop", page: 5, command: "!ai stop", topics: ["ai"] },
+  { id: "ai-enable", page: 5, command: "!ai enable", topics: ["ai"] },
+  { id: "ai-reset", page: 5, command: "!ai reset", topics: ["ai"] },
+  { id: "conspiracy", page: 5, command: "!conspiracy", topics: ["ai"] },
+  { id: "quest", page: 5, command: "!quest", topics: ["quest", "levels"] },
+  { id: "vote", page: 5, command: "!vote", topics: ["civic"] },
+  { id: "loi", page: 5, command: "!loi", topics: ["civic"] },
+  { id: "feries", page: 5, command: "!feries", topics: ["civic"] },
+  { id: "help-persona", page: 6, command: "!help persona", topics: ["persona"] },
+  { id: "help-memory", page: 6, command: "!help memory", topics: ["memory"] },
+  { id: "help-language", page: 6, command: "!help language", topics: ["language"] },
+  { id: "help-diagnostics", page: 6, command: "!help diagnostics", topics: ["diagnostics"] },
+];
+
+const MAX_FAVORITE_CHOICES = 25;
 
 // Text languages with full translations — new langs fall back to "en"
 const FULL_TEXT_LANGS = ["en", "fr", "es", "de", "pt", "it"] as const;
@@ -73,23 +170,140 @@ function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): Acti
   );
 }
 
+const HELP_FAVORITE_SELECT = "help_favorite_select";
+const HELP_FAVORITE_TOGGLE = "help_favorite_toggle";
+const HELP_FAVORITES_LIST = "help_favorites_list";
 const HELP_PERSONA_BUTTON = "help_personas";
 const HELP_PERSONA_TAB_PREFIX = "help_persona_tab_";
 const HELP_PERSONA_BACK = "help_persona_back";
 
-function buildHelpRows(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+function favoriteCommandLabel(command: FavoriteCommand, prefix: string, lang: HelpLanguage): string {
+  const raw = lang === "fr" && command.frenchCommand ? command.frenchCommand : command.command;
+  return raw.startsWith("!") ? `${prefix}${raw.slice(1)}` : raw;
+}
+
+function favoriteCommandForId(commandId: string, prefix: string, lang: HelpLanguage): string | undefined {
+  const command = FAVORITE_COMMANDS.find(item => item.id === commandId);
+  if (command) return favoriteCommandLabel(command, prefix, lang);
+  if (commandId.startsWith("help:")) return `${prefix}help ${commandId.slice("help:".length)}`;
+  return undefined;
+}
+
+function favoriteCommandsForPage(page: HelpPage): FavoriteCommand[] {
+  return FAVORITE_COMMANDS.filter(command => command.page === page).slice(0, MAX_FAVORITE_CHOICES);
+}
+
+function favoriteCommandsForTopic(topic: HelpTopic): FavoriteCommand[] {
+  return FAVORITE_COMMANDS.filter(command => command.topics.includes(topic)).slice(0, MAX_FAVORITE_CHOICES);
+}
+
+function buildFavoriteSelectRow(
+  commands: FavoriteCommand[], prefix: string, lang: HelpLanguage, disabled = false,
+): ActionRowBuilder<StringSelectMenuBuilder> | undefined {
+  if (!commands.length) return undefined;
   const fr = textLang(lang) === "fr";
-  return [
-    buildNavRow(page, lang, disabled),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(HELP_PERSONA_BUTTON)
-        .setLabel(fr ? "Personas" : "Personas")
-        .setEmoji("🎭")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(disabled),
-    ),
-  ];
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(HELP_FAVORITE_SELECT)
+      .setPlaceholder(fr ? "Choisis une commande à garder" : "Choose a command to save")
+      .setDisabled(disabled)
+      .addOptions(commands.map(command => ({
+        label: favoriteCommandLabel(command, prefix, lang).slice(0, 100),
+        value: command.id,
+      }))),
+  );
+}
+
+function buildFavoriteActionsRow(lang: HelpLanguage, disabled = false, includePersonas = false): ActionRowBuilder<ButtonBuilder> {
+  const fr = textLang(lang) === "fr";
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(HELP_FAVORITE_TOGGLE)
+      .setLabel(fr ? "⭐ Favori" : "⭐ Favorite").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+    new ButtonBuilder().setCustomId(HELP_FAVORITES_LIST)
+      .setLabel(fr ? "Mes favoris" : "My favorites").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+  );
+  if (includePersonas) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(HELP_PERSONA_BUTTON)
+      .setLabel("Personas")
+      .setEmoji("🎭")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled));
+  }
+  return row;
+}
+
+function buildHelpRows(page: HelpPage, lang: HelpLanguage, prefix: string, disabled = false): ActionRowBuilder<any>[] {
+  const rows: ActionRowBuilder<any>[] = [buildNavRow(page, lang, disabled)];
+  const selectRow = buildFavoriteSelectRow(favoriteCommandsForPage(page), prefix, lang, disabled);
+  if (selectRow) rows.push(selectRow);
+  rows.push(buildFavoriteActionsRow(lang, disabled, true));
+  return rows;
+}
+
+function buildTopicHelpRows(topic: HelpTopic, lang: HelpLanguage, prefix: string, disabled = false): ActionRowBuilder<any>[] {
+  const commands = favoriteCommandsForTopic(topic);
+  const selectRow = buildFavoriteSelectRow(commands.length ? commands : [{
+    id: `help:${topic}`, page: 6, command: `!help ${topic}`, topics: [topic],
+  }], prefix, lang, disabled);
+  return selectRow ? [selectRow, buildFavoriteActionsRow(lang, disabled)] : [buildFavoriteActionsRow(lang, disabled)];
+}
+
+function favoriteListMessage(commandIds: string[], prefix: string, lang: HelpLanguage): string {
+  const fr = textLang(lang) === "fr";
+  if (!commandIds.length) {
+    return fr
+      ? "Tu n’as pas encore de commande favorite. Choisis-en une dans la liste puis appuie sur ⭐."
+      : "You have no favorite commands yet. Choose one from the list, then press ⭐.";
+  }
+  const commands = commandIds.map(id => favoriteCommandForId(id, prefix, lang))
+    .filter((value): value is string => Boolean(value));
+  const heading = fr ? `⭐ Tes commandes favorites (${commands.length})` : `⭐ Your favorite commands (${commands.length})`;
+  const hint = fr ? "Pour les modifier, choisis une commande dans l’aide et appuie sur ⭐."
+    : "To change them, choose a command in Help and press ⭐.";
+  return `${heading}\n${commands.map(command => `• \`${command}\``).join("\n")}\n\n${hint}`;
+}
+
+async function replyWithFavoriteList(
+  interaction: { reply: (payload: { content: string; ephemeral: true }) => Promise<unknown> },
+  userId: string, prefix: string, lang: HelpLanguage, store: CommandFavoritesStore,
+): Promise<void> {
+  const commandIds = await store.get(userId);
+  const content = commandIds === null
+    ? (textLang(lang) === "fr" ? "Tes favoris sont indisponibles pour le moment." : "Your favorites are unavailable right now.")
+    : favoriteListMessage(commandIds, prefix, lang);
+  await interaction.reply({ content, ephemeral: true });
+}
+
+async function replyWithFavoriteToggle(
+  interaction: { reply: (payload: { content: string; ephemeral: true }) => Promise<unknown> },
+  userId: string, commandId: string | null, prefix: string, lang: HelpLanguage, store: CommandFavoritesStore,
+): Promise<void> {
+  const fr = textLang(lang) === "fr";
+  if (!commandId) {
+    await interaction.reply({
+      content: fr ? "Choisis d’abord une commande dans la liste." : "Choose a command from the list first.",
+      ephemeral: true,
+    });
+    return;
+  }
+  const command = favoriteCommandForId(commandId, prefix, lang);
+  if (!command) {
+    await interaction.reply({
+      content: fr ? "Cette commande n’est plus disponible dans l’aide." : "This command is no longer available in Help.",
+      ephemeral: true,
+    });
+    return;
+  }
+  const result = await store.toggle(userId, commandId);
+  const content = !result.ok
+    ? (fr ? "Impossible d’enregistrer tes favoris pour le moment." : "Your favorites could not be saved right now.")
+    : result.limitReached
+      ? (fr ? "Tu as atteint la limite de 25 favoris." : "You have reached the 25-favorite limit.")
+      : result.saved
+        ? (fr ? `\`${command}\` ajouté à tes favoris.` : `\`${command}\` added to your favorites.`)
+        : (fr ? `\`${command}\` retiré de tes favoris.` : `\`${command}\` removed from your favorites.`);
+  await interaction.reply({ content, ephemeral: true });
 }
 
 function buildPersonaHelpRows(
@@ -109,6 +323,11 @@ function buildPersonaHelpRows(
         .setCustomId(HELP_PERSONA_BACK)
         .setLabel(textLang(lang) === "fr" ? "Retour à l’aide" : "Back to help")
         .setEmoji("📖")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId(HELP_FAVORITES_LIST)
+        .setLabel(textLang(lang) === "fr" ? "Mes favoris" : "My favorites")
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(disabled),
     ),
@@ -302,6 +521,7 @@ export async function sendHelpPaginator(
   source: Message | ChatInputCommandInteraction,
   lang: HelpLanguage,
   startPage: HelpPage = 1,
+  favoritesStore: CommandFavoritesStore = commandFavorites,
 ): Promise<void> {
   const isInteraction = !("author" in source);
   const prefix = await getPrefix(source.guildId ?? "");
@@ -309,11 +529,12 @@ export async function sendHelpPaginator(
   let page: HelpPage = startPage;
   let view: "help" | "persona" = "help";
   let personaPage = 0;
+  let selectedCommandId: string | null = null;
   const currentEmbed = () => view === "help"
     ? buildHelpEmbed(lang, page, prefix)
     : buildPersonaHelp(lang, personaPage, prefix);
   const currentComponents = (disabled = false) => view === "help"
-    ? buildHelpRows(page, lang, disabled)
+    ? buildHelpRows(page, lang, prefix, disabled)
     : buildPersonaHelpRows(lang, personaPage, prefix, disabled);
 
   const reply = isInteraction
@@ -321,9 +542,9 @@ export async function sendHelpPaginator(
     : await (source as Message).reply({ embeds: [currentEmbed()], components: currentComponents() });
 
   const collector = reply.createMessageComponentCollector({
-    componentType: ComponentType.Button,
     time: 120_000,
-    filter: (interaction) => ["help_prev", "help_next", HELP_PERSONA_BUTTON, HELP_PERSONA_BACK].includes(interaction.customId) ||
+    filter: (interaction) => [HELP_FAVORITE_SELECT, HELP_FAVORITE_TOGGLE, HELP_FAVORITES_LIST,
+      "help_prev", "help_next", HELP_PERSONA_BUTTON, HELP_PERSONA_BACK].includes(interaction.customId) ||
       interaction.customId.startsWith(HELP_PERSONA_TAB_PREFIX),
   });
 
@@ -333,17 +554,43 @@ export async function sendHelpPaginator(
         await i.reply({ content: t("unauthorized", lang), ephemeral: true });
         return;
       }
+      if (typeof i.isStringSelectMenu === "function" && i.isStringSelectMenu() && i.customId === HELP_FAVORITE_SELECT) {
+        const selected = i.values[0] ?? "";
+        const valid = view === "help" && favoriteCommandsForPage(page).some(command => command.id === selected);
+        selectedCommandId = valid ? selected : null;
+        const command = selectedCommandId ? favoriteCommandForId(selectedCommandId, prefix, lang) : undefined;
+        await i.reply({
+          content: command
+            ? (textLang(lang) === "fr" ? `\`${command}\` sélectionnée. Appuie sur ⭐ pour l’ajouter ou la retirer.`
+              : `\`${command}\` selected. Press ⭐ to add or remove it.`)
+            : (textLang(lang) === "fr" ? "Cette commande n’est pas disponible sur cette page." : "That command is not available on this page."),
+          ephemeral: true,
+        });
+        return;
+      }
+      if (i.customId === HELP_FAVORITES_LIST) {
+        await replyWithFavoriteList(i, i.user.id, prefix, lang, favoritesStore);
+        return;
+      }
+      if (i.customId === HELP_FAVORITE_TOGGLE) {
+        await replyWithFavoriteToggle(i, i.user.id, selectedCommandId, prefix, lang, favoritesStore);
+        return;
+      }
       if (view === "help") {
         if (i.customId === HELP_PERSONA_BUTTON) {
           view = "persona";
           personaPage = 0;
+          selectedCommandId = null;
         } else if (i.customId === "help_prev") {
           page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
+          selectedCommandId = null;
         } else if (i.customId === "help_next") {
           page = (page === HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
+          selectedCommandId = null;
         }
       } else if (i.customId === HELP_PERSONA_BACK) {
         view = "help";
+        selectedCommandId = null;
       } else if (i.customId.startsWith(HELP_PERSONA_TAB_PREFIX)) {
         const next = Number(i.customId.slice(HELP_PERSONA_TAB_PREFIX.length));
         if (Number.isInteger(next) && next >= 0 && next < PERSONA_HELP_PAGES) personaPage = next;
@@ -365,12 +612,6 @@ export async function sendHelpPaginator(
 }
 
 // ── Topic embed ───────────────────────────────────────────────────────────────
-
-export type HelpTopic =
-  | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
-  | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
-  | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food" | "civic"
-  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme";
 
 export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { topic: HelpTopic; lang: HelpLanguage } | null {
   const key = raw.toLowerCase().trim();
@@ -762,6 +1003,67 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     if (embed.data.description) embed.setDescription(embed.data.description.replaceAll("`!", `\`${prefix}`));
   }
   return embed;
+}
+
+export async function sendHelpTopic(
+  source: Message,
+  topic: HelpTopic,
+  lang: HelpLanguage,
+  prefix = "!",
+  favoritesStore: CommandFavoritesStore = commandFavorites,
+): Promise<void> {
+  const topicCommands = favoriteCommandsForTopic(topic);
+  const allowedCommandIds = new Set((topicCommands.length ? topicCommands : [{ id: `help:${topic}` }]).map(item => item.id));
+  let selectedCommandId: string | null = null;
+  const reply = await source.reply({
+    embeds: [buildTopicEmbed(topic, lang, prefix)],
+    components: buildTopicHelpRows(topic, lang, prefix),
+    allowedMentions: { parse: [] },
+  });
+  const collector = reply.createMessageComponentCollector({ time: 120_000 });
+  collector.on("collect", async interaction => {
+    if (![HELP_FAVORITE_SELECT, HELP_FAVORITE_TOGGLE, HELP_FAVORITES_LIST].includes(interaction.customId)) return;
+    try {
+      if (interaction.user.id !== source.author.id) {
+        await interaction.reply({ content: t("unauthorized", lang), ephemeral: true });
+        return;
+      }
+      if (typeof interaction.isStringSelectMenu === "function" && interaction.isStringSelectMenu() &&
+          interaction.customId === HELP_FAVORITE_SELECT) {
+        const selected = interaction.values[0] ?? "";
+        selectedCommandId = allowedCommandIds.has(selected) ? selected : null;
+        const command = selectedCommandId ? favoriteCommandForId(selectedCommandId, prefix, lang) : undefined;
+        await interaction.reply({
+          content: command
+            ? (textLang(lang) === "fr" ? `\`${command}\` sélectionnée. Appuie sur ⭐ pour l’ajouter ou la retirer.`
+              : `\`${command}\` selected. Press ⭐ to add or remove it.`)
+            : (textLang(lang) === "fr" ? "Cette commande n’est pas disponible dans ce guide."
+              : "That command is not available in this guide."),
+          ephemeral: true,
+        });
+        return;
+      }
+      if (interaction.customId === HELP_FAVORITES_LIST) {
+        await replyWithFavoriteList(interaction, interaction.user.id, prefix, lang, favoritesStore);
+        return;
+      }
+      if (interaction.customId === HELP_FAVORITE_TOGGLE) {
+        await replyWithFavoriteToggle(interaction, interaction.user.id, selectedCommandId, prefix, lang, favoritesStore);
+      }
+    } catch (error) {
+      recordDiagnosticMetadata("help", error);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: t("expired", lang).replaceAll("!help", `${prefix}help`),
+          ephemeral: true,
+        }).catch(() => null);
+      }
+    }
+  });
+  collector.on("end", async () => {
+    try { await reply.edit({ components: buildTopicHelpRows(topic, lang, prefix, true) }); }
+    catch { /* message may have been deleted */ }
+  });
 }
 
 // ── Setup & admin guides ──────────────────────────────────────────────────────

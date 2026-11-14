@@ -92,12 +92,18 @@ export async function handleTransportCommand(
 export async function handleTransportFavoritesCommand(
   message: Message, language: string, prefix = "!", service = browser,
   preferencesStore: TransportPreferencesStore = transportPreferences,
+  modeFilter?: TransitMode | null,
 ): Promise<void> {
-  const favorites = (await bestEffortPreference(preferencesStore.get(message.author.id), null))?.favorites ?? [];
+  const favorites = ((await bestEffortPreference(preferencesStore.get(message.author.id), null))?.favorites ?? [])
+    .filter(favorite => !modeFilter || favorite.mode === modeFilter);
   const french = language === "fr";
   if (!favorites.length) {
-    await message.reply(french ? "Aucun favori transport enregistré. Lance un trajet puis ajoute-le avec le bouton cœur."
-      : "No saved transport favorites. Start a journey, then save it with the heart button.");
+    const mode = modeFilter ? modeName(modeFilter, "fr") : "";
+    await message.reply(french
+      ? mode ? `Aucun favori ${mode.toLocaleLowerCase("fr")} enregistré. Ajoute un trajet avec le bouton ❤️.`
+        : "Aucun favori transport enregistré. Lance un trajet puis ajoute-le avec le bouton ❤️."
+      : modeFilter ? `No ${modeName(modeFilter, "en").toLocaleLowerCase("en")} favorites. Save a journey with the ❤️ button.`
+        : "No saved transport favorites. Start a journey, then save it with the ❤️ button.");
     return;
   }
   if (favorites.length === 1) {
@@ -266,6 +272,7 @@ export async function handleTransportSearch(
     const cityButtons = [
       button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
       button("zones", text("Par zones", "Browse areas")),
+      button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
     ];
     cityButtons.push(button("cancel", text("Annuler", "Cancel")));
     await edit(`**Transport · ${territory ? territoryLabel(territory, language === "fr" ? "fr" : "en") : ""}**\n` +
@@ -326,6 +333,7 @@ export async function handleTransportSearch(
       button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
       ...(territory && supportsAdministrativeRegionBrowsing(territory)
         ? [button("zones", text("Réessayer", "Try again"))] : []),
+      button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
       button("cancel", text("Annuler", "Cancel")),
     )]);
   }
@@ -433,8 +441,14 @@ export async function handleTransportSearch(
       controls.addComponents(button("filter", text("Rechercher", "Search")));
     if (stage === "networks" && controls.components.length < 4)
       controls.addComponents(button("networks", text("Actualiser", "Refresh")));
+    const canShowFavorites = stage !== "result" && stage !== "error";
+    const favoritesButton = button("favorites", text("Favoris", "Favorites")).setEmoji("⭐");
+    const favoritesInPrimaryRow = canShowFavorites && controls.components.length < 4;
+    if (favoritesInPrimaryRow) controls.addComponents(favoritesButton);
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
     rows.push(controls);
+    if (canShowFavorites && !favoritesInPrimaryRow)
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(favoritesButton));
     if (filter) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button("clear", text("Tout afficher", "Show all"))));
     const empty = stage === "networks" && isMobilityTerritory(territory)
       ? text("Aucune ligne vérifiée trouvée pour cette zone et ce mode.",
@@ -500,7 +514,8 @@ export async function handleTransportSearch(
       await edit(text("Aucun mode de transport n’est confirmé dans le flux officiel actuellement disponible.",
         "No transport mode is confirmed in the currently available official feed."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        button("retry", text("Réessayer", "Retry")), button("cancel", text("Annuler", "Cancel")))]);
+        button("retry", text("Réessayer", "Retry")), button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
+        button("cancel", text("Annuler", "Cancel")))]);
       return false;
     }
     return true;
@@ -539,6 +554,7 @@ export async function handleTransportSearch(
           button(region?.territory === "ie" || territory === "fr" ? "zones" : "city",
             region?.territory === "ie" || territory === "fr"
               ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
+          button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }
@@ -1067,6 +1083,12 @@ export async function handleTransportSearch(
       collector.stop("cancelled");
       return;
     }
+    if (action === "favorites") {
+      await interaction.deferUpdate();
+      collector.stop("favorites");
+      await handleTransportFavoritesCommand(message, language, prefix, service, preferencesStore, selectedMode);
+      return;
+    }
     if (busy) {
       await interaction.reply({ content: text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait a moment."), ephemeral: true });
       return;
@@ -1197,6 +1219,7 @@ export async function handleTransportSearch(
     if (active.get(sessionKey) === stop) active.delete(sessionKey);
     const notice = reason === "denied" ? text("Cette recherche n’est plus autorisée.", "This lookup is no longer authorized.")
       : reason === "cancelled" ? text("Recherche terminée.", "Search finished.")
+      : reason === "favorites" ? text("Menu fermé pour afficher les favoris.", "Menu closed to show favorites.")
       : reason === "replaced" ? text("Recherche remplacée par une nouvelle demande.", "Search replaced by a new request.")
       : reason === "timeout" ? text(`La recherche a dépassé le délai. Relance \`${prefix}transport\` pour réessayer.`, `The lookup timed out. Run \`${prefix}transport\` to retry.`)
       : text(`Menu expiré. Relance \`${prefix}transport\`.`, `Menu expired. Run \`${prefix}transport\` again.`);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import type { ChatInputCommandInteraction, Message } from "discord.js";
-import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, resolveTopicKey, sendHelpPaginator, sendAdminGuide, sendSetupGuide, type HelpLanguage, type HelpPage, type HelpTopic } from "../src/discord/help-builders.js";
+import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, resolveTopicKey, sendHelpPaginator, sendHelpTopic, sendAdminGuide, sendSetupGuide, type HelpLanguage, type HelpPage, type HelpTopic } from "../src/discord/help-builders.js";
 import { ADMIN_SLASH_COMMANDS } from "../src/discord/help-extra-pages.js";
 import { createSlashMessageAdapter, replyToSlash } from "../src/discord/slash-message-adapter.js";
 import { buildBotCommandContext } from "../src/discord/ai-command-context.js";
@@ -192,8 +192,8 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
   const fixture = fakeSlash();
   await sendHelpPaginator(fixture.interaction, "fr");
   const initial = fixture.initialPayloads[0];
-  assert.equal(initial.components.length, 2);
-  const personaButton = initial.components[1].toJSON().components[0];
+  assert.equal(initial.components.length, 3);
+  const personaButton = initial.components[2].toJSON().components.find((component: any) => component.custom_id === "help_personas");
   assert.equal(personaButton.emoji.name, "🎭");
   assert.match(personaButton.label, /Persona/);
   assert.equal(fixture.collectorOptions.filter({ customId: "help_personas" }), true);
@@ -219,6 +219,73 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
   assert.equal(replies.at(-1).ephemeral, true);
 });
 
+test("Command favorites can be selected, toggled, and viewed privately from the help menu", async () => {
+  const fixture = fakeSlash();
+  const saved = new Set<string>();
+  const store = {
+    async get(userId: string) { return userId === "author" ? [...saved] : []; },
+    async toggle(userId: string, commandId: string) {
+      if (userId !== "author") return { ok: false, saved: false };
+      if (saved.has(commandId)) { saved.delete(commandId); return { ok: true, saved: false, removed: true }; }
+      saved.add(commandId); return { ok: true, saved: true };
+    },
+  };
+  await sendHelpPaginator(fixture.interaction, "fr", 1, store);
+  const initial = fixture.initialPayloads[0];
+  assert.equal(initial.components[1].toJSON().components[0].options.some((option: any) => option.value === "bus"), true);
+  assert.equal(initial.components[2].toJSON().components.some((component: any) => component.custom_id === "help_favorites_list"), true);
+
+  const replies: any[] = [];
+  const select = {
+    customId: "help_favorite_select", values: ["bus"], user: { id: "author" },
+    isStringSelectMenu: () => true, reply: async (payload: any) => { replies.push(payload); },
+  };
+  const button = (customId: string) => ({
+    customId, user: { id: "author" }, isStringSelectMenu: () => false,
+    reply: async (payload: any) => { replies.push(payload); },
+  });
+  const collect = fixture.handlers.get("collect")!;
+  await collect(select);
+  assert.equal(replies.at(-1).ephemeral, true);
+  await collect(button("help_favorite_toggle"));
+  assert.match(replies.at(-1).content, /!bus.*ajouté/i);
+  assert.equal(replies.at(-1).ephemeral, true);
+  await collect(button("help_favorites_list"));
+  assert.match(replies.at(-1).content, /!bus/);
+  assert.equal(replies.at(-1).ephemeral, true);
+  await collect(button("help_favorite_toggle"));
+  assert.match(replies.at(-1).content, /!bus.*retiré/i);
+  assert.deepEqual([...saved], []);
+});
+
+test("Command details offer only their relevant favorites and use the server prefix", async () => {
+  const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+  const replies: any[] = [];
+  const response = {
+    createMessageComponentCollector: () => ({
+      on: (event: string, handler: (...args: any[]) => Promise<void>) => handlers.set(event, handler),
+    }),
+    edit: async () => undefined,
+  };
+  const message = {
+    author: { id: "member" }, guildId: "fixture",
+    reply: async (payload: any) => { replies.push(payload); return response; },
+  } as unknown as Message;
+  await sendHelpTopic(message, "games", "fr", "??");
+  const selectOptions = replies[0].components[0].toJSON().components[0].options;
+  assert.ok(selectOptions.some((option: any) => option.label === "??pendu"));
+  assert.ok(selectOptions.every((option: any) => option.value !== "bus"));
+
+  let selectionResponse: any;
+  await handlers.get("collect")!({
+    customId: "help_favorite_select", values: ["pendu"], user: { id: "member" },
+    isStringSelectMenu: () => true,
+    reply: async (payload: any) => { selectionResponse = payload; },
+  });
+  assert.ok(selectionResponse.content.includes("??pendu"));
+  assert.equal(selectionResponse.ephemeral, true);
+});
+
 test("The message-command help opens the same Persona guide from its button", async () => {
   const handlers = new Map<string, (...args: any[]) => Promise<void>>();
   const payloads: any[] = [];
@@ -235,7 +302,8 @@ test("The message-command help opens the same Persona guide from its button", as
   } as unknown as Message;
 
   await sendHelpPaginator(message, "fr");
-  assert.equal(payloads[0].components[1].components[0].toJSON().emoji.name, "🎭");
+  assert.equal(payloads[0].components[2].components.find((component: any) =>
+    component.toJSON().custom_id === "help_personas").toJSON().emoji.name, "🎭");
   let openedTitle = "";
   await handlers.get("collect")!({
     customId: "help_personas",
