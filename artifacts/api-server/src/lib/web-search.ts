@@ -123,14 +123,15 @@ function normalizedQuery(query: string): string {
   return query
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[’']/g, " ");
 }
 
 function normalizeNewsText(value: string): string {
   return normalizedQuery(value).replace(/[’']/g, " ").replace(/\s+/g, " ").trim();
 }
 
-type ResearchTopic = "general" | "practical" | "comparison" | "current" | "health" | "legal" | "technology" | "science" | "travel" | "flight";
+type ResearchTopic = "general" | "practical" | "comparison" | "current" | "health" | "legal" | "technology" | "science" | "travel" | "flight" | "jobs" | "football";
 
 interface ResearchPlan {
   initialPages: number;
@@ -142,6 +143,8 @@ function getResearchPlan(query: string): ResearchPlan {
   const normalized = normalizedQuery(query);
   const explicitConflict = /\b(?:contradictoire?s?|contredisent|desaccord|verifie|recoupe|conflicting|disagree)\b/.test(normalized);
   const flight = /\b(?:flight status|flight number|track(?:ing)? (?:my )?flight|my flight|statut du vol|suivi du vol|mon vol|horaires? de vol|vol\s+(?:[a-z]{2,3}\s?\d{1,4}|n\s?\d)|vols?\s+(?:de|entre|vers|pour)|flights?\s+(?:from|between|to))\b/.test(normalized);
+  const jobs = /\b(?:offres? d emploi|emploi|job search|job opening|job vacancy|vacanc(?:y|ies)|recruit(?:ment)?|hiring)\b/.test(normalized);
+  const football = /\b(?:football|soccer|match(?:s)? de foot|match(?:s)? de football|resultat(?:s)? de foot|score(?:s)? de foot|fixtures?)\b/.test(normalized);
   const travel = /\b(?:visa|visas|passeport|passport|formalites? d entree|conditions? d entree|entry requirements|immigration requirements|fiche\s+(?:du\s+)?pays|infos?\s+pratiques?|informations?\s+pratiques?|guide\s+(?:de\s+)?voyage|travel\s+(?:guide|advice|information)|country\s+profile)\b/.test(normalized);
   const health = /\b(?:sante|sante|medical|medic(?:al|ine)|maladie|symptome|traitement|nutrition)\b/.test(normalized);
   const legal = /\b(?:juridique|legal|loi|droit|administration|impot|visa|passeport|demarche)\b/.test(normalized);
@@ -154,6 +157,8 @@ function getResearchPlan(query: string): ResearchPlan {
 
   if (flight) return { initialPages: 3, maxPages: 5, topic: "flight" };
   if (travel) return { initialPages: 3, maxPages: 5, topic: "travel" };
+  if (jobs) return { initialPages: 3, maxPages: 5, topic: "jobs" };
+  if (football) return { initialPages: 4, maxPages: 6, topic: "football" };
   if (explicitConflict || current) return { initialPages: 4, maxPages: 6, topic: current ? "current" : "general" };
   if (health) return { initialPages: 4, maxPages: 6, topic: "health" };
   if (legal) return { initialPages: 4, maxPages: 6, topic: "legal" };
@@ -213,8 +218,15 @@ function sourceQualityScore(result: WebSearchResult, plan: ResearchPlan): number
   if (plan.topic === "legal" && government) score += 5;
   if (plan.topic === "travel" && government) score += 5;
   if (plan.topic === "flight" && /\b(?:airport|airline|flightaware|flightradar24|flightstats)\b/.test(hostname)) score += 5;
+  if (plan.topic === "jobs" && [
+    "francetravail.fr", "eures.europa.eu", "jobbank.gc.ca", "findajob.dwp.gov.uk", "arbeitsagentur.de",
+  ].some(matchesDomain)) score += 7;
+  if (plan.topic === "football" && [
+    "uefa.com", "fifa.com", "premierleague.com", "ligue1.com", "bundesliga.com", "laliga.com", "legaseriea.it",
+  ].some(matchesDomain)) score += 7;
   if (plan.topic === "technology" && (official || hostname.includes("github.com"))) score += 5;
   if (plan.topic === "science" && academic) score += 4;
+  if (plan.topic === "football" && result.publishedAt) score += 3;
   if (plan.topic === "current" && result.publishedAt) score += 3;
 
   if (result.publishedAt) {
@@ -523,7 +535,9 @@ export async function searchWeb(query: string, options: { verify?: boolean } = {
   try {
     const plan = getResearchPlan(trimmed);
     if (options.verify) { plan.initialPages = Math.max(3, plan.initialPages); plan.maxPages = 6; }
-    let results = await fetchSearchResults(trimmed, plan.topic === "current" ? "w" : undefined);
+    const timeLimit = plan.topic === "current" || plan.topic === "football" ? "w"
+      : plan.topic === "jobs" ? "m" : undefined;
+    let results = await fetchSearchResults(trimmed, timeLimit);
     if (plan.topic === "current") {
       results = results.filter((result) => !isGenericNewsLandingPage(result));
     }
