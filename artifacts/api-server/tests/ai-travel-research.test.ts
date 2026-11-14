@@ -4,7 +4,7 @@ import type { Message } from "discord.js";
 import { researchForTurn } from "../src/discord/ai-research-service.js";
 import { classifyAiMessage } from "../src/discord/ai-router.js";
 import {
-  findTvCountry, liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
+  findTvCountry, isQuebecTvRequest, liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
 } from "../src/discord/ai-live-services.js";
 import {
   fetchFootballEvidence, fetchJobEvidence, jobSearchClarification,
@@ -134,7 +134,7 @@ test("TV schedules require an explicit supported country and use its local date"
   assert.match(result.results[0]!.content!, /No timezone is supplied by the schedule source/);
   assert.doesNotMatch(result.results[0]!.content!, /Europe\/Paris/);
   assert.match(result.guidance, /do not imply broader country coverage or a complete national schedule/);
-  assert.match(result.guidance, /only FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG/);
+  assert.match(result.guidance, /covers FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG/);
   assert.match(result.guidance, /Call a listing current for the requested date only when the source explicitly dates it for that day/);
   assert.match(result.guidance, /Include a timezone only when the listing source explicitly confirms it/);
 
@@ -186,6 +186,69 @@ test("TV schedules require an explicit supported country and use its local date"
     });
   assert.match(unavailableSearch.immediateReply!, /grille TV n’a pas pu être chargée/);
   assert.doesNotMatch(unavailableSearch.immediateReply!, /Je n’ai pas trouvé de grille publiée/);
+});
+
+test("Québec TV requests use the dated public ICI Télé schedule without inventing a timezone", async () => {
+  const question = "Quel est le programme TV ce soir au Québec ?";
+  assert.equal(findTvCountry(question)?.code, "CA");
+  assert.equal(isQuebecTvRequest(question), true);
+  assert.equal(isQuebecTvRequest("Programme TV ce soir au Canada"), false);
+  let requestedUrl = "";
+  const result = await researchForTurn(message, question, [], true, question, "fr", async () => {
+    throw new Error("A Québec schedule should use Radio-Canada's direct source");
+  }, async (input) => {
+    const url = new URL(String(input));
+    requestedUrl = url.toString();
+    assert.equal(url.origin, "https://ici.tou.tv");
+    assert.equal(url.pathname, "/chaine/ici-tele-montreal");
+    assert.equal(url.searchParams.get("date"), "2026-11-14");
+    const data = {
+      channelName: "ICI Télé",
+      schedule: {
+        date: "2026-11-14",
+        items: [
+          { title: "Journal du matin", formattedHour: "09 h 00" },
+          { title: "Le téléjournal", episodeTitle: "Édition du soir", formattedHour: "20 h 15" },
+          { title: "Culture", formattedHour: "18 h 30" },
+          { title: "Horaire invalide", formattedHour: "heure inconnue" },
+          { title: "Date différente", formattedHour: "21 h 00", airDateBegin: "2026-11-15T21:00:00Z" },
+        ],
+      },
+    };
+    return new Response(`<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: { pageProps: { data } },
+    })}</script>`, { status: 200, headers: { "content-type": "text/html" } });
+  }, () => new Date("2026-11-14T22:30:00.000Z"));
+
+  assert.match(requestedUrl, /date=2026-11-14/);
+  assert.equal(result.results.length, 2);
+  assert.deepEqual(result.results.map((entry) => entry.title), ["Le téléjournal — Édition du soir", "Culture"]);
+  assert.match(result.results[0]!.content!, /Date shown by the source: 2026-11-14/);
+  assert.match(result.results[0]!.content!, /Airtime shown by the source: 20 h 15/);
+  assert.match(result.results[0]!.content!, /Channel shown by the source: ICI Télé/);
+  assert.match(result.results[0]!.content!, /formatted airtime field does not identify a timezone/);
+  assert.match(result.results[0]!.content!, /covers ICI Télé only, not all television channels in Québec/);
+  assert.doesNotMatch(result.results[0]!.content!, /America\/Toronto|Eastern Time/);
+  assert.match(result.guidance, /Radio-Canada's public ICI Télé Montréal schedule page/);
+  assert.match(result.guidance, /Include a timezone only when the listing source explicitly confirms it/);
+
+  const tomorrow = await researchForTurn(message, "Programme TV demain au Québec", [], true,
+    "Programme TV demain au Québec", "fr", async () => [], async (input) => {
+      assert.equal(new URL(String(input)).searchParams.get("date"), "2026-11-15");
+      return new Response(`<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+        props: { pageProps: { data: { channelName: "ICI Télé", schedule: { date: "2026-11-15", items: [
+          { title: "Émission du lendemain", formattedHour: "13 h 00" },
+        ] } } } },
+      })}</script>`, { status: 200 });
+    }, () => new Date("2026-11-14T22:30:00.000Z"));
+  assert.equal(tomorrow.results.length, 1);
+  assert.match(tomorrow.results[0]!.content!, /2026-11-15/);
+
+  const invalidPage = await researchForTurn(message, question, [], true, question, "fr", async () => [], async () =>
+    new Response(`<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: { pageProps: { data: { channelName: "Autre chaîne", schedule: { date: "2026-11-14", items: [] } } } },
+    })}</script>`, { status: 200 }), () => new Date("2026-11-14T22:30:00.000Z"));
+  assert.match(invalidPage.immediateReply!, /grille TV n’a pas pu être chargée/);
 });
 
 test("job search asks for missing details and keeps the requested location and role", async () => {

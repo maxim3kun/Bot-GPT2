@@ -7,8 +7,9 @@ import { isLatestNewsRequest } from "./ai-router.js";
 import { researchNotice } from "./ai-research-i18n.js";
 import { travelEvidenceFreshness, travelResearchClarification, travelResearchGuidance, travelResearchKind } from "./ai-travel-research.js";
 import {
-  fetchCurrencyEvidence, fetchTvScheduleEvidence, findTvCountry, formatLiveLookupFailure, noTvListingsReply,
-  hasExplicitTvCountry, liveServiceGuidance, liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
+  fetchCurrencyEvidence, fetchQuebecTvScheduleEvidence, fetchTvScheduleEvidence, findTvCountry,
+  formatLiveLookupFailure, noTvListingsReply, hasExplicitTvCountry, isQuebecTvRequest, liveServiceGuidance,
+  liveServiceKind, liveServiceSearchQuery, parseCurrencyRequest,
 } from "./ai-live-services.js";
 import {
   fetchFootballEvidence, fetchJobEvidence, jobSearchClarification, noFootballEvidenceReply,
@@ -100,8 +101,10 @@ export async function researchForTurn(
     }
   }
   if (liveKind === "tv") {
-    const country = findTvCountry(correction?.question ?? text);
-    if (!country && !hasExplicitTvCountry(correction?.question ?? text)) return {
+    const tvQuestion = correction?.question ?? text;
+    const country = findTvCountry(tvQuestion);
+    const quebec = country?.code === "CA" && isQuebecTvRequest(tvQuestion);
+    if (!country && !hasExplicitTvCountry(tvQuestion)) return {
       results: [], correction, guidance: "",
       immediateReply: language === "fr"
         ? "Pour quel pays veux-tu le programme TV ? La grille dépend du pays et du fuseau horaire."
@@ -109,12 +112,18 @@ export async function researchForTurn(
     };
     if (country) {
       try {
-        const results = await fetchTvScheduleEvidence(country, correction?.question ?? text, now, fetcher);
+        const results = quebec
+          ? await fetchQuebecTvScheduleEvidence(tvQuestion, now, fetcher)
+          : await fetchTvScheduleEvidence(country, tvQuestion, now, fetcher);
         if (results.length === 0) return {
           results: [], correction, guidance: "",
-          immediateReply: language === "fr"
-            ? `Aucun épisode n’est listé par TVMaze pour ${country.code} à cette date. Leur grille n’est pas exhaustive.`
-            : `TVMaze lists no episodes for ${country.code} on that date. Its schedule is not exhaustive.`,
+          immediateReply: quebec
+            ? language === "fr"
+              ? "Aucun programme vérifiable n’est listé dans la grille Radio-Canada ICI Télé pour cette date. Cette source ne couvre pas les autres chaînes québécoises."
+              : "No verifiable programme is listed in Radio-Canada's ICI Télé schedule for this date. This source does not cover other Québec channels."
+            : language === "fr"
+              ? `Aucun épisode n’est listé par TVMaze pour ${country.code} à cette date. Leur grille n’est pas exhaustive.`
+              : `TVMaze lists no episodes for ${country.code} on that date. Its schedule is not exhaustive.`,
         };
         return {
           results, correction,

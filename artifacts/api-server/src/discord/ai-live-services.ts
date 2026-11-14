@@ -47,7 +47,7 @@ export function liveServiceGuidance(
   const details: Record<Exclude<LiveServiceKind, null>, string> = {
     jobs: "For job searches, list only vacancies that are visibly present in the evidence. Include the role, employer, location, posting/deadline date only when shown, and direct listing link. Never invent salary, eligibility or availability; do not apply or contact employers for the user. State when the search is incomplete or no listings could be verified.",
     football: "For football, keep competition, teams, dates and source links attached to each answer. For fixtures, distinguish confirmed final scores, scheduled matches, and live scores; use a live label only when the source explicitly marks the event live, report our lookup time separately, and disclose if the source has no own update timestamp. For standings, state the season, source update date and lookup date separately, and only report ranks and statistics present in the table. Never infer a result or claim exhaustive league coverage; say when a requested competition or table is unavailable.",
-    tv: "The direct TVMaze schedule lookup in this service covers only FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG. For other countries, use only country-specific public guide or broadcaster pages present in the search evidence. State which sources, channels/platforms and dates were actually found; do not imply broader country coverage or a complete national schedule. Call a listing current for the requested date only when the source explicitly dates it for that day; otherwise label its date as unconfirmed. Include a timezone only when the listing source explicitly confirms it. Do not infer one from the country or from an airtime. Distinguish a published schedule from a live broadcast and note that schedules may change.",
+    tv: "The direct TVMaze schedule lookup in this service covers FR, GB, US, CA, DE, IE, AU, ES, IT, JP and SG. A Québec request uses Radio-Canada's public ICI Télé Montréal schedule page, which covers that channel only, not all Québec broadcasters. For other countries, use only country-specific public guide or broadcaster pages present in the search evidence. State which sources, channels/platforms and dates were actually found; do not imply broader country coverage or a complete national schedule. Call a listing current for the requested date only when the source explicitly dates it for that day; otherwise label its date as unconfirmed. Include a timezone only when the listing source explicitly confirms it. Do not infer one from the country or from an airtime. Distinguish a published schedule from a live broadcast and note that schedules may change.",
     currency: "For exchange rates, distinguish a dated reference rate from a live market quote. Show the source's rate date and the lookup time separately, identify both currencies, and do not describe the rate as a bank/card rate or promise the amount a user will receive.",
   };
   const languageNote = language === "fr" ? "Answer in French." : `Answer in ${language}.`;
@@ -164,6 +164,10 @@ export function findTvCountry(text: string): TvCountry | undefined {
   return TV_COUNTRIES.find((country) => country.code === code);
 }
 
+export function isQuebecTvRequest(text: string): boolean {
+  return /\b(?:quebec|province de quebec|province of quebec)\b/.test(normalize(text));
+}
+
 export function hasExplicitTvCountry(text: string): boolean {
   const value = normalize(text);
   return /\b(?:tv|television|programme|grille|schedule)\b.{0,50}\b(?:en|au|aux|dans|in|for)\s+[\p{L}][\p{L}\s-]{1,30}/u.test(value);
@@ -214,6 +218,69 @@ export async function fetchTvScheduleEvidence(
           `Programme: ${title}${episodeName}. Airtime shown by TVMaze: ${airtime}. No timezone is supplied by the schedule source. ` +
           `Channel/platform: ${network}. TVMaze episode or show page: ${episodeUrl}. ` +
           "This entry is a listed TV episode and does not establish complete national TV coverage.",
+      };
+    });
+}
+
+export async function fetchQuebecTvScheduleEvidence(
+  text: string, now = new Date(), fetcher: typeof fetch = fetch,
+): Promise<WebSearchResult[]> {
+  const date = dateInTimezone(now, "America/Toronto", /\b(?:demain|tomorrow)\b/i.test(normalize(text)));
+  const url = new URL("https://ici.tou.tv/chaine/ici-tele-montreal");
+  url.searchParams.set("date", date);
+  const response = await fetcher(url, {
+    signal: AbortSignal.timeout(8_000),
+    headers: { accept: "text/html" },
+  });
+  if (!response.ok) throw new Error(`Radio-Canada schedule returned HTTP ${response.status}`);
+  const page = await response.text();
+  if (new TextEncoder().encode(page).byteLength > 3_000_000) {
+    throw new Error("Radio-Canada schedule page exceeded the size limit");
+  }
+  const state = page.match(/<script\b(?=[^>]*\bid=["']__NEXT_DATA__["'])(?=[^>]*\btype=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/i)?.[1];
+  if (!state) throw new Error("Radio-Canada schedule page did not contain its published schedule data");
+  let body: unknown;
+  try {
+    body = JSON.parse(state);
+  } catch {
+    throw new Error("Radio-Canada schedule page contained invalid JSON");
+  }
+  const data = (body as { props?: { pageProps?: { data?: Record<string, unknown> } } } | null)
+    ?.props?.pageProps?.data;
+  const schedule = data?.schedule as { date?: unknown; items?: unknown } | undefined;
+  if (data?.channelName !== "ICI Télé" || schedule?.date !== date || !Array.isArray(schedule.items)) {
+    throw new Error("Radio-Canada response did not contain the requested ICI Télé schedule");
+  }
+  const evening = /\b(?:ce soir|tonight)\b/i.test(normalize(text));
+  return schedule.items
+    .filter((item): item is Record<string, unknown> => {
+      if (!item || typeof item !== "object") return false;
+      const sourceStartDate = typeof item.airDateBegin === "string" &&
+        /^\d{4}-\d{2}-\d{2}T/.test(item.airDateBegin) ? item.airDateBegin.slice(0, 10) : undefined;
+      if (sourceStartDate && sourceStartDate !== date) return false;
+      const title = typeof item.title === "string" && item.title.trim();
+      const airtime = typeof item.formattedHour === "string" && item.formattedHour.match(/^(\d{1,2})\s*h\s*(\d{2})$/i);
+      if (!title || !airtime) return false;
+      const hour = Number(airtime[1]);
+      const minute = Number(airtime[2]);
+      return hour < 24 && minute < 60 && (!evening || hour >= 18);
+    })
+    .slice(0, 6)
+    .map((item) => {
+      const title = (item.title as string).trim();
+      const episode = typeof item.episodeTitle === "string" && item.episodeTitle.trim() &&
+        item.episodeTitle.trim() !== title ? ` — ${item.episodeTitle.trim()}` : "";
+      const airtime = (item.formattedHour as string).trim();
+      const sourceUrl = url.toString();
+      return {
+        title: `${title}${episode}`,
+        url: sourceUrl,
+        snippet: `${airtime} · ICI Télé · ${date}`,
+        qualityScore: 12,
+        content: `Radio-Canada's public ICI Télé Montréal schedule. Date shown by the source: ${date}. ` +
+          `Programme: ${title}${episode}. Airtime shown by the source: ${airtime}. Channel shown by the source: ICI Télé. ` +
+          "The formatted airtime field does not identify a timezone; do not infer one from the separate timestamp. " +
+          "This source covers ICI Télé only, not all television channels in Québec.",
       };
     });
 }
