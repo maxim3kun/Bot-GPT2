@@ -67,6 +67,19 @@ test("Help keeps useful commands and details separate from the removed sixth pag
   assert.equal(resolveTopicKey("civique")?.topic, "civic");
 });
 
+test("Help localizes command argument labels in French, English and Spanish", () => {
+  const french = JSON.stringify(buildHelpEmbed("fr", 5).toJSON());
+  const english = JSON.stringify(buildHelpEmbed("en", 5).toJSON());
+  const spanish = JSON.stringify(buildHelpEmbed("es", 5).toJSON());
+  assert.ok(french.includes("!feries <pays> [année]"));
+  assert.ok(english.includes("!feries <country> [year]"));
+  assert.ok(spanish.includes("!feries <país> [año]"));
+  assert.ok(JSON.stringify(buildHelpEmbed("fr", 2).toJSON()).includes("!define <mot>"));
+  assert.ok(JSON.stringify(buildHelpEmbed("es", 2).toJSON()).includes("!define <palabra>"));
+  assert.ok(JSON.stringify(buildTopicEmbed("memory", "fr").toJSON()).includes("!ai remember <information>"));
+  assert.ok(JSON.stringify(buildTopicEmbed("memory", "es").toJSON()).includes("!ai remember <información>"));
+});
+
 test("Every help page uses the server prefix in fields and footer and the AI sees the expanded catalogue", () => {
   for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
     const json = validateEmbed(buildHelpEmbed("fr", page as HelpPage, "??"), `prefix/${page}`);

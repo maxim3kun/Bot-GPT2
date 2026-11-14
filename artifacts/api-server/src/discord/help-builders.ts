@@ -169,6 +169,20 @@ const PAGE_TITLES: Record<HelpPage, Record<TextLang, string>> = {
   5: { en: "🤖 AI & useful info", fr: "🤖 IA & infos utiles", es: "🤖 IA e información", de: "🤖 KI & Infos", pt: "🤖 IA e informações", it: "🤖 IA e informazioni" },
 };
 
+const ARGUMENT_LABELS: Record<TextLang, {
+  question: string; description: string; location: string; title: string; word: string;
+  name: string; text: string; food: string; theme: string; query: string; station: string;
+  artistSong: string; prompt: string; topic: string; information: string; number: string;
+  country: string; year: string; article: string; goal: string; language: string;
+}> = {
+  en: { question: "question", description: "description", location: "city", title: "title", word: "word", name: "name", text: "text", food: "food", theme: "theme", query: "query", station: "station", artistSong: "artist song", prompt: "prompt", topic: "topic", information: "information", number: "number", country: "country", year: "year", article: "article", goal: "goal", language: "language" },
+  fr: { question: "question", description: "description", location: "ville", title: "titre", word: "mot", name: "nom", text: "texte", food: "aliment", theme: "thème", query: "recherche", station: "station", artistSong: "artiste morceau", prompt: "consigne", topic: "sujet", information: "information", number: "numéro", country: "pays", year: "année", article: "article", goal: "objectif", language: "langue" },
+  es: { question: "pregunta", description: "descripción", location: "ciudad", title: "título", word: "palabra", name: "nombre", text: "texto", food: "alimento", theme: "tema", query: "búsqueda", station: "emisora", artistSong: "artista canción", prompt: "instrucción", topic: "tema", information: "información", number: "número", country: "país", year: "año", article: "artículo", goal: "objetivo", language: "idioma" },
+  de: { question: "Frage", description: "Beschreibung", location: "Stadt", title: "Titel", word: "Wort", name: "Name", text: "Text", food: "Lebensmittel", theme: "Thema", query: "Suchbegriff", station: "Sender", artistSong: "Künstler Titel", prompt: "Eingabe", topic: "Thema", information: "Information", number: "Nummer", country: "Land", year: "Jahr", article: "Artikel", goal: "Ziel", language: "Sprache" },
+  pt: { question: "pergunta", description: "descrição", location: "cidade", title: "título", word: "palavra", name: "nome", text: "texto", food: "alimento", theme: "tema", query: "pesquisa", station: "estação", artistSong: "artista música", prompt: "instrução", topic: "tema", information: "informação", number: "número", country: "país", year: "ano", article: "artigo", goal: "objetivo", language: "idioma" },
+  it: { question: "domanda", description: "descrizione", location: "città", title: "titolo", word: "parola", name: "nome", text: "testo", food: "alimento", theme: "tema", query: "ricerca", station: "stazione", artistSong: "artista brano", prompt: "istruzione", topic: "argomento", information: "informazione", number: "numero", country: "paese", year: "anno", article: "articolo", goal: "obiettivo", language: "lingua" },
+};
+
 // ── Nav row ───────────────────────────────────────────────────────────────────
 
 function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder> {
@@ -462,6 +476,7 @@ function buildPersonaHelpRows(
 export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
   const p = HELP_PREFIX_TOKEN;
   const tl = textLang(lang);
+  const args = ARGUMENT_LABELS[tl];
   const embed = new EmbedBuilder()
     .setCommandPrefix(prefix)
     .setCompact()
@@ -471,24 +486,22 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
 
   // ── Page 1 — General & Fun ─────────────────────────────────────────────────
   if (page === 1) {
-    const locationArgument = tl === "fr" ? "ville" : "city";
     const favoriteCommand = tl === "fr" ? "favoris" : "favorites";
     const agendaDateTime = tl === "fr" ? "YYYY-MM-DD HH:MM" : "YYYY-MM-DD HH:MM";
-    const agendaTitle = tl === "fr" ? "titre" : "title";
     const desc = { en: "The essentials to get started.", fr: "Les essentiels pour commencer.", es: "Lo esencial para empezar.", de: "Das Wichtigste für den Anfang.", pt: "O essencial para começar.", it: "Le basi per iniziare." };
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
-          `\`@bot <question>\` 🤖 · \`${p}image <description>\` 🎨`,
+          `\`@bot <${args.question}>\` 🤖 · \`${p}image <${args.description}>\` 🎨`,
           `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\` · \`/help\``,
         ].join("\n"),
       },
       {
         name: { en: "🚍 Transport", fr: "🚍 Transports", es: "🚍 Transporte", de: "🚍 Verkehr", pt: "🚍 Transporte", it: "🚍 Trasporti" }[tl] ?? "🚍 Transport",
         value: [
-          `\`${p}transport\` · \`${p}bus <${locationArgument}>\` · \`${p}metro <${locationArgument}>\` · \`${p}train <${locationArgument}>\``,
+          `\`${p}transport\` · \`${p}bus <${args.location}>\` · \`${p}metro <${args.location}>\` · \`${p}train <${args.location}>\``,
           `\`${p}${favoriteCommand}\` — ` + { en: "reopen a saved journey.", fr: "relancer un trajet enregistré.", es: "reabrir un trayecto guardado.", de: "eine gespeicherte Fahrt erneut öffnen.", pt: "reabrir um trajeto salvo.", it: "riaprire un viaggio salvato." }[tl],
         ].join("\n"),
       },
@@ -496,7 +509,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[tl] ?? "🎉 Fun",
         value: [
           `\`${p}joke\` 😄  \`/joke\`  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
-          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲 · \`/roll\``,
+          `\`${p}8ball <${args.question}>\` 🎱  \`${p}dice [N]\` 🎲 · \`/roll\``,
         ].join("\n"),
       },
       {
@@ -505,7 +518,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
-        value: `\`${p}agenda add ${agendaDateTime} <${agendaTitle}>\` · \`${p}agenda list\` · \`${p}timer 20m <${agendaTitle}>\`\n` +
+        value: `\`${p}agenda add ${agendaDateTime} <${args.title}>\` · \`${p}agenda list\` · \`${p}timer 20m <${args.title}>\`\n` +
           ({ en: "Private reminders by DM.", fr: "Rappels privés par DM.", es: "Avisos privados por DM.", de: "Private Erinnerungen per DM.", pt: "Lembretes privados por DM.", it: "Promemoria privati via DM." }[tl] ?? "Private reminders by DM."),
       },
     );
@@ -526,15 +539,15 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🆕 New Games", fr: "🆕 Nouveaux jeux", es: "🆕 Nuevos juegos", de: "🆕 Neue Spiele", pt: "🆕 Novos jogos", it: "🆕 Nuovi giochi" }[tl] ?? "🆕 New Games",
         value: [
-          `\`${p}tierlist [theme]\` 🏆 · \`${p}blindtest [theme]\` 🎵 · \`${p}milliongame\` 💰`,
+          `\`${p}tierlist [${args.theme}]\` 🏆 · \`${p}blindtest [${args.theme}]\` 🎵 · \`${p}milliongame\` 💰`,
           `\`${p}help tierlist\` · \`${p}help blindtest\` · \`${p}help million\``,
         ].join("\n"),
       },
       {
         name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools",
         value: [
-          `\`${p}define <word>\` 📖 · \`${p}pokemon <name>\` 🔴 · \`${p}qr <text>\` 📷`,
-          `\`${p}echo\` 🦜 · \`${p}food\` 🥗 · \`${p}rate <food>\` ⭐`,
+          `\`${p}define <${args.word}>\` 📖 · \`${p}pokemon <${args.name}>\` 🔴 · \`${p}qr <${args.text}>\` 📷`,
+          `\`${p}echo\` 🦜 · \`${p}food\` 🥗 · \`${p}rate <${args.food}>\` ⭐`,
           `\`${p}translate\` 🌐 · \`${p}meme\` 🖼️ · \`${p}shazam\` 🎵`,
           `\`${p}excel <URL>\` 📊 · \`${p}pdf <URL>\` 📄 · \`${p}help tools\``,
         ].join("\n"),
@@ -549,7 +562,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[tl] ?? "🎵 YouTube & Queue",
         value: [
-          `\`${p}y <query>\` · \`/play <query>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
+          `\`${p}y <${args.query}>\` · \`/play <${args.query}>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
           `\`${p}likes\` 📋  \`${p}playlist add|play|list\``,
         ].join("\n"),
       },
@@ -560,17 +573,17 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "📻 Radio", fr: "📻 Radio", es: "📻 Radio", de: "📻 Radio", pt: "📻 Rádio", it: "📻 Radio" }[tl] ?? "📻 Radio",
         value: [
-          `\`${p}radio list\` · \`${p}radio <name>\` · \`${p}radio leave\``,
+          `\`${p}radio list\` · \`${p}radio <${args.station}>\` · \`${p}radio leave\``,
           `> ` + { en: "e.g. `!radio nrj`, `!radio jazz`, `!radio groove`", fr: "ex. `!radio nrj`, `!radio fun`, `!radio fip`", es: "ej. `!radio los40`, `!radio hiphop`", de: "z.B. `!radio kexp`, `!radio jazz`, `!radio groove`", pt: "ex. `!radio groove`, `!radio jazz`", it: "es. `!radio jazz`, `!radio classicfm`" }[tl],
         ].join("\n"),
       },
       {
         name: { en: "🎤 Karaoke", fr: "🎤 Karaoké", es: "🎤 Karaoke", de: "🎤 Karaoke", pt: "🎤 Karaokê", it: "🎤 Karaoke" }[tl] ?? "🎤 Karaoke",
-        value: `\`${p}karaoke <artist song>\` · \`${p}karaoke stop\``,
+        value: `\`${p}karaoke <${args.artistSong}>\` · \`${p}karaoke stop\``,
       },
       {
         name: { en: "🎵 Suno AI", fr: "🎵 Suno AI", es: "🎵 Suno AI", de: "🎵 Suno AI", pt: "🎵 Suno AI", it: "🎵 Suno AI" }[tl] ?? "🎵 Suno AI",
-        value: `\`${p}music generator <prompt>\` · \`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
+        value: `\`${p}music generator <${args.prompt}>\` · \`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
       },
     );
 
@@ -583,7 +596,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[tl] ?? "🎙️ Voice",
         value: [
           `\`${p}join\` 🔊 · \`${p}leave\` 👋 · \`${p}subtitles\` 📝`,
-          `\`${p}voice chat on/off\` 🎧 · \`${p}voice say <text>\` 🗣️`,
+          `\`${p}voice chat on/off\` 🎧 · \`${p}voice say <${args.text}>\` 🗣️`,
           `\`${p}voice stop\` · \`${p}voice resume\``,
         ].join("\n"),
       },
@@ -592,21 +605,21 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
   // ── Page 5 — AI, memory & useful information ────────────────────────────────
   } else if (page === 5) {
     const desc = { en: "AI, personal goals and verified information.", fr: "IA, objectifs personnels et informations vérifiées.", es: "IA, objetivos personales e información verificada.", de: "KI, persönliche Ziele und geprüfte Informationen.", pt: "IA, objetivos pessoais e informações verificadas.", it: "IA, obiettivi personali e informazioni verificate." };
-    const questGoalArgument = tl === "fr" ? "objectif" : "goal";
+    const questGoalArgument = args.goal;
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
         name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
         value: [
-          `\`@bot <question>\` · \`@bot analyse [@membre]\``,
-          `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy\` 🕵️`,
+          `\`@bot <${args.question}>\` · \`@bot analyse [@membre]\``,
+          `\`${p}ai battle <${args.topic}>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy\` 🕵️`,
           `\`${p}ai enable\` · \`${p}ai reset\` · \`${p}help ai\``,
         ].join("\n"),
       },
       {
         name: { en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory",
         value: [
-          `\`${p}ai remember <info>\` · \`${p}ai memory\` · \`${p}ai forget <N|all>\``,
+          `\`${p}ai remember <${args.information}>\` · \`${p}ai memory\` · \`${p}ai forget <${args.number}|all>\``,
           `\`${p}ai memory auto on\` · \`${p}ai memory auto off\` · \`${p}help memory\``,
         ].join("\n"),
       },
@@ -621,7 +634,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
           name: { en: "📚 Civic information", fr: "📚 Infos civiques", es: "📚 Información cívica", de: "📚 Bürgerinfos", pt: "📚 Dados cívicos", it: "📚 Dati civici" }[tl] ?? "📚 Civic information",
           value: [
-            `\`${p}vote <topic>\` · \`${p}loi <article>\` · \`${p}feries <country> [year]\``,
+            `\`${p}vote <${args.topic}>\` · \`${p}loi <${args.article}>\` · \`${p}feries <${args.country}> [${args.year}]\``,
             { en: "Assembly votes · Legifrance · sourced holiday dates.",
               fr: "Scrutins de l’Assemblée · Légifrance · jours fériés sourcés.",
               es: "Votos oficiales · Legifrance · festivos con fuente.",
@@ -778,13 +791,14 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
 export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "!"): EmbedBuilder {
   const p = HELP_PREFIX_TOKEN;
   const tl = textLang(lang);
+  const args = ARGUMENT_LABELS[tl];
   if (topic === "memory") {
     return new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang])
       .setTitle({ en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory")
       .setDescription({ en: "Optional, encrypted personal memory. A refusal is respected.", fr: "Mémoire personnelle chiffrée et facultative. Un refus est respecté.", es: "Memoria personal cifrada y opcional. Se respeta el rechazo.", de: "Optionale, verschlüsselte persönliche Erinnerung. Eine Ablehnung wird respektiert.", pt: "Memória pessoal criptografada e opcional. A recusa é respeitada.", it: "Memoria personale crittografata e facoltativa. Il rifiuto viene rispettato." }[tl] ?? "")
       .addFields(
         { name: { en: "Manage", fr: "Gérer", es: "Gestionar", de: "Verwalten", pt: "Gerir", it: "Gestire" }[tl] ?? "Manage",
-          value: `\`${p}ai remember <information>\` · \`${p}ai memory\` · \`${p}ai forget <number|all>\`` },
+          value: `\`${p}ai remember <${args.information}>\` · \`${p}ai memory\` · \`${p}ai forget <${args.number}|all>\`` },
         { name: { en: "Automatic summaries", fr: "Résumés automatiques", es: "Resúmenes automáticos", de: "Automatische Zusammenfassungen", pt: "Resumos automáticos", it: "Riepiloghi automatici" }[tl] ?? "Automatic summaries",
           value: `\`${p}ai memory auto on\` · \`${p}ai memory auto off\`` },
       );
@@ -798,10 +812,10 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "civic":
       embed.setTitle({ en: "📚 Verified civic data", fr: "📚 Informations civiques vérifiées", es: "📚 Datos cívicos verificados", de: "📚 Geprüfte Bürgerdaten", pt: "📚 Dados cívicos verificados", it: "📚 Dati civici verificati" }[tl] ?? "📚 Verified civic data");
       embed.addFields(
-        { name: `\`${p}vote <topic>\``, value: { en: "Search official National Assembly votes. Results include the date, outcome, counts and source link.", fr: "Chercher les scrutins officiels de l’Assemblée nationale : date, résultat, décomptes et lien source.", es: "Buscar votaciones oficiales: fecha, resultado, recuentos y enlace de la fuente.", de: "Offizielle Abstimmungen mit Datum, Ergebnis, Stimmenzahlen und Quellenlink suchen.", pt: "Pesquisar votações oficiais com data, resultado, contagens e fonte.", it: "Cerca votazioni ufficiali con data, esito, conteggi e fonte." }[tl] ?? "" },
-        { name: `\`${p}loi <article>\``, value: { en: "Read a French Code civil article; `!law search <topic>` searches official legal texts. Requires Legifrance PISTE access.", fr: "Lire un article du Code civil ; `!loi recherche <sujet>` cherche des textes officiels. L’accès PISTE Légifrance est requis.", es: "Consultar artículos del Código Civil francés; `!law search <tema>` busca textos oficiales. Requiere acceso PISTE.", de: "Artikel des französischen Code civil abrufen; `!law search <Thema>` durchsucht offizielle Texte. PISTE-Zugang erforderlich.", pt: "Consultar artigos do Código Civil francês; `!law search <tema>` pesquisa textos oficiais. Requer acesso PISTE.", it: "Consulta articoli del Codice civile francese; `!law search <tema>` cerca testi ufficiali. Richiede accesso PISTE." }[tl] ?? "" },
+        { name: `\`${p}vote <${args.topic}>\``, value: { en: "Search official National Assembly votes. Results include the date, outcome, counts and source link.", fr: "Chercher les scrutins officiels de l’Assemblée nationale : date, résultat, décomptes et lien source.", es: "Buscar votaciones oficiales: fecha, resultado, recuentos y enlace de la fuente.", de: "Offizielle Abstimmungen mit Datum, Ergebnis, Stimmenzahlen und Quellenlink suchen.", pt: "Pesquisar votações oficiais com data, resultado, contagens e fonte.", it: "Cerca votazioni ufficiali con data, esito, conteggi e fonte." }[tl] ?? "" },
+        { name: `\`${p}loi <${args.article}>\``, value: { en: "Read a French Code civil article; `!law search <topic>` searches official legal texts. Requires Legifrance PISTE access.", fr: "Lire un article du Code civil ; `!loi recherche <sujet>` cherche des textes officiels. L’accès PISTE Légifrance est requis.", es: "Consultar artículos del Código Civil francés; `!law search <tema>` busca textos oficiales. Requiere acceso PISTE.", de: "Artikel des französischen Code civil abrufen; `!law search <Thema>` durchsucht offizielle Texte. PISTE-Zugang erforderlich.", pt: "Consultar artigos do Código Civil francês; `!law search <tema>` pesquisa textos oficiais. Requer acesso PISTE.", it: "Consulta articoli del Codice civile francese; `!law search <tema>` cerca testi ufficiali. Richiede accesso PISTE." }[tl] ?? "" },
         { name: `\`${p}loi connecter\``, value: { en: "Server administrators connect PISTE with OAuth; the renewal token is encrypted in MongoDB.", fr: "Un administrateur relie PISTE par OAuth ; le jeton de renouvellement est chiffré dans MongoDB.", es: "Los administradores conectan PISTE por OAuth; el token de renovación se cifra en MongoDB.", de: "Administratoren verbinden PISTE per OAuth; das Erneuerungstoken wird in MongoDB verschlüsselt.", pt: "Administradores ligam PISTE por OAuth; o token de renovação é cifrado no MongoDB.", it: "Gli amministratori collegano PISTE con OAuth; il token di rinnovo è cifrato in MongoDB." }[tl] ?? "Connect PISTE with OAuth as a server administrator; the renewal token is encrypted in MongoDB." },
-        { name: `\`${p}feries <pays> [année]\``, value: { en: "Show verified public-holiday records by country and year, with the provider and regional coverage identified.", fr: "Afficher les jours fériés vérifiés par pays et année, avec la source et les éventuelles régions précisées.", es: "Mostrar festivos verificados por país y año, indicando la fuente y la cobertura regional.", de: "Geprüfte Feiertage nach Land und Jahr mit Quelle und regionaler Abdeckung anzeigen.", pt: "Mostrar feriados verificados por país e ano, com fonte e cobertura regional.", it: "Mostrare festività verificate per paese e anno, con fonte e copertura regionale." }[tl] ?? "" },
+        { name: `\`${p}feries <${args.country}> [${args.year}]\``, value: { en: "Show verified public-holiday records by country and year, with the provider and regional coverage identified.", fr: "Afficher les jours fériés vérifiés par pays et année, avec la source et les éventuelles régions précisées.", es: "Mostrar festivos verificados por país y año, indicando la fuente y la cobertura regional.", de: "Geprüfte Feiertage nach Land und Jahr mit Quelle und regionaler Abdeckung anzeigen.", pt: "Mostrar feriados verificados por país e ano, com fonte e cobertura regional.", it: "Mostrare festività verificate per paese e anno, con fonte e copertura regionale." }[tl] ?? "" },
       );
       break;
     case "language":
@@ -822,7 +836,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "translation":
       embed.setTitle({ en: "🌐 Translation", fr: "🌐 Traduction", es: "🌐 Traducción", de: "🌐 Übersetzung", pt: "🌐 Tradução", it: "🌐 Traduzione" }[tl] ?? "🌐 Translation");
       embed.addFields(
-        { name: `\`${p}translate <lang> <text>\``, value: { en: "Use one of `en fr es de pt it ja nl ru pl tr`. Choose direct translation through MyMemory or AI reformulation through Groq. The selected service receives your text.", fr: "Codes disponibles : `en fr es de pt it ja nl ru pl tr`. Choisis la traduction directe par MyMemory ou la reformulation par Groq. Le service choisi reçoit ton texte.", es: "Códigos: `en fr es de pt it ja nl ru pl tr`. Elige traducción directa con MyMemory o reformulación con Groq. El servicio elegido recibe tu texto.", de: "Codes: `en fr es de pt it ja nl ru pl tr`. Wähle direkte Übersetzung mit MyMemory oder KI-Umformulierung mit Groq. Der gewählte Dienst erhält deinen Text.", pt: "Códigos: `en fr es de pt it ja nl ru pl tr`. Escolha tradução direta pelo MyMemory ou reformulação por IA com Groq. O serviço escolhido recebe o texto.", it: "Codici: `en fr es de pt it ja nl ru pl tr`. Scegli la traduzione diretta con MyMemory o la riformulazione IA con Groq. Il servizio scelto riceve il testo." }[tl] ?? "" },
+        { name: `\`${p}translate <${args.language}> <${args.text}>\``, value: { en: "Use one of `en fr es de pt it ja nl ru pl tr`. Choose direct translation through MyMemory or AI reformulation through Groq. The selected service receives your text.", fr: "Codes disponibles : `en fr es de pt it ja nl ru pl tr`. Choisis la traduction directe par MyMemory ou la reformulation par Groq. Le service choisi reçoit ton texte.", es: "Códigos: `en fr es de pt it ja nl ru pl tr`. Elige traducción directa con MyMemory o reformulación con Groq. El servicio elegido recibe tu texto.", de: "Codes: `en fr es de pt it ja nl ru pl tr`. Wähle direkte Übersetzung mit MyMemory oder KI-Umformulierung mit Groq. Der gewählte Dienst erhält deinen Text.", pt: "Códigos: `en fr es de pt it ja nl ru pl tr`. Escolha tradução direta pelo MyMemory ou reformulação por IA com Groq. O serviço escolhido recebe o texto.", it: "Codici: `en fr es de pt it ja nl ru pl tr`. Scegli la traduzione diretta con MyMemory o la riformulazione IA con Groq. Il servizio scelto riceve il testo." }[tl] ?? "" },
         { name: { en: "AI consent", fr: "Consentement IA", es: "Consentimiento de IA", de: "KI-Zustimmung", pt: "Consentimento de IA", it: "Consenso IA" }[tl] ?? "AI consent", value: { en: "The AI option uses the existing consent. A refusal is respected without another prompt.", fr: "L’option IA utilise le consentement existant. Un refus est respecté sans nouvelle demande.", es: "La opción IA usa el consentimiento existente. Se respeta el rechazo sin volver a preguntar.", de: "Die KI-Option nutzt die bestehende Zustimmung. Eine Ablehnung führt zu keiner erneuten Nachfrage.", pt: "A opção de IA usa o consentimento existente. A recusa é respeitada sem nova pergunta.", it: "L’opzione IA usa il consenso esistente. Il rifiuto è rispettato senza nuove richieste." }[tl] ?? "" },
       );
       break;
@@ -839,9 +853,9 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle({ en: "🌐 General & Fun", fr: "🌐 Général & Fun", es: "🌐 General & Diversión", de: "🌐 Allgemein & Spaß", pt: "🌐 Geral & Diversão", it: "🌐 Generale & Divertimento" }[tl] ?? "🌐 General");
       embed.addFields(
         { name: `\`${p}say <msg>\``, value: { en: "Make the bot say something (deletes your message).", fr: "Fait dire quelque chose au bot (supprime ton message).", es: "Hace que el bot diga algo (borra tu mensaje).", de: "Lässt den Bot etwas sagen (löscht deine Nachricht).", pt: "Faz o bot dizer algo (apaga sua mensagem).", it: "Fa dire qualcosa al bot (cancella il tuo messaggio)." }[tl] ?? "" },
-        { name: `\`${p}poll <question> | opt1 | opt2\``, value: { en: "Create a poll with up to 9 options.", fr: "Créer un sondage avec jusqu'à 9 options.", es: "Crear una encuesta con hasta 9 opciones.", de: "Erstelle eine Umfrage mit bis zu 9 Optionen.", pt: "Criar uma enquete com até 9 opções.", it: "Crea un sondaggio con fino a 9 opzioni." }[tl] ?? "" },
+        { name: `\`${p}poll <${args.question}> | opt1 | opt2\``, value: { en: "Create a poll with up to 9 options.", fr: "Créer un sondage avec jusqu'à 9 options.", es: "Crear una encuesta con hasta 9 opciones.", de: "Erstelle eine Umfrage mit bis zu 9 Optionen.", pt: "Criar uma enquete com até 9 opções.", it: "Crea un sondaggio con fino a 9 opzioni." }[tl] ?? "" },
         { name: `\`${p}joke\`  \`${p}compliment\`  \`${p}hug\`  \`${p}encouragement\``, value: { en: "Fun responses. Append a lang code: `!joke fr`, `!joke ja`, `!joke ru`, `!joke nl`…", fr: "Réponses fun. Ajoute un code langue : `!joke fr`, `!joke ja`, `!joke ru`…", es: "Respuestas divertidas. Añade código de idioma: `!joke fr`, `!joke ja`, `!joke ru`…", de: "Spaßige Antworten. Sprachkürzel anhängen: `!joke fr`, `!joke ja`, `!joke ru`…", pt: "Respostas divertidas. Adicione o código do idioma: `!joke fr`, `!joke ja`, `!joke ru`…", it: "Risposte divertenti. Aggiungi il codice lingua: `!joke fr`, `!joke ja`, `!joke ru`…" }[tl] ?? "" },
-        { name: `\`${p}8ball <question>\``, value: { en: "Ask the magic 8-ball.", fr: "Demande à la boule magique.", es: "Pregunta a la bola mágica.", de: "Frag die magische 8-Ball.", pt: "Pergunte à bola mágica.", it: "Chiedi alla palla magica." }[tl] ?? "" },
+        { name: `\`${p}8ball <${args.question}>\``, value: { en: "Ask the magic 8-ball.", fr: "Demande à la boule magique.", es: "Pregunta a la bola mágica.", de: "Frag die magische 8-Ball.", pt: "Pergunte à bola mágica.", it: "Chiedi alla palla magica." }[tl] ?? "" },
         { name: `\`${p}dice [N]\``, value: { en: "Roll an N-sided die (default 6).", fr: "Lance un dé à N faces (défaut 6).", es: "Lanza un dado de N caras (defecto 6).", de: "Würfle einen N-seitigen Würfel (Standard 6).", pt: "Role um dado de N faces (padrão 6).", it: "Tira un dado a N facce (default 6)." }[tl] ?? "" },
       );
       break;
@@ -883,7 +897,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle("📻 Radio");
       embed.addFields(
         { name: `\`${p}radio list\``, value: { en: "Show all available radio stations (🇫🇷 🇪🇸 🇬🇧 + more).", fr: "Affiche toutes les radios disponibles.", es: "Muestra todas las emisoras disponibles.", de: "Zeigt alle verfügbaren Radiosender.", pt: "Mostra todas as rádios disponíveis.", it: "Mostra tutte le stazioni radio disponibili." }[tl] ?? "" },
-        { name: `\`${p}radio <name>\``, value: { en: "Play a radio station. E.g. `!radio nrj`, `!radio jazz`, `!radio groove`.", fr: "Lance une radio. Ex. `!radio nrj`, `!radio fun`, `!radio fip`.", es: "Reproduce una emisora. Ej. `!radio los40`, `!radio hiphop`.", de: "Spiele einen Sender ab. Z.B. `!radio kexp`, `!radio jazz`.", pt: "Reproduz uma rádio. Ex. `!radio groove`, `!radio jazz`.", it: "Riproduce una radio. Es. `!radio jazz`, `!radio classicfm`." }[tl] ?? "" },
+        { name: `\`${p}radio <${args.station}>\``, value: { en: "Play a radio station. E.g. `!radio nrj`, `!radio jazz`, `!radio groove`.", fr: "Lance une radio. Ex. `!radio nrj`, `!radio fun`, `!radio fip`.", es: "Reproduce una emisora. Ej. `!radio los40`, `!radio hiphop`.", de: "Spiele einen Sender ab. Z.B. `!radio kexp`, `!radio jazz`.", pt: "Reproduz uma rádio. Ex. `!radio groove`, `!radio jazz`.", it: "Riproduce una radio. Es. `!radio jazz`, `!radio classicfm`." }[tl] ?? "" },
         { name: `\`${p}radio leave\``, value: { en: "Disconnect from voice channel.", fr: "Déconnecter du salon vocal.", es: "Desconectar del canal de voz.", de: "Vom Sprachkanal trennen.", pt: "Desconectar do canal de voz.", it: "Disconnetti dal canale vocale." }[tl] ?? "" },
       );
       break;
@@ -891,7 +905,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "youtube":
       embed.setTitle("🎬 YouTube & Queue");
       embed.addFields(
-        { name: `\`${p}y <query>\`  ·  \`/play <query>\``, value: { en: "Search YouTube or play a direct URL.", fr: "Chercher sur YouTube ou jouer une URL directe.", es: "Buscar en YouTube o reproducir una URL directa.", de: "YouTube durchsuchen oder eine direkte URL abspielen.", pt: "Pesquisar no YouTube ou reproduzir uma URL direta.", it: "Cerca su YouTube o riproduci un URL diretto." }[tl] ?? "" },
+        { name: `\`${p}y <${args.query}>\`  ·  \`/play <${args.query}>\``, value: { en: "Search YouTube or play a direct URL.", fr: "Chercher sur YouTube ou jouer une URL directe.", es: "Buscar en YouTube o reproducir una URL directa.", de: "YouTube durchsuchen oder eine direkte URL abspielen.", pt: "Pesquisar no YouTube ou reproduzir uma URL direta.", it: "Cerca su YouTube o riproduci un URL diretto." }[tl] ?? "" },
         { name: `\`${p}np\``, value: { en: "Show what's currently playing.", fr: "Affiche ce qui joue actuellement.", es: "Muestra lo que está sonando.", de: "Zeigt was gerade spielt.", pt: "Mostra o que está tocando.", it: "Mostra cosa sta suonando." }[tl] ?? "" },
         { name: `\`${p}skip\`  \`${p}queue\`  \`${p}voteskip\``, value: { en: "Skip current track, view queue, or start a vote to skip.", fr: "Passer la piste, voir la file, ou voter pour passer.", es: "Saltar pista, ver cola, o votar para saltar.", de: "Track überspringen, Warteschlange anzeigen oder Abstimmung starten.", pt: "Pular faixa, ver fila ou votar para pular.", it: "Salta traccia, vedi coda o avvia votazione." }[tl] ?? "" },
         { name: `\`${p}likes\`  \`${p}likes play\``, value: { en: "List or play saved tracks. Use the DJ console's heart to save a track.", fr: "Voir ou lire tes pistes sauvegardées. Le cœur de la console DJ ajoute un favori.", es: "Ver o reproducir favoritos. Usa el corazón de la consola DJ para guardar.", de: "Gespeicherte Tracks anzeigen oder abspielen. Mit dem Herz im DJ-Pult speichern.", pt: "Ver ou tocar favoritos. Use o coração do console DJ para salvar.", it: "Mostra o riproduci i preferiti. Usa il cuore della console DJ per salvare." }[tl] ?? "" },
@@ -901,7 +915,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "karaoke":
       embed.setTitle("🎤 Karaoke");
       embed.addFields(
-        { name: `\`${p}karaoke <artist song>\``, value: { en: "Join a voice channel then run this to display synced live lyrics while the track plays.", fr: "Rejoins un salon vocal puis lance ça pour afficher les paroles synchronisées en live.", es: "Únete a un canal de voz y usa esto para mostrar la letra sincronizada en directo.", de: "Tritt einem Sprachkanal bei und starte dies für synchronisierte Live-Texte.", pt: "Entre em um canal de voz e use isso para exibir a letra sincronizada ao vivo.", it: "Entra in un canale vocale e usa questo per mostrare il testo sincronizzato in tempo reale." }[tl] ?? "" },
+        { name: `\`${p}karaoke <${args.artistSong}>\``, value: { en: "Join a voice channel then run this to display synced live lyrics while the track plays.", fr: "Rejoins un salon vocal puis lance ça pour afficher les paroles synchronisées en live.", es: "Únete a un canal de voz y usa esto para mostrar la letra sincronizada en directo.", de: "Tritt einem Sprachkanal bei und starte dies für synchronisierte Live-Texte.", pt: "Entre em um canal de voz e use isso para exibir a letra sincronizada ao vivo.", it: "Entra in un canale vocale e usa questo per mostrare il testo sincronizzato in tempo reale." }[tl] ?? "" },
         { name: `\`${p}karaoke stop\``, value: { en: "Stop the karaoke session.", fr: "Arrêter le karaoké.", es: "Parar el karaoke.", de: "Karaoke-Session beenden.", pt: "Parar o karaokê.", it: "Ferma la sessione karaoke." }[tl] ?? "" },
       );
       break;
@@ -909,8 +923,8 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "playlist":
       embed.setTitle({ en: "💿 Playlists", fr: "💿 Playlists", es: "💿 Listas de reproducción", de: "💿 Wiedergabelisten", pt: "💿 Playlists", it: "💿 Playlist" }[tl] ?? "💿 Playlists");
       embed.addFields(
-        { name: `\`${p}playlist add <name> <url>\``, value: { en: "Add a YouTube URL to a named playlist.", fr: "Ajouter une URL YouTube à une playlist.", es: "Añadir una URL de YouTube a una lista.", de: "YouTube-URL zu einer Wiedergabeliste hinzufügen.", pt: "Adicionar uma URL do YouTube a uma playlist.", it: "Aggiungere un URL YouTube a una playlist." }[tl] ?? "" },
-        { name: `\`${p}playlist play <name>\``, value: { en: "Play all tracks in the playlist.", fr: "Jouer toutes les pistes de la playlist.", es: "Reproducir todas las pistas de la lista.", de: "Alle Tracks der Wiedergabeliste abspielen.", pt: "Reproduzir todas as faixas da playlist.", it: "Riproduci tutte le tracce della playlist." }[tl] ?? "" },
+        { name: `\`${p}playlist add <${args.name}> <URL>\``, value: { en: "Add a YouTube URL to a named playlist.", fr: "Ajouter une URL YouTube à une playlist.", es: "Añadir una URL de YouTube a una lista.", de: "YouTube-URL zu einer Wiedergabeliste hinzufügen.", pt: "Adicionar uma URL do YouTube a uma playlist.", it: "Aggiungere un URL YouTube a una playlist." }[tl] ?? "" },
+        { name: `\`${p}playlist play <${args.name}>\``, value: { en: "Play all tracks in the playlist.", fr: "Jouer toutes les pistes de la playlist.", es: "Reproducir todas las pistas de la lista.", de: "Alle Tracks der Wiedergabeliste abspielen.", pt: "Reproduzir todas as faixas da playlist.", it: "Riproduci tutte le tracce della playlist." }[tl] ?? "" },
         { name: `\`${p}playlist list\`  \`${p}playlist show <name>\`  \`${p}playlist delete <name>\``, value: { en: "List playlists, view tracks, or delete a playlist.", fr: "Lister les playlists, voir les pistes, ou supprimer.", es: "Listar playlists, ver pistas o eliminar.", de: "Wiedergabelisten auflisten, Tracks anzeigen oder löschen.", pt: "Listar playlists, ver faixas ou excluir.", it: "Elencare playlist, vedere tracce o eliminare." }[tl] ?? "" },
       );
       break;
@@ -920,7 +934,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.addFields(
         { name: `\`${p}join\`  \`${p}leave\``, value: { en: "Join or leave your voice channel.", fr: "Rejoindre ou quitter ton salon vocal.", es: "Unirse o salir de tu canal de voz.", de: "Sprachkanal betreten oder verlassen.", pt: "Entrar ou sair do canal de voz.", it: "Entra o esci dal canale vocale." }[tl] ?? "" },
         { name: `\`${p}voice chat on/off\``, value: { en: "Each speaker must opt in. Their speech is sent to Groq for transcription; AI replies stay in text if voice playback fails.", fr: "Chaque personne active sa propre écoute. Sa voix est transmise à Groq pour transcription; la réponse IA reste écrite si la voix échoue.", es: "Cada persona debe activarlo. Su voz se envía a Groq para transcribir; la respuesta queda por escrito si falla el audio.", de: "Jede Person muss selbst zustimmen. Ihre Stimme wird zur Transkription an Groq gesendet; die KI-Antwort bleibt bei Audiofehlern als Text.", pt: "Cada pessoa tem de ativar. A voz é enviada à Groq para transcrição; a resposta fica em texto se o áudio falhar.", it: "Ogni persona deve attivarlo. La voce viene inviata a Groq per la trascrizione; la risposta resta testuale se l’audio non funziona." }[tl] ?? "" },
-        { name: `\`${p}voice say <text>\``, value: { en: "Make the bot speak in the voice channel (Google TTS).", fr: "Faire parler le bot dans le vocal (Google TTS).", es: "Hacer que el bot hable en el canal de voz (Google TTS).", de: "Bot im Sprachkanal sprechen lassen (Google TTS).", pt: "Fazer o bot falar no canal de voz (Google TTS).", it: "Far parlare il bot nel canale vocale (Google TTS)." }[tl] ?? "" },
+        { name: `\`${p}voice say <${args.text}>\``, value: { en: "Make the bot speak in the voice channel (Google TTS).", fr: "Faire parler le bot dans le vocal (Google TTS).", es: "Hacer que el bot hable en el canal de voz (Google TTS).", de: "Bot im Sprachkanal sprechen lassen (Google TTS).", pt: "Fazer o bot falar no canal de voz (Google TTS).", it: "Far parlare il bot nel canale vocale (Google TTS)." }[tl] ?? "" },
         { name: `\`${p}subtitles\``, value: { en: "Show or hide transcriptions. It does not enable listening; each person opts in with `voice chat on`.", fr: "Afficher ou masquer les transcriptions. Cela n’active pas l’écoute; chacun doit activer `voice chat on`.", es: "Mostrar u ocultar transcripciones. No activa la escucha; cada persona debe activar `voice chat on`.", de: "Transkripte anzeigen oder ausblenden. Das aktiviert das Zuhören nicht; jede Person muss `voice chat on` einschalten.", pt: "Mostrar ou ocultar transcrições. Isto não ativa a escuta; cada pessoa tem de ativar `voice chat on`.", it: "Mostra o nascondi le trascrizioni. Non attiva l’ascolto; ogni persona deve attivare `voice chat on`." }[tl] ?? "" },
         { name: `\`${p}voice stop\`  \`${p}voice resume\``, value: { en: "Pause or resume voice replies (subtitle-only mode).", fr: "Mettre en pause ou reprendre les réponses vocales.", es: "Pausar o reanudar las respuestas de voz.", de: "Sprachantworten pausieren oder fortsetzen.", pt: "Pausar ou retomar respostas de voz.", it: "Metti in pausa o riprendi le risposte vocali." }[tl] ?? "" },
       );
@@ -946,10 +960,10 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
         { name: `\`@bot analyse [@member]\``, value: { en: "Analyze up to 100 recent conversational messages across channels you and the bot can read. Other members require moderator rights and consent; the result is sent privately.", fr: "Analyser jusqu’à 100 messages de conversation récents dans les salons lisibles par toi et le bot. Pour une autre personne, il faut les droits de modération et son accord IA ; résultat en privé.", es: "Analiza hasta 100 mensajes recientes en canales accesibles. Para otra persona se requieren permisos de moderación y consentimiento; el resultado se envía en privado.", de: "Bis zu 100 aktuelle Nachrichten aus zugänglichen Kanälen analysieren. Für andere Mitglieder sind Moderationsrechte und Zustimmung nötig; das Ergebnis wird privat gesendet.", pt: "Analise até 100 mensagens recentes em canais acessíveis. Para outra pessoa, são necessárias permissões de moderação e consentimento; o resultado vai por DM.", it: "Analizza fino a 100 messaggi recenti nei canali accessibili. Per un'altra persona servono permessi di moderazione e consenso; il risultato è enviado in privato." }[tl] ?? "" },
         { name: `\`${p}ai enable\``, value: { en: "Enable AI features and give consent.", fr: "Activer les fonctions IA et donner ton accord.", es: "Activar las funciones IA y dar consentimiento.", de: "KI-Funktionen aktivieren und zustimmen.", pt: "Ativar recursos de IA e consentir.", it: "Attivare le funzioni IA e dare il consenso." }[tl] ?? "" },
         { name: `\`${p}persona help\``, value: { en: "Create private or server-only personas, let them reply, and optionally teach them from up to 2,000 of your messages.", fr: "Créer des personas privés ou limités au serveur, les faire répondre et les enrichir avec jusqu’à 2 000 de tes messages.", es: "Crear personas privadas o limitadas al servidor y enseñarles con hasta 2.000 mensajes propios.", de: "Private oder servergebundene Personas erstellen und mit bis zu 2.000 eigenen Nachrichten trainieren.", pt: "Criar personas privadas ou limitadas ao servidor e ensiná-las com até 2.000 mensagens próprias.", it: "Creare personas private o limitate al server e istruirle con fino a 2.000 messaggi propri." }[tl] ?? "" },
-        { name: `\`${p}ai battle <topic>\`  \`${p}ai stop\``, value: { en: "Start an AI debate between two bots on a topic, then stop it.", fr: "Lancer un débat IA entre deux bots sur un sujet, puis l'arrêter.", es: "Iniciar un debate IA entre dos bots sobre un tema, luego detenerlo.", de: "KI-Debatte zwischen zwei Bots zu einem Thema starten, dann stoppen.", pt: "Iniciar um debate de IA entre dois bots sobre um tema, depois parar.", it: "Avvia un dibattito IA tra due bot su un argomento, poi fermalo." }[tl] ?? "" },
+        { name: `\`${p}ai battle <${args.topic}>\`  \`${p}ai stop\``, value: { en: "Start an AI debate between two bots on a topic, then stop it.", fr: "Lancer un débat IA entre deux bots sur un sujet, puis l'arrêter.", es: "Iniciar un debate IA entre dos bots sobre un tema, luego detenerlo.", de: "KI-Debatte zwischen zwei Bots zu einem Thema starten, dann stoppen.", pt: "Iniciar um debate de IA entre dois bots sobre um tema, depois parar.", it: "Avvia un dibattito IA tra due bot su un argomento, poi fermalo." }[tl] ?? "" },
         { name: `\`${p}ai remember\` / \`${p}ai memory\` / \`${p}ai forget\``, value: { en: "Opt-in encrypted personal memory. Memory is sent privately when viewed.", fr: "Mémoire personnelle chiffrée avec accord. La mémoire est envoyée en privé.", es: "Memoria personal cifrada con consentimiento. Se muestra por privado.", de: "Verschlüsselter persönlicher Speicher mit Zustimmung.", pt: "Memória pessoal criptografada com consentimento.", it: "Memoria personale crittografata con consenso." }[tl] ?? "" },
         { name: `\`${p}conspiracy [topic]\``, value: { en: "Generate a funny, absurd AI conspiracy theory.", fr: "Générer une théorie du complot absurde et drôle par IA.", es: "Generar una teoría de conspiración absurda y divertida por IA.", de: "Eine lustige, absurde KI-Verschwörungstheorie generieren.", pt: "Gerar uma teoria conspiratória absurda e engraçada por IA.", it: "Genera una teoria del complotto assurda e divertente con l'IA." }[tl] ?? "" },
-        { name: `\`${p}image <description>\``, value: { en: "Generate an image with FLUX.1 (HuggingFace).", fr: "Générer une image avec FLUX.1 (HuggingFace).", es: "Generar una imagen con FLUX.1 (HuggingFace).", de: "Ein Bild mit FLUX.1 (HuggingFace) generieren.", pt: "Gerar uma imagem com FLUX.1 (HuggingFace).", it: "Genera un'immagine con FLUX.1 (HuggingFace)." }[tl] ?? "" },
+        { name: `\`${p}image <${args.description}>\``, value: { en: "Generate an image with FLUX.1 (HuggingFace).", fr: "Générer une image avec FLUX.1 (HuggingFace).", es: "Generar una imagen con FLUX.1 (HuggingFace).", de: "Ein Bild mit FLUX.1 (HuggingFace) generieren.", pt: "Gerar uma imagem com FLUX.1 (HuggingFace).", it: "Genera un'immagine con FLUX.1 (HuggingFace)." }[tl] ?? "" },
       );
       break;
 
@@ -989,10 +1003,10 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle({ en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools");
       embed.setDescription({ en: "Run `!help <tool>` for more details on any tool.", fr: "Lance `!help <outil>` pour plus de détails.", es: "Usa `!help <herramienta>` para más detalles.", de: "`!help <Werkzeug>` für mehr Details ausführen.", pt: "Use `!help <ferramenta>` para mais detalhes.", it: "Usa `!help <strumento>` per più dettagli." }[tl] ?? "");
       embed.addFields(
-        { name: `\`${p}define <word>\``, value: { en: "English dictionary with phonetics, examples, synonyms.", fr: "Dictionnaire anglais avec phonétique, exemples, synonymes.", es: "Diccionario inglés con fonética, ejemplos, sinónimos.", de: "Englisches Wörterbuch mit Phonetik, Beispielen, Synonymen.", pt: "Dicionário inglês com fonética, exemplos, sinônimos.", it: "Dizionario inglese con fonetica, esempi, sinonimi." }[tl] ?? "" },
-        { name: `\`${p}qr <text>\``, value: { en: "Generate a QR code or read one from an attached image.", fr: "Générer un QR code ou en lire un depuis une image jointe.", es: "Generar un QR o leer uno desde una imagen adjunta.", de: "QR-Code erstellen oder aus einem angehängten Bild lesen.", pt: "Gerar um QR code ou ler um de uma imagem anexada.", it: "Generare un codice QR o leggerne uno da un'immagine allegata." }[tl] ?? "" },
+        { name: `\`${p}define <${args.word}>\``, value: { en: "English dictionary with phonetics, examples, synonyms.", fr: "Dictionnaire anglais avec phonétique, exemples, synonymes.", es: "Diccionario inglés con fonética, ejemplos, sinónimos.", de: "Englisches Wörterbuch mit Phonetik, Beispielen, Synonymen.", pt: "Dicionário inglês com fonética, exemplos, sinônimos.", it: "Dizionario inglese con fonetica, esempi, sinonimi." }[tl] ?? "" },
+        { name: `\`${p}qr <${args.text}>\``, value: { en: "Generate a QR code or read one from an attached image.", fr: "Générer un QR code ou en lire un depuis une image jointe.", es: "Generar un QR o leer uno desde una imagen adjunta.", de: "QR-Code erstellen oder aus einem angehängten Bild lesen.", pt: "Gerar um QR code ou ler um de uma imagem anexada.", it: "Generare un codice QR o leggerne uno da un'immagine allegata." }[tl] ?? "" },
         { name: `\`${p}echo\``, value: { en: "Repeat all messages in the channel (max 8). Run again to stop.", fr: "Répéter tous les messages du salon (max 8). Relancer pour arrêter.", es: "Repetir todos los mensajes del canal (máx 8). Ejecutar de nuevo para parar.", de: "Alle Nachrichten im Kanal wiederholen (max 8). Erneut ausführen zum Stoppen.", pt: "Repetir todas as mensagens no canal (max 8). Execute novamente para parar.", it: "Ripeti tutti i messaggi nel canale (max 8). Esegui di nuovo per fermare." }[tl] ?? "" },
-        { name: `\`${p}pokemon <name>\``, value: { en: "Full Pokémon card: types, abilities, stats, height, weight.", fr: "Fiche Pokémon complète : types, talents, stats, taille, poids.", es: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", de: "Vollständige Pokémon-Karte: Typen, Fähigkeiten, Werte, Größe, Gewicht.", pt: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", it: "Scheda Pokémon completa: tipi, abilità, statistiche, altezza, peso." }[tl] ?? "" },
+        { name: `\`${p}pokemon <${args.name}>\``, value: { en: "Full Pokémon card: types, abilities, stats, height, weight.", fr: "Fiche Pokémon complète : types, talents, stats, taille, poids.", es: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", de: "Vollständige Pokémon-Karte: Typen, Fähigkeiten, Werte, Größe, Gewicht.", pt: "Ficha Pokémon completa: tipos, habilidades, stats, altura, peso.", it: "Scheda Pokémon completa: tipi, abilità, statistiche, altezza, peso." }[tl] ?? "" },
         { name: `\`${p}shazam\``, value: { en: "Identify a song from an attached audio file.", fr: "Identifier une chanson depuis un fichier audio joint.", es: "Identificar una canción desde un archivo de audio adjunto.", de: "Einen Song aus einer angehängten Audiodatei identifizieren.", pt: "Identificar uma música a partir de um arquivo de áudio anexado.", it: "Identificare una canzone da un file audio allegato." }[tl] ?? "" },
         { name: `\`${p}excel <URL>\``, value: { en: "Export tables found on a public HTML page to a formatted workbook. Includes the source and collection date; no data is invented.", fr: "Exporter les tableaux HTML d’une page publique dans un classeur lisible. La source et la date sont incluses ; aucune donnée n’est inventée.", es: "Exportar tablas HTML de una página pública a un libro con formato e incluir la fuente y la fecha.", de: "HTML-Tabellen einer öffentlichen Seite in eine formatierte Arbeitsmappe exportieren; Quelle und Datum sind enthalten.", pt: "Exportar tabelas HTML de uma página pública para uma planilha formatada, com fonte e data.", it: "Esporta le tabelle HTML di una pagina pubblica in un foglio formattato, con fonte e data." }[tl] ?? "" },
         { name: `\`${p}pdf <URL>\``, value: { en: "Create a readable PDF copy of public page text. No sign-in, scripts or access controls are bypassed.", fr: "Créer une copie PDF lisible du texte d’une page publique. Aucune connexion ni protection n’est contournée.", es: "Crear una copia PDF legible del texto de una página pública, sin eludir accesos.", de: "Eine lesbare PDF-Kopie des Textes einer öffentlichen Seite erstellen, ohne Zugriffsschutz zu umgehen.", pt: "Criar uma cópia PDF legível do texto de uma página pública, sem contornar acessos.", it: "Crea una copia PDF leggibile del testo di una pagina pubblica, senza aggirare gli accessi." }[tl] ?? "" },
@@ -1002,7 +1016,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "dictionary":
       embed.setTitle({ en: "📖 Dictionary", fr: "📖 Dictionnaire", es: "📖 Diccionario", de: "📖 Wörterbuch", pt: "📖 Dicionário", it: "📖 Dizionario" }[tl] ?? "📖 Dictionary");
       embed.addFields(
-        { name: `\`${p}define <word>\`  ·  \`${p}dict <word>\``, value: { en: "Look up any English word. Returns phonetics, part of speech, definitions, examples, and synonyms. Automatically adapts the response label to your language.", fr: "Chercher n'importe quel mot anglais. Retourne phonétique, catégorie grammaticale, définitions, exemples et synonymes. La réponse s'adapte à ta langue.", es: "Buscar cualquier palabra en inglés. Devuelve fonética, categoría gramatical, definiciones, ejemplos y sinónimos.", de: "Beliebiges englisches Wort nachschlagen. Gibt Phonetik, Wortart, Definitionen, Beispiele und Synonyme zurück.", pt: "Pesquisar qualquer palavra em inglês. Retorna fonética, classe gramatical, definições, exemplos e sinônimos.", it: "Cerca qualsiasi parola inglese. Restituisce fonetica, parte del discorso, definizioni, esempi e sinonimi." }[tl] ?? "" },
+        { name: `\`${p}define <${args.word}>\`  ·  \`${p}dict <${args.word}>\``, value: { en: "Look up any English word. Returns phonetics, part of speech, definitions, examples, and synonyms. Automatically adapts the response label to your language.", fr: "Chercher n'importe quel mot anglais. Retourne phonétique, catégorie grammaticale, définitions, exemples et synonymes. La réponse s'adapte à ta langue.", es: "Buscar cualquier palabra en inglés. Devuelve fonética, categoría gramatical, definiciones, ejemplos y sinónimos.", de: "Beliebiges englisches Wort nachschlagen. Gibt Phonetik, Wortart, Definitionen, Beispiele und Synonyme zurück.", pt: "Pesquisar qualquer palavra em inglês. Retorna fonética, classe gramatical, definições, exemplos e sinônimos.", it: "Cerca qualsiasi parola inglese. Restituisce fonetica, parte del discorso, definizioni, esempi e sinonimi." }[tl] ?? "" },
       );
       break;
 
@@ -1025,7 +1039,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
     case "pokemon":
       embed.setTitle("🔴 Pokédex");
       embed.addFields(
-        { name: `\`${p}pokemon <name>\`  ·  \`${p}dex <name>\``, value: { en: "Displays a full Pokémon card: types (colour-coded), abilities, base stats, height, and weight. Works with English names.", fr: "Affiche une fiche Pokémon complète : types (couleurs), talents, stats de base, taille et poids. Fonctionne avec les noms anglais.", es: "Muestra una ficha Pokémon completa: tipos (colores), habilidades, estadísticas base, altura y peso. Funciona con nombres en inglés.", de: "Zeigt eine vollständige Pokémon-Karte: Typen (farbcodiert), Fähigkeiten, Basiswerte, Größe und Gewicht. Funktioniert mit englischen Namen.", pt: "Exibe uma ficha Pokémon completa: tipos (coloridos), habilidades, estatísticas base, altura e peso. Funciona com nomes em inglês.", it: "Mostra una scheda Pokémon completa: tipi (codice colore), abilità, statistiche base, altezza e peso. Funziona con nomi inglesi." }[tl] ?? "" },
+        { name: `\`${p}pokemon <${args.name}>\`  ·  \`${p}dex <${args.name}>\``, value: { en: "Displays a full Pokémon card: types (colour-coded), abilities, base stats, height, and weight. Works with English names.", fr: "Affiche une fiche Pokémon complète : types (couleurs), talents, stats de base, taille et poids. Fonctionne avec les noms anglais.", es: "Muestra una ficha Pokémon completa: tipos (colores), habilidades, estadísticas base, altura y peso. Funciona con nombres en inglés.", de: "Zeigt eine vollständige Pokémon-Karte: Typen (farbcodiert), Fähigkeiten, Basiswerte, Größe und Gewicht. Funktioniert mit englischen Namen.", pt: "Exibe uma ficha Pokémon completa: tipos (coloridos), habilidades, estatísticas base, altura e peso. Funciona com nomes em inglês.", it: "Mostra una scheda Pokémon completa: tipi (codice colore), abilità, statistiche base, altezza e peso. Funziona con nomi inglesi." }[tl] ?? "" },
       );
       break;
 
@@ -1051,9 +1065,9 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
       embed.setTitle({ en: "📅 Private Agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private Agenda");
       embed.addFields(
         { name: `\`${p}agenda timezone Europe/Paris\``, value: { en: "Set the time zone used for your private events.", fr: "Définir le fuseau horaire de tes événements privés.", es: "Configura la zona horaria de tus eventos privados.", de: "Lege die Zeitzone deiner privaten Termine fest.", pt: "Defina o fuso horário dos seus eventos privados.", it: "Imposta il fuso orario dei tuoi eventi privati." }[tl] ?? "" },
-        { name: `\`${p}agenda add ${tl === "fr" ? "AAAA-MM-JJ" : "YYYY-MM-DD"} HH:MM [${tl === "fr" ? "--rappel" : "--remind"} 10m] <${tl === "fr" ? "titre" : "title"}>\``, value: { en: "Create a private event. Reminders default to 10 minutes before.", fr: "Créer un événement privé. Le rappel par défaut est envoyé 10 minutes avant.", es: "Crea un evento privado. El recordatorio predeterminado se envía 10 minutos antes.", de: "Erstelle einen privaten Termin. Standardmäßig erfolgt die Erinnerung 10 Minuten vorher.", pt: "Crie um evento privado. O lembrete padrão é enviado 10 minutos antes.", it: "Crea un evento privato. Il promemoria predefinito arriva 10 minuti prima." }[tl] ?? "" },
+        { name: `\`${p}agenda add ${tl === "fr" ? "AAAA-MM-JJ" : "YYYY-MM-DD"} HH:MM [${tl === "fr" ? "--rappel" : "--remind"} 10m] <${args.title}>\``, value: { en: "Create a private event. Reminders default to 10 minutes before.", fr: "Créer un événement privé. Le rappel par défaut est envoyé 10 minutes avant.", es: "Crea un evento privado. El recordatorio predeterminado se envía 10 minutos antes.", de: "Erstelle einen privaten Termin. Standardmäßig erfolgt die Erinnerung 10 Minuten vorher.", pt: "Crie um evento privado. O lembrete padrão é enviado 10 minutos antes.", it: "Crea un evento privato. Il promemoria predefinito arriva 10 minuti prima." }[tl] ?? "" },
         { name: `\`${p}agenda list\` · \`${p}agenda edit <ID> ...\``, value: { en: "View or edit your events; use `cancel`, `remind` or `delete` with an ID.", fr: "Voir ou modifier tes événements; utilise `cancel`, `remind` ou `delete` avec un ID.", es: "Consulta o modifica tus eventos; usa `cancel`, `remind` o `delete` con un ID.", de: "Zeige Termine an oder bearbeite sie; nutze `cancel`, `remind` oder `delete` mit einer ID.", pt: "Consulte ou edite seus eventos; use `cancel`, `remind` ou `delete` com um ID.", it: "Visualizza o modifica gli eventi; usa `cancel`, `remind` o `delete` con un ID." }[tl] ?? "" },
-        { name: `\`${p}timer 20m <label>\` · \`${p}timer cancel <ID>\``, value: { en: "Start or cancel a private timer. Events and reminders are sent only in DMs.", fr: "Créer ou annuler un minuteur privé. Les événements et rappels sont envoyés uniquement en message privé.", es: "Inicia o cancela un temporizador privado. Los eventos y recordatorios solo se envían por mensaje privado.", de: "Starte oder beende einen privaten Timer. Termine und Erinnerungen werden nur per Direktnachricht gesendet.", pt: "Inicie ou cancele um temporizador privado. Eventos e lembretes são enviados apenas por mensagem privada.", it: "Avvia o annulla un timer privato. Eventi e promemoria vengono inviati solo in messaggio privato." }[tl] ?? "" },
+        { name: `\`${p}timer 20m <${args.title}>\` · \`${p}timer cancel <ID>\``, value: { en: "Start or cancel a private timer. Events and reminders are sent only in DMs.", fr: "Créer ou annuler un minuteur privé. Les événements et rappels sont envoyés uniquement en message privé.", es: "Inicia o cancela un temporizador privado. Los eventos y recordatorios solo se envían por mensaje privado.", de: "Starte oder beende einen privaten Timer. Termine und Erinnerungen werden nur per Direktnachricht gesendet.", pt: "Inicie ou cancele um temporizador privado. Eventos e lembretes são enviados apenas por mensagem privada.", it: "Avvia o annulla un timer privato. Eventi e promemoria vengono inviati solo in messaggio privato." }[tl] ?? "" },
       );
       break;
 
