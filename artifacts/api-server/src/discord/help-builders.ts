@@ -12,6 +12,7 @@ import { replyToSlash } from "./slash-message-adapter.js";
 import { extraHelpPage, ADMIN_SLASH_COMMANDS } from "./help-extra-pages.js";
 import { SLASH_COMMANDS } from "./slash.js";
 import { recordDiagnosticMetadata } from "./ai-observability-store.js";
+import { buildPersonaHelp, PERSONA_HELP_PAGES, personaHelpTabLabels } from "./persona-help.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,48 @@ function buildNavRow(page: HelpPage, lang: HelpLanguage, disabled = false): Acti
   );
 }
 
+const HELP_PERSONA_BUTTON = "help_personas";
+const HELP_PERSONA_TAB_PREFIX = "help_persona_tab_";
+const HELP_PERSONA_BACK = "help_persona_back";
+
+function buildHelpRows(page: HelpPage, lang: HelpLanguage, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+  const fr = textLang(lang) === "fr";
+  return [
+    buildNavRow(page, lang, disabled),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(HELP_PERSONA_BUTTON)
+        .setLabel(fr ? "Personas" : "Personas")
+        .setEmoji("🎭")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled),
+    ),
+  ];
+}
+
+function buildPersonaHelpRows(
+  lang: HelpLanguage, personaPage: number, prefix: string, disabled = false,
+): ActionRowBuilder<ButtonBuilder>[] {
+  const labels = personaHelpTabLabels(lang);
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      ...labels.map((label, index) => new ButtonBuilder()
+        .setCustomId(`${HELP_PERSONA_TAB_PREFIX}${index}`)
+        .setLabel(label)
+        .setStyle(index === personaPage ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setDisabled(disabled)),
+    ),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(HELP_PERSONA_BACK)
+        .setLabel(textLang(lang) === "fr" ? "Retour à l’aide" : "Back to help")
+        .setEmoji("📖")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled),
+    ),
+  ];
+}
+
 // ── Page builder ──────────────────────────────────────────────────────────────
 
 export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
@@ -86,21 +129,32 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
 
   // ── Page 1 — General & Fun ─────────────────────────────────────────────────
   if (page === 1) {
-    const desc = { en: "General, fun & birthdays.", fr: "Général, fun & anniversaires.", es: "General, diversión & cumpleaños.", de: "Allgemein, Spaß & Geburtstage.", pt: "Geral, diversão & aniversários.", it: "Generale, divertimento & compleanni." };
+    const locationArgument = tl === "fr" ? "ville" : "city";
+    const favoriteCommand = tl === "fr" ? "favoris" : "favorites";
+    const agendaDateTime = tl === "fr" ? "YYYY-MM-DD HH:MM" : "YYYY-MM-DD HH:MM";
+    const agendaTitle = tl === "fr" ? "titre" : "title";
+    const desc = { en: "The essentials to get started.", fr: "Les essentiels pour commencer.", es: "Lo esencial para empezar.", de: "Das Wichtigste für den Anfang.", pt: "O essencial para começar.", it: "Le basi per iniziare." };
     embed.setDescription(desc[tl]);
     embed.addFields(
       {
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
+          `\`@bot <question>\` 🤖 · \`${p}image <description>\` 🎨`,
           `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\``,
-          `\`@bot <msg>\` 🤖 · \`${p}image <desc>\` 🎨`,
+        ].join("\n"),
+      },
+      {
+        name: { en: "🚍 Transport", fr: "🚍 Transports", es: "🚍 Transporte", de: "🚍 Verkehr", pt: "🚍 Transporte", it: "🚍 Trasporti" }[tl] ?? "🚍 Transport",
+        value: [
+          `\`${p}transport\` · \`${p}bus <${locationArgument}>\` · \`${p}metro <${locationArgument}>\` · \`${p}train <${locationArgument}>\``,
+          `\`${p}${favoriteCommand}\` — ` + { en: "reopen a saved journey.", fr: "relancer un trajet enregistré.", es: "reabrir un trayecto guardado.", de: "eine gespeicherte Fahrt erneut öffnen.", pt: "reabrir um trajeto salvo.", it: "riaprire un viaggio salvato." }[tl],
         ].join("\n"),
       },
       {
         name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[tl] ?? "🎉 Fun",
         value: [
           `\`${p}joke\` 😄  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
-          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲  \`${p}conspiracy [topic]\` 🕵️`,
+          `\`${p}8ball <q>\` 🎱  \`${p}dice [N]\` 🎲`,
           `> ` + { en: "Append a lang code: `!joke fr`, `!joke ja`, `!joke ru`…", fr: "Ajoute le code langue : `!joke fr`, `!joke ja`, `!joke ru`…", es: "Añade código de idioma: `!joke fr`, `!joke ja`, `!joke ru`…", de: "Sprachkürzel anhängen: `!joke fr`, `!joke ja`, `!joke ru`…", pt: "Adicione o código do idioma: `!joke fr`, `!joke ja`, `!joke ru`…", it: "Aggiungi il codice lingua: `!joke fr`, `!joke ja`, `!joke ru`…" }[tl],
         ].join("\n"),
       },
@@ -110,8 +164,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
-        value: `\`${p}agenda add YYYY-MM-DD HH:MM <title>\` · \`${p}agenda list\` · \`${p}timer 20m <label>\`\n` +
-          ({ en: "Private events and reminders are sent only in DMs.", fr: "Les événements et rappels privés sont envoyés uniquement par DM.", es: "Los eventos y recordatorios privados solo se envían por DM.", de: "Private Termine und Erinnerungen werden nur per DM gesendet.", pt: "Eventos e lembretes privados são enviados apenas por DM.", it: "Eventi e promemoria privati vengono inviati solo in DM." }[tl] ?? "Private events and reminders are sent only in DMs."),
+        value: `\`${p}agenda add ${agendaDateTime} <${agendaTitle}>\` · \`${p}agenda list\` · \`${p}timer 20m <${agendaTitle}>\`\n` +
+          ({ en: "Reminders are sent by DM.", fr: "Rappels envoyés par DM.", es: "Recordatorios por DM.", de: "Erinnerungen per DM.", pt: "Lembretes por DM.", it: "Promemoria via DM." }[tl] ?? "Reminders are sent by DM."),
       },
     );
 
@@ -205,12 +259,9 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
         value: [
-          `\`@bot <msg>\` — ` + { en: "Chat with AI (also in DMs)", fr: "Chat IA (aussi en DM)", es: "Chat IA (también en DM)", de: "KI-Chat (auch in DMs)", pt: "Chat com IA (também em DMs)", it: "Chat con IA (anche in DM)" }[tl],
           `\`@bot analyse [@membre] [100 messages]\` — ` + { en: "Recent-message analysis (permissions and consent required)", fr: "Analyse des messages récents (droits et accord requis)", es: "Análisis de mensajes (permisos y consentimiento)", de: "Nachrichtenanalyse (Berechtigungen und Einwilligung)", pt: "Análise de mensagens (permissões e consentimento)", it: "Analisi messaggi (permessi e consenso)" }[tl],
           `\`${p}ai battle <topic>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy [topic]\` 🕵️`,
-          `\`${p}ai enable\` — ` + { en: "Enable AI features and give consent", fr: "Activer les fonctions IA et donner ton accord", es: "Activar las funciones IA y dar consentimiento", de: "KI-Funktionen aktivieren und zustimmen", pt: "Ativar recursos de IA e consentir", it: "Attivare le funzioni IA e dare il consenso" }[tl],
-          `\`${p}ai reset\` — ` + { en: "Reset your AI consent preference", fr: "Réinitialise ton consentement IA", es: "Restablecer consentimiento IA", de: "KI-Einwilligung zurücksetzen", pt: "Redefinir consentimento IA", it: "Reimposta consenso IA" }[tl],
-          `> 🔒 ` + { en: "AI commands ask for one-time consent before first use.", fr: "Les commandes IA demandent un consentement unique avant la 1ère utilisation.", es: "Los comandos IA piden consentimiento único antes del primer uso.", de: "KI-Befehle fragen einmalig nach Einwilligung.", pt: "Comandos IA pedem consentimento único antes do primeiro uso.", it: "I comandi IA chiedono il consenso una volta prima del primo utilizzo." }[tl],
+          `\`${p}ai enable\` · \`${p}ai reset\` — ` + { en: "enable or reset AI consent", fr: "activer ou réinitialiser l’accord IA", es: "activar o restablecer el consentimiento IA", de: "KI-Einwilligung aktivieren oder zurücksetzen", pt: "ativar ou redefinir o consentimento IA", it: "attivare o reimpostare il consenso IA" }[tl],
         ].join("\n"),
       },
       {
@@ -256,28 +307,48 @@ export async function sendHelpPaginator(
   const prefix = await getPrefix(source.guildId ?? "");
 
   let page: HelpPage = startPage;
-  const embed = buildHelpEmbed(lang, page, prefix);
-  const row   = buildNavRow(page, lang);
+  let view: "help" | "persona" = "help";
+  let personaPage = 0;
+  const currentEmbed = () => view === "help"
+    ? buildHelpEmbed(lang, page, prefix)
+    : buildPersonaHelp(lang, personaPage, prefix);
+  const currentComponents = (disabled = false) => view === "help"
+    ? buildHelpRows(page, lang, disabled)
+    : buildPersonaHelpRows(lang, personaPage, prefix, disabled);
 
   const reply = isInteraction
-    ? await replyToSlash(source as ChatInputCommandInteraction, { embeds: [embed], components: [row] })
-    : await (source as Message).reply({ embeds: [embed], components: [row] });
+    ? await replyToSlash(source as ChatInputCommandInteraction, { embeds: [currentEmbed()], components: currentComponents() })
+    : await (source as Message).reply({ embeds: [currentEmbed()], components: currentComponents() });
 
   const collector = reply.createMessageComponentCollector({
     componentType: ComponentType.Button,
     time: 120_000,
-    filter: (interaction) => ["help_prev", "help_next"].includes(interaction.customId),
+    filter: (interaction) => ["help_prev", "help_next", HELP_PERSONA_BUTTON, HELP_PERSONA_BACK].includes(interaction.customId) ||
+      interaction.customId.startsWith(HELP_PERSONA_TAB_PREFIX),
   });
 
   collector.on("collect", async (i) => {
     try {
-    if (i.user.id !== (isInteraction ? (source as ChatInputCommandInteraction).user.id : (source as Message).author.id)) {
-      await i.reply({ content: t("unauthorized", lang), ephemeral: true });
-      return;
-    }
-    if (i.customId === "help_prev") page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
-    if (i.customId === "help_next") page = (page === HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
-    await i.update({ embeds: [buildHelpEmbed(lang, page, prefix)], components: [buildNavRow(page, lang)] });
+      if (i.user.id !== (isInteraction ? (source as ChatInputCommandInteraction).user.id : (source as Message).author.id)) {
+        await i.reply({ content: t("unauthorized", lang), ephemeral: true });
+        return;
+      }
+      if (view === "help") {
+        if (i.customId === HELP_PERSONA_BUTTON) {
+          view = "persona";
+          personaPage = 0;
+        } else if (i.customId === "help_prev") {
+          page = (page === 1 ? HELP_TOTAL_PAGES : page - 1) as HelpPage;
+        } else if (i.customId === "help_next") {
+          page = (page === HELP_TOTAL_PAGES ? 1 : page + 1) as HelpPage;
+        }
+      } else if (i.customId === HELP_PERSONA_BACK) {
+        view = "help";
+      } else if (i.customId.startsWith(HELP_PERSONA_TAB_PREFIX)) {
+        const next = Number(i.customId.slice(HELP_PERSONA_TAB_PREFIX.length));
+        if (Number.isInteger(next) && next >= 0 && next < PERSONA_HELP_PAGES) personaPage = next;
+      }
+      await i.update({ embeds: [currentEmbed()], components: currentComponents() });
     } catch (error) {
       recordDiagnosticMetadata("help", error);
       if (!i.replied && !i.deferred) {
@@ -288,7 +359,7 @@ export async function sendHelpPaginator(
 
   collector.on("end", async () => {
     try {
-      await reply.edit({ components: [buildNavRow(page, lang, true)] });
+      await reply.edit({ components: currentComponents(true) });
     } catch { /* message may have been deleted */ }
   });
 }

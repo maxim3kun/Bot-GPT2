@@ -113,6 +113,13 @@ test("The public command overview never advertises a slash-only command with a f
   if (messageHandler.includes("isCivicCommand(command)")) for (const command of ["vote", "loi", "feries"]) implemented.add(command);
   const dataExport = readFileSync("src/discord/data-export.ts", "utf8");
   for (const match of dataExport.matchAll(/command === "(excel|pdf)"/g)) implemented.add(match[1]);
+  const transportCommands = readFileSync("src/bot.ts", "utf8");
+  if (transportCommands.includes("handleTransportCommand(message")) {
+    for (const command of ["transport", "transports", "bus", "metro", "tram", "train"]) implemented.add(command);
+  }
+  if (transportCommands.includes("handleTransportFavoritesCommand(message")) {
+    for (const command of ["favoris", "favorites"]) implemented.add(command);
+  }
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   const documented = [...all.matchAll(/`!([a-z][\w-]*)\b/gi)].map((match) => match[1]);
   assert.deepEqual([...new Set(documented.filter((root) => !implemented.has(root)))], []);
@@ -124,6 +131,7 @@ function fakeSlash(state: "new" | "deferred" | "replied" = "deferred") {
   const calls: string[] = [];
   const handlers = new Map<string, (...args: any[]) => Promise<void>>();
   const edits: any[] = [];
+  const initialPayloads: any[] = [];
   let collectorOptions: any;
   const response = {
     id: "response", edit: async (payload: unknown) => { edits.push(payload); return response; },
@@ -139,15 +147,16 @@ function fakeSlash(state: "new" | "deferred" | "replied" = "deferred") {
     client: { user: { id: "bot" } }, guildId: "fixture", guild: { id: "fixture" },
     channelId: "channel", channel: { id: "channel" }, options: { resolved: {} },
     createdTimestamp: Date.now(), createdAt: new Date(),
-    reply: async () => {
+    reply: async (payload: any) => {
       assert.equal(interaction.deferred || interaction.replied, false, "Discord would reject a second initial response");
-      calls.push("reply"); interaction.replied = true;
+      calls.push("reply"); initialPayloads.push(payload); interaction.replied = true;
     },
     fetchReply: async () => { calls.push("fetch"); return response; },
-    editReply: async () => { calls.push("edit"); interaction.replied = true; return response; },
-    followUp: async () => { calls.push("followUp"); return response; },
+    editReply: async (payload: any) => { calls.push("edit"); initialPayloads.push(payload); interaction.replied = true; return response; },
+    followUp: async (payload: any) => { calls.push("followUp"); initialPayloads.push(payload); return response; },
   };
-  return { interaction: interaction as unknown as ChatInputCommandInteraction, calls, handlers, edits, get collectorOptions() { return collectorOptions; } };
+  return { interaction: interaction as unknown as ChatInputCommandInteraction, calls, handlers, edits, initialPayloads,
+    get collectorOptions() { return collectorOptions; } };
 }
 
 test("Slash help handles new, deferred and already replied interactions without double acknowledgement", async () => {
@@ -175,7 +184,65 @@ test("Help navigation reaches all pages, wraps, protects the author and disables
   assert.equal(rejected, true);
   assert.equal(fixture.collectorOptions.filter({ customId: "unrelated_game" }), false);
   await fixture.handlers.get("end")!();
-  assert.ok(fixture.edits[0].components[0].toJSON().components.every((component: any) => component.disabled));
+  assert.ok(fixture.edits[0].components.every((row: any) =>
+    row.toJSON().components.every((component: any) => component.disabled)));
+});
+
+test("Help opens the Persona guide with an emoji button and returns to the same overview", async () => {
+  const fixture = fakeSlash();
+  await sendHelpPaginator(fixture.interaction, "fr");
+  const initial = fixture.initialPayloads[0];
+  assert.equal(initial.components.length, 2);
+  const personaButton = initial.components[1].toJSON().components[0];
+  assert.equal(personaButton.emoji.name, "🎭");
+  assert.match(personaButton.label, /Persona/);
+  assert.equal(fixture.collectorOptions.filter({ customId: "help_personas" }), true);
+  assert.equal(fixture.collectorOptions.filter({ customId: "help_persona_tab_0" }), true);
+
+  const updates: any[] = [];
+  const replies: any[] = [];
+  const click = (customId: string, userId = "author") => fixture.handlers.get("collect")!({
+    customId, user: { id: userId },
+    update: async (payload: any) => { updates.push(payload); },
+    reply: async (payload: any) => { replies.push(payload); },
+  });
+  await click("help_personas");
+  assert.equal(updates.at(-1).embeds[0].toJSON().title, "Créer ton persona");
+  assert.equal(updates.at(-1).components.length, 2);
+  assert.equal(updates.at(-1).components[0].components.length, PERSONA_HELP_PAGES);
+  await click("help_persona_tab_3");
+  assert.equal(updates.at(-1).embeds[0].toJSON().title, "Mémoire et réglages");
+  await click("help_persona_back");
+  assert.match(updates.at(-1).embeds[0].toJSON().description, /essentiels/i);
+  assert.match(updates.at(-1).embeds[0].toJSON().footer.text, /1\/6/);
+  await click("help_personas", "other");
+  assert.equal(replies.at(-1).ephemeral, true);
+});
+
+test("The message-command help opens the same Persona guide from its button", async () => {
+  const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+  const payloads: any[] = [];
+  const guideReply = {
+    createMessageComponentCollector: () => ({
+      on: (event: string, handler: (...args: any[]) => Promise<void>) => handlers.set(event, handler),
+    }),
+    edit: async () => undefined,
+  };
+  const message = {
+    author: { id: "member" },
+    guildId: "fixture",
+    reply: async (payload: any) => { payloads.push(payload); return guideReply; },
+  } as unknown as Message;
+
+  await sendHelpPaginator(message, "fr");
+  assert.equal(payloads[0].components[1].components[0].toJSON().emoji.name, "🎭");
+  let openedTitle = "";
+  await handlers.get("collect")!({
+    customId: "help_personas",
+    user: { id: "member" },
+    update: async (payload: any) => { openedTitle = payload.embeds[0].toJSON().title; },
+  });
+  assert.equal(openedTitle, "Créer ton persona");
 });
 
 test("Shared slash adapter keeps real guild/client/user and sends follow-ups instead of overwriting results", async () => {
@@ -222,6 +289,9 @@ test("Persona help has short themed pages, real examples and the current command
       const text = JSON.stringify(json);
       assert.equal(text.includes("`!persona"), false);
       assert.ok(json.fields?.length && json.fields.length <= 5);
+      const pageTextLength = (json.title?.length ?? 0) + (json.description?.length ?? 0) +
+        json.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0);
+      assert.ok(pageTextLength <= 1_800, `${language}/persona/${page} should stay concise`);
       assert.match(json.footer!.text, new RegExp(`${page + 1}/4`));
       all.push(text);
     }
