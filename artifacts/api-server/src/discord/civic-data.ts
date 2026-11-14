@@ -73,6 +73,7 @@ export interface LegifranceCredentials {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
+  persistRefreshToken?: (refreshToken: string) => Promise<void>;
 }
 
 export interface LegifranceArticle {
@@ -596,9 +597,16 @@ async function getLegifranceToken(
       throw new CivicSourceError("The official Legifrance authentication service could not be reached.");
     }
     if (!response.ok) throw new CivicSourceError(`Legifrance authentication returned HTTP ${response.status}.`);
-    const token = await response.json() as { access_token?: unknown; expires_in?: unknown };
+    const token = await response.json() as { access_token?: unknown; expires_in?: unknown; refresh_token?: unknown };
     if (typeof token.access_token !== "string" || !token.access_token) {
       throw new CivicSourceError("The official Legifrance authentication response did not include an access token.");
+    }
+    if (
+      typeof token.refresh_token === "string"
+      && token.refresh_token
+      && token.refresh_token !== credentials.refreshToken
+    ) {
+      await credentials.persistRefreshToken?.(token.refresh_token);
     }
     const lifetime = typeof token.expires_in === "number" && token.expires_in > 0 ? token.expires_in : 300;
     legifranceTokenCache = { token: token.access_token, expiresAt: Date.now() + lifetime * 1_000 };

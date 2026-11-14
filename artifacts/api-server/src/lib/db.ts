@@ -344,6 +344,12 @@ interface TransportPreferencesDoc {
   updatedAt: Date;
 }
 
+interface LegifranceOAuthTokenDoc {
+  _id: "legifrance";
+  encryptedRefreshToken: string;
+  updatedAt: Date;
+}
+
 export let usersCol: Collection<UserDoc> | null = null;
 export let guildsCol: Collection<GuildDoc> | null = null;
 export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
@@ -359,6 +365,7 @@ export let aiPersonaPublicProfilesCol: Collection<AiPersonaPublicProfileDoc> | n
 export let aiTimezoneCol: Collection<AiTimezoneDoc> | null = null;
 let privateAgendaCol: Collection<PrivateAgendaDoc> | null = null;
 let transportPreferencesCol: Collection<TransportPreferencesDoc> | null = null;
+let legifranceOAuthTokensCol: Collection<LegifranceOAuthTokenDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
@@ -377,6 +384,25 @@ export let sgStatsCol: Collection<{
 /** True when MongoDB is connected AND encryption key is ready (required for user-data CRUD). */
 export function isDbReady(): boolean {
   return db !== null && encKey !== null;
+}
+
+export async function getLegifranceOAuthRefreshToken(): Promise<string | null> {
+  if (!isDbReady() || !legifranceOAuthTokensCol) return null;
+  const document = await legifranceOAuthTokensCol.findOne({ _id: "legifrance" });
+  return document ? decrypt(document.encryptedRefreshToken) : null;
+}
+
+export async function saveLegifranceOAuthRefreshToken(token: string): Promise<void> {
+  if (!isDbReady() || !legifranceOAuthTokensCol) {
+    throw new Error("MongoDB and ENCRYPTION_KEY are required to store the Legifrance OAuth token.");
+  }
+  const refreshToken = token.trim();
+  if (!refreshToken) throw new Error("A Legifrance refresh token is required.");
+  await legifranceOAuthTokensCol.updateOne(
+    { _id: "legifrance" },
+    { $set: { encryptedRefreshToken: encrypt(refreshToken), updatedAt: new Date() } },
+    { upsert: true },
+  );
 }
 
 /** True when MongoDB is connected (no encryption key required). Used for non-sensitive collections like logo_brands. */
@@ -427,6 +453,7 @@ export async function connectDb(): Promise<void> {
     aiTimezoneCol = db.collection<AiTimezoneDoc>("ai_timezones");
     privateAgendaCol = db.collection<PrivateAgendaDoc>("private_agendas");
     transportPreferencesCol = db.collection<TransportPreferencesDoc>("transport_preferences");
+    legifranceOAuthTokensCol = db.collection<LegifranceOAuthTokenDoc>("civic_oauth_tokens");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });

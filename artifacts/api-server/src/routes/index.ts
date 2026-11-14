@@ -5,6 +5,7 @@ import statsRouter   from "./stats.js";
 import authRouter    from "./auth.js";
 import featuresRouter from "./features.js";
 import guildsRouter  from "./guilds.js";
+import civicRouter from "./civic.js";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(statsRouter);
 router.use(authRouter);
 router.use(featuresRouter);
 router.use(guildsRouter);
+router.use(civicRouter);
 
 export default router;

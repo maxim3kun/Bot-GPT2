@@ -1,4 +1,6 @@
-import { EmbedBuilder, type Message } from "discord.js";
+import { EmbedBuilder, PermissionFlagsBits, type Message } from "discord.js";
+import { getLegifranceOAuthRefreshToken, saveLegifranceOAuthRefreshToken } from "../lib/db.js";
+import { createLegifranceAuthorization, LegifranceOAuthError } from "./civic-oauth.js";
 import {
   CivicSourceError,
   getLegifranceArticle,
@@ -384,6 +386,80 @@ const TEXT: Record<CivicLanguage, {
   },
 };
 
+const PISTE_SETUP_TEXT: Record<CivicLanguage, {
+  adminOnly: string;
+  instructions: string;
+  sent: string;
+  unavailable: string;
+}> = {
+  en: {
+    adminOnly: "Only a server administrator can connect the Legifrance account.",
+    instructions: "In your PISTE application, set the callback URL to:\n`{redirectUri}`\nSave it, then authorize the bot here (link expires in 10 minutes):\n{authorizationUrl}",
+    sent: "I sent the PISTE authorization link to your DMs.",
+    unavailable: "The OAuth setup could not be started. Check that the PISTE client ID and secret are configured.",
+  },
+  fr: {
+    adminOnly: "Seul un administrateur du serveur peut connecter le compte Légifrance.",
+    instructions: "Dans ton application PISTE, renseigne cette URL de rappel :\n`{redirectUri}`\nEnregistre-la, puis autorise le bot avec ce lien (valable 10 minutes) :\n{authorizationUrl}",
+    sent: "Je t’ai envoyé le lien d’autorisation PISTE en message privé.",
+    unavailable: "La connexion OAuth n’a pas pu démarrer. Vérifie que le client ID et le secret PISTE sont configurés.",
+  },
+  es: {
+    adminOnly: "Solo un administrador del servidor puede conectar la cuenta de Legifrance.",
+    instructions: "En tu aplicación PISTE, establece esta URL de retorno:\n`{redirectUri}`\nGuárdala y autoriza el bot con este enlace (válido 10 minutos):\n{authorizationUrl}",
+    sent: "Te envié el enlace de autorización PISTE por mensaje privado.",
+    unavailable: "No se pudo iniciar OAuth. Comprueba que el client ID y el secreto PISTE estén configurados.",
+  },
+  de: {
+    adminOnly: "Nur ein Serveradministrator kann das Legifrance-Konto verbinden.",
+    instructions: "Lege in deiner PISTE-Anwendung diese Rückruf-URL fest:\n`{redirectUri}`\nSpeichere sie und autorisiere den Bot über diesen Link (10 Minuten gültig):\n{authorizationUrl}",
+    sent: "Ich habe dir den PISTE-Autorisierungslink per Direktnachricht gesendet.",
+    unavailable: "OAuth konnte nicht gestartet werden. Prüfe die PISTE-Client-ID und das Secret.",
+  },
+  pt: {
+    adminOnly: "Só um administrador do servidor pode ligar a conta Legifrance.",
+    instructions: "Na aplicação PISTE, define este URL de retorno:\n`{redirectUri}`\nGuarda-o e autoriza o bot por este link (válido por 10 minutos):\n{authorizationUrl}",
+    sent: "Enviei o link de autorização PISTE por mensagem privada.",
+    unavailable: "Não foi possível iniciar o OAuth. Verifica o client ID e o segredo PISTE.",
+  },
+  it: {
+    adminOnly: "Solo un amministratore del server può collegare l’account Legifrance.",
+    instructions: "Nella tua applicazione PISTE, imposta questo URL di callback:\n`{redirectUri}`\nSalvalo e autorizza il bot con questo link (valido 10 minuti):\n{authorizationUrl}",
+    sent: "Ti ho inviato il link di autorizzazione PISTE in un messaggio privato.",
+    unavailable: "Impossibile avviare OAuth. Controlla il client ID e il secret PISTE.",
+  },
+  ja: {
+    adminOnly: "Legifrance アカウントを接続できるのはサーバー管理者だけです。",
+    instructions: "PISTE アプリに次のコールバック URL を設定してください:\n`{redirectUri}`\n保存してから、このリンクで Bot を認証してください（10 分で期限切れ）:\n{authorizationUrl}",
+    sent: "PISTE の認証リンクを DM で送りました。",
+    unavailable: "OAuth を開始できません。PISTE のクライアント ID とシークレットを確認してください。",
+  },
+  nl: {
+    adminOnly: "Alleen een serverbeheerder kan het Legifrance-account koppelen.",
+    instructions: "Stel in je PISTE-app deze callback-URL in:\n`{redirectUri}`\nSla deze op en autoriseer de bot via deze link (10 minuten geldig):\n{authorizationUrl}",
+    sent: "Ik heb de PISTE-autorisatielink via een privébericht gestuurd.",
+    unavailable: "OAuth kon niet starten. Controleer de PISTE-client-ID en het geheim.",
+  },
+  ru: {
+    adminOnly: "Подключить аккаунт Legifrance может только администратор сервера.",
+    instructions: "Укажи в приложении PISTE этот URL обратного вызова:\n`{redirectUri}`\nСохрани его и авторизуй бота по ссылке (действует 10 минут):\n{authorizationUrl}",
+    sent: "Ссылку авторизации PISTE отправил в личные сообщения.",
+    unavailable: "Не удалось запустить OAuth. Проверь client ID и secret PISTE.",
+  },
+  pl: {
+    adminOnly: "Tylko administrator serwera może połączyć konto Legifrance.",
+    instructions: "W aplikacji PISTE ustaw ten adres powrotu:\n`{redirectUri}`\nZapisz go i autoryzuj bota tym linkiem (ważny 10 minut):\n{authorizationUrl}",
+    sent: "Wysłałem link autoryzacyjny PISTE w wiadomości prywatnej.",
+    unavailable: "Nie udało się rozpocząć OAuth. Sprawdź client ID i secret PISTE.",
+  },
+  tr: {
+    adminOnly: "Legifrance hesabını yalnızca sunucu yöneticisi bağlayabilir.",
+    instructions: "PISTE uygulamanda şu geri dönüş URL’sini ayarla:\n`{redirectUri}`\nKaydet ve botu bu bağlantıyla yetkilendir (10 dakika geçerli):\n{authorizationUrl}",
+    sent: "PISTE yetkilendirme bağlantısını özel mesajla gönderdim.",
+    unavailable: "OAuth başlatılamadı. PISTE client ID ve secret değerlerini kontrol et.",
+  },
+};
+
 function cleanExternalText(value: string, maxLength = 900): string {
   return value.replace(/<@!?\d+>/g, "@user")
     .replace(/@everyone|@here/g, (match) => `@\u200b${match.slice(1)}`)
@@ -597,11 +673,44 @@ function parseArticleRequest(raw: string): { articleNumber: string; codeName: st
   };
 }
 
-function getLegifranceCredentials(): { clientId: string; clientSecret: string; refreshToken: string } | undefined {
+async function getLegifranceCredentials(): Promise<{
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  persistRefreshToken: (token: string) => Promise<void>;
+} | undefined> {
   const clientId = process.env.LEGIFRANCE_CLIENT_ID?.trim();
   const clientSecret = process.env.LEGIFRANCE_CLIENT_SECRET?.trim();
-  const refreshToken = process.env.LEGIFRANCE_REFRESH_TOKEN?.trim();
-  return clientId && clientSecret && refreshToken ? { clientId, clientSecret, refreshToken } : undefined;
+  if (!clientId || !clientSecret) return undefined;
+  const refreshToken = await getLegifranceOAuthRefreshToken() || process.env.LEGIFRANCE_REFRESH_TOKEN?.trim();
+  return refreshToken
+    ? { clientId, clientSecret, refreshToken, persistRefreshToken: saveLegifranceOAuthRefreshToken }
+    : undefined;
+}
+
+async function handleLegifranceSetup(message: Message, language: CivicLanguage): Promise<void> {
+  const copy = PISTE_SETUP_TEXT[language];
+  if (!message.guild || !message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    await message.reply(copy.adminOnly);
+    return;
+  }
+  const clientId = process.env.LEGIFRANCE_CLIENT_ID?.trim();
+  const clientSecret = process.env.LEGIFRANCE_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    await message.reply(copy.unavailable);
+    return;
+  }
+  try {
+    const authorization = createLegifranceAuthorization(message.author.id, clientId);
+    const instructions = copy.instructions
+      .replace("{redirectUri}", authorization.redirectUri)
+      .replace("{authorizationUrl}", `<${authorization.authorizationUrl}>`);
+    await message.author.send(instructions);
+    await message.reply(copy.sent);
+  } catch (error) {
+    if (!(error instanceof LegifranceOAuthError)) throw error;
+    await message.reply(copy.unavailable);
+  }
 }
 
 async function handleLaw(message: Message, args: string[], language: CivicLanguage): Promise<void> {
@@ -611,7 +720,13 @@ async function handleLaw(message: Message, args: string[], language: CivicLangua
     await message.reply(copy.legalUsage);
     return;
   }
-  const credentials = getLegifranceCredentials();
+  let credentials: Awaited<ReturnType<typeof getLegifranceCredentials>>;
+  try {
+    credentials = await getLegifranceCredentials();
+  } catch {
+    await message.reply(copy.legalUnavailable);
+    return;
+  }
   if (!credentials) {
     await message.reply(copy.legalNeedsCredentials);
     return;
@@ -689,6 +804,10 @@ export async function handleCivicCommand(
     return true;
   }
   if (["loi", "droit", "law"].includes(command)) {
+    if (/^(?:connecter|connect|authorize|setup)$/i.test(args[0] ?? "")) {
+      await handleLegifranceSetup(message, language);
+      return true;
+    }
     await handleLaw(message, args, language);
     return true;
   }

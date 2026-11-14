@@ -12,6 +12,12 @@ import {
   type CivicFetch,
 } from "../src/discord/civic-data.js";
 import { handleCivicCommand, isCivicCommand } from "../src/discord/civic-command.js";
+import {
+  consumeLegifranceAuthorizationState,
+  createLegifranceAuthorization,
+  exchangeLegifranceAuthorizationCode,
+  resetLegifranceOAuthStateForTests,
+} from "../src/discord/civic-oauth.js";
 import { fakeDiscord } from "./fixtures/transport-discord.js";
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -196,6 +202,53 @@ test("civic commands expose help for holidays and law without silently starting 
   assert.equal(isCivicCommand("unrelated"), false);
   assert.equal(await handleCivicCommand(discord.message, "feries", [], "fr"), true);
   assert.equal(await handleCivicCommand(discord.message, "loi", [], "fr"), true);
+  assert.equal(await handleCivicCommand(discord.message, "loi", ["connecter"], "fr"), true);
   assert.match(discord.replies[0]!.content!, /!feries <pays> \[année\]/);
   assert.match(discord.replies[1]!.content!, /!loi <numéro d’article>/);
+  assert.match(discord.replies[2]!.content!, /administrateur/);
+});
+
+test("Legifrance OAuth uses a one-time state and the registered HTTPS callback", async () => {
+  const previousRedirect = process.env.LEGIFRANCE_REDIRECT_URI;
+  process.env.LEGIFRANCE_REDIRECT_URI = "https://bot.example/api/civic/legifrance/callback";
+  resetLegifranceOAuthStateForTests();
+  try {
+    const authorization = createLegifranceAuthorization("discord-user", "client-id", 1_000);
+    const url = new URL(authorization.authorizationUrl);
+    assert.equal(url.origin, "https://oauth.piste.gouv.fr");
+    assert.equal(url.searchParams.get("response_type"), "code");
+    assert.equal(url.searchParams.get("client_id"), "client-id");
+    assert.equal(url.searchParams.get("redirect_uri"), authorization.redirectUri);
+    const state = url.searchParams.get("state")!;
+    assert.equal(consumeLegifranceAuthorizationState(state, 2_000)?.userId, "discord-user");
+    assert.equal(consumeLegifranceAuthorizationState(state, 2_000), undefined);
+
+    const expired = new URL(createLegifranceAuthorization("discord-user", "client-id", 1_000).authorizationUrl)
+      .searchParams.get("state")!;
+    assert.equal(consumeLegifranceAuthorizationState(expired, 1_000 + 10 * 60 * 1_000), undefined);
+  } finally {
+    resetLegifranceOAuthStateForTests();
+    if (previousRedirect === undefined) delete process.env.LEGIFRANCE_REDIRECT_URI;
+    else process.env.LEGIFRANCE_REDIRECT_URI = previousRedirect;
+  }
+});
+
+test("Legifrance OAuth code exchange requests and returns tokens without exposing them", async () => {
+  let requestBody = "";
+  const fetcher: CivicFetch = async (_input, init) => {
+    requestBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({ access_token: "access-test", refresh_token: "refresh-test" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const tokens = await exchangeLegifranceAuthorizationCode(
+    "authorization-code",
+    "https://bot.example/api/civic/legifrance/callback",
+    { clientId: "client-id", clientSecret: "client-secret" },
+    fetcher,
+  );
+  assert.deepEqual(tokens, { accessToken: "access-test", refreshToken: "refresh-test" });
+  assert.match(requestBody, /grant_type=authorization_code/);
+  assert.match(requestBody, /redirect_uri=https%3A%2F%2Fbot\.example/);
 });
