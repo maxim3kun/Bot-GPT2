@@ -80,6 +80,24 @@ test("Help localizes command argument labels in French, English and Spanish", ()
   assert.ok(JSON.stringify(buildTopicEmbed("memory", "es").toJSON()).includes("!ai remember <información>"));
 });
 
+test("Help overview uses deliberate mobile line breaks and never leaves emoji-only rows", () => {
+  const emojiOnly = /^[\p{Extended_Pictographic}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]+$/u;
+  for (const language of languages) {
+    for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
+      const embed = buildHelpEmbed(language, page as HelpPage).toJSON();
+      for (const field of embed.fields ?? []) {
+        for (const line of field.value.split("\n")) {
+          assert.equal(emojiOnly.test(line.trim()), false, `${language}/${page}: emoji-only row`);
+          assert.ok(line.length <= 90, `${language}/${page}: line is too long (${line.length}): ${line}`);
+        }
+      }
+    }
+  }
+  const frenchStart = buildHelpEmbed("fr", 1).toJSON();
+  assert.ok(frenchStart.fields![1]!.value.includes("!transport` · `!bus <ville>`\n"));
+  assert.ok(frenchStart.fields![2]!.value.includes("!joke` · `/joke` · `!compliment`"));
+});
+
 test("Every help page uses the server prefix in fields and footer and the AI sees the expanded catalogue", () => {
   for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
     const json = validateEmbed(buildHelpEmbed("fr", page as HelpPage, "??"), `prefix/${page}`);

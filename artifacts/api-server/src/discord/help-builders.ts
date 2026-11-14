@@ -494,31 +494,34 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
         value: [
-          `\`@bot <${args.question}>\` 🤖 · \`${p}image <${args.description}>\` 🎨`,
-          `\`${p}say\` · \`/poll\` · \`${p}profile\` · \`${p}website\` · \`/help\``,
+          `\`@bot <${args.question}>\` · \`${p}image <${args.description}>\``,
+          `\`${p}say\` · \`/poll\` · \`${p}profile\``,
+          `\`${p}website\` · \`/help\``,
         ].join("\n"),
       },
       {
         name: { en: "🚍 Transport", fr: "🚍 Transports", es: "🚍 Transporte", de: "🚍 Verkehr", pt: "🚍 Transporte", it: "🚍 Trasporti" }[tl] ?? "🚍 Transport",
         value: [
-          `\`${p}transport\` · \`${p}bus <${args.location}>\` · \`${p}metro <${args.location}>\` · \`${p}train <${args.location}>\``,
+          `\`${p}transport\` · \`${p}bus <${args.location}>\``,
+          `\`${p}metro <${args.location}>\` · \`${p}train <${args.location}>\``,
           `\`${p}${favoriteCommand}\` — ` + { en: "reopen a saved journey.", fr: "relancer un trajet enregistré.", es: "reabrir un trayecto guardado.", de: "eine gespeicherte Fahrt erneut öffnen.", pt: "reabrir um trajeto salvo.", it: "riaprire un viaggio salvato." }[tl],
         ].join("\n"),
       },
       {
         name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[tl] ?? "🎉 Fun",
         value: [
-          `\`${p}joke\` 😄  \`/joke\`  \`${p}compliment\` 💖  \`${p}hug\` 🤗  \`${p}encouragement\` 💪`,
-          `\`${p}8ball <${args.question}>\` 🎱  \`${p}dice [N]\` 🎲 · \`/roll\``,
+          `\`${p}joke\` · \`/joke\` · \`${p}compliment\``,
+          `\`${p}hug\` · \`${p}encouragement\``,
+          `\`${p}8ball <${args.question}>\` · \`${p}dice [N]\` · \`/roll\``,
         ].join("\n"),
       },
       {
         name: { en: "🎂 Birthdays", fr: "🎂 Anniversaires", es: "🎂 Cumpleaños", de: "🎂 Geburtstage", pt: "🎂 Aniversários", it: "🎂 Compleanni" }[tl] ?? "🎂 Birthdays",
-        value: `\`${p}birthday add DD/MM\` · \`${p}birthday list\` · \`${p}birthday remove\``,
+        value: `\`${p}birthday add DD/MM\` · \`${p}birthday list\`\n\`${p}birthday remove\``,
       },
       {
         name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
-        value: `\`${p}agenda add ${agendaDateTime} <${args.title}>\` · \`${p}agenda list\` · \`${p}timer 20m <${args.title}>\`\n` +
+        value: `\`${p}agenda add ${agendaDateTime} <${args.title}>\`\n\`${p}agenda list\` · \`${p}timer 20m <${args.title}>\`\n` +
           ({ en: "Private reminders by DM.", fr: "Rappels privés par DM.", es: "Avisos privados por DM.", de: "Private Erinnerungen per DM.", pt: "Lembretes privados por DM.", it: "Promemoria privati via DM." }[tl] ?? "Private reminders by DM."),
       },
     );
@@ -531,25 +534,28 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[tl] ?? "🎮 Games",
         value: [
-          `\`${p}minesweeper\` 💣  \`${p}geo\` 🌍  \`${p}trivia\` 🧠  \`${p}guessnumber\` 🎯`,
-          `\`${p}hangman\` / \`${p}pendu\` 🪢 · \`${p}connect4 solo|@user\` 🔴🟡`,
-          `\`${p}guessthelogo\` 🏷️ · \`/shellgame\` 🥤 · \`${p}help games\``,
+          `\`${p}minesweeper\` · \`${p}geo\` · \`${p}trivia\``,
+          `\`${p}guessnumber\` · \`${p}hangman\` / \`${p}pendu\``,
+          `\`${p}connect4 solo|@user\` · \`${p}guessthelogo\``,
+          `\`/shellgame\` · \`${p}help games\``,
         ].join("\n"),
       },
       {
         name: { en: "🆕 New Games", fr: "🆕 Nouveaux jeux", es: "🆕 Nuevos juegos", de: "🆕 Neue Spiele", pt: "🆕 Novos jogos", it: "🆕 Nuovi giochi" }[tl] ?? "🆕 New Games",
         value: [
-          `\`${p}tierlist [${args.theme}]\` 🏆 · \`${p}blindtest [${args.theme}]\` 🎵 · \`${p}milliongame\` 💰`,
-          `\`${p}help tierlist\` · \`${p}help blindtest\` · \`${p}help million\``,
+          `\`${p}tierlist [${args.theme}]\` · \`${p}blindtest [${args.theme}]\``,
+          `\`${p}milliongame\` · \`${p}help tierlist\``,
+          `\`${p}help blindtest\` · \`${p}help million\``,
         ].join("\n"),
       },
       {
         name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools",
         value: [
-          `\`${p}define <${args.word}>\` 📖 · \`${p}pokemon <${args.name}>\` 🔴 · \`${p}qr <${args.text}>\` 📷`,
-          `\`${p}echo\` 🦜 · \`${p}food\` 🥗 · \`${p}rate <${args.food}>\` ⭐`,
-          `\`${p}translate\` 🌐 · \`${p}meme\` 🖼️ · \`${p}shazam\` 🎵`,
-          `\`${p}excel <URL>\` 📊 · \`${p}pdf <URL>\` 📄 · \`${p}help tools\``,
+          `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\``,
+          `\`${p}qr <${args.text}>\` · \`${p}echo\` · \`${p}food\``,
+          `\`${p}rate <${args.food}>\` · \`${p}translate\` · \`${p}meme\``,
+          `\`${p}shazam\` · \`${p}excel <URL>\` · \`${p}pdf <URL>\``,
+          `\`${p}help tools\``,
         ].join("\n"),
       },
     );
@@ -562,8 +568,9 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[tl] ?? "🎵 YouTube & Queue",
         value: [
-          `\`${p}y <${args.query}>\` · \`/play <${args.query}>\` · \`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
-          `\`${p}likes\` 📋  \`${p}playlist add|play|list\``,
+          `\`${p}y <${args.query}>\` · \`/play <${args.query}>\``,
+          `\`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
+          `\`${p}likes\` · \`${p}playlist add|play|list\``,
         ].join("\n"),
       },
       {
@@ -573,17 +580,18 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "📻 Radio", fr: "📻 Radio", es: "📻 Radio", de: "📻 Radio", pt: "📻 Rádio", it: "📻 Radio" }[tl] ?? "📻 Radio",
         value: [
-          `\`${p}radio list\` · \`${p}radio <${args.station}>\` · \`${p}radio leave\``,
-          `> ` + { en: "e.g. `!radio nrj`, `!radio jazz`, `!radio groove`", fr: "ex. `!radio nrj`, `!radio fun`, `!radio fip`", es: "ej. `!radio los40`, `!radio hiphop`", de: "z.B. `!radio kexp`, `!radio jazz`, `!radio groove`", pt: "ex. `!radio groove`, `!radio jazz`", it: "es. `!radio jazz`, `!radio classicfm`" }[tl],
+          `\`${p}radio list\` · \`${p}radio <${args.station}>\``,
+          `\`${p}radio leave\``,
+          { en: "Examples: !radio jazz · !radio groove", fr: "Exemples : !radio jazz · !radio fip", es: "Ejemplos: !radio los40 · !radio hiphop", de: "Beispiele: !radio jazz · !radio groove", pt: "Exemplos: !radio jazz · !radio groove", it: "Esempi: !radio jazz · !radio classicfm" }[tl],
         ].join("\n"),
       },
       {
         name: { en: "🎤 Karaoke", fr: "🎤 Karaoké", es: "🎤 Karaoke", de: "🎤 Karaoke", pt: "🎤 Karaokê", it: "🎤 Karaoke" }[tl] ?? "🎤 Karaoke",
-        value: `\`${p}karaoke <${args.artistSong}>\` · \`${p}karaoke stop\``,
+        value: `\`${p}karaoke <${args.artistSong}>\`\n\`${p}karaoke stop\``,
       },
       {
         name: { en: "🎵 Suno AI", fr: "🎵 Suno AI", es: "🎵 Suno AI", de: "🎵 Suno AI", pt: "🎵 Suno AI", it: "🎵 Suno AI" }[tl] ?? "🎵 Suno AI",
-        value: `\`${p}music generator <${args.prompt}>\` · \`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
+        value: `\`${p}music generator <${args.prompt}>\`\n\`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
       },
     );
 
@@ -595,8 +603,8 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       {
         name: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[tl] ?? "🎙️ Voice",
         value: [
-          `\`${p}join\` 🔊 · \`${p}leave\` 👋 · \`${p}subtitles\` 📝`,
-          `\`${p}voice chat on/off\` 🎧 · \`${p}voice say <${args.text}>\` 🗣️`,
+          `\`${p}join\` · \`${p}leave\` · \`${p}subtitles\``,
+          `\`${p}voice chat on/off\` · \`${p}voice say <${args.text}>\``,
           `\`${p}voice stop\` · \`${p}voice resume\``,
         ].join("\n"),
       },
@@ -612,29 +620,35 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
         value: [
           `\`@bot <${args.question}>\` · \`@bot analyse [@membre]\``,
-          `\`${p}ai battle <${args.topic}>\` ⚔️ · \`${p}ai stop\` · \`${p}conspiracy\` 🕵️`,
-          `\`${p}ai enable\` · \`${p}ai reset\` · \`${p}help ai\``,
+          `\`${p}ai battle <${args.topic}>\` · \`${p}ai stop\``,
+          `\`${p}conspiracy\` · \`${p}ai enable\``,
+          `\`${p}ai reset\` · \`${p}help ai\``,
         ].join("\n"),
       },
       {
         name: { en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory",
         value: [
-          `\`${p}ai remember <${args.information}>\` · \`${p}ai memory\` · \`${p}ai forget <${args.number}|all>\``,
-          `\`${p}ai memory auto on\` · \`${p}ai memory auto off\` · \`${p}help memory\``,
+          `\`${p}ai remember <${args.information}>\` · \`${p}ai memory\``,
+          `\`${p}ai forget <${args.number}|all>\``,
+          `\`${p}ai memory auto on\` · \`${p}ai memory auto off\``,
+          `\`${p}help memory\``,
         ].join("\n"),
       },
       {
         name: { en: "🎯 Quests & levels", fr: "🎯 Quêtes & niveaux", es: "🎯 Misiones y niveles", de: "🎯 Quests & Level", pt: "🎯 Missões e níveis", it: "🎯 Missioni e livelli" }[tl] ?? "🎯 Quests & levels",
         value: [
-          `\`${p}quest start\` · \`${p}quest add <${questGoalArgument}>\` · \`${p}quest list\``,
-          `\`${p}quest done <N|all>\` · \`${p}quest negotiate\` · \`${p}quest profile\` · \`${p}quest stats\``,
-          `\`${p}quest remind\` · \`${p}quest bully on|off\` · \`${p}quest reset\` · \`${p}help quest\``,
+          `\`${p}quest start\` · \`${p}quest add <${questGoalArgument}>\``,
+          `\`${p}quest list\` · \`${p}quest done <N|all>\` · \`${p}quest negotiate\``,
+          `\`${p}quest profile\` · \`${p}quest stats\``,
+          `\`${p}quest remind\` · \`${p}quest bully on|off\``,
+          `\`${p}quest reset\` · \`${p}help quest\``,
         ].join("\n"),
       },
       {
           name: { en: "📚 Civic information", fr: "📚 Infos civiques", es: "📚 Información cívica", de: "📚 Bürgerinfos", pt: "📚 Dados cívicos", it: "📚 Dati civici" }[tl] ?? "📚 Civic information",
           value: [
-            `\`${p}vote <${args.topic}>\` · \`${p}loi <${args.article}>\` · \`${p}feries <${args.country}> [${args.year}]\``,
+            `\`${p}vote <${args.topic}>\` · \`${p}loi <${args.article}>\``,
+            `\`${p}feries <${args.country}> [${args.year}]\``,
             { en: "Assembly votes · Legifrance · sourced holiday dates.",
               fr: "Scrutins de l’Assemblée · Légifrance · jours fériés sourcés.",
               es: "Votos oficiales · Legifrance · festivos con fuente.",
