@@ -222,6 +222,16 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
 test("Command favorites can be selected, toggled, and viewed privately from the help menu", async () => {
   const fixture = fakeSlash();
   const saved = new Set<string>();
+  const runnerCalls: { source: unknown; command: string }[] = [];
+  let favoriteListPayload: any;
+  let favoriteRunHandler: ((interaction: any) => Promise<void>) | undefined;
+  const favoriteListReply = {
+    createMessageComponentCollector: () => ({
+      on: (event: string, handler: (interaction: any) => Promise<void>) => {
+        if (event === "collect") favoriteRunHandler = handler;
+      },
+    }),
+  };
   const store = {
     async get(userId: string) { return userId === "author" ? [...saved] : []; },
     async toggle(userId: string, commandId: string) {
@@ -230,7 +240,9 @@ test("Command favorites can be selected, toggled, and viewed privately from the 
       saved.add(commandId); return { ok: true, saved: true };
     },
   };
-  await sendHelpPaginator(fixture.interaction, "fr", 1, store);
+  await sendHelpPaginator(fixture.interaction, "fr", 1, store, async (source, command) => {
+    runnerCalls.push({ source, command });
+  });
   const initial = fixture.initialPayloads[0];
   assert.equal(initial.components[1].toJSON().components[0].options.some((option: any) => option.value === "bus"), true);
   assert.equal(initial.components[2].toJSON().components.some((component: any) => component.custom_id === "help_favorites_list"), true);
@@ -242,7 +254,11 @@ test("Command favorites can be selected, toggled, and viewed privately from the 
   };
   const button = (customId: string) => ({
     customId, user: { id: "author" }, isStringSelectMenu: () => false,
-    reply: async (payload: any) => { replies.push(payload); },
+    reply: async (payload: any) => {
+      replies.push(payload);
+      if (customId === "help_favorites_list") favoriteListPayload = payload;
+    },
+    fetchReply: async () => favoriteListReply,
   });
   const collect = fixture.handlers.get("collect")!;
   await collect(select);
@@ -253,6 +269,42 @@ test("Command favorites can be selected, toggled, and viewed privately from the 
   await collect(button("help_favorites_list"));
   assert.match(replies.at(-1).content, /!bus/);
   assert.equal(replies.at(-1).ephemeral, true);
+  assert.equal(favoriteListPayload.components[0].toJSON().components[0].options[0].value, "bus");
+  assert.ok(favoriteRunHandler);
+  const runUpdates: any[] = [];
+  await favoriteRunHandler!({
+    customId: "help_favorite_run",
+    values: ["bus"],
+    user: { id: "author" },
+    isStringSelectMenu: () => true,
+    update: async (payload: any) => { runUpdates.push(payload); },
+  });
+  assert.match(runUpdates[0].content, /Lancement de `!bus`/);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0]?.source, fixture.interaction);
+  assert.equal(runnerCalls[0]?.command, "!bus");
+  const deniedReplies: any[] = [];
+  await favoriteRunHandler!({
+    customId: "help_favorite_run",
+    values: ["bus"],
+    user: { id: "other" },
+    isStringSelectMenu: () => true,
+    reply: async (payload: any) => { deniedReplies.push(payload); },
+  });
+  assert.equal(deniedReplies[0]?.ephemeral, true);
+  assert.equal(runnerCalls.length, 1);
+  saved.delete("bus");
+  const staleUpdates: any[] = [];
+  await favoriteRunHandler!({
+    customId: "help_favorite_run",
+    values: ["bus"],
+    user: { id: "author" },
+    isStringSelectMenu: () => true,
+    update: async (payload: any) => { staleUpdates.push(payload); },
+  });
+  assert.match(staleUpdates[0].content, /n’est plus disponible/);
+  assert.equal(runnerCalls.length, 1);
+  saved.add("bus");
   await collect(button("help_favorite_toggle"));
   assert.match(replies.at(-1).content, /!bus.*retiré/i);
   assert.deepEqual([...saved], []);

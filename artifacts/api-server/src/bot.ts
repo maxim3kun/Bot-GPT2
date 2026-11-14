@@ -33,7 +33,7 @@ import { startLogoTestingJob, isTestingRunning, getTestingProgress } from "./lib
 import { saveArtist, getMatchingArtists, isKnownArtist, removeArtist, listArtists } from "./discord/artist-cache";
 import { formatLatestNewsAnswer, formatSearchContext, formatSearchSources, type WebSearchResult } from "./lib/web-search.js";
 import { COMPLIMENTS, COMPLIMENTS_FR, COMPLIMENTS_ES, COMPLIMENTS_DE, COMPLIMENTS_PT, COMPLIMENTS_IT, COMPLIMENTS_JA, COMPLIMENTS_NL, COMPLIMENTS_RU, COMPLIMENTS_PL, COMPLIMENTS_TR, JOKES, JOKES_FR, JOKES_ES, JOKES_DE, JOKES_PT, JOKES_IT, JOKES_JA, JOKES_NL, JOKES_RU, JOKES_PL, JOKES_TR, ENCOURAGEMENTS, ENCOURAGEMENTS_FR, ENCOURAGEMENTS_ES, ENCOURAGEMENTS_DE, ENCOURAGEMENTS_PT, ENCOURAGEMENTS_IT, ENCOURAGEMENTS_JA, ENCOURAGEMENTS_NL, ENCOURAGEMENTS_RU, ENCOURAGEMENTS_PL, ENCOURAGEMENTS_TR, EIGHT_BALL_RESPONSES, EIGHT_BALL_RESPONSES_FR, EIGHT_BALL_RESPONSES_ES, EIGHT_BALL_RESPONSES_DE, EIGHT_BALL_RESPONSES_PT, EIGHT_BALL_RESPONSES_IT, EIGHT_BALL_RESPONSES_JA, EIGHT_BALL_RESPONSES_NL, EIGHT_BALL_RESPONSES_RU, EIGHT_BALL_RESPONSES_PL, EIGHT_BALL_RESPONSES_TR, HUGS, HUGS_FR, HUGS_ES, HUGS_DE, HUGS_PT, HUGS_IT, HUGS_JA, HUGS_NL, HUGS_RU, HUGS_PL, HUGS_TR, MUSIC_PROMPT_EXAMPLES, getRandom, parseLanguage } from "./discord/responses.js";
-import { type HelpLanguage, resolveTopicKey, sendHelpTopic, sendHelpPaginator, sendSetupGuide, sendAdminGuide } from "./discord/help-builders.js";
+import { type HelpLanguage, resolveTopicKey, sendHelpTopic, sendHelpPaginator, sendSetupGuide, sendAdminGuide, setFavoriteCommandRunner } from "./discord/help-builders.js";
 import { createSlashMessageAdapter, replyToSlash } from "./discord/slash-message-adapter.js";
 import { handleDefine } from "./discord/define.js";
 import { handleQrCreate, handleQrRead } from "./discord/qrcode.js";
@@ -1416,7 +1416,7 @@ export function startBot(): void {
 
   // ── Message handler ──────────────────────────────────────────────────────────
 
-  client.on("messageCreate", async (message: Message) => {
+  const handleMessageCreate = async (message: Message) => {
     if (message.author.bot) return;
     if (await handleAdminUnlockTrigger(message, client)) return;
 
@@ -3822,7 +3822,48 @@ export function startBot(): void {
         allowedMentions: { parse: [], repliedUser: false },
       }).catch(() => null);
     }
+  };
+
+  setFavoriteCommandRunner(async (source, command) => {
+    const prefix = await getPrefix(source.guildId ?? "");
+    let invocation: string;
+    if (command.startsWith("!")) {
+      invocation = `${prefix}${command.slice(1)}`;
+    } else if (command === "/poll") {
+      invocation = `${prefix}poll`;
+    } else if (command === "/play") {
+      invocation = `${prefix}y`;
+    } else if (command.startsWith("@bot ")) {
+      const botId = client.user?.id;
+      if (!botId) throw new Error("The bot user is not available");
+      invocation = `<@${botId}> ${command.slice("@bot ".length)}`;
+    } else {
+      throw new Error("This favorite cannot be run as a message command");
+    }
+
+    let executableMessage: Message;
+    if ("author" in source) {
+      executableMessage = new Proxy(source, {
+        get(target, property) {
+          if (property === "content") return invocation;
+          const value = Reflect.get(target, property, target) as unknown;
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    } else {
+      const member = source.member instanceof GuildMember
+        ? source.member
+        : source.guild
+          ? await source.guild.members.fetch(source.user.id).catch(() => null)
+          : null;
+      executableMessage = {
+        ...createSlashMessageAdapter(source, member),
+        content: invocation,
+      } as Message;
+    }
+    await handleMessageCreate(executableMessage);
   });
+  client.on("messageCreate", handleMessageCreate);
 
   registerGuildEvents(client);
 

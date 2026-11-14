@@ -177,6 +177,17 @@ const HELP_PERSONA_BUTTON = "help_personas";
 const HELP_PERSONA_TAB_PREFIX = "help_persona_tab_";
 const HELP_PERSONA_BACK = "help_persona_back";
 
+export type FavoriteCommandRunner = (
+  source: Message | ChatInputCommandInteraction,
+  command: string,
+) => Promise<void>;
+
+let favoriteCommandRunner: FavoriteCommandRunner | undefined;
+
+export function setFavoriteCommandRunner(runner: FavoriteCommandRunner | undefined): void {
+  favoriteCommandRunner = runner;
+}
+
 function favoriteCommandLabel(command: FavoriteCommand, prefix: string, lang: HelpLanguage): string {
   const raw = lang === "fr" && command.frenchCommand ? command.frenchCommand : command.command;
   return raw.startsWith("!") ? `${prefix}${raw.slice(1)}` : raw;
@@ -265,14 +276,79 @@ function favoriteListMessage(commandIds: string[], prefix: string, lang: HelpLan
 }
 
 async function replyWithFavoriteList(
-  interaction: { reply: (payload: { content: string; ephemeral: true }) => Promise<unknown> },
+  interaction: {
+    reply: (payload: { content: string; components?: ActionRowBuilder<any>[]; ephemeral: true }) => Promise<unknown>;
+    fetchReply?: () => Promise<Message>;
+  },
+  source: Message | ChatInputCommandInteraction,
   userId: string, prefix: string, lang: HelpLanguage, store: CommandFavoritesStore,
+  runner?: FavoriteCommandRunner,
 ): Promise<void> {
   const commandIds = await store.get(userId);
   const content = commandIds === null
     ? (textLang(lang) === "fr" ? "Tes favoris sont indisponibles pour le moment." : "Your favorites are unavailable right now.")
     : favoriteListMessage(commandIds, prefix, lang);
-  await interaction.reply({ content, ephemeral: true });
+  const available = (commandIds ?? []).flatMap(id => {
+    const command = favoriteCommandForId(id, prefix, lang);
+    return command ? [{ label: command.slice(0, 100), value: id }] : [];
+  }).slice(0, MAX_FAVORITE_CHOICES);
+  const components = runner && available.length
+    ? [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("help_favorite_run")
+        .setPlaceholder(textLang(lang) === "fr" ? "Choisis un favori à lancer" : "Choose a favorite to run")
+        .addOptions(available),
+    )]
+    : undefined;
+  await interaction.reply({ content, ...(components ? { components } : {}), ephemeral: true });
+
+  if (!runner || !components || !interaction.fetchReply) return;
+  const reply = await interaction.fetchReply();
+  const collector = reply.createMessageComponentCollector({
+    time: 120_000,
+    max: 1,
+    filter: component => component.customId === "help_favorite_run" && component.user.id === userId,
+  });
+  collector.on("collect", async component => {
+    try {
+      if (component.user.id !== userId) {
+        await component.reply({
+          content: t("unauthorized", lang),
+          ephemeral: true,
+        });
+        return;
+      }
+      if (typeof component.isStringSelectMenu !== "function" || !component.isStringSelectMenu()) return;
+      const selectedId = component.values[0] ?? "";
+      const latestFavorites = await store.get(userId);
+      const command = favoriteCommandForId(selectedId, prefix, lang);
+      if (!command || !latestFavorites?.includes(selectedId)) {
+        await component.update({
+          content: textLang(lang) === "fr" ? "Ce favori n’est plus disponible." : "That favorite is no longer available.",
+          components: [],
+        });
+        return;
+      }
+      await component.update({
+        content: textLang(lang) === "fr" ? `Lancement de \`${command}\`…` : `Running \`${command}\`…`,
+        components: [],
+      });
+      await runner(source, command);
+    } catch (error) {
+      recordDiagnosticMetadata("help", error);
+      if (component.replied || component.deferred) {
+        await component.editReply({
+          content: textLang(lang) === "fr" ? "Impossible de lancer ce favori pour le moment." : "That favorite could not be run right now.",
+          components: [],
+        }).catch(() => null);
+      } else {
+        await component.reply({
+          content: textLang(lang) === "fr" ? "Impossible de lancer ce favori pour le moment." : "That favorite could not be run right now.",
+          ephemeral: true,
+        }).catch(() => null);
+      }
+    }
+  });
 }
 
 async function replyWithFavoriteToggle(
@@ -522,6 +598,7 @@ export async function sendHelpPaginator(
   lang: HelpLanguage,
   startPage: HelpPage = 1,
   favoritesStore: CommandFavoritesStore = commandFavorites,
+  runner: FavoriteCommandRunner | undefined = favoriteCommandRunner,
 ): Promise<void> {
   const isInteraction = !("author" in source);
   const prefix = await getPrefix(source.guildId ?? "");
@@ -569,7 +646,7 @@ export async function sendHelpPaginator(
         return;
       }
       if (i.customId === HELP_FAVORITES_LIST) {
-        await replyWithFavoriteList(i, i.user.id, prefix, lang, favoritesStore);
+        await replyWithFavoriteList(i, source, i.user.id, prefix, lang, favoritesStore, runner);
         return;
       }
       if (i.customId === HELP_FAVORITE_TOGGLE) {
@@ -1011,6 +1088,7 @@ export async function sendHelpTopic(
   lang: HelpLanguage,
   prefix = "!",
   favoritesStore: CommandFavoritesStore = commandFavorites,
+  runner: FavoriteCommandRunner | undefined = favoriteCommandRunner,
 ): Promise<void> {
   const topicCommands = favoriteCommandsForTopic(topic);
   const allowedCommandIds = new Set((topicCommands.length ? topicCommands : [{ id: `help:${topic}` }]).map(item => item.id));
@@ -1044,7 +1122,7 @@ export async function sendHelpTopic(
         return;
       }
       if (interaction.customId === HELP_FAVORITES_LIST) {
-        await replyWithFavoriteList(interaction, interaction.user.id, prefix, lang, favoritesStore);
+        await replyWithFavoriteList(interaction, source, interaction.user.id, prefix, lang, favoritesStore, runner);
         return;
       }
       if (interaction.customId === HELP_FAVORITE_TOGGLE) {
