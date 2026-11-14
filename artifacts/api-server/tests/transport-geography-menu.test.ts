@@ -399,6 +399,7 @@ test("the generic transport menu shows all saved trips from its first screen", a
     .find((component: any) => component.custom_id?.endsWith(":favorites")) as any;
   assert.ok(favoriteButton, "the initial !transport choice screen must expose favorites");
   assert.equal(favoriteButton.emoji.name, "⭐");
+  assert.equal(favoriteButton.label, undefined, "the favorite shortcut should be icon-only");
   await click(menu, "favorites");
   await settle(() => d.cards.length === 2);
   const selector = d.cards[1]!.last.components.flatMap(row => row.components)
@@ -424,8 +425,11 @@ test("a mode-specific transport menu filters its star list to that mode", async 
   ];
   await handleTransportCommand(d.message, [], "fr", "!", "bus", s.value, 45_000, preferenceStore({ favorites }));
   const menu = d.cards[0]!;
-  assert.ok(menu.last.components.flatMap(row => row.components)
-    .some((component: any) => component.custom_id?.endsWith(":favorites")));
+  const favoriteButton = menu.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.endsWith(":favorites")) as any;
+  assert.ok(favoriteButton);
+  assert.equal(favoriteButton.emoji.name, "⭐");
+  assert.equal(favoriteButton.label, undefined, "mode-specific menus should use the compact star button");
   await click(menu, "favorites");
   await settle(() => d.cards.length === 2);
   const selector = d.cards[1]!.last.components.flatMap(row => row.components)

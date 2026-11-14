@@ -229,14 +229,13 @@ function buildFavoriteActionsRow(lang: HelpLanguage, disabled = false, includePe
   const fr = textLang(lang) === "fr";
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(HELP_FAVORITE_TOGGLE)
-      .setLabel(fr ? "⭐ Favori" : "⭐ Favorite").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+      .setEmoji("⭐").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
     new ButtonBuilder().setCustomId(HELP_FAVORITES_LIST)
       .setLabel(fr ? "Mes favoris" : "My favorites").setStyle(ButtonStyle.Secondary).setDisabled(disabled),
   );
   if (includePersonas) {
     row.addComponents(new ButtonBuilder()
       .setCustomId(HELP_PERSONA_BUTTON)
-      .setLabel("Personas")
       .setEmoji("🎭")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(disabled));

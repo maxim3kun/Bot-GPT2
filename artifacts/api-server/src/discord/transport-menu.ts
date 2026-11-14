@@ -241,6 +241,8 @@ export async function handleTransportSearch(
   const collector = prompt.createMessageComponentCollector({ time: 5 * 60_000 });
   const button = (action: string, label: string, style = ButtonStyle.Secondary) =>
     new ButtonBuilder().setCustomId(`${id}:${action}`).setLabel(label).setStyle(style);
+  const iconButton = (action: string, emoji: string) =>
+    new ButtonBuilder().setCustomId(`${id}:${action}`).setEmoji(emoji).setStyle(ButtonStyle.Secondary);
   const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>, embed?: APIEmbed) => {
     if (!live) return;
     revision++;
@@ -272,7 +274,7 @@ export async function handleTransportSearch(
     const cityButtons = [
       button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
       button("zones", text("Par zones", "Browse areas")),
-      button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
+      iconButton("favorites", "⭐"),
     ];
     cityButtons.push(button("cancel", text("Annuler", "Cancel")));
     await edit(`**Transport · ${territory ? territoryLabel(territory, language === "fr" ? "fr" : "en") : ""}**\n` +
@@ -333,7 +335,7 @@ export async function handleTransportSearch(
       button("city", text("Saisir une commune", "Enter a town"), ButtonStyle.Primary),
       ...(territory && supportsAdministrativeRegionBrowsing(territory)
         ? [button("zones", text("Réessayer", "Try again"))] : []),
-      button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
+      iconButton("favorites", "⭐"),
       button("cancel", text("Annuler", "Cancel")),
     )]);
   }
@@ -442,7 +444,7 @@ export async function handleTransportSearch(
     if (stage === "networks" && controls.components.length < 4)
       controls.addComponents(button("networks", text("Actualiser", "Refresh")));
     const canShowFavorites = stage !== "result" && stage !== "error";
-    const favoritesButton = button("favorites", text("Favoris", "Favorites")).setEmoji("⭐");
+    const favoritesButton = iconButton("favorites", "⭐");
     const favoritesInPrimaryRow = canShowFavorites && controls.components.length < 4;
     if (favoritesInPrimaryRow) controls.addComponents(favoritesButton);
     controls.addComponents(button("cancel", text("Annuler", "Cancel")));
@@ -514,7 +516,7 @@ export async function handleTransportSearch(
       await edit(text("Aucun mode de transport n’est confirmé dans le flux officiel actuellement disponible.",
         "No transport mode is confirmed in the currently available official feed."),
       [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        button("retry", text("Réessayer", "Retry")), button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
+        button("retry", text("Réessayer", "Retry")), iconButton("favorites", "⭐"),
         button("cancel", text("Annuler", "Cancel")))]);
       return false;
     }
@@ -554,7 +556,7 @@ export async function handleTransportSearch(
           button(region?.territory === "ie" || territory === "fr" ? "zones" : "city",
             region?.territory === "ie" || territory === "fr"
               ? text("Changer de zone", "Change area") : text("Changer de commune", "Change city")),
-          button("favorites", text("Favoris", "Favorites")).setEmoji("⭐"),
+          iconButton("favorites", "⭐"),
          button("cancel", text("Annuler", "Cancel")))]);
     } finally { if (current === sequence) busy = false; }
   }

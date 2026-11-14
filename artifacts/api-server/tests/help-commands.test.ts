@@ -195,7 +195,7 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
   assert.equal(initial.components.length, 3);
   const personaButton = initial.components[2].toJSON().components.find((component: any) => component.custom_id === "help_personas");
   assert.equal(personaButton.emoji.name, "🎭");
-  assert.match(personaButton.label, /Persona/);
+  assert.equal(personaButton.label, undefined);
   assert.equal(fixture.collectorOptions.filter({ customId: "help_personas" }), true);
   assert.equal(fixture.collectorOptions.filter({ customId: "help_persona_tab_0" }), true);
 
@@ -245,7 +245,11 @@ test("Command favorites can be selected, toggled, and viewed privately from the 
   });
   const initial = fixture.initialPayloads[0];
   assert.equal(initial.components[1].toJSON().components[0].options.some((option: any) => option.value === "bus"), true);
-  assert.equal(initial.components[2].toJSON().components.some((component: any) => component.custom_id === "help_favorites_list"), true);
+  const actions = initial.components[2].toJSON().components;
+  const favoriteToggle = actions.find((component: any) => component.custom_id === "help_favorite_toggle");
+  assert.equal(favoriteToggle.emoji.name, "⭐");
+  assert.equal(favoriteToggle.label, undefined);
+  assert.equal(actions.some((component: any) => component.custom_id === "help_favorites_list"), true);
 
   const replies: any[] = [];
   const select = {
