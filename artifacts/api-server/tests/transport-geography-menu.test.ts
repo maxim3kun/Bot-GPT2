@@ -77,7 +77,8 @@ test("France, Québec or Angleterre is selected once and the redundant new-searc
   assert.equal(card.last.embeds.length, 1); assert.equal(card.custom("restart"), undefined);
   assert.equal(JSON.stringify(card.last.components).includes("France / Québec"), false);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options"], ["Arrêts", "Modifier", "Ajouter ❤️", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options"], ["Arrêts", "Modifier", undefined, "Source", "Fermer"]]);
+  assert.equal(card.last.components[1]!.components[2]!.emoji?.name, "⭐");
   card.collector.stop("cancelled");
 });
 test("The train entry forwards its mode and uses station coordinates instead of all postal-code communes", async () => {
@@ -304,7 +305,8 @@ test("selected metro arrivals omit redundant route notes and keep result control
   await choose(card, "0");
   assert.equal(card.last.components.length, 2);
   assert.deepEqual(card.last.components.map(row => row.components.map(component => component.label)),
-    [["Actualiser", "Retour", "Options", "Agrandir"], ["Arrêts", "Modifier", "Ajouter ❤️", "Source", "Fermer"]]);
+    [["Actualiser", "Retour", "Options", "Agrandir"], ["Arrêts", "Modifier", undefined, "Source", "Fermer"]]);
+  assert.equal(card.last.components[1]!.components[2]!.emoji?.name, "⭐");
   card.collector.stop("cancelled");
 });
 
@@ -326,7 +328,7 @@ function preferenceStore(initial: TransportPreferences = { favorites: [] }): Tra
   };
 }
 
-test("favorite heart stores the exact path and !favoris recalculates current departures", async () => {
+test("favorite star stores the exact path and !favoris recalculates current departures", async () => {
   const d = fakeDiscord({ userId: "owner" }), s = service(), store = preferenceStore();
   let departureLookups = 0;
   s.value.departures = async () => {
@@ -343,7 +345,8 @@ test("favorite heart stores the exact path and !favoris recalculates current dep
   await settle(() => card.last.embeds.length === 1);
   assert.equal(departureLookups, 1);
   await click(card, "favorite");
-  await settle(() => card.last.components.flatMap(row => row.components).some(component => component.label === "Retirer ❤️"));
+  await settle(() => card.last.components.flatMap(row => row.components)
+    .some(component => component.custom_id?.endsWith(":favorite") && component.emoji?.name === "⭐" && component.style === 3));
   assert.equal(departureLookups, 1, "saving a favorite must not trigger another timetable lookup");
 
   const next = fakeDiscord({ userId: "owner", channelId: "favorite-reopen" });

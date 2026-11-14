@@ -100,10 +100,10 @@ export async function handleTransportFavoritesCommand(
   if (!favorites.length) {
     const mode = modeFilter ? modeName(modeFilter, "fr") : "";
     await message.reply(french
-      ? mode ? `Aucun favori ${mode.toLocaleLowerCase("fr")} enregistré. Ajoute un trajet avec le bouton ❤️.`
-        : "Aucun favori transport enregistré. Lance un trajet puis ajoute-le avec le bouton ❤️."
-      : modeFilter ? `No ${modeName(modeFilter, "en").toLocaleLowerCase("en")} favorites. Save a journey with the ❤️ button.`
-        : "No saved transport favorites. Start a journey, then save it with the ❤️ button.");
+      ? mode ? `Aucun favori ${mode.toLocaleLowerCase("fr")} enregistré. Ajoute un trajet avec le bouton ⭐.`
+        : "Aucun favori transport enregistré. Lance un trajet puis ajoute-le avec le bouton ⭐."
+      : modeFilter ? `No ${modeName(modeFilter, "en").toLocaleLowerCase("en")} favorites. Save a journey with the ⭐ button.`
+        : "No saved transport favorites. Start a journey, then save it with the ⭐ button.");
     return;
   }
   if (favorites.length === 1) {
@@ -851,8 +851,8 @@ export async function handleTransportSearch(
     const secondary = new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("stops", showPreviousStops ? text("Masquer les arrêts", "Hide stops") : text("Arrêts", "Stops")),
       button("modify", text("Modifier", "Modify")),
-      ...(favorite ? [button("favorite", saved ? text("Retirer ❤️", "Remove ❤️") : text("Ajouter ❤️", "Save ❤️"),
-        saved ? ButtonStyle.Success : ButtonStyle.Secondary)] : []),
+      ...(favorite ? [new ButtonBuilder().setCustomId(`${id}:favorite`).setEmoji("⭐")
+        .setStyle(saved ? ButtonStyle.Success : ButtonStyle.Secondary)] : []),
       ...sourceButton(result.source, language).flatMap((row) => row.components.map((component) =>
         ButtonBuilder.from(component).setLabel(text("Source", "Source")))),
       button("cancel", text("Fermer", "Close")));

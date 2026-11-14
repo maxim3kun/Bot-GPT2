@@ -194,7 +194,7 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
   const initial = fixture.initialPayloads[0];
   assert.equal(initial.components.length, 3);
   const personaButton = initial.components[2].toJSON().components.find((component: any) => component.custom_id === "help_personas");
-  assert.equal(personaButton.emoji.name, "🎭");
+  assert.equal(personaButton.emoji.name, "🤹‍♂️");
   assert.equal(personaButton.label, undefined);
   assert.equal(fixture.collectorOptions.filter({ customId: "help_personas" }), true);
   assert.equal(fixture.collectorOptions.filter({ customId: "help_persona_tab_0" }), true);
@@ -359,7 +359,7 @@ test("The message-command help opens the same Persona guide from its button", as
 
   await sendHelpPaginator(message, "fr");
   assert.equal(payloads[0].components[2].components.find((component: any) =>
-    component.toJSON().custom_id === "help_personas").toJSON().emoji.name, "🎭");
+    component.toJSON().custom_id === "help_personas").toJSON().emoji.name, "🤹‍♂️");
   let openedTitle = "";
   await handlers.get("collect")!({
     customId: "help_personas",
