@@ -159,7 +159,8 @@ test("Persona truncation is retried exactly once with a larger budget", async ()
 });
 
 test("General factual answers default to concise, direct replies while allowing requested detail", () => {
-  assert.match(FACTUAL_ACCURACY_GUIDANCE, /answer directly and briefly/);
+  assert.match(FACTUAL_ACCURACY_GUIDANCE, /lead with the direct answer/);
+  assert.match(FACTUAL_ACCURACY_GUIDANCE, /the interface may offer more details when useful/);
   assert.match(FACTUAL_ACCURACY_GUIDANCE, /Expand when the user asks for detail/);
   assert.match(FACTUAL_ACCURACY_GUIDANCE, /do not invent numbers, statistics, sources/);
 });

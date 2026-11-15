@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, ActivityType, GuildMember, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import os from "os";
 import OpenAI from "openai";
@@ -57,6 +58,7 @@ import { getAiPromptContext } from "./discord/ai-memory.js";
 import { handleAiPersonaControlReaction, handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
+import { attachAnswerDetailsCollector, buildAnswerDetailsRow, generateAnswerDetails, shouldOfferAnswerDetails } from "./discord/ai-answer-details.js";
 import { createSearchSourceButton, getSearchSources } from "./discord/ai-research-sources.js";
 import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
@@ -78,6 +80,7 @@ import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabil
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTransportDialogue, handleJourneyCommand } from "./discord/transport-dialogue.js";
 import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
+import { type UserLang } from "./discord/user-lang-store.js";
 import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch,
   prewarmIrishBusRouteIndex, transportCityAutocomplete } from "./discord/transport-menu.js";
 import { handleCivicCommand, isCivicCommand } from "./discord/civic-command.js";
@@ -283,7 +286,14 @@ async function replyWithAiAnswer(
   answer: string,
   webResults: WebSearchResult[],
   travelQuery?: string,
-  language?: string,
+  language: UserLang = "en",
+  detailsContext?: {
+    openai: OpenAI;
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+    prompt: string;
+    evidence: WebSearchResult[];
+    verifiedCalculations: unknown[];
+  },
 ): Promise<void> {
   const kind = travelQuery ? travelResearchKind(travelQuery) : null;
   const checkedOn = kind && webResults.length
@@ -292,11 +302,17 @@ async function replyWithAiAnswer(
     }).format(new Date())
     : "";
   const sourcedAnswer = kind && webResults.length
-    ? `${answer.trim()}${travelResearchFooter(kind, checkedOn, language ?? "en")}`
+    ? `${answer.trim()}${travelResearchFooter(kind, checkedOn, language)}`
     : answer;
   const chunks = sourcedAnswer.match(/[\s\S]{1,2000}/g) ?? [sourcedAnswer];
   const sourcesButton = createSearchSourceButton(webResults, message.author.id);
-  const firstReply = sourcesButton
+  const detailsCustomId = detailsContext && shouldOfferAnswerDetails(detailsContext.prompt, answer, detailsContext.evidence.some(result => !!result.content?.trim()))
+    ? `ai_details:${randomUUID()}`
+    : null;
+  const detailsRow = detailsCustomId ? buildAnswerDetailsRow(detailsCustomId, language, sourcesButton) : null;
+  const firstReply = detailsRow
+    ? { content: chunks[0]!, components: [detailsRow], flags: ["SuppressEmbeds" as const] }
+    : sourcesButton
     ? { content: chunks[0]!, components: [sourcesButton], flags: ["SuppressEmbeds" as const] }
     : chunks[0]!;
 
@@ -305,6 +321,20 @@ async function replyWithAiAnswer(
     : { ...firstReply, allowedMentions: { parse: [] } })];
   for (const chunk of chunks.slice(1)) {
     replies.push(await message.reply({ content: chunk, ...(webResults.length ? { flags: ["SuppressEmbeds" as const] } : {}), allowedMentions: { parse: [] } }));
+  }
+  if (detailsCustomId && detailsRow) {
+    attachAnswerDetailsCollector(replies[0]!, {
+      customId: detailsCustomId,
+      userId: message.author.id,
+      language,
+      sourceRow: sourcesButton,
+      generate: () => generateAnswerDetails({
+        ...detailsContext!,
+        answer,
+        language,
+        sourceRow: sourcesButton,
+      }),
+    });
   }
   await trackAiReplies(replies, "bot", message.content);
   await seedAiPersonaControl(replies[0]!);
@@ -483,17 +513,18 @@ export function startBot(): void {
         rememberConversationTurn(message, prompt, openai);
         return;
       }
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
+        { role: "system", content: await buildSpeakerContext(message) },
+        { role: "system", content: research.guidance },
+        ...getAiHistory(conversationKey(message)),
+      ];
       const response = await createReliableCompletion(openai, {
         model: "openai/gpt-oss-120b",
         max_completion_tokens: 2048,
         currentUserText: stripMentions(prompt),
         evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
-        messages: [
-          { role: "system", content: buildAiSystemPrompt(prompt, route.intent, formatSearchContext(webResults), memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
-          { role: "system", content: await buildSpeakerContext(message) },
-          { role: "system", content: research.guidance },
-          ...getAiHistory(conversationKey(message)),
-        ],
+        messages,
       });
       if (response.intentionallySilent) return;
       const verifiedSources = response.reviewedSources ?? webResults;
@@ -501,7 +532,9 @@ export function startBot(): void {
         ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
       const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
       addToHistory(conversationKey(message), "assistant", reply);
-      await replyWithAiAnswer(message, reply, verifiedSources, prompt, aiResponseLang);
+      await replyWithAiAnswer(message, reply, verifiedSources, prompt, aiResponseLang, {
+        openai, messages, prompt, evidence: webResults, verifiedCalculations: response.verifiedCalculations ?? [],
+      });
       rememberConversationTurn(message, prompt, openai, false, reply);
     } catch (err) {
       logger.error({ err }, "Prefixed AI question error");
@@ -1593,17 +1626,18 @@ export function startBot(): void {
           return;
         }
         const webContext = formatSearchContext(webResults);
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
+          { role: "system", content: await buildSpeakerContext(message) },
+          { role: "system", content: research.guidance },
+          ...getAiHistory(conversationKey(message)),
+        ];
         const response = await createReliableCompletion(openai, {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           currentUserText: userText,
           evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
-          messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
-            { role: "system", content: await buildSpeakerContext(message) },
-            { role: "system", content: research.guidance },
-             ...getAiHistory(conversationKey(message)),
-          ],
+          messages,
         });
         if (response.intentionallySilent) return;
         const verifiedSources = response.reviewedSources ?? webResults;
@@ -1611,7 +1645,9 @@ export function startBot(): void {
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang);
+        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang, {
+          openai, messages, prompt: userText, evidence: webResults, verifiedCalculations: response.verifiedCalculations ?? [],
+        });
         rememberConversationTurn(message, userText, openai, false, reply);
       } catch (err) {
         logger.error({ err }, "DM AI error");
@@ -1715,17 +1751,18 @@ export function startBot(): void {
           return;
         }
         const webContext = formatSearchContext(webResults);
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
+          { role: "system", content: await buildSpeakerContext(message) },
+          { role: "system", content: research.guidance },
+          ...getAiHistory(conversationKey(message)),
+        ];
         const response = await createReliableCompletion(openai, {
           model: "openai/gpt-oss-120b",
           max_completion_tokens: 2048,
           currentUserText: userText,
           evidence: webResults, correction: research.correction, responseLanguage: aiResponseLang,
-          messages: [
-            { role: "system", content: buildAiSystemPrompt(userText, route.intent, webContext, memoryContext, timeContext, aiResponseLang, getPrefix(message.guildId)) },
-            { role: "system", content: await buildSpeakerContext(message) },
-            { role: "system", content: research.guidance },
-             ...getAiHistory(conversationKey(message)),
-          ],
+          messages,
         });
         if (response.intentionallySilent) return;
         const verifiedSources = response.reviewedSources ?? webResults;
@@ -1733,7 +1770,9 @@ export function startBot(): void {
           ?? (aiResponseLang === "fr" ? "Désolé, je n’ai pas réussi à formuler une réponse." : "Sorry, I couldn't come up with a response! 😅");
         const reply = webResults.length ? normalizeResearchAnswer(rawReply) : rawReply;
         addToHistory(conversationKey(message), "assistant", reply);
-        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang);
+        await replyWithAiAnswer(message, reply, verifiedSources, userText, aiResponseLang, {
+          openai, messages, prompt: userText, evidence: webResults, verifiedCalculations: response.verifiedCalculations ?? [],
+        });
         rememberConversationTurn(message, userText, openai, false, reply);
         // Also speak in voice if bot is connected
         if (message.guildId && isInVoice(message.guildId)) {

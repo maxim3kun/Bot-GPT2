@@ -46,6 +46,12 @@ import { recordModuleSuccess, reportModuleFailure } from "./module-technician.js
 import { classifyAiMessage } from "./ai-router.js";
 import { FACTUAL_ACCURACY_GUIDANCE, generateWithLengthRetry } from "./ai-completion-quality.js";
 import { splitAiAnswer } from "./ai-answer-format.js";
+import {
+  attachAnswerDetailsCollector,
+  buildAnswerDetailsRow,
+  generateAnswerDetails as generateDetailsOnDemand,
+  shouldOfferAnswerDetails,
+} from "./ai-answer-details.js";
 import { formatPersonaAnswer, PERSONA_FORMAT_GUIDANCE } from "./persona-answer-format.js";
 import { createSearchSourceButton } from "./ai-research-sources.js";
 import { buildBotCommandContext } from "./ai-command-context.js";
@@ -1341,16 +1347,48 @@ If the evidence does not support a requested figure or comparison, say you canno
   const sourcesButton = (reviewed?.sources ?? webResults).length
     ? createSearchSourceButton(reviewed?.sources ?? webResults, message.author.id)
     : null;
+  const detailsCustomId = shouldOfferAnswerDetails(prompt, answer, hasResearchEvidence)
+    ? `ai_details:${randomUUID()}`
+    : null;
+  const detailsRow = detailsCustomId
+    ? buildAnswerDetailsRow(detailsCustomId, responseLanguage, sourcesButton)
+    : null;
+  const generateAnswerDetails = async () => {
+    return generateDetailsOnDemand({
+      openai,
+      messages,
+      answer,
+      language: responseLanguage,
+      evidence: webResults,
+      verifiedCalculations: generated.verifiedCalculations,
+      sourceRow: sourcesButton,
+    });
+  };
+  const attachAnswerDetails = (reply: Message) => {
+    if (!detailsCustomId || !detailsRow) return;
+    attachAnswerDetailsCollector(reply, {
+      customId: detailsCustomId,
+      userId: message.author.id,
+      language: responseLanguage,
+      sourceRow: sourcesButton,
+      generate: generateAnswerDetails,
+    });
+  };
 
   if (
     (persona.visibility !== "private" || activeSession)
     && await speakPersonaReply(message, answer, responseLanguage, safeName(persona.name), persona.ttsVoiceId)
   ) {
-    if (sourcesButton) await message.reply({
-      content: localized(responseLanguage, "Sources de cette réponse :", "Sources for this response:"),
-      components: [sourcesButton],
+    if (sourcesButton || detailsRow) {
+      const reply = await message.reply({
+        content: sourcesButton
+          ? localized(responseLanguage, "Sources de cette réponse :", "Sources for this response:")
+          : localized(responseLanguage, "Voir la réponse en texte :", "Read the answer:"),
+        components: [detailsRow ?? sourcesButton!],
       allowedMentions: { parse: [] },
-    });
+      });
+      attachAnswerDetails(reply);
+    }
     recordModuleSuccess("ai", "groq");
     rememberPersonaConversationTurn(historyKey, prompt, answer);
     rememberConversationTurn(message, prompt, openai, true);
@@ -1377,7 +1415,8 @@ If the evidence does not support a requested figure or comparison, say you canno
       .setDescription(chunk);
     const payload: MessageCreateOptions = {
       embeds: [embed],
-      ...(index === 0 && sourcesButton ? { components: [sourcesButton] } : {}),
+      ...(index === 0 && detailsRow ? { components: [detailsRow] }
+        : index === 0 && sourcesButton ? { components: [sourcesButton] } : {}),
       ...(avatar.buffer ? { files: [{ attachment: avatar.buffer, name: "persona-avatar.jpg" }] } : {}),
       allowedMentions: { parse: [] },
     };
@@ -1389,6 +1428,7 @@ If the evidence does not support a requested figure or comparison, say you canno
     sent ??= part;
   }
   if (!sent) return;
+  attachAnswerDetails(sentMessages[0]!);
   recordModuleSuccess("ai", "groq");
   rememberPersonaConversationTurn(historyKey, prompt, answer);
 

@@ -4,6 +4,7 @@
 - [Discord language precedence](language-precedence.md) — Server language is the default; an explicit personal language overrides it.
 - [Bot identity](bot-identity.md) — Maxime (Maxim3kun) created the bot; distinguish its creator from its AI provider.
 - [Research answer style](research-answer-style.md) — Keep answers fitted to the question; no fixed word cap or generic publisher presented as news.
+- [Bot answer detail style](bot-answer-detail-style.md) — Put the useful answer first, with optional details on demand and no fixed word limit.
 - [API workflow startup order](api-workflow-startup.md) — Start the API artifact before the wrapper; simultaneous startup can race for port 8080.
 - [Persona reply labeling](persona-reply-labeling.md) — Do not add an AI-generated label; Discord already identifies the account as a bot.
 - [Module health and fallbacks](module-health-fallbacks.md) — Track runtime/dependency failures and use only real alternate paths; otherwise report degraded service honestly.
