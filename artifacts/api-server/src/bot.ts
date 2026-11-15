@@ -4,8 +4,9 @@ import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
-import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse, voiceSubtitlesEnabled } from "./discord/voice";
+import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse, voiceSubtitlesEnabled, interruptVoiceReply } from "./discord/voice";
 import { isVoiceOperationalError } from "./discord/voice-audio-policy.js";
+import { isSpokenStopCommand, spokenRadioStationCommand } from "./discord/voice-audio-policy.js";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
@@ -547,7 +548,7 @@ export function startBot(): void {
   };
 
   let voiceTurnSequence = 0;
-  setVoiceChatTurnHandler(async ({ guildId, userId, transcript, message: contextMessage }) => {
+  setVoiceChatTurnHandler(async ({ guildId, userId, transcript, message: contextMessage, interruptOnly = false }) => {
     const language = getEffectiveLanguage(guildId, userId);
     if (!await requireConsent(contextMessage, language) || await getConsent(userId) !== "accepted") return false;
 
@@ -574,6 +575,21 @@ export function startBot(): void {
       ).catch(() => null);
       return false;
     }
+    if (isSpokenStopCommand(transcript)) {
+      interruptVoiceReply(guildId);
+      return true;
+    }
+    const requestedStation = spokenRadioStationCommand(transcript, [
+      ...Object.entries(RADIO_STATIONS).map(([key, station]) => ({ key, name: station.name })),
+      ...Array.from(customStations.entries()).map(([key, station]) => ({ key, name: station.name })),
+    ]);
+    if (requestedStation) {
+      if (interruptOnly) interruptVoiceReply(guildId);
+      await playRadio(contextMessage, requestedStation);
+      return true;
+    }
+    if (interruptOnly) return true;
+
     if (!openai) {
       await (contextMessage.channel as import("discord.js").TextChannel).send(
         "Les réponses IA ne sont pas configurées. Ta voix ne sera plus écoutée.",
@@ -585,11 +601,19 @@ export function startBot(): void {
     const textChannel = base.channel as import("discord.js").TextChannel;
     const voiceRepliesEnabled = isFeatureEnabled("voice")
       && guildFeatures.find(feature => feature.name === "voice_tts")?.enabled === true;
+    const voiceChannel = new Proxy(base.channel, {
+      get(target, property, receiver) {
+        if (property === "sendTyping") return async () => {};
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
     const voiceMessage = new Proxy(base, {
       get(target, property, receiver) {
         if (property === "content") return transcript;
         if (property === "id") return `${target.id}:voice:${Date.now()}:${++voiceTurnSequence}`;
         if (property === "reference") return null;
+        if (property === "channel") return voiceChannel;
         if (property === "reply") {
           return async (payload: string | Record<string, unknown>) => {
             const outgoing = typeof payload === "string"

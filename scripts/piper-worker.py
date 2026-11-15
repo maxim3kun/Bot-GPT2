@@ -65,5 +65,9 @@ for line in sys.stdin:
     except Exception as error:
         # Keep text, file paths and user data out of diagnostic responses.
         print(f"Piper synthesis failed: {type(error).__name__}", file=sys.stderr, flush=True)
-        result = {"id": request.get("id"), "error": "Local voice synthesis failed"}
+        result = {
+            "id": request.get("id"),
+            "error": "Local voice synthesis failed",
+            "errorType": type(error).__name__,
+        }
     print(json.dumps(result), flush=True)

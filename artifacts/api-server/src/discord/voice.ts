@@ -17,6 +17,7 @@ import {
   replyNotInVoice,
   setVoiceCleanupHook,
   speakOverRadio,
+  interruptRadioSpeech,
   stopForGuild,
 } from "./radio.js";
 import { Readable } from "stream";
@@ -24,7 +25,7 @@ import prism from "prism-media";
 import { logger } from "../lib/logger";
 import { piper, DEFAULT_VOICE, isVoiceId } from "./piper-tts.js";
 import { getBotVoice } from "./voice-settings.js";
-import { createVoiceActivationChime, sanitizeSpeechText } from "./voice-audio-policy.js";
+import { createVoiceActivationChime, isSpokenStopCommand, sanitizeSpeechText } from "./voice-audio-policy.js";
 import { recordModuleSuccess, recordModuleFailureState } from "./module-technician.js";
 import { getConsent, requireConsent } from "./ai-consent.js";
 import { getEffectiveLanguage } from "./effective-language.js";
@@ -69,18 +70,30 @@ export async function textToSpeech(text: string, lang = "en"): Promise<Buffer> {
 }
 
 const speakingGuilds = new Set<string>();
-async function speechAudio(text: string, lang: string, voice: string): Promise<{ audio: Buffer; degraded: boolean }> {
+async function speechAudio(text: string, lang: string, voice: string): Promise<Buffer> {
   // The curated local models are French. Preserve existing multilingual speech.
-  if (!/^fr(?:[-_]|$)/i.test(lang)) return { audio: await textToSpeech(text, lang), degraded: false };
+  if (!/^fr(?:[-_]|$)/i.test(lang)) return textToSpeech(text, lang);
   try {
     const audio = await piper.synthesize(text, voice);
     recordModuleSuccess("feature:piper");
-    return { audio, degraded: false };
+    return audio;
   }
   catch (error) {
     recordModuleFailureState("feature:piper", new Error("Local Piper synthesis failed"));
-    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Local voice unavailable; trying the existing free Google TTS fallback");
-    return { audio: await textToSpeech(text, lang), degraded: true };
+    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Local French voice failed");
+    if (voice !== DEFAULT_VOICE) {
+      try {
+        const audio = await piper.synthesize(text, DEFAULT_VOICE);
+        recordModuleSuccess("feature:piper");
+        return audio;
+      } catch (fallbackError) {
+        recordModuleFailureState("feature:piper", new Error("Local Piper synthesis failed"));
+        logger.error({ errorName: fallbackError instanceof Error ? fallbackError.name : "Error" }, "Masculine French voice retry failed");
+      }
+    }
+    // Google Translate TTS uses a feminine French voice. Do not silently ignore
+    // the user's explicit request for a masculine default voice.
+    throw new Error("Local masculine French voice unavailable");
   }
 }
 
@@ -167,8 +180,9 @@ interface GuildVoiceState {
   listeningUsers: Set<string>;
   chatUsers: Set<string>;
   chatMessages: Map<string, Message>;
-  activeCaptures: Map<string, { stream: { destroy(): unknown }; abortController: AbortController | null }>;
+  activeCaptures: Map<string, { stream: { destroy(): unknown }; abortController: AbortController | null; interruptOnly: boolean }>;
   botName: string;
+  speechSequence: number;
   /** True while the bot is playing TTS — suppress self-transcription. */
   botSpeaking: boolean;
   /** Timestamp (ms) when the bot last finished speaking — short cooldown. */
@@ -188,6 +202,7 @@ export interface VoiceChatTurnContext {
   userId: string;
   transcript: string;
   message: Message;
+  interruptOnly?: boolean;
 }
 type VoiceChatTurnHandler = (context: VoiceChatTurnContext) => Promise<boolean>;
 let voiceChatTurnHandler: VoiceChatTurnHandler | null = null;
@@ -211,6 +226,7 @@ function createGuildVoiceState(
     botName: message.guild?.members.me?.displayName ?? "Bot",
     botSpeaking: false,
     botSpeakingUntil: 0,
+    speechSequence: 0,
     receiverSetUp: false,
   };
   guildStates.set(guildId, state);
@@ -417,6 +433,18 @@ export async function playVoiceActivationChime(guildId: string): Promise<boolean
   }
 }
 
+/** Stop only the current spoken reply; keep listening and radio playback enabled. */
+export function interruptVoiceReply(guildId: string): boolean {
+  const state = guildStates.get(guildId);
+  if (!state || !speakingGuilds.has(guildId)) return false;
+  state.speechSequence++;
+  state.botSpeaking = false;
+  state.botSpeakingUntil = 0;
+  interruptRadioSpeech(guildId);
+  state.player.stop(true);
+  return true;
+}
+
 // Radio takes over playback without discarding members' explicit voice-chat opt-in.
 setVoiceCleanupHook((guildId: string) => {
   const s = guildStates.get(guildId);
@@ -470,7 +498,11 @@ function setupReceiverForGuild(
     const opusStream = receiver.subscribe(userId, {
       end: { behavior: EndBehaviorType.AfterSilence, duration: 500 },
     });
-    const capture = { stream: opusStream, abortController: null as AbortController | null };
+    const capture = {
+      stream: opusStream,
+      abortController: null as AbortController | null,
+      interruptOnly: state.botSpeaking || Date.now() < state.botSpeakingUntil,
+    };
     state.activeCaptures.set(userId, capture);
 
     const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
@@ -485,11 +517,11 @@ function setupReceiverForGuild(
         if (!s || s.activeCaptures.get(userId) !== capture
           || !userStillInVoiceChat(s, guildId, userId) || pcmChunks.length === 0) return;
         const pcm = Buffer.concat(pcmChunks);
-        if (pcm.length < 115200) {
+        if (pcm.length < (capture.interruptOnly ? 16_000 : 115_200)) {
           if (s.subtitles) await s.textChannel.send("🎙️ Je n’ai pas compris cet extrait. Réessaie en parlant un peu plus longtemps.").catch(() => null);
           return;
         }
-        if (s.botSpeaking || Date.now() < s.botSpeakingUntil) return;
+        if (!capture.interruptOnly && (s.botSpeaking || Date.now() < s.botSpeakingUntil)) return;
         const optedInMessage = s.chatMessages.get(userId);
         if (!optedInMessage || !userStillInVoiceChat(s, guildId, userId)
           || !await voiceChatAccessAllowed(optedInMessage)) {
@@ -514,6 +546,18 @@ function setupReceiverForGuild(
         // Drop known Whisper hallucinations
         if (isHallucination(transcript)) {
           logger.debug({ transcript }, "Voice: dropping hallucinated transcript");
+          return;
+        }
+
+        if (capture.interruptOnly) {
+          if (isSpokenStopCommand(transcript)) {
+            interruptVoiceReply(guildId);
+            return;
+          }
+          const turnMessage = s.chatMessages.get(userId);
+          if (turnMessage && voiceChatTurnHandler) {
+            await voiceChatTurnHandler({ guildId, userId, transcript, message: turnMessage, interruptOnly: true });
+          }
           return;
         }
 
@@ -710,6 +754,7 @@ export async function speakText(
   const spokenText = sanitizeSpeechText(text);
   if (!state || !state.active || speakingGuilds.has(guildId) || !spokenText) return false;
   speakingGuilds.add(guildId);
+  const speechSequence = ++state.speechSequence;
   state.botSpeaking = true;
 
   try {
@@ -720,8 +765,10 @@ export async function speakText(
     }
 
     const selected = isVoiceId(voiceId) ? voiceId : await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
-    const { audio } = await speechAudio(spokenText, lang, selected);
-    return await playAudioBufferInVoice(guildId, audio);
+    const audio = await speechAudio(spokenText, lang, selected);
+    if (state.speechSequence !== speechSequence || !state.active) return false;
+    const played = await playAudioBufferInVoice(guildId, audio);
+    return played && state.speechSequence === speechSequence;
   } catch (err) {
     logger.error({ err, guildId }, "TTS error");
     return false;

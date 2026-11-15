@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler, speakText, voiceSubtitlesEnabled } from "../src/discord/voice.js";
-import { buildRadioSpeechMixArgs, createVoiceActivationChime, isVoiceOperationalError, RADIO_DUCK_VOLUME, sanitizeSpeechText } from "../src/discord/voice-audio-policy.js";
+import { buildRadioSpeechMixArgs, createVoiceActivationChime, isSpokenStopCommand, isVoiceOperationalError, RADIO_DUCK_VOLUME, sanitizeSpeechText, spokenRadioStationCommand } from "../src/discord/voice-audio-policy.js";
 import { fixture } from "./fixtures/voice-chat.js";
 
 function makeMessage(guildId = "guild") {
@@ -65,6 +65,16 @@ test("Starting radio preserves each member's explicit voice-chat opt-in", async 
 test("Speech playback strips emoji and stage directions without changing the written answer", () => {
   assert.equal(sanitizeSpeechText("Je vais bien, merci 😊 ! *sourit*"), "Je vais bien, merci !");
   assert.equal(sanitizeSpeechText("Bonjour 👋 — voici la réponse."), "Bonjour — voici la réponse.");
+});
+
+test("Voice controls recognize stop and explicitly requested radio stations", () => {
+  assert.equal(isSpokenStopCommand("Stop !"), true);
+  assert.equal(isSpokenStopCommand("Arrête de parler"), true);
+  assert.equal(isSpokenStopCommand("On va s'arrêter bientôt"), false);
+  const stations = [{ key: "nrj", name: "NRJ" }, { key: "franceinter", name: "France Inter" }];
+  assert.equal(spokenRadioStationCommand("Mets NRJ", stations), "nrj");
+  assert.equal(spokenRadioStationCommand("Mets la radio France Inter s'il te plaît", stations), "franceinter");
+  assert.equal(spokenRadioStationCommand("Parle-moi d'énergie", stations), null);
 });
 
 test("Voice chat does not speak warning or AI failure notices over the radio", () => {
@@ -187,6 +197,31 @@ test("An opted-in speaker's clip is transcribed and only its text reaches the AI
     assert.equal(turns[0].userId, "member");
     assert.deepEqual(Object.keys(turns[0]).sort(), ["guildId", "message", "transcript", "userId"]);
   } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("A clearly spoken stop interrupts the current reply without sending it to the AI", async () => {
+  const previousFetch = globalThis.fetch;
+  const x = makeMessage("voice-interrupt");
+  let turns = 0;
+  globalThis.fetch = (async () => ({ ok: true, text: async () => "stop" }) as Response) as typeof fetch;
+  try {
+    fixture.speechPlaybackMs = 500;
+    setVoiceChatTurnHandler(async () => { turns++; return true; });
+    await joinVoice(x.message);
+    assert.equal(await enableVoiceChat(x.message), true);
+    const speech = speakText(x.message.guildId, "Une réponse en cours.", "fr");
+    await nextTick();
+    fixture.connection.receiver.speaking.emit("start", "member");
+    await nextTick();
+    fixture.decoder.emit("data", Buffer.alloc(288_000));
+    fixture.decoder.emit("end");
+    assert.equal(await speech, false);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(turns, 0);
+  } finally {
+    fixture.speechPlaybackMs = 2;
     globalThis.fetch = previousFetch;
   }
 });

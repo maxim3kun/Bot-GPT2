@@ -63,6 +63,12 @@ When voice chat runs over radio, lower music only when a real spoken reply is re
 
 **How to apply:** Keep radio playing during AI/TTS preparation, hand over only after the mixer has audio ready, and warm the replacement stream while speech plays.
 
+Voice chat must handle explicit spoken controls such as stopping the current reply and switching to a named radio station before passing speech to general AI. The stop command must work while the bot is speaking.
+
+**Why:** The user reported that repeated spoken stops were ignored and a request to play NRJ was answered as a question about energy.
+
+**How to apply:** Limit barge-in recognition to explicit controls, interrupt only the current spoken reply, and never send control-only speech to the general AI.
+
 Do not add a Persona reaction beneath every bot response. Show the available Personas and creation option only when someone explicitly asks to choose or speak with one.
 
 **Why:** The user finds the per-message reaction visually cluttered and prefers an on-demand selector.

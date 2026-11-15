@@ -5,6 +5,46 @@ export function isVoiceOperationalError(text: string): boolean {
     || /\b(?:n['’]a pas pu terminer la demande|n['’]a pas pu être terminée|une erreur m['’]empêche de répondre|je n['’]ai pas réussi à formuler une réponse|could not complete the request|something went wrong|couldn['’]t come up with a response)\b/iu.test(text);
 }
 
+function normalizeVoiceCommand(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("fr")
+    .replace(/[’']/g, " ")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isSpokenStopCommand(text: string): boolean {
+  const normalized = normalizeVoiceCommand(text);
+  return /^(?:stop|arrete|arrete toi|arrete de parler|tais toi|silence|coupe|coupe le son|stop ca|arrete ca|shut up|stop talking)$/.test(normalized);
+}
+
+export function spokenRadioStationCommand(
+  text: string,
+  stations: Array<{ key: string; name: string }>,
+): string | null {
+  const normalized = normalizeVoiceCommand(text);
+  const action = /^(?:(?:mets?|mettez|mettre|lance(?:r)?|joue(?:r)?|ecoute(?:r)?|passe(?:r)?|change(?:r)? pour|put on|play|switch to)(?: moi)?|la radio|radio)\s+/;
+  const stationPhrase = normalized
+    .replace(action, "")
+    .replace(/\s+(?:s il te plait|stp|merci)$/, "")
+    .replace(/^la radio\s+/, "")
+    .trim();
+  if (!stationPhrase || stationPhrase === normalized) return null;
+
+  const orderedStations = [...stations].sort((a, b) => b.name.length - a.name.length);
+  const match = orderedStations.find(({ key, name }) => {
+    const normalizedKey = normalizeVoiceCommand(key);
+    const normalizedName = normalizeVoiceCommand(name);
+    return stationPhrase === normalizedKey
+      || stationPhrase === normalizedName
+      || stationPhrase === `la ${normalizedName}`;
+  });
+  return match?.key ?? null;
+}
+
 export function sanitizeSpeechText(text: string): string {
   return text
     .replace(/(?:\*{1,2}|\[|\()\s*(?:sourit|sourire|rit|rire|rires|laughs?|smiles?|laughing)\s*(?:\*{1,2}|\]|\))/gi, " ")
@@ -38,20 +78,14 @@ export function buildRadioSpeechMixArgs(stationUrl: string, musicVolume = 1): st
 
 export function createVoiceActivationChime(): Buffer {
   const sampleRate = 48_000;
-  const durationSeconds = 0.28;
+  const durationSeconds = 0.2;
   const sampleCount = Math.floor(sampleRate * durationSeconds);
   const pcm = Buffer.alloc(sampleCount * 2);
-  const notes = [
-    { start: 0, end: 0.1, frequency: 660 },
-    { start: 0.1, end: 0.24, frequency: 880 },
-  ];
   for (let index = 0; index < sampleCount; index++) {
     const time = index / sampleRate;
-    const note = notes.find(({ start, end }) => time >= start && time < end);
-    if (!note) continue;
-    const noteProgress = (time - note.start) / (note.end - note.start);
-    const envelope = Math.min(1, noteProgress * 18, (1 - noteProgress) * 12);
-    const value = Math.sin(2 * Math.PI * note.frequency * time) * envelope * 0.18;
+    const progress = time / durationSeconds;
+    const envelope = Math.min(1, progress * 18, (1 - progress) * 12);
+    const value = Math.sin(2 * Math.PI * 520 * time) * envelope * 0.045;
     pcm.writeInt16LE(Math.round(value * 32_767), index * 2);
   }
   const header = Buffer.alloc(44);

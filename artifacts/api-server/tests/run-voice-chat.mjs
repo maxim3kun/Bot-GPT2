@@ -40,7 +40,7 @@ const stubs = {
       player.unpause = () => { player.state.status = "playing"; };
       player.play = () => {
         player.state.status = "playing";
-        setTimeout(() => { player.state.status = "idle"; player.emit("idle"); }, 2);
+        setTimeout(() => { player.state.status = "idle"; player.emit("idle"); }, fixture.speechPlaybackMs);
       };
       return player;
     };
@@ -58,6 +58,7 @@ const stubs = {
     export const stopForGuild = () => {};
     export const radioStates = new Map();
     export const speakOverRadio = async () => fixture.radioMixResult;
+    export const interruptRadioSpeech = () => false;
     export const pauseRadioForSpeech = () => { fixture.radioPauseCalls += 1; return () => {}; }`,
   "prism-media": `
     import { EventEmitter } from "node:events";

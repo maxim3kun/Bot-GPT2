@@ -39,12 +39,22 @@ export class PiperSynthesizer {
       try {
         const result = JSON.parse(line);
         if (result.id !== this.pending.id) return;
-        if (result.error || typeof result.audio !== "string" || result.audio.length > 12 * 1024 * 1024) throw new Error("Invalid Piper response");
+        if (result.error) {
+          const error = new Error("Local voice synthesis failed");
+          const type = typeof result.errorType === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(result.errorType)
+            ? result.errorType
+            : "WorkerError";
+          error.name = `Piper${type}`;
+          throw error;
+        }
+        if (typeof result.audio !== "string" || result.audio.length > 12 * 1024 * 1024) throw new Error("Invalid Piper response");
         const audio = Buffer.from(result.audio, "base64");
         if (audio.length < 44 || audio.toString("ascii", 0, 4) !== "RIFF" || audio.toString("ascii", 8, 12) !== "WAVE") throw new Error("Invalid Piper audio");
         this.pending.resolve(audio);
-      } catch {
-        this.pending.reject(new Error("Local voice synthesis failed"));
+      } catch (error) {
+        this.pending.reject(error instanceof Error && error.name.startsWith("Piper")
+          ? error
+          : new Error("Invalid Piper response"));
       }
     });
     const failed = () => {

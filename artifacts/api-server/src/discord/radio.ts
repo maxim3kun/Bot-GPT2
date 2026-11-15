@@ -410,11 +410,20 @@ interface RadioState {
   /** Current volume level (1.0 = 100%) */
   volume: number;
   speechOverlayActive: boolean;
+  speechInterrupt: (() => void) | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   activeResource: any | null;
 }
 
 export const radioStates = new Map<string, RadioState>();
+
+/** Interrupt the active radio/TTS mix while preserving the station for resume. */
+export function interruptRadioSpeech(guildId: string): boolean {
+  const state = radioStates.get(guildId);
+  if (!state?.speechOverlayActive || !state.speechInterrupt) return false;
+  state.speechInterrupt();
+  return true;
+}
 
 // ── Auto-disconnect helpers ────────────────────────────────────────────────────
 
@@ -937,6 +946,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       sbResume: null,
       volume: 1.0,
       speechOverlayActive: false,
+      speechInterrupt: null,
       activeResource: null,
     });
   } else {
@@ -1055,6 +1065,10 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
     state.player.stop();
     state.activeResource = resource;
     switchedToMixer = true;
+    state.speechInterrupt = () => {
+      if (child && child.exitCode === null) child.kill("SIGKILL");
+      state.player.stop(true);
+    };
     void fetchStream(station.url).then((stream) => {
       if (keepPrefetchedStream) prefetchedStream = stream;
       else stream.destroy();
@@ -1101,6 +1115,7 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
       prefetchedStream?.destroy();
     }
     state.speechOverlayActive = false;
+    state.speechInterrupt = null;
   }
   // If the mixer took over and then failed, do not pause a second time: the
   // radio has already been restored. A failure before handoff can safely use

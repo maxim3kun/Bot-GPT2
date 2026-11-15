@@ -13,6 +13,7 @@ export const fixture = {
   destroyedStreams: 0,
   radioMixResult: null as boolean | null,
   radioPauseCalls: 0,
+  speechPlaybackMs: 2,
   reset() {
     this.consent = "accepted";
     this.requireConsentResult = true;
@@ -28,5 +29,6 @@ export const fixture = {
     this.destroyedStreams = 0;
     this.radioMixResult = null;
     this.radioPauseCalls = 0;
+    this.speechPlaybackMs = 2;
   },
 };
