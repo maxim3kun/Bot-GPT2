@@ -57,8 +57,8 @@ const stubs = {
     export const setVoiceCleanupHook = fn => { fixture.voiceCleanupHook = fn; };
     export const stopForGuild = () => {};
     export const radioStates = new Map();
-    export const speakOverRadio = async () => null;
-    export const pauseRadioForSpeech = () => null;`,
+    export const speakOverRadio = async () => fixture.radioMixResult;
+    export const pauseRadioForSpeech = () => { fixture.radioPauseCalls += 1; return () => {}; }`,
   "prism-media": `
     import { EventEmitter } from "node:events";
     class Decoder extends EventEmitter {

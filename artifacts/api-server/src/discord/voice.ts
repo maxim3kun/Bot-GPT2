@@ -241,7 +241,8 @@ async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<b
   const mixedWithRadio = await speakOverRadio(guildId, audio);
   if (mixedWithRadio === true) return true;
   if (mixedWithRadio === false) {
-    logger.warn({ guildId }, "Using pause-and-resume fallback after radio mix failed");
+    logger.warn({ guildId }, "Skipping voice reply because radio mixing failed before handoff; leaving music uninterrupted");
+    return false;
   }
   const resumeRadio = pauseRadioForSpeech(guildId);
   try {

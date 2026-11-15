@@ -61,22 +61,27 @@ export async function createReliableCompletion(openai: OpenAI, params: Params): 
     });
     incrementGroqCalls();
     const choice = completion.choices[0];
-    if (!choice?.message.tool_calls?.length) {
+    const assistantMessage = choice?.message;
+    if (!assistantMessage) {
+      recordDiagnosticMetadata("ai", { name: "EmptyAiResponse" }, "groq");
+      return { ...completion, verifiedCalculations };
+    }
+    if (!assistantMessage.tool_calls?.length) {
       if (choice?.finish_reason === "length") recordDiagnosticMetadata("ai", { name: "GenerationLimit" }, "groq");
-      else if (!choice?.message.content?.trim() && choice?.finish_reason !== "content_filter") {
+      else if (!assistantMessage.content?.trim() && choice?.finish_reason !== "content_filter") {
         recordDiagnosticMetadata("ai", { name: "EmptyAiResponse" }, "groq");
       }
-      if (choice?.message.content?.trim() && evidence?.length && choice.finish_reason !== "content_filter") {
+      if (assistantMessage.content?.trim() && evidence?.length && choice.finish_reason !== "content_filter") {
         const reviewed = await reviewResearchedAnswer(openai, params.model, correction?.question ?? currentUserText ?? "",
-          choice.message.content, evidence, responseLanguage ?? "en", correction, verifiedCalculations);
+          assistantMessage.content, evidence, responseLanguage ?? "en", correction, verifiedCalculations);
         return { ...completion, reviewedSources: reviewed.sources, verifiedCalculations,
-          choices: completion.choices.map((item) => ({ ...item, message: { ...item.message, content: reviewed.text } })) };
+          choices: completion.choices.map((item) => ({ ...item, message: item.message ? { ...item.message, content: reviewed.text } : item.message })) };
       }
       return { ...completion, verifiedCalculations };
     }
-    if (round === 2 || choice.message.tool_calls.length > 4) throw new Error("Calculation tool budget exceeded");
-    messages.push({ role: "assistant", content: choice.message.content, tool_calls: choice.message.tool_calls });
-    for (const call of choice.message.tool_calls) {
+    if (round === 2 || assistantMessage.tool_calls.length > 4) throw new Error("Calculation tool budget exceeded");
+    messages.push({ role: "assistant", content: assistantMessage.content ?? null, tool_calls: assistantMessage.tool_calls });
+    for (const call of assistantMessage.tool_calls) {
       let result: unknown;
       try {
         if (call.type === "function" && call.function.name === "choose_silence") {

@@ -57,6 +57,12 @@ The bot's default French voice should be masculine Gilles; personas may keep the
 
 **How to apply:** Use Gilles when no server voice is saved; preserve explicit server selections and persona overrides. Keep voice-model files on the Railway runtime, not in MongoDB.
 
+When voice chat runs over radio, lower music only when a real spoken reply is ready; never duck or interrupt music for an AI failure notice. Restore radio immediately after speech.
+
+**Why:** The user reported needless volume changes and silence after speech on Railway.
+
+**How to apply:** Keep radio playing during AI/TTS preparation, hand over only after the mixer has audio ready, and warm the replacement stream while speech plays.
+
 Do not add a Persona reaction beneath every bot response. Show the available Personas and creation option only when someone explicitly asks to choose or speak with one.
 
 **Why:** The user finds the per-message reaction visually cluttered and prefers an on-demand selector.

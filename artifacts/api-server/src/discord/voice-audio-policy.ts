@@ -1,5 +1,10 @@
 export const RADIO_DUCK_VOLUME = 0.22;
 
+export function isVoiceOperationalError(text: string): boolean {
+  return /^\s*(?:⚠️|❌|⛔)/u.test(text)
+    || /\b(?:n['’]a pas pu terminer la demande|n['’]a pas pu être terminée|une erreur m['’]empêche de répondre|je n['’]ai pas réussi à formuler une réponse|could not complete the request|something went wrong|couldn['’]t come up with a response)\b/iu.test(text);
+}
+
 export function sanitizeSpeechText(text: string): string {
   return text
     .replace(/(?:\*{1,2}|\[|\()\s*(?:sourit|sourire|rit|rire|rires|laughs?|smiles?|laughing)\s*(?:\*{1,2}|\]|\))/gi, " ")

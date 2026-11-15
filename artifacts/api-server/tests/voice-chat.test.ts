@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler, voiceSubtitlesEnabled } from "../src/discord/voice.js";
-import { buildRadioSpeechMixArgs, createVoiceActivationChime, RADIO_DUCK_VOLUME, sanitizeSpeechText } from "../src/discord/voice-audio-policy.js";
+import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler, speakText, voiceSubtitlesEnabled } from "../src/discord/voice.js";
+import { buildRadioSpeechMixArgs, createVoiceActivationChime, isVoiceOperationalError, RADIO_DUCK_VOLUME, sanitizeSpeechText } from "../src/discord/voice-audio-policy.js";
 import { fixture } from "./fixtures/voice-chat.js";
 
 function makeMessage(guildId = "guild") {
@@ -65,6 +65,21 @@ test("Starting radio preserves each member's explicit voice-chat opt-in", async 
 test("Speech playback strips emoji and stage directions without changing the written answer", () => {
   assert.equal(sanitizeSpeechText("Je vais bien, merci 😊 ! *sourit*"), "Je vais bien, merci !");
   assert.equal(sanitizeSpeechText("Bonjour 👋 — voici la réponse."), "Bonjour — voici la réponse.");
+});
+
+test("Voice chat does not speak warning or AI failure notices over the radio", () => {
+  assert.equal(isVoiceOperationalError("⚠️ **IA** n’a pas pu terminer la demande. Réessaie plus tard."), true);
+  assert.equal(isVoiceOperationalError("Désolé, une erreur m’empêche de répondre."), true);
+  assert.equal(isVoiceOperationalError("Sorry, something went wrong. Try again in a moment."), true);
+  assert.equal(isVoiceOperationalError("Je vais très bien, merci !"), false);
+});
+
+test("A failed radio mix skips TTS instead of pausing the music", async () => {
+  const x = makeMessage("radio-mix-failure");
+  await joinVoice(x.message);
+  fixture.radioMixResult = false;
+  assert.equal(await speakText(x.message.guildId, "Une réponse vocale."), false);
+  assert.equal(fixture.radioPauseCalls, 0);
 });
 
 test("Activation sound is a short valid WAV and live-radio mixing keeps music under speech", () => {

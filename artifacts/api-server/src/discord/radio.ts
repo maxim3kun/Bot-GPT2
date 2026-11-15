@@ -14,6 +14,7 @@ import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpStreamWithFx, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 import { customStationsCol } from "../lib/db.js";
@@ -946,7 +947,12 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
 }
 
 // ── Resume radio station directly (no Message needed) ─────────────────────────
-async function resumeRadioStation(guildId: string, stationKey: string, notify = true): Promise<void> {
+async function resumeRadioStation(
+  guildId: string,
+  stationKey: string,
+  notify = true,
+  prefetchedStream?: IncomingMessage,
+): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state) return;
   const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
@@ -962,7 +968,7 @@ async function resumeRadioStation(guildId: string, stationKey: string, notify = 
   state.paused = false;
 
   try {
-    const stream = await fetchStream(station.url);
+    const stream = prefetchedStream ?? await fetchStream(station.url);
     const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
     resource.volume?.setVolume(state.volume ?? 1.0);
     state.activeResource = resource;
@@ -975,10 +981,39 @@ async function resumeRadioStation(guildId: string, stationKey: string, notify = 
   }
 }
 
+function waitForFirstAudioChunk(stream: Readable, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      stream.off("readable", onReadable);
+      stream.off("end", onEnd);
+      stream.off("error", onEnd);
+      stream.off("close", onEnd);
+    };
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(ready);
+    };
+    const onReadable = () => {
+      if (stream.readableLength > 0) finish(true);
+    };
+    const onEnd = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    stream.on("readable", onReadable);
+    stream.once("end", onEnd);
+    stream.once("error", onEnd);
+    stream.once("close", onEnd);
+    onReadable();
+  });
+}
+
 /**
  * Mix a live station under a short TTS reply. Returns null when there is no
- * active station; false means mixing failed and the caller may use its
- * pause-and-speak fallback.
+ * active station; false means the mix failed before handoff, so callers must
+ * leave the current music untouched rather than interrupt it as a fallback.
  */
 export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promise<boolean | null> {
   const state = radioStates.get(guildId);
@@ -987,7 +1022,6 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
   const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
   if (!station) return null;
 
-  state.speechOverlayActive = true;
   if (state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
@@ -995,6 +1029,9 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
   let timer: ReturnType<typeof setTimeout> | undefined;
   let child: ReturnType<typeof spawn> | undefined;
   let succeeded = false;
+  let switchedToMixer = false;
+  let prefetchedStream: IncomingMessage | undefined;
+  let keepPrefetchedStream = true;
   try {
     const args = buildRadioSpeechMixArgs(station.url, state.volume);
     child = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "ignore"] });
@@ -1003,8 +1040,25 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
     if (!stdout || !stdin) throw new Error("Radio speech mixer pipes are unavailable");
 
     const resource = createAudioResource(stdout, { inputType: StreamType.Raw });
+
+    stdin.end(voiceAudio);
+    if (!await waitForFirstAudioChunk(stdout, 5_000)) {
+      throw new Error("Radio speech mixer produced no audio before handoff");
+    }
+    if (radioStates.get(guildId) !== state || state.paused || state.stationKey !== stationKey) {
+      throw new Error("Radio playback changed before speech handoff");
+    }
+
+    // Keep the original stream untouched until the replacement has actual PCM
+    // ready. This prevents failed/slow FFmpeg starts from ducking or cutting it.
+    state.speechOverlayActive = true;
     state.player.stop();
     state.activeResource = resource;
+    switchedToMixer = true;
+    void fetchStream(station.url).then((stream) => {
+      if (keepPrefetchedStream) prefetchedStream = stream;
+      else stream.destroy();
+    }).catch(() => null);
 
     succeeded = await new Promise<boolean>((resolveMix) => {
       let settled = false;
@@ -1019,7 +1073,9 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
         cleanup();
         resolveMix(result);
       };
-      const onIdle = () => finish(true);
+      const onIdle = () => {
+        if (state.activeResource === resource && state.player.state.status === AudioPlayerStatus.Idle) finish(true);
+      };
       const onPlayerError = () => finish(false);
       const onChildError = () => finish(false);
       const onChildClose = (code: number | null) => {
@@ -1033,18 +1089,23 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
       stdin.once("error", onChildError);
       timer = setTimeout(() => finish(false), 120_000);
       state.player.play(resource);
-      stdin.end(voiceAudio);
     });
   } catch (error) {
     logger.warn({ guildId, errorName: error instanceof Error ? error.name : "Error" }, "Live radio speech mix failed");
   } finally {
     if (child && child.exitCode === null) child.kill("SIGKILL");
-    state.speechOverlayActive = false;
-    if (radioStates.get(guildId) === state && state.stationKey === stationKey && !state.paused) {
-      await resumeRadioStation(guildId, stationKey, false);
+    keepPrefetchedStream = false;
+    if (switchedToMixer && radioStates.get(guildId) === state && state.stationKey === stationKey && !state.paused) {
+      await resumeRadioStation(guildId, stationKey, false, prefetchedStream);
+    } else {
+      prefetchedStream?.destroy();
     }
+    state.speechOverlayActive = false;
   }
-  return succeeded;
+  // If the mixer took over and then failed, do not pause a second time: the
+  // radio has already been restored. A failure before handoff can safely use
+  // the existing pause-and-speak fallback.
+  return succeeded || switchedToMixer;
 }
 
 /** Pause a non-station music source while TTS speaks, then resume it. */

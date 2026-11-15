@@ -66,6 +66,19 @@ test("The real completion adapter returns explicit silence, not an empty-respons
   assert.equal(Object.hasOwn(requests[0]!, "currentUserText"), false);
 });
 
+test("A provider response with a null assistant message is treated as an empty answer, not a crash", async () => {
+  const empty = {
+    id: "test", object: "chat.completion", created: 0, model: "test",
+    choices: [{ index: 0, finish_reason: "stop", logprobs: null, message: null }],
+  } as unknown as ReturnType<typeof completion>;
+  const { client } = provider([empty]);
+  const response = await createReliableCompletion(client, {
+    model: "test", max_completion_tokens: 100, currentUserText: "Bonjour",
+    messages: [{ role: "user", content: "Bonjour" }],
+  });
+  assert.equal(response.choices[0]?.message, null);
+});
+
 test("An invalid model silence choice cannot swallow a genuine question or criticism", async () => {
   const { client, requests } = provider([completion(null, true), completion("Quel résultat dois-je corriger ?")]);
   const response = await createReliableCompletion(client, {
