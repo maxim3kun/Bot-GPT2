@@ -12,6 +12,7 @@ import {
   buildPublicAiPersonaDetails,
   canManageAiPersonaPublicProfile,
   isAiPersonaVisibleToViewer,
+  updateAiPersonaGuildAccess,
 } from "../src/lib/ai-persona-public-view.js";
 import { selectPersonaSession, stopPersonaSession } from "../src/discord/ai-persona-session-policy.js";
 import { applyPersonaEdit, parsePersonaEditInput } from "../src/discord/persona-input-policy.js";
@@ -268,7 +269,7 @@ test("The Bully immediately deactivates when its user asks it to stop roasting",
   assert.equal(isBullyToneStopRequest("Can you help fix this code?"), false);
 });
 
-test("Public personas are server-scoped and reveal only creator-selected profile text", () => {
+test("Public personas stay within explicitly authorized servers and reveal only selected profile text", () => {
   const publicPersona = { ownerId: "creator", guildId: "guild-a", visibility: "public" as const };
   const privatePersona = { ownerId: "creator", guildId: null, visibility: "private" as const };
   assert.equal(isAiPersonaVisibleToViewer(publicPersona, "guild-a", "member"), true);
@@ -280,6 +281,18 @@ test("Public personas are server-scoped and reveal only creator-selected profile
   assert.equal(canManageAiPersonaPublicProfile([publicPersona], "member", "guild-a"), false);
   assert.equal(canManageAiPersonaPublicProfile([publicPersona], "creator", "guild-b"), false);
   assert.equal(canManageAiPersonaPublicProfile([privatePersona], "creator", "guild-a"), false);
+
+  const shared = updateAiPersonaGuildAccess(publicPersona, "guild-b", true);
+  assert.equal(isAiPersonaVisibleToViewer(shared, "guild-a", "member"), true);
+  assert.equal(isAiPersonaVisibleToViewer(shared, "guild-b", "member"), true);
+  assert.equal(isAiPersonaVisibleToViewer(shared, "guild-c", "member"), false);
+  assert.equal(canManageAiPersonaPublicProfile([shared], "creator", "guild-b"), true);
+  const removed = updateAiPersonaGuildAccess(shared, "guild-b", false);
+  assert.equal(isAiPersonaVisibleToViewer(removed, "guild-a", "member"), true);
+  assert.equal(isAiPersonaVisibleToViewer(removed, "guild-b", "member"), false);
+  const disabled = updateAiPersonaGuildAccess(removed, "guild-a", false);
+  assert.equal(disabled.visibility, "private");
+  assert.equal(isAiPersonaVisibleToViewer(disabled, "guild-a", "member"), false);
 
   const details = buildPublicAiPersonaDetails(
     "Public character",

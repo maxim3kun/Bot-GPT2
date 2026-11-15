@@ -3,6 +3,7 @@ import { EmbedBuilder } from "discord.js";
 export interface PublicAiPersonaView {
   ownerId: string;
   guildId: string | null;
+  authorizedGuildIds?: string[];
   visibility: "public" | "private";
 }
 
@@ -12,7 +13,27 @@ export function isAiPersonaVisibleToViewer(
   userId: string,
 ): boolean {
   if (persona.visibility === "private") return persona.ownerId === userId;
-  return Boolean(guildId) && persona.guildId === guildId;
+  if (!guildId) return false;
+  return persona.authorizedGuildIds === undefined
+    ? persona.guildId === guildId
+    : persona.authorizedGuildIds.includes(guildId);
+}
+
+export function updateAiPersonaGuildAccess<T extends PublicAiPersonaView>(
+  persona: T,
+  guildId: string,
+  enabled: boolean,
+): T {
+  const current = persona.authorizedGuildIds ?? (persona.guildId ? [persona.guildId] : []);
+  const authorizedGuildIds = enabled
+    ? [...new Set([...current, guildId])]
+    : current.filter((id) => id !== guildId);
+  return {
+    ...persona,
+    guildId: persona.guildId ?? guildId,
+    authorizedGuildIds,
+    visibility: authorizedGuildIds.length > 0 ? "public" : "private",
+  };
 }
 
 export function canManageAiPersonaPublicProfile(
@@ -23,7 +44,7 @@ export function canManageAiPersonaPublicProfile(
   return personas.some((persona) =>
     persona.ownerId === ownerId
     && persona.visibility === "public"
-    && persona.guildId === guildId,
+    && isAiPersonaVisibleToViewer(persona, guildId, ownerId),
   );
 }
 
@@ -45,6 +66,6 @@ export function buildPublicAiPersonaDetails(
     });
   }
   return embed.setFooter({
-    text: french ? "Persona public · visible dans ce serveur uniquement" : "Public persona · visible in this server only",
+    text: french ? "Persona public · accès défini par son créateur" : "Public persona · access set by its creator",
   });
 }

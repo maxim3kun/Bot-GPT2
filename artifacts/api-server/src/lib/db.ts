@@ -148,6 +148,7 @@ export interface AiPersonaRecord {
   ttsVoiceId?: string;
   ownerId: string;
   guildId: string | null;
+  authorizedGuildIds?: string[];
   name: string;
   description: string;
   profile: string;
@@ -201,6 +202,7 @@ interface AiPersonaDoc {
   _id: string;
   ownerKey: string;
   guildKey: string | null;
+  guildKeys?: string[];
   visibility: AiPersonaVisibility;
   encryptedData: string;
   updatedAt: Date;
@@ -470,6 +472,7 @@ export async function connectDb(): Promise<void> {
     await aiMemoryCol.createIndex({ updatedAt: -1 });
     await aiPersonasCol.createIndex({ ownerKey: 1, updatedAt: -1 });
     await aiPersonasCol.createIndex({ guildKey: 1, visibility: 1, updatedAt: -1 });
+    await aiPersonasCol.createIndex({ guildKeys: 1, visibility: 1, updatedAt: -1 });
     await aiPersonaSessionsCol.createIndex({ ownerKey: 1, scopeKey: 1 }, { unique: true });
     await aiPersonaPublicProfilesCol.createIndex({ ownerKey: 1, guildKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
@@ -663,7 +666,11 @@ export async function listVisibleAiPersonas(
   const collection = requireAiPersonaStorage();
   const filters: Filter<AiPersonaDoc>[] = [{ ownerKey: hashUserId(userId) }];
   if (guildId) {
-    filters.push({ guildKey: hashUserId(guildId), visibility: "public" });
+    const guildKey = hashUserId(guildId);
+    filters.push({
+      visibility: "public",
+      $or: [{ guildKey }, { guildKeys: guildKey }],
+    });
   }
   const docs = await collection.find({ $or: filters })
     .sort({ updatedAt: -1 })
@@ -738,12 +745,15 @@ function sanitizePersonaStylePreferences(
 
 export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
   const collection = requireAiPersonaStorage();
-  if (persona.visibility === "public" && !persona.guildId) {
+  if (persona.visibility === "public" && !persona.guildId && !persona.authorizedGuildIds?.length) {
     throw new Error("A public persona must belong to a Discord server");
   }
   const bounded: AiPersonaRecord = {
     ...persona,
     name: persona.name.trim().slice(0, 50),
+    authorizedGuildIds: persona.authorizedGuildIds === undefined
+      ? undefined
+      : [...new Set(persona.authorizedGuildIds.map((id) => id.trim()).filter(Boolean))].slice(0, 500),
     description: persona.description.trim().slice(0, 2_000),
     profile: persona.profile.trim().slice(0, 2_000),
     visualDescription: persona.visualDescription?.trim().slice(0, 2_000),
@@ -808,7 +818,12 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
     {
       $set: {
         ownerKey: hashUserId(bounded.ownerId),
-        guildKey: bounded.guildId ? hashUserId(bounded.guildId) : null,
+        guildKey: bounded.authorizedGuildIds === undefined && bounded.guildId
+          ? hashUserId(bounded.guildId)
+          : null,
+        guildKeys: bounded.authorizedGuildIds === undefined
+          ? (bounded.guildId ? [hashUserId(bounded.guildId)] : [])
+          : bounded.authorizedGuildIds.map(hashUserId),
         visibility: bounded.visibility,
         encryptedData: encrypt(JSON.stringify(bounded)),
         updatedAt,

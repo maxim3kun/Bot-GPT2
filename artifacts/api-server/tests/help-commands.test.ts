@@ -538,6 +538,8 @@ test("Persona help has short themed pages, real examples and the current command
     for (const action of ["create", "edit", "start", "stop", "list", "show", "avatar", "learn", "recall", "privacy", "profile", "delete"]) {
       assert.ok(all.join("\n").includes(`??persona ${action}`), `${language}/${action}`);
     }
+    assert.ok(all.join("\n").includes("??persona Maxime"), `${language}/Maxime server access`);
+    assert.ok(all.join("\n").includes("??persona Maxime off"), `${language}/Maxime server revocation`);
     assert.ok(all.join("\n").includes("??persona bully"), `${language}/bully`);
     assert.match(all.join("\n"), /quest reminders|rappels de quêtes/);
     assert.doesNotMatch(all.join("\n"), /retire la réaction|remove your reaction/i);
