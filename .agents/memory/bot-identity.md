@@ -21,10 +21,10 @@ The optional Maxime persona should be funny and natural, with light humor and po
 
 **How to apply:** Use only the creator-approved profile and never attach private conversation memories automatically.
 
-The bot owner can authorize the Maxime persona server by server; everyone in an authorized server may activate it. Personal learning stays opt-in, encrypted, private to each speaker, and follows the same persona across authorized servers. Only the creator may authorize servers. For the creator's memory, retain only non-sensitive facts about friends that the creator shares; never expose those notes to other users.
+The bot owner can authorize the Maxime persona server by server; everyone in an authorized server may activate it. Personal learning stays opt-in, encrypted, private to each speaker, and follows the same persona across authorized servers. Members need separate consent before their future messages can contribute non-sensitive, explicit observations about the creator; those observations are creator-only, unverified, never attributed, and secondary to the creator's own statements. The creator can enable occasional private clarification DMs separately. Only the creator may authorize servers.
 
 Do not pool other members' style preferences into Maxime's shared voice; each member's private preferences may shape only that member's own replies.
 
-**Why:** The user wants a server-authorized creator persona that learns from their conversations and remembers useful, non-sensitive context across servers.
+**Why:** The user wants a server-authorized creator persona that learns from their conversations and remembers useful, non-sensitive context across servers, while other members retain control over contributions to the creator's profile.
 
-**How to apply:** Preserve per-user consent, provide a way to withdraw and delete memory, and do not turn memory into model training or public server data.
+**How to apply:** Keep the creator's memory and each speaker's memory separate. Let members stop only their profile contribution or erase both their own memory and contributions. When the creator erases their profile, clear observations and require members to opt in again; do not turn memory into model training or public server data. Keep creator-initiated DM questions off until explicitly enabled, then limit them to occasional, non-sensitive questions.

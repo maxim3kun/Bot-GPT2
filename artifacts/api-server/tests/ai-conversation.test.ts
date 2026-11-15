@@ -9,6 +9,12 @@ import { DISCORD_IDENTITY_GUIDANCE, removeUnrequestedDiscordIds } from "../src/d
 import { createFeedbackTracker } from "../src/discord/ai-feedback.js";
 import { isPersonaCreationRequest, isPersonaPickerRequest } from "../src/discord/ai-persona-intent-policy.js";
 import {
+  getMaximeCreatorObservationsForViewer,
+  hasMaximeCreatorContributionConsent,
+  parsePersonaLearnArguments,
+  parseScoredMemories,
+} from "../src/discord/ai-persona-memory-policy.js";
+import {
   buildPublicAiPersonaDetails,
   canManageAiPersonaPublicProfile,
   isAiPersonaVisibleToViewer,
@@ -304,6 +310,81 @@ test("Public personas stay within explicitly authorized servers and reveal only 
   assert.equal(details.fields?.[0]?.value, "Creator-selected introduction");
   assert.match(details.fields?.[0]?.name ?? "", /Creator profile/);
   assert.doesNotMatch(JSON.stringify(details), /generated internal profile|private memory|messages analyzed/i);
+});
+
+test("Maxime memory needs the member's separate contribution consent and keeps creator claims private", () => {
+  assert.deepEqual(parsePersonaLearnArguments(["Maxime", "dm", "on"]), {
+    selector: "Maxime",
+    mode: "dm_on",
+  });
+  assert.deepEqual(parsePersonaLearnArguments(["Maxime", "contribute", "off"]), {
+    selector: "Maxime",
+    mode: "contribute_off",
+  });
+  assert.deepEqual(parsePersonaLearnArguments(["Maxime", "confirm"]), {
+    selector: "Maxime",
+    mode: "confirm",
+  });
+  assert.deepEqual(parsePersonaLearnArguments(["Maxime"]), { selector: "Maxime" });
+
+  const learning = {
+    userId: "member",
+    learningConsent: true,
+    creatorContributionConsentVersion: 1,
+    knowledgeMemories: [],
+    creatorObservations: [{
+      messageId: "message-1",
+      summary: "Maxime likes trains.",
+      interestScore: 8,
+      createdAt: new Date(0).toISOString(),
+    }],
+    processedMessageIds: [],
+    messagesAnalyzedTotal: 0,
+    stylePreferences: {},
+    updatedAt: new Date(0).toISOString(),
+  };
+  const persona = {
+    id: "maxime-persona",
+    ownerId: "creator",
+    guildId: "guild-a",
+    name: "Maxime",
+    description: "",
+    profile: "",
+    visibility: "public",
+    avatarConsent: false,
+    knowledgeSummaries: [],
+    learnedMessageIds: [],
+    messagesAnalyzedTotal: 0,
+    learningConsent: false,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+    userLearning: [learning],
+  } as AiPersonaRecord;
+  assert.equal(hasMaximeCreatorContributionConsent(persona, "member"), true);
+  assert.equal(hasMaximeCreatorContributionConsent(persona, "creator"), false);
+  assert.equal(hasMaximeCreatorContributionConsent({ ...persona, userLearning: [{ ...learning, creatorContributionConsentVersion: undefined }] }, "member"), false);
+  assert.equal(hasMaximeCreatorContributionConsent({ ...persona, name: "Other" }, "member"), false);
+  assert.deepEqual(getMaximeCreatorObservationsForViewer(persona, "creator").map((item) => item.summary), ["Maxime likes trains."]);
+  assert.deepEqual(getMaximeCreatorObservationsForViewer(persona, "member"), []);
+
+  const parsed = parseScoredMemories(JSON.stringify({
+    items: [{
+      index: 0,
+      score: 8,
+      summary: "The speaker enjoys trains.",
+      creatorObservation: "The speaker explicitly says Maxime enjoys trains.",
+      style: {},
+    }],
+    privateQuestion: "Quel loisir aimerais-tu partager ?",
+  }), [{ messageId: "message-1", text: "Maxime aime les trains." }]);
+  assert.equal(parsed?.memories[0]?.summary, "The speaker enjoys trains.");
+  assert.equal(parsed?.creatorObservations[0]?.summary, "The speaker explicitly says Maxime enjoys trains.");
+  assert.equal(parsed?.privateQuestion, "Quel loisir aimerais-tu partager ?");
+  const unsafeQuestion = parseScoredMemories(JSON.stringify({
+    items: [],
+    privateQuestion: "Quel âge as-tu ?",
+  }), []);
+  assert.equal(unsafeQuestion?.privateQuestion, undefined);
 });
 
 test("The completion adapter includes detailed ecology instructions only on request", async () => {

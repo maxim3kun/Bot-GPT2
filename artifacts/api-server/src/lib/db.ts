@@ -137,9 +137,16 @@ export interface AiPersonaUserLearning {
   userId: string;
   learningConsent: boolean;
   knowledgeMemories: AiPersonaMemory[];
+  creatorObservations?: AiPersonaMemory[];
+  creatorContributionConsentVersion?: number;
   processedMessageIds: string[];
   messagesAnalyzedTotal: number;
   stylePreferences: AiPersonaStylePreferences;
+  privateQuestionsEnabled?: boolean;
+  lastPrivateQuestionAt?: string;
+  pendingPrivateQuestion?: string;
+  pendingPrivateQuestionMessageId?: string;
+  pendingPrivateQuestionAt?: string;
   updatedAt: string;
 }
 
@@ -786,7 +793,20 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
       .map((learning) => ({
         userId: learning.userId.slice(0, 64),
         learningConsent: true,
+        creatorContributionConsentVersion: Number.isInteger(learning.creatorContributionConsentVersion)
+          ? Math.max(0, Math.min(100, Math.floor(learning.creatorContributionConsentVersion!)))
+          : undefined,
         knowledgeMemories: (learning.knowledgeMemories ?? [])
+          .map((memory) => ({
+            messageId: memory.messageId.trim().slice(0, 64),
+            summary: memory.summary.trim().slice(0, 300),
+            interestScore: Math.max(0, Math.min(10, Math.floor(memory.interestScore))),
+            createdAt: memory.createdAt,
+          }))
+          .filter((memory) => memory.messageId && memory.summary)
+          .sort((a, b) => b.interestScore - a.interestScore || a.createdAt.localeCompare(b.createdAt))
+          .slice(0, 40),
+        creatorObservations: (learning.creatorObservations ?? [])
           .map((memory) => ({
             messageId: memory.messageId.trim().slice(0, 64),
             summary: memory.summary.trim().slice(0, 300),
@@ -799,6 +819,11 @@ export async function saveAiPersona(persona: AiPersonaRecord): Promise<void> {
         processedMessageIds: [...new Set(learning.processedMessageIds ?? [])].slice(-300),
         messagesAnalyzedTotal: Math.max(0, Math.min(1_000_000_000, Math.floor(learning.messagesAnalyzedTotal))),
         stylePreferences: sanitizePersonaStylePreferences(learning.stylePreferences),
+        privateQuestionsEnabled: learning.privateQuestionsEnabled === true,
+        lastPrivateQuestionAt: learning.lastPrivateQuestionAt?.slice(0, 40),
+        pendingPrivateQuestion: learning.pendingPrivateQuestion?.trim().slice(0, 300),
+        pendingPrivateQuestionMessageId: learning.pendingPrivateQuestionMessageId?.trim().slice(0, 64),
+        pendingPrivateQuestionAt: learning.pendingPrivateQuestionAt?.slice(0, 40),
         updatedAt: learning.updatedAt.slice(0, 40),
       }))
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))

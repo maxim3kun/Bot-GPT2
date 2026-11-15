@@ -52,7 +52,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       title: "Mémoire et réglages",
       description: "La mémoire est facultative et personnelle.",
       fields: [
-        { name: "Mémoire", value: `${cmd("learn Azumi confirm")} l’active.\n${cmd("learn Azumi revoke")} la retire et efface les souvenirs personnels.` },
+        { name: "Mémoire", value: `${cmd("learn Azumi confirm")} l’active.\nPour Maxime, l’accord séparé permet aussi aux membres d’ajouter des observations non sensibles à sa fiche privée; ${cmd("learn Maxime contribute off")} arrête seulement cette contribution. Le créateur peut autoriser les questions privées avec ${cmd("learn Maxime dm on")} ou les couper avec ${cmd("learn Maxime dm off")}. ${cmd("learn Maxime revoke")} efface sa mémoire personnelle et les observations.` },
         { name: "Retrouver un message", value: `${cmd("recall Azumi confirm")} lance une recherche ponctuelle; le résultat est privé et le texte n’est pas conservé.` },
         { name: "Voix", value: `${cmd("voice Azumi")} choisit une voix. ${cmd("voice Azumi default")} reprend la voix du bot; créateur seulement.` },
         { name: "Visibilité et profil", value: `${cmd("privacy <id> public|private")} règle la visibilité.\n${cmd("profile <texte>")}, ${cmd("profile show")} et ${cmd("profile clear")} gèrent ta fiche publique dans ce serveur.` },
@@ -96,7 +96,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       title: "Memory and settings",
       description: "Memory is optional and personal.",
       fields: [
-        { name: "Memory", value: `${cmd("learn Azumi confirm")} enables it.\n${cmd("learn Azumi revoke")} withdraws consent and deletes personal memories.` },
+        { name: "Memory", value: `${cmd("learn Azumi confirm")} enables it.\nFor Maxime, separate consent also lets members add non-sensitive observations to his private profile; ${cmd("learn Maxime contribute off")} stops only that contribution. The creator can allow private questions with ${cmd("learn Maxime dm on")} or disable them with ${cmd("learn Maxime dm off")}. ${cmd("learn Maxime revoke")} deletes personal memory and observations.` },
         { name: "Find an old message", value: `${cmd("recall Azumi confirm")} searches once; results stay private and the text is not stored.` },
         { name: "Voice", value: `${cmd("voice Azumi")} chooses a voice. ${cmd("voice Azumi default")} uses the bot voice; creator only.` },
         { name: "Visibility and profile", value: `${cmd("privacy <id> public|private")} changes visibility.\n${cmd("profile <text>")}, ${cmd("profile show")} and ${cmd("profile clear")} manage your server profile.` },
