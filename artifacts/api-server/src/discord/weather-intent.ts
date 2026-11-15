@@ -2,8 +2,13 @@ import type { WeatherPeriod, WeatherRequest } from "./weather-types.js";
 const normalized = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/[’']/g, " ").trim();
 export function weatherTurn(input: string): WeatherRequest | null {
   const raw = input.replace(/<@!?\d+>/g, "").trim(), n = normalized(raw);
-  const lead=n.replace(/^(?:(?:est[- ]ce que )?tu peux|peux[- ]tu|pourrais[- ]tu|can you|could you)\s+(?:me\s+)?/,"");
-  if (!/^(?:(?:quelle?|quels?|what(?: s| is)?|donne[r]?(?: moi)?|affiche|montre(?: moi)?|consulte|show|tell me)(?: sera| est)?(?: la| le| les| the)?\s+)?(?:meteo|weather|temperature|temps)\b|^va t il pleuvoir\b/.test(lead)) return null;
+  const lead=n.replace(/^(?:(?:bien )?et toi\s+)?(?:(?:est[- ]ce que )?tu peux|peux[- ]tu|pourrais[- ]tu|can you|could you)\s+(?:me\s+)?/,"")
+    .replace(/^(?:dis moi|indique moi|montre moi|donne moi|tell me)\s+(?:par exemple\s+)?/,"")
+    .replace(/^(?:la|le|les|the)\s+/,"");
+  const direct=/^(?:(?:quelle?|quels?|what(?: s| is)?|donne[r]?(?: moi)?|affiche|montre(?: moi)?|consulte|show|tell me)(?: sera| est)?(?: la| le| les| the)?\s+)?(?:meteo|weather|temperature|temps)\b|^va t il pleuvoir\b/.test(lead);
+  const conversational=/\b(?:dis moi|indique moi|tell me|can you|could you)\b/.test(lead) &&
+    /\b(?:meteo|weather|temperature|temps)\b/.test(lead);
+  if (!direct&&!conversational) return null;
   const atDestination = /\b(?:destination|a l arrivee|at arrival|when i arrive)\b/.test(n);
   const relative = raw.match(/\b(?:apr[eè]s[- ]demain|demain|aujourd['’]hui|today|tomorrow|maintenant|now)\b/i)?.[0];
   const dateMatch = raw.match(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}(?:\/\d{4})?)\b/);

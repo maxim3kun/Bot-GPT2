@@ -10,9 +10,11 @@ export const actionText = (text: string) => text.normalize("NFD").replace(/[\u03
 const starters = "(?:lance|demarre|joue|mets|cherche|recherche|ouvre|affiche|montre|arrete|stop|pause|reprends|reprend|passe|itineraire|trajet|play|start|show|search|resume|skip)";
 export function commandSafety(text: string): "quoted" | "multiple" | null {
   const n = actionText(text);
+  const explicitWeather = weatherTurn(text) !== null;
   if (/^[>"'«`]|```/.test(text.trim()) ||
     /^(?:explique|traduis|cite|repete|imagine|suppose|si |quand |il a dit|elle a dit|on m a dit|comment (?:faire|utiliser|lancer|jouer))/.test(n) ||
-    /\b(?:si tu|si je|si on|si nous|if you|if i|if we|quand tu|when you|par exemple|a titre d exemple)\b/.test(n) ||
+    /\b(?:si tu|si je|si on|si nous|if you|if i|if we|quand tu|when you|a titre d exemple)\b/.test(n) ||
+    /\bpar exemple\b/.test(n) && !explicitWeather ||
     /\b(?:ne pas|ne jamais|pas maintenant|not now)\b/.test(n) ||
     /^(?:ne |n )(?:lance|execute|ouvre|mets|joue|demarre|arrete|cherche).*\b(?:pas|jamais)\b/.test(n) ||
     /^(?:mets|joue|lance|demarre|arrete)\s+(?:pas|jamais)\b/.test(n)) return "quoted";

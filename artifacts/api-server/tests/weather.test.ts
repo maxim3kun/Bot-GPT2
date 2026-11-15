@@ -5,11 +5,11 @@ import { MemoryWeatherCache,weatherCachePurge } from "../src/discord/weather-cac
 import { WeatherConversation } from "../src/discord/weather-conversation.js";
 import { createWeatherDialogue,handleWeatherCommand } from "../src/discord/weather-dialogue.js";
 import { weatherTurn,weatherPeriod,weatherEpoch } from "../src/discord/weather-intent.js";
-import { weatherPlace,WeatherPlaces } from "../src/discord/weather-places.js";
+import { weatherPlace,WeatherPlaces,NominatimWeatherGeocoder } from "../src/discord/weather-places.js";
 import { formatWeather } from "../src/discord/weather-presentation.js";
 import { WeatherError,type WeatherProvider,type WeatherPlace } from "../src/discord/weather-types.js";
 import { parseAiCommandTool } from "../src/discord/ai-command-tools.js";
-import { selectAiCommand } from "../src/discord/ai-command-intent.js";
+import { commandSafety,selectAiCommand } from "../src/discord/ai-command-intent.js";
 import { TransportConversation } from "../src/discord/transport-conversation.js";
 import { travelScope } from "../src/discord/transport-dialogue.js";
 import { fakeDiscord } from "./fixtures/transport-discord.js";
@@ -32,12 +32,17 @@ function setup(){
 test("natural and explicit weather grammar preserve the town and date without intercepting music",()=>{
   assert.deepEqual(weatherTurn("Quelle météo à Beauvais demain ?"),{place:"Beauvais",when:"demain"});
   assert.deepEqual(weatherTurn("Météo Beauvais demain"),{place:"Beauvais",when:"demain"});
+  assert.deepEqual(weatherTurn("Bien et toi dis moi par exemple la météo à Bogota"),{place:"Bogota"});
   assert.deepEqual(weatherTurn("Météo Laval Québec demain"),{place:"Laval",territory:"qc",when:"demain"});
   assert.deepEqual(weatherTurn("Weather in Beauvais tomorrow at 14:00"),{place:"Beauvais",when:"tomorrow à 14:00"});
   assert.equal(weatherTurn("Joue Weather Report sur YouTube"),null);
   assert.equal(weatherTurn("Explique la météo"),null);
   const selected=selectAiCommand("Quelle météo à Beauvais demain ?",{});assert.equal(selected.kind,"action");
   if(selected.kind==="action")assert.equal(selected.action.name,"get_weather");
+  const conversational=selectAiCommand("Bien et toi dis moi par exemple la météo à Bogota",{});
+  assert.equal(commandSafety("Bien et toi dis moi par exemple la météo à Bogota"),null);
+  assert.equal(conversational.kind,"action");
+  if(conversational.kind==="action")assert.equal(conversational.action.name,"get_weather");
 });
 test("weather tools reject coordinates, URLs, identities, conflicting places and arbitrary fields",()=>{
   const parse=(args:object)=>parseAiCommandTool([{type:"function",function:{name:"get_weather",arguments:JSON.stringify(args)}}],[]);
@@ -176,6 +181,30 @@ test("homonymous towns require an explicit choice; nobody else's reply consumes 
 test("failed territory lookup is not hidden behind a similarly named town in the other territory",async()=>{
   const places=new WeatherPlaces({municipalities:async()=>[place]}as never,{municipalities:async()=>{throw Error("QC down");}}as never);
   await assert.rejects(places.places("Beauvais"));assert.equal((await places.places("Beauvais","fr")).length,1);
+});
+test("weather resolves cities worldwide and caches validated Nominatim settlement results",async()=>{
+  const row={place_id:123,lat:"4.6533817",lon:"-74.0836331",name:"Bogotá ciudad",category:"boundary",type:"administrative",addresstype:"city",
+    address:{city:"Bogotá ciudad",state:"Bogotá, Distrito Capital",country:"Colombia",country_code:"co"}};
+  let cacheCalls=0,requested:URL|undefined;
+  const cache={get:async(_key:unknown,_ttl:number,load:()=>Promise<unknown>)=>{cacheCalls++;return load();}};
+  const geocoder=new NominatimWeatherGeocoder(cache as never,async(input,init)=>{
+    requested=new URL(String(input));
+    assert.equal((init?.headers as Record<string,string>)["user-agent"],"MaximeGPT weather test");
+    return Response.json([row]);
+  },()=>"MaximeGPT weather test");
+  const global=await geocoder.places("Bogota");
+  assert.equal(cacheCalls,1);assert.equal(requested?.searchParams.get("q"),"Bogota");
+  assert.equal(global[0]?.label,"Bogotá ciudad · Bogotá, Distrito Capital · Colombia");
+  assert.equal(weatherPlace(global[0]!).timezone,"America/Bogota");
+  const places=new WeatherPlaces({municipalities:async()=>[]}as never,{municipalities:async()=>[]}as never,
+    {places:async()=>global});
+  assert.equal((await places.places("Bogota"))[0]?.id,"osm:123");
+  assert.deepEqual(await places.places("Bogota","fr"),[]);
+  const provider:WeatherProvider={forecast:async()=>parseForecast(body(),NOW/1000)};
+  const service=new WeatherConversation(provider,places,()=>NOW),discord=fakeDiscord();
+  await handleWeatherCommand(discord.message,["Bogota"],"fr",createWeatherDialogue(service,async()=>true,()=>null));
+  assert.match(discord.replies[0]!.content!,/Bogotá ciudad/);
+  assert.match(discord.replies[0]!.content!,/Température/);
 });
 test("native and natural requests have the same short response and honour all six display languages",async()=>{
   const a=setup(),b=setup(),da=fakeDiscord(),db=fakeDiscord();

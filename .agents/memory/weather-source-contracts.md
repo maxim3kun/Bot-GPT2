@@ -22,3 +22,10 @@ Do not assume that every Québec municipality uses Eastern time, or that geograp
 **Why:** A coarse lookup assigned the Blanc-Sablon area to Newfoundland time. Detailed polygons resolved that but still disagreed with Québec's legal exceptions around Minganie. The law explicitly gives all Minganie Eastern time and Listuguj Atlantic daylight time.
 
 **How to apply:** Keep regression cases for mainland Québec, Blanc-Sablon, the Îles-de-la-Madeleine and legal exceptions. When sources disagree, consult the current [Québec Legal Time Act, sections 1–2](https://www.legisquebec.gouv.qc.ca/fr/document/lc/T-5.1?langCont=en), rather than changing expected clocks to match a library.
+
+## Global settlement geocoding
+OpenStreetMap Nominatim does not classify every major city as `class=place` with `type=city`; Bogotá is returned as `category=boundary`, `type=administrative`, and `addresstype=city`.
+
+**Why:** Filtering only for the `place` category incorrectly reports globally known cities as missing.
+
+**How to apply:** For global weather lookup, accept the documented city/town/village/municipality address types on administrative boundaries as well as place-category settlements, and retain the country in the choice label to disambiguate names.

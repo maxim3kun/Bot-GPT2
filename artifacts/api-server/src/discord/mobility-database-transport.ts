@@ -80,7 +80,7 @@ type OSMResult = {
 
 let geocodeQueue: Promise<unknown> = Promise.resolve();
 let lastGeocodeAt = 0;
-function queueMobilityGeocode<T>(load: () => Promise<T>): Promise<T> {
+export function queueMobilityGeocode<T>(load: () => Promise<T>): Promise<T> {
   const request = geocodeQueue.catch(() => undefined).then(async () => {
     const delay = Math.max(0, 1_000 - (Date.now() - lastGeocodeAt));
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));

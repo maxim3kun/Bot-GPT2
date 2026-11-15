@@ -26,7 +26,7 @@
 - [IDFM live-data contracts](idfm-live-contracts.md) — Closure code bundles span platforms; scope exact impacts by line and never invent a live arrival from GTFS or another vehicle.
 - [Québec source contracts](quebec-source-contracts.md) — Verify catalogue resources and seasonal services; resolve public route numbers from official names, not guessed aliases.
 - [IGN geocoding](ign-geocoding.md) — Towns, addresses and station POIs need distinct searches; plausible geocoding corrections must not silently change a location.
-- [Free weather contracts](weather-source-contracts.md) — MET requires human terms acceptance and shared three-hour caching; Québec timezone polygons can miss legal exceptions.
+- [Free weather contracts](weather-source-contracts.md) — MET requires consent and shared caching; handle global city geocodes and Québec timezone exceptions.
 - [National GTFS geography and timezones](national-gtfs-contracts.md) — Validate country geocodes/timezones and account for source-specific ZIP, CSV, and place-name quirks.
 - [Entur Norway timetable format](norway-entur-schedule-contract.md) — The national GTFS download contains stops only; official timetable exports are NeTEx.
 - [Bot product vision](bot-product-vision.md) — User's requested roadmap: broader transport, flights, personas, games, voice, reminders, knowledge and creation tools.
