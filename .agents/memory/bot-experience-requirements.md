@@ -50,3 +50,9 @@ The user likes SIWIS and wants a default voice plus a selection for the bot and 
 **Why:** The user explicitly approved the SIWIS sample and requested independent voice choices.
 
 **How to apply:** Keep SIWIS as the base choice and allow creator-controlled persona overrides. Use the bot's server voice when a persona has no override; keep model weights out of MongoDB.
+
+Do not add a Persona reaction beneath every bot response. Show the available Personas and creation option only when someone explicitly asks to choose or speak with one.
+
+**Why:** The user finds the per-message reaction visually cluttered and prefers an on-demand selector.
+
+**How to apply:** Keep `!persona start` and `!persona stop` available; use a private list and guided creation flow for explicit natural-language requests.

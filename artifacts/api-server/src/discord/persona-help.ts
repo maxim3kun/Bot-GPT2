@@ -31,7 +31,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       title: "Discuter et partager",
       description: "L’activation ne vaut que pour toi.",
       fields: [
-        { name: "Reprendre", value: `${cmd("start")} reprend ton dernier persona. La réaction 🎭 l’active; la retirer l’arrête.` },
+        { name: "Reprendre", value: `${cmd("start")} reprend ton dernier persona. ${cmd("stop")} l’arrête.` },
         { name: "Voir la fiche", value: `${cmd("show <nom ou id>")} affiche les détails en privé.` },
         { name: "Partager", value: `${cmd("create public | Azumi | Une guide curieuse.")}\nVisible dans ce serveur; chacun l’active pour soi.` },
         { name: "Persona Bully", value: `${cmd("bully")} l’active pour toi seul. Il ne vise ni les autres ni les caractéristiques sensibles, et ne change pas les rappels de quêtes. ${cmd("stop")} l’arrête.` },
@@ -74,7 +74,7 @@ export function buildPersonaHelp(language: UserLang, page = 0, prefix = "!") {
       title: "Chat and share",
       description: "Activation applies only to you.",
       fields: [
-        { name: "Resume", value: `${cmd("start")} resumes your last persona. React with 🎭 to activate; remove your reaction to stop.` },
+        { name: "Resume", value: `${cmd("start")} resumes your last persona. Use ${cmd("stop")} to stop it.` },
         { name: "View details", value: `${cmd("show <name or id>")} sends the profile privately.` },
         { name: "Share", value: `${cmd("create public | Azumi | A curious guide.")}\nVisible in this server; each member activates it for themselves.` },
         { name: "Bully persona", value: `${cmd("bully")} targets only you, never other members or sensitive traits or quest reminders. Use ${cmd("stop")} to turn it off.` },

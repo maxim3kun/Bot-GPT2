@@ -5,7 +5,6 @@ import {
   ButtonStyle,
   EmbedBuilder,
   StringSelectMenuBuilder,
-  type ClientEvents,
   type Message,
   type MessageCreateOptions,
 } from "discord.js";
@@ -38,8 +37,6 @@ import {
   buildPublicAiPersonaDetails,
   canManageAiPersonaPublicProfile,
 } from "../lib/ai-persona-public-view.js";
-import { updatePersonaSessionFromReaction } from "./ai-persona-reaction-policy.js";
-import { responseCollection } from "./ai-observability-store.js";
 import { logger } from "../lib/logger.js";
 import { formatSearchContext } from "../lib/web-search.js";
 import { recordModuleSuccess, reportModuleFailure } from "./module-technician.js";
@@ -78,7 +75,7 @@ import { speakPersonaReply } from "./voice.js";
 import { selectVoice, personaVoiceSelection } from "./voice-settings.js";
 import { isVoiceId } from "./piper-tts.js";
 import { getUserLangOverride, type UserLang } from "./user-lang-store.js";
-import { getEffectiveLanguage } from "./effective-language.js";
+import { isPersonaCreationRequest, isPersonaPickerRequest } from "./ai-persona-intent-policy.js";
 import { applyPersonaEdit, parsePersonaEditInput } from "./persona-input-policy.js";
 import { selectPersonaSession, stopPersonaSession } from "./ai-persona-session-policy.js";
 import { simpleArithmeticReply } from "./ai-calculator.js";
@@ -628,17 +625,13 @@ async function ensurePersonaVisualReference(
 
 async function listPersonas(message: Message, language: UserLang): Promise<void> {
   const personas = await listVisibleAiPersonas(message.guildId, message.author.id);
-  if (personas.length === 0) {
-    await sendPrivately(message, localized(
-      language,
-      "Tu n’as pas encore de persona accessible. Crée-en un avec `!persona create <nom> | <description>`.",
-      "You don't have an accessible persona yet. Create one with `!persona create <name> | <description>`.",
-    ), language);
-    return;
+  if (message.guildId && !personas.some((persona) => persona.id.startsWith("guild-bully:"))) {
+    personas.unshift(await getOrCreateGuildBullyPersona(message.guildId));
   }
   const session = await loadPersonaSession(message.author.id, message.guildId);
   const customId = `persona_select:${message.author.id}:${message.id}`;
   const stopCustomId = `persona_stop:${message.author.id}:${message.id}`;
+  const createCustomId = `persona_create:${message.author.id}:${message.id}`;
   const shown = personas.slice(0, 25);
   const options = shown.map((persona) => {
     const scope = persona.visibility === "public"
@@ -652,19 +645,25 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
       ...(session?.activePersonaId === persona.id ? { default: true } : {}),
     };
   });
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(customId)
-    .setPlaceholder(localized(language, "Choisis le persona à activer", "Choose a persona to activate"))
-    .addOptions(options);
+  const menu = options.length
+    ? new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder(localized(language, "Choisis le persona à activer", "Choose a persona to activate"))
+      .addOptions(options)
+    : null;
   const listEmbed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(localized(language, "🎭 Tes personas", "🎭 Your personas"))
     .setDescription(localized(
       language,
-      session?.activePersonaId
+      !shown.length
+        ? "Aucun persona n’est disponible pour le moment. Tu peux en créer un ici."
+        : session?.activePersonaId
         ? "Choisis un autre persona pour le remplacer, ou arrête celui qui est actif avec le bouton ci-dessous."
         : "Choisis un persona dans la liste pour l’activer uniquement pour toi.",
-      session?.activePersonaId
+      !shown.length
+        ? "There are no personas available yet. You can create one here."
+        : session?.activePersonaId
         ? "Choose another persona to switch, or stop the active one with the button below."
         : "Choose a persona from the menu to activate it for yourself.",
     ))
@@ -681,17 +680,23 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
     }))
     .setFooter({ text: personas.length > 20
       ? localized(language, "L’embed affiche 20 personas ; le menu en propose jusqu’à 25.", "The embed shows 20 personas; the menu includes up to 25.")
-      : localized(language, "Les détails restent privés pour toi.", "These details are private to you.") });
-  const components = [
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+      : localized(language, "Choisis un Persona ou crée le tien.", "Choose a persona or create your own.") });
+  const actions = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(createCustomId)
+      .setLabel(localized(language, "Créer mon persona", "Create my persona"))
+      .setEmoji("✨")
+      .setStyle(ButtonStyle.Success),
     ...(session?.activePersonaId
-      ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(stopCustomId)
-          .setLabel(localized(language, "Arrêter mon persona", "Stop my persona"))
-          .setStyle(ButtonStyle.Danger),
-      )]
+      ? [new ButtonBuilder()
+        .setCustomId(stopCustomId)
+        .setLabel(localized(language, "Arrêter", "Stop"))
+        .setStyle(ButtonStyle.Danger)]
       : []),
+  );
+  const components = [
+    ...(menu ? [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] : []),
+    actions,
   ];
   const response = await sendPrivately(message, {
     embeds: [listEmbed],
@@ -701,7 +706,9 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
   if (!response) return;
   const collector = response.createMessageComponentCollector({
     time: 5 * 60_000,
-    filter: (interaction) => interaction.customId === customId || interaction.customId === stopCustomId,
+    filter: (interaction) => interaction.customId === createCustomId
+      || interaction.customId === customId
+      || interaction.customId === stopCustomId,
   });
   collector.on("collect", async (interaction) => {
     try {
@@ -728,9 +735,35 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
         });
         return;
       }
+      if (interaction.customId === createCustomId) {
+        await interaction.deferUpdate();
+        if (!await requireConsent(message, language)) {
+          return;
+        }
+        const current = await loadPersonaSession(message.author.id, message.guildId);
+        const pendingDraft = { name: "", description: "", waitingFor: "name" as const };
+        await persistPersonaSession({
+          userId: message.author.id,
+          guildId: message.guildId,
+          activePersonaId: null,
+          ...(current?.lastPersonaId ? { lastPersonaId: current.lastPersonaId } : {}),
+          pendingDraft,
+        });
+        await response.edit({
+          content: personaDraftQuestion(pendingDraft, language),
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
       if (!interaction.isStringSelectMenu()) return;
       const selected = await resolvePersona(
-        await listVisibleAiPersonas(message.guildId, message.author.id),
+        await listVisibleAiPersonas(message.guildId, message.author.id).then(async (visible) => {
+          if (message.guildId && !visible.some((persona) => persona.id.startsWith("guild-bully:"))) {
+            visible.unshift(await getOrCreateGuildBullyPersona(message.guildId));
+          }
+          return visible;
+        }),
         interaction.values[0] ?? "",
       );
       if (!selected) {
@@ -744,17 +777,19 @@ async function listPersonas(message: Message, language: UserLang): Promise<void>
       await interaction.update({
         content: localized(
           language,
-          `✅ **${escapeMarkdown(selected.name)}** est activé pour toi dans ce contexte. Utilise \`!persona stop\` ou retire la réaction 🎭 d’une réponse générale pour l’arrêter.`,
-          `✅ **${escapeMarkdown(selected.name)}** is active for you in this context. Use \`!persona stop\` or remove the 🎭 reaction from a general reply to stop it.`,
+          `✅ **${escapeMarkdown(selected.name)}** est activé pour toi dans ce contexte. Utilise \`!persona stop\` pour l’arrêter.`,
+          `✅ **${escapeMarkdown(selected.name)}** is active for you in this context. Use \`!persona stop\` to stop it.`,
         ),
         components: [],
       });
     } catch (error) {
       logger.warn({ error }, "Could not activate persona from private selector");
-      await interaction.reply({
+      const errorReply = {
         content: localized(language, "Impossible d’activer ce persona pour le moment.", "Could not activate this persona right now."),
         ephemeral: true,
-      }).catch(() => null);
+      };
+      if (interaction.deferred || interaction.replied) await interaction.followUp(errorReply).catch(() => null);
+      else await interaction.reply(errorReply).catch(() => null);
     }
   });
   collector.on("end", () => { void response.edit({ components: [] }).catch(() => null); });
@@ -1969,12 +2004,6 @@ function normalizePersonaIntent(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-function isPersonaCreationRequest(text: string): boolean {
-  return /\b(?:cree(?:r)?|fais(?:-moi|\s+moi)?|fabrique(?:r)?|construis(?:re)?|create|make(?:\s+me)?|build|je\s+veux|je\s+voudrais|j'aimerais|peux[-\s]+tu|tu\s+peux|can\s+you|could\s+you|i\s+want)\b[\s\S]{0,80}\bpersona\b/.test(
-    normalizePersonaIntent(text),
-  ) || /^persona\s+(?:create|cree|creer)\b/.test(normalizePersonaIntent(text));
-}
-
 function isPersonaStopRequest(text: string): boolean {
   const normalized = normalizePersonaIntent(text);
   return /\b(?:persona|personnage)\s+(?:stop|arrete|desactive|deactivate)\b/.test(normalized)
@@ -2182,48 +2211,6 @@ async function activatePersona(
   ));
 }
 
-export async function handleAiPersonaControlReaction(
-  reaction: ClientEvents["messageReactionAdd"][0],
-  user: ClientEvents["messageReactionAdd"][1],
-  added: boolean,
-): Promise<void> {
-  if (reaction.emoji.name !== "🎭") return;
-  if (user.partial) user = await user.fetch();
-  if (user.bot) return;
-
-  const message = reaction.message.partial
-    ? await reaction.message.fetch().catch(() => null)
-    : reaction.message;
-  if (!message) return;
-  const responseMetadata = await responseCollection()?.findOne({
-    _id: message.id,
-    kind: "bot",
-    expiresAt: { $gt: new Date() },
-  });
-  if (!responseMetadata) return;
-
-  const session = await loadPersonaSession(user.id, message.guildId);
-  const persona = added && session?.lastPersonaId
-    ? (await listVisibleAiPersonas(message.guildId, user.id))
-      .find((candidate) => candidate.id === session.lastPersonaId)
-    : null;
-  const updatedSession = updatePersonaSessionFromReaction(session, added, Boolean(persona));
-  if (!updatedSession) {
-    if (added && !session?.activePersonaId && !persona) {
-      await message.reply({
-        content: localized(
-          getEffectiveLanguage(message.guildId, user.id),
-          "Choisis d’abord un persona avec `!persona list`. La réaction 🎭 l’activera pour toi ; retire-la pour l’arrêter.",
-          "Choose a persona first with `!persona list`. The 🎭 reaction activates it for you; remove your reaction to stop it.",
-        ),
-        allowedMentions: { parse: [] },
-      }).catch(() => null);
-    }
-    return;
-  }
-  await persistPersonaSession(updatedSession);
-}
-
 async function findPersonaForReply(
   message: Message,
   activePersonaId: string | null | undefined,
@@ -2250,9 +2237,10 @@ export async function handleAiPersonaNaturalMessage(
   const startRequest = parsePersonaStartRequest(cleaned);
   const wantsCreation = addressedToBot && isPersonaCreationRequest(cleaned);
   const wantsStart = addressedToBot && startRequest !== null;
+  const wantsPicker = addressedToBot && isPersonaPickerRequest(cleaned);
   let hasPendingOrActiveSession = false;
   if (!isDbReady()) {
-    if (wantsCreation || wantsStart) {
+    if (wantsCreation || wantsStart || wantsPicker) {
       await safeReply(message, localized(
         language,
         "Les personas nécessitent MongoDB et ENCRYPTION_KEY. Rien n’a été modifié.",
@@ -2314,6 +2302,10 @@ export async function handleAiPersonaNaturalMessage(
     }
     if (session?.pendingDraft) {
       await continueGuidedPersona(message, session, cleaned, openai, language);
+      return true;
+    }
+    if (wantsPicker) {
+      await listPersonas(message, language);
       return true;
     }
 

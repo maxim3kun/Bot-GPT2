@@ -55,7 +55,7 @@ import { getConsent, requireConsent } from "./discord/ai-consent.js";
 import { isFeatureEnabled } from "./bootstrap/feature-flags.js";
 import { getGuildFeatures } from "./lib/features-store.js";
 import { getAiPromptContext } from "./discord/ai-memory.js";
-import { handleAiPersonaControlReaction, handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
+import { handleAiPersonaNaturalMessage } from "./discord/ai-personas.js";
 import { moderateMentionedMessage } from "./discord/ai-moderation.js";
 import { normalizeResearchAnswer } from "./discord/ai-answer-format.js";
 import { attachAnswerDetailsCollector, buildAnswerDetailsRow, generateAnswerDetails, shouldOfferAnswerDetails } from "./discord/ai-answer-details.js";
@@ -67,8 +67,7 @@ import { commandSafety } from "./discord/ai-command-intent.js";
 import { hasAiCommandParameterReply } from "./discord/ai-command-dispatch.js";
 import { canUsePendingSearch } from "./discord/radio.js";
 import { createReliableCompletion } from "./discord/ai-reliable-completion.js";
-import { registerAiFeedback, seedAiPersonaControl, trackAiReplies } from "./discord/ai-feedback.js";
-import { createOrderedEventQueue } from "./discord/ai-observability-policy.js";
+import { registerAiFeedback, trackAiReplies } from "./discord/ai-feedback.js";
 import { startTechnicianDigest } from "./discord/technician-digest.js";
 import { shouldSkipConversation, stripBotMention } from "./discord/ai-conversation-policy.js";
 import { buildSpeakerContext, clarifyMentionedRecipient, currentUserTurn } from "./discord/ai-speaker-context.js";
@@ -118,7 +117,6 @@ type ChatMessage = {
 };
 
 const conversationHistory = new Map<string, ChatMessage[]>();
-const queueAiPersonaReaction = createOrderedEventQueue();
 const lastResearchQueries = new Map<string, { query: string; timestamp: number }>();
 const MAX_HISTORY = 40;
 const MAX_AI_HISTORY_CHARS = 16_000;
@@ -337,7 +335,6 @@ async function replyWithAiAnswer(
     });
   }
   await trackAiReplies(replies, "bot", message.content);
-  await seedAiPersonaControl(replies[0]!);
 }
 
 async function replyWithLatestNews(
@@ -631,16 +628,6 @@ export function startBot(): void {
   });
   _botClient = client;
   registerAiFeedback(client);
-  client.on("messageReactionAdd", (reaction, user) => {
-    const key = `${reaction.message.guildId ?? "dm"}:${user.id}`;
-    void queueAiPersonaReaction(key, () => handleAiPersonaControlReaction(reaction, user, true))
-      .catch((error) => logger.warn({ error }, "Could not activate persona from reaction"));
-  });
-  client.on("messageReactionRemove", (reaction, user) => {
-    const key = `${reaction.message.guildId ?? "dm"}:${user.id}`;
-    void queueAiPersonaReaction(key, () => handleAiPersonaControlReaction(reaction, user, false))
-      .catch((error) => logger.warn({ error }, "Could not stop persona from reaction"));
-  });
   registerAdminUnlockInteractions(client);
 
   let client2: Client | null = null;

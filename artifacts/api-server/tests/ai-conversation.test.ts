@@ -6,13 +6,13 @@ import type { AiPersonaRecord } from "../src/lib/db.js";
 import { createReliableCompletion } from "../src/discord/ai-reliable-completion.js";
 import { buildSpeakerContext, currentUserTurn } from "../src/discord/ai-speaker-context.js";
 import { DISCORD_IDENTITY_GUIDANCE, removeUnrequestedDiscordIds } from "../src/discord/ai-identity-output.js";
-import { createFeedbackTracker, createPersonaControlSeeder } from "../src/discord/ai-feedback.js";
+import { createFeedbackTracker } from "../src/discord/ai-feedback.js";
+import { isPersonaCreationRequest, isPersonaPickerRequest } from "../src/discord/ai-persona-intent-policy.js";
 import {
   buildPublicAiPersonaDetails,
   canManageAiPersonaPublicProfile,
   isAiPersonaVisibleToViewer,
 } from "../src/lib/ai-persona-public-view.js";
-import { updatePersonaSessionFromReaction } from "../src/discord/ai-persona-reaction-policy.js";
 import { selectPersonaSession, stopPersonaSession } from "../src/discord/ai-persona-session-policy.js";
 import { applyPersonaEdit, parsePersonaEditInput } from "../src/discord/persona-input-policy.js";
 import { AI_ECOLOGY_GUIDANCE } from "../src/discord/ai-ecology-policy.js";
@@ -154,38 +154,6 @@ test("Long bot answers seed only their first chunk while personas are not regist
   assert.equal(reactions.length, 2);
 });
 
-test("General replies get a persona control without changing rating-reaction policy", async () => {
-  const registered: Array<{ ids: string[]; kind: string }> = [];
-  const reactions: string[] = [];
-  const seed = createPersonaControlSeeder(async (ids, kind) => { registered.push({ ids, kind }); });
-  await seed({
-    id: "general-reply",
-    react: async (emoji: string) => { reactions.push(emoji); },
-  } as unknown as Message);
-  assert.deepEqual(registered, [{ ids: ["general-reply"], kind: "bot" }]);
-  assert.deepEqual(reactions, ["🎭"]);
-});
-
-test("Persona reactions activate the member's own last selection and removal stops only that session", () => {
-  const first = { userId: "member-a", guildId: "guild", activePersonaId: null, lastPersonaId: "public-1" };
-  const second = { userId: "member-b", guildId: "guild", activePersonaId: null, lastPersonaId: "public-2" };
-  assert.deepEqual(updatePersonaSessionFromReaction(first, true, true), {
-    ...first, activePersonaId: "public-1",
-  });
-  assert.deepEqual(updatePersonaSessionFromReaction(second, true, true), {
-    ...second, activePersonaId: "public-2",
-  });
-  assert.deepEqual(updatePersonaSessionFromReaction({
-    ...first, activePersonaId: "public-1",
-  }, false, true), {
-    ...first, activePersonaId: null,
-  });
-  assert.equal(updatePersonaSessionFromReaction(first, true, false), null);
-  assert.equal(updatePersonaSessionFromReaction({
-    ...first, activePersonaId: "public-1",
-  }, true, true), null);
-});
-
 test("Persona picker switches and stops only the requesting user's scoped session", () => {
   const alice = selectPersonaSession("alice", "guild-a", "persona-a");
   const bob = selectPersonaSession("bob", "guild-a", "persona-b");
@@ -201,6 +169,34 @@ test("Persona picker switches and stops only the requesting user's scoped sessio
   });
   assert.equal(bob.activePersonaId, "persona-b");
   assert.equal(selectPersonaSession("alice", null, "persona-private").guildId, null);
+});
+
+test("Persona picker opens only for explicit requests to choose or speak with a persona", () => {
+  for (const request of [
+    "Je veux parler avec un persona",
+    "Je voudrais discuter avec un personnage",
+    "Peux-tu me proposer un personnage ?",
+    "Je voudrais choisir un persona",
+    "I want to talk to a persona",
+    "Can I speak with a persona?",
+    "Choose a persona for me",
+  ]) {
+    assert.equal(isPersonaPickerRequest(request), true, request);
+  }
+  for (const request of [
+    "Quelle est la météo à Paris ?",
+  ]) {
+    assert.equal(isPersonaPickerRequest(request), false, request);
+  }
+  for (const request of [
+    "Crée un persona nommé Azumi",
+    "Je veux créer un persona",
+    "Can you create a persona?",
+    "I want to create a persona",
+    "I want to talk to a persona",
+  ]) {
+    assert.equal(isPersonaCreationRequest(request), !request.includes("talk"), request);
+  }
 });
 
 test("Persona editing accepts a complete replacement description and keeps embedded separators", () => {
