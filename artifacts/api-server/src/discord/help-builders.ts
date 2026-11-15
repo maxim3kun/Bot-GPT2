@@ -161,12 +161,156 @@ const COLORS: Record<HelpLanguage, number> = {
   ja: 0xff0000, nl: 0xff6600, ru: 0x2166ac, pl: 0xdc143c, tr: 0xe30a17,
 };
 
-const PAGE_TITLES: Record<HelpPage, Record<TextLang, string>> = {
-  1: { en: "🌟 Start here", fr: "🌟 Pour commencer", es: "🌟 Empieza aquí", de: "🌟 Erste Schritte", pt: "🌟 Começa aqui", it: "🌟 Per iniziare" },
-  2: { en: "🎮 Games & tools", fr: "🎮 Jeux & outils", es: "🎮 Juegos y herramientas", de: "🎮 Spiele & Werkzeuge", pt: "🎮 Jogos e ferramentas", it: "🎮 Giochi e strumenti" },
-  3: { en: "🎵 Music & radio", fr: "🎵 Musique & radio", es: "🎵 Música y radio", de: "🎵 Musik & Radio", pt: "🎵 Música e rádio", it: "🎵 Musica e radio" },
-  4: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" },
-  5: { en: "🤖 AI & useful info", fr: "🤖 IA & infos utiles", es: "🤖 IA e información", de: "🤖 KI & Infos", pt: "🤖 IA e informações", it: "🤖 IA e informazioni" },
+interface MobileHelpCopy {
+  titles: [string, string, string, string, string];
+  descriptions: [string, string, string, string, string];
+  sections: {
+    general: string; transport: string; fun: string; daily: string;
+    games: string; tools: string; youtube: string; radio: string;
+    music: string; voice: string; voiceChat: string; ai: string;
+    quests: string; civic: string;
+  };
+  args: {
+    question: string; description: string; city: string; title: string;
+    text: string; word: string; name: string; language: string;
+    station: string; country: string; year: string; topic: string; goal: string;
+    query: string; artistSong: string; prompt: string; article: string;
+  };
+}
+
+const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
+  en: {
+    titles: ["🌟 Start here", "🎮 Games & tools", "🎵 Music & radio", "🎙️ Voice", "🤖 AI & useful info"],
+    descriptions: [
+      "Essential commands; use `!help <command>` for details.",
+      "Popular games and tools; use topic help for options.",
+      "Start music and radio; topic help has more controls.",
+      "Voice channel controls and optional AI voice chat.",
+      "AI, personal goals and official information.",
+    ],
+    sections: { general: "🌐 General", transport: "🚍 Transport", fun: "🎉 Fun", daily: "📅 Daily life", games: "🎮 Games", tools: "🔎 Tools", youtube: "▶️ YouTube", radio: "📻 Radio & DJ", music: "🎼 More music", voice: "🎙️ Voice channel", voiceChat: "🤖 AI voice chat", ai: "🤖 AI", quests: "🎯 Quests", civic: "📚 Civic info" },
+    args: { question: "question", description: "description", city: "city", title: "title", text: "text", word: "word", name: "name", language: "language", station: "station", country: "country", year: "year", topic: "topic", goal: "goal", query: "search", artistSong: "artist song", prompt: "prompt", article: "article" },
+  },
+  fr: {
+    titles: ["🌟 Pour commencer", "🎮 Jeux et outils", "🎵 Musique et radio", "🎙️ Vocal", "🤖 IA et infos utiles"],
+    descriptions: [
+      "Les commandes essentielles; `!help <commande>` pour les détails.",
+      "Les jeux et outils principaux; consulte leur aide pour les options.",
+      "Musique et radio; les aides de chaque thème donnent les commandes.",
+      "Commandes vocales et chat vocal IA facultatif.",
+      "IA, objectifs personnels et informations officielles.",
+    ],
+    sections: { general: "🌐 Général", transport: "🚍 Transports", fun: "🎉 Loisirs", daily: "📅 Vie quotidienne", games: "🎮 Jeux", tools: "🔎 Outils", youtube: "▶️ YouTube", radio: "📻 Radio et DJ", music: "🎼 Autres musiques", voice: "🎙️ Salon vocal", voiceChat: "🤖 Chat vocal IA", ai: "🤖 IA", quests: "🎯 Quêtes", civic: "📚 Infos civiques" },
+    args: { question: "question", description: "description", city: "ville", title: "titre", text: "texte", word: "mot", name: "nom", language: "langue", station: "station", country: "pays", year: "année", topic: "sujet", goal: "objectif", query: "recherche", artistSong: "artiste morceau", prompt: "consigne", article: "article" },
+  },
+  es: {
+    titles: ["🌟 Para empezar", "🎮 Juegos y herramientas", "🎵 Música y radio", "🎙️ Voz", "🤖 IA e información útil"],
+    descriptions: [
+      "Comandos esenciales; usa `!help <comando>` para ver detalles.",
+      "Juegos y herramientas principales; consulta su ayuda para opciones.",
+      "Música y radio; cada tema tiene comandos adicionales.",
+      "Controles de voz y chat de voz con IA opcional.",
+      "IA, objetivos personales e información oficial.",
+    ],
+    sections: { general: "🌐 General", transport: "🚍 Transporte", fun: "🎉 Diversión", daily: "📅 Vida diaria", games: "🎮 Juegos", tools: "🔎 Herramientas", youtube: "▶️ YouTube", radio: "📻 Radio y DJ", music: "🎼 Más música", voice: "🎙️ Canal de voz", voiceChat: "🤖 Chat de voz con IA", ai: "🤖 IA", quests: "🎯 Misiones", civic: "📚 Información cívica" },
+    args: { question: "pregunta", description: "descripción", city: "ciudad", title: "título", text: "texto", word: "palabra", name: "nombre", language: "idioma", station: "emisora", country: "país", year: "año", topic: "tema", goal: "objetivo", query: "búsqueda", artistSong: "artista canción", prompt: "instrucción", article: "artículo" },
+  },
+  de: {
+    titles: ["🌟 Erste Schritte", "🎮 Spiele und Tools", "🎵 Musik und Radio", "🎙️ Sprache", "🤖 KI und nützliche Infos"],
+    descriptions: [
+      "Wichtige Befehle; `!help <Befehl>` zeigt Details.",
+      "Beliebte Spiele und Tools; weitere Optionen stehen in der Themenhilfe.",
+      "Musik und Radio; weitere Befehle stehen in der Themenhilfe.",
+      "Sprachkanal-Steuerung und optionaler KI-Sprachchat.",
+      "KI, persönliche Ziele und offizielle Informationen.",
+    ],
+    sections: { general: "🌐 Allgemein", transport: "🚍 Verkehr", fun: "🎉 Spaß", daily: "📅 Alltag", games: "🎮 Spiele", tools: "🔎 Tools", youtube: "▶️ YouTube", radio: "📻 Radio und DJ", music: "🎼 Weitere Musik", voice: "🎙️ Sprachkanal", voiceChat: "🤖 KI-Sprachchat", ai: "🤖 KI", quests: "🎯 Quests", civic: "📚 Bürgerinfos" },
+    args: { question: "Frage", description: "Beschreibung", city: "Stadt", title: "Titel", text: "Text", word: "Wort", name: "Name", language: "Sprache", station: "Sender", country: "Land", year: "Jahr", topic: "Thema", goal: "Ziel", query: "Suchbegriff", artistSong: "Künstler Lied", prompt: "Prompt", article: "Artikel" },
+  },
+  pt: {
+    titles: ["🌟 Comece aqui", "🎮 Jogos e ferramentas", "🎵 Música e rádio", "🎙️ Voz", "🤖 IA e informações úteis"],
+    descriptions: [
+      "Comandos essenciais; use `!help <comando>` para ver detalhes.",
+      "Jogos e ferramentas populares; consulte a ajuda do tema para opções.",
+      "Música e rádio; a ajuda de cada tema mostra outros comandos.",
+      "Controles de voz e chat de voz com IA opcional.",
+      "IA, objetivos pessoais e informações oficiais.",
+    ],
+    sections: { general: "🌐 Geral", transport: "🚍 Transporte", fun: "🎉 Diversão", daily: "📅 Dia a dia", games: "🎮 Jogos", tools: "🔎 Ferramentas", youtube: "▶️ YouTube", radio: "📻 Rádio e DJ", music: "🎼 Mais música", voice: "🎙️ Canal de voz", voiceChat: "🤖 Chat de voz com IA", ai: "🤖 IA", quests: "🎯 Missões", civic: "📚 Informações cívicas" },
+    args: { question: "pergunta", description: "descrição", city: "cidade", title: "título", text: "texto", word: "palavra", name: "nome", language: "idioma", station: "rádio", country: "país", year: "ano", topic: "tema", goal: "objetivo", query: "pesquisa", artistSong: "artista música", prompt: "instrução", article: "artigo" },
+  },
+  it: {
+    titles: ["🌟 Per iniziare", "🎮 Giochi e strumenti", "🎵 Musica e radio", "🎙️ Voce", "🤖 IA e informazioni utili"],
+    descriptions: [
+      "Comandi essenziali; usa `!help <comando>` per i dettagli.",
+      "Giochi e strumenti principali; consulta la guida del tema per le opzioni.",
+      "Musica e radio; la guida di ogni tema mostra altri comandi.",
+      "Controlli vocali e chat vocale IA facoltativa.",
+      "IA, obiettivi personali e informazioni ufficiali.",
+    ],
+    sections: { general: "🌐 Generale", transport: "🚍 Trasporti", fun: "🎉 Divertimento", daily: "📅 Ogni giorno", games: "🎮 Giochi", tools: "🔎 Strumenti", youtube: "▶️ YouTube", radio: "📻 Radio e DJ", music: "🎼 Altra musica", voice: "🎙️ Canale vocale", voiceChat: "🤖 Chat vocale IA", ai: "🤖 IA", quests: "🎯 Missioni", civic: "📚 Informazioni civiche" },
+    args: { question: "domanda", description: "descrizione", city: "città", title: "titolo", text: "testo", word: "parola", name: "nome", language: "lingua", station: "stazione", country: "paese", year: "anno", topic: "argomento", goal: "obiettivo", query: "ricerca", artistSong: "artista brano", prompt: "prompt", article: "articolo" },
+  },
+  ja: {
+    titles: ["🌟 まずはこちら", "🎮 ゲームとツール", "🎵 音楽とラジオ", "🎙️ ボイス", "🤖 AIと便利な情報"],
+    descriptions: [
+      "基本コマンド。詳細は `!help <コマンド>` を確認してください。",
+      "主なゲームとツール。追加の操作は各ヘルプで確認できます。",
+      "音楽とラジオ。各ヘルプでほかの操作を確認できます。",
+      "ボイスチャンネル操作と任意のAI音声チャット。",
+      "AI、個人の目標、公式情報。",
+    ],
+    sections: { general: "🌐 基本", transport: "🚍 交通", fun: "🎉 お楽しみ", daily: "📅 日常", games: "🎮 ゲーム", tools: "🔎 ツール", youtube: "▶️ YouTube", radio: "📻 ラジオとDJ", music: "🎼 その他の音楽", voice: "🎙️ ボイスチャンネル", voiceChat: "🤖 AI音声チャット", ai: "🤖 AI", quests: "🎯 クエスト", civic: "📚 公共情報" },
+    args: { question: "質問", description: "説明", city: "都市", title: "タイトル", text: "テキスト", word: "単語", name: "名前", language: "言語", station: "局", country: "国", year: "年", topic: "話題", goal: "目標", query: "検索語", artistSong: "アーティスト 曲", prompt: "プロンプト", article: "条文" },
+  },
+  nl: {
+    titles: ["🌟 Begin hier", "🎮 Games en tools", "🎵 Muziek en radio", "🎙️ Spraak", "🤖 AI en nuttige info"],
+    descriptions: [
+      "Belangrijke opdrachten; gebruik `!help <opdracht>` voor details.",
+      "Populaire games en tools; bekijk de themagids voor opties.",
+      "Muziek en radio; elke themagids toont meer opdrachten.",
+      "Spraakkanaalbediening en optionele AI-spraakchat.",
+      "AI, persoonlijke doelen en officiële informatie.",
+    ],
+    sections: { general: "🌐 Algemeen", transport: "🚍 Vervoer", fun: "🎉 Plezier", daily: "📅 Dagelijks", games: "🎮 Games", tools: "🔎 Tools", youtube: "▶️ YouTube", radio: "📻 Radio en DJ", music: "🎼 Meer muziek", voice: "🎙️ Spraakkanaal", voiceChat: "🤖 AI-spraakchat", ai: "🤖 AI", quests: "🎯 Doelen", civic: "📚 Overheidsinfo" },
+    args: { question: "vraag", description: "beschrijving", city: "stad", title: "titel", text: "tekst", word: "woord", name: "naam", language: "taal", station: "zender", country: "land", year: "jaar", topic: "onderwerp", goal: "doel", query: "zoekopdracht", artistSong: "artiest nummer", prompt: "prompt", article: "artikel" },
+  },
+  ru: {
+    titles: ["🌟 Начало", "🎮 Игры и инструменты", "🎵 Музыка и радио", "🎙️ Голос", "🤖 ИИ и полезная информация"],
+    descriptions: [
+      "Основные команды; подробности: `!help <команда>`.",
+      "Популярные игры и инструменты; остальные настройки — в справке темы.",
+      "Музыка и радио; дополнительные команды — в справке темы.",
+      "Управление голосовым каналом и необязательный голосовой чат с ИИ.",
+      "ИИ, личные цели и официальная информация.",
+    ],
+    sections: { general: "🌐 Общее", transport: "🚍 Транспорт", fun: "🎉 Развлечения", daily: "📅 На каждый день", games: "🎮 Игры", tools: "🔎 Инструменты", youtube: "▶️ YouTube", radio: "📻 Радио и DJ", music: "🎼 Ещё музыка", voice: "🎙️ Голосовой канал", voiceChat: "🤖 Голосовой чат с ИИ", ai: "🤖 ИИ", quests: "🎯 Цели", civic: "📚 Общественная информация" },
+    args: { question: "вопрос", description: "описание", city: "город", title: "название", text: "текст", word: "слово", name: "имя", language: "язык", station: "станция", country: "страна", year: "год", topic: "тема", goal: "цель", query: "запрос", artistSong: "исполнитель песня", prompt: "запрос", article: "статья" },
+  },
+  pl: {
+    titles: ["🌟 Zacznij tutaj", "🎮 Gry i narzędzia", "🎵 Muzyka i radio", "🎙️ Głos", "🤖 AI i przydatne informacje"],
+    descriptions: [
+      "Podstawowe polecenia; szczegóły: `!help <polecenie>`.",
+      "Popularne gry i narzędzia; pozostałe opcje znajdziesz w pomocy tematu.",
+      "Muzyka i radio; więcej poleceń znajdziesz w pomocy tematu.",
+      "Sterowanie kanałem głosowym i opcjonalny czat głosowy AI.",
+      "AI, osobiste cele i oficjalne informacje.",
+    ],
+    sections: { general: "🌐 Ogólne", transport: "🚍 Transport", fun: "🎉 Rozrywka", daily: "📅 Na co dzień", games: "🎮 Gry", tools: "🔎 Narzędzia", youtube: "▶️ YouTube", radio: "📻 Radio i DJ", music: "🎼 Więcej muzyki", voice: "🎙️ Kanał głosowy", voiceChat: "🤖 Czat głosowy AI", ai: "🤖 AI", quests: "🎯 Cele", civic: "📚 Informacje publiczne" },
+    args: { question: "pytanie", description: "opis", city: "miasto", title: "tytuł", text: "tekst", word: "słowo", name: "nazwa", language: "język", station: "stacja", country: "kraj", year: "rok", topic: "temat", goal: "cel", query: "wyszukiwanie", artistSong: "artysta utwór", prompt: "prompt", article: "artykuł" },
+  },
+  tr: {
+    titles: ["🌟 Buradan başla", "🎮 Oyunlar ve araçlar", "🎵 Müzik ve radyo", "🎙️ Ses", "🤖 Yapay zekâ ve bilgiler"],
+    descriptions: [
+      "Temel komutlar; ayrıntılar için `!help <komut>` kullan.",
+      "Popüler oyunlar ve araçlar; diğer seçenekler konu yardımında.",
+      "Müzik ve radyo; diğer komutlar konu yardımında.",
+      "Ses kanalı kontrolleri ve isteğe bağlı yapay zekâ sesli sohbeti.",
+      "Yapay zekâ, kişisel hedefler ve resmî bilgiler.",
+    ],
+    sections: { general: "🌐 Genel", transport: "🚍 Ulaşım", fun: "🎉 Eğlence", daily: "📅 Günlük", games: "🎮 Oyunlar", tools: "🔎 Araçlar", youtube: "▶️ YouTube", radio: "📻 Radyo ve DJ", music: "🎼 Diğer müzikler", voice: "🎙️ Ses kanalı", voiceChat: "🤖 Yapay zekâ sesli sohbeti", ai: "🤖 Yapay zekâ", quests: "🎯 Hedefler", civic: "📚 Resmî bilgiler" },
+    args: { question: "soru", description: "açıklama", city: "şehir", title: "başlık", text: "metin", word: "kelime", name: "ad", language: "dil", station: "istasyon", country: "ülke", year: "yıl", topic: "konu", goal: "hedef", query: "arama", artistSong: "sanatçı şarkı", prompt: "istem", article: "madde" },
+  },
 };
 
 const ARGUMENT_LABELS: Record<TextLang, {
@@ -475,188 +619,99 @@ function buildPersonaHelpRows(
 
 export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!"): EmbedBuilder {
   const p = HELP_PREFIX_TOKEN;
-  const tl = textLang(lang);
-  const args = ARGUMENT_LABELS[tl];
+  const copy = MOBILE_HELP_COPY[lang];
+  const args = copy.args;
+  const sections = copy.sections;
+  const favoriteCommand = lang === "fr" ? "favoris" : "favorites";
+  const hangmanCommand = lang === "fr" ? "pendu" : "hangman";
+  const weatherCommand = lang === "fr" ? "meteo" : "weather";
+  const lawCommand = lang === "fr" ? "loi" : "law";
+  const holidayCommand = lang === "fr" ? "feries" : "holidays";
   const embed = new EmbedBuilder()
     .setCommandPrefix(prefix)
     .setCompact()
-    .setTitle(PAGE_TITLES[page][tl])
+    .setTitle(copy.titles[page - 1])
     .setColor(COLORS[lang])
+    .setDescription(copy.descriptions[page - 1])
     .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES} · ${t("nav", lang).split("•").at(-1)!.trim().replaceAll("!help", `${p}help`)}` });
 
-  // ── Page 1 — General & Fun ─────────────────────────────────────────────────
+  // Keep overviews short; topic help retains the full command lists and explanations.
   if (page === 1) {
-    const favoriteCommand = tl === "fr" ? "favoris" : "favorites";
-    const agendaDateTime = tl === "fr" ? "YYYY-MM-DD HH:MM" : "YYYY-MM-DD HH:MM";
-    const desc = { en: "The essentials to get started.", fr: "Les essentiels pour commencer.", es: "Lo esencial para empezar.", de: "Das Wichtigste für den Anfang.", pt: "O essencial para começar.", it: "Le basi per iniziare." };
-    embed.setDescription(desc[tl]);
     embed.addFields(
       {
-        name: { en: "🌐 General", fr: "🌐 Général", es: "🌐 General", de: "🌐 Allgemein", pt: "🌐 Geral", it: "🌐 Generale" }[tl] ?? "🌐 General",
-        value: [
-          `\`@bot <${args.question}>\` · \`${p}image <${args.description}>\``,
-          `\`${p}say\` · \`/poll\` · \`${p}profile\``,
-          `\`${p}website\` · \`/help\``,
-        ].join("\n"),
+        name: sections.general,
+        value: `\`@bot <${args.question}>\` · \`/help\` · \`/poll\`\n\`${p}say\` · \`${p}profile\` · \`${p}website\`\n\`${p}image <${args.description}>\``,
       },
       {
-        name: { en: "🚍 Transport", fr: "🚍 Transports", es: "🚍 Transporte", de: "🚍 Verkehr", pt: "🚍 Transporte", it: "🚍 Trasporti" }[tl] ?? "🚍 Transport",
-        value: [
-          `\`${p}transport\` · \`${p}bus <${args.location}>\``,
-          `\`${p}metro <${args.location}>\` · \`${p}train <${args.location}>\``,
-          `\`${p}${favoriteCommand}\` — ` + { en: "reopen a saved journey.", fr: "relancer un trajet enregistré.", es: "reabrir un trayecto guardado.", de: "eine gespeicherte Fahrt erneut öffnen.", pt: "reabrir um trajeto salvo.", it: "riaprire un viaggio salvato." }[tl],
-        ].join("\n"),
+        name: sections.transport,
+        value: `\`${p}transport\` · \`${p}bus <${args.city}>\`\n\`${p}metro <${args.city}>\` · \`${p}train <${args.city}>\`\n\`${p}${favoriteCommand}\``,
       },
       {
-        name: { en: "🎉 Fun", fr: "🎉 Fun", es: "🎉 Diversión", de: "🎉 Spaß", pt: "🎉 Diversão", it: "🎉 Divertimento" }[tl] ?? "🎉 Fun",
-        value: [
-          `\`${p}joke\` · \`/joke\` · \`${p}compliment\``,
-          `\`${p}hug\` · \`${p}encouragement\``,
-          `\`${p}8ball <${args.question}>\` · \`${p}dice [N]\` · \`/roll\``,
-        ].join("\n"),
+        name: sections.fun,
+        value: `\`${p}joke\` · \`/joke\` · \`${p}compliment\`\n\`${p}hug\` · \`${p}encouragement\`\n\`${p}8ball <${args.question}>\` · \`${p}dice\` · \`/roll\``,
       },
       {
-        name: { en: "🎂 Birthdays", fr: "🎂 Anniversaires", es: "🎂 Cumpleaños", de: "🎂 Geburtstage", pt: "🎂 Aniversários", it: "🎂 Compleanni" }[tl] ?? "🎂 Birthdays",
-        value: `\`${p}birthday add DD/MM\` · \`${p}birthday list\`\n\`${p}birthday remove\``,
-      },
-      {
-        name: { en: "📅 Private agenda", fr: "📅 Agenda privé", es: "📅 Agenda privado", de: "📅 Privater Kalender", pt: "📅 Agenda privado", it: "📅 Agenda privata" }[tl] ?? "📅 Private agenda",
-        value: `\`${p}agenda add ${agendaDateTime} <${args.title}>\`\n\`${p}agenda list\` · \`${p}timer 20m <${args.title}>\`\n` +
-          ({ en: "Private reminders by DM.", fr: "Rappels privés par DM.", es: "Avisos privados por DM.", de: "Private Erinnerungen per DM.", pt: "Lembretes privados por DM.", it: "Promemoria privati via DM." }[tl] ?? "Private reminders by DM."),
+        name: sections.daily,
+        value: `\`${p}birthday list\` · \`${p}agenda list\`\n\`${p}timer 20m <${args.title}>\`\n\`${p}help birthday\` · \`${p}help agenda\``,
       },
     );
 
-  // ── Page 2 — Games & Tools ─────────────────────────────────────────────────
   } else if (page === 2) {
-    const desc = { en: "Mini-games & handy tools.", fr: "Mini-jeux & outils pratiques.", es: "Mini-juegos & herramientas.", de: "Mini-Spiele & Werkzeuge.", pt: "Mini-jogos & ferramentas.", it: "Mini-giochi & strumenti." };
-    embed.setDescription(desc[tl]);
     embed.addFields(
       {
-        name: { en: "🎮 Games", fr: "🎮 Jeux", es: "🎮 Juegos", de: "🎮 Spiele", pt: "🎮 Jogos", it: "🎮 Giochi" }[tl] ?? "🎮 Games",
-        value: [
-          `\`${p}minesweeper\` · \`${p}geo\` · \`${p}trivia\``,
-          `\`${p}guessnumber\` · \`${p}hangman\` / \`${p}pendu\``,
-          `\`${p}connect4 solo|@user\` · \`${p}guessthelogo\``,
-          `\`/shellgame\` · \`${p}help games\``,
-        ].join("\n"),
+        name: sections.games,
+        value: `\`${p}minesweeper\` · \`${p}geo\` · \`${p}trivia\`\n\`${p}${hangmanCommand}\` · \`${p}connect4\` · \`${p}guessnumber\`\n\`${p}guessthelogo\` · \`${p}tierlist\` · \`${p}blindtest\`\n\`/shellgame\` · \`${p}help games\` · \`${p}help guesslogo\``,
       },
       {
-        name: { en: "🆕 New Games", fr: "🆕 Nouveaux jeux", es: "🆕 Nuevos juegos", de: "🆕 Neue Spiele", pt: "🆕 Novos jogos", it: "🆕 Nuovi giochi" }[tl] ?? "🆕 New Games",
-        value: [
-          `\`${p}tierlist [${args.theme}]\` · \`${p}blindtest [${args.theme}]\``,
-          `\`${p}milliongame\` · \`${p}help tierlist\``,
-          `\`${p}help blindtest\` · \`${p}help million\``,
-        ].join("\n"),
-      },
-      {
-        name: { en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools",
-        value: [
-          `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\``,
-          `\`${p}qr <${args.text}>\` · \`${p}echo\` · \`${p}food\``,
-          `\`${p}rate <${args.food}>\` · \`${p}translate\` · \`${p}meme\``,
-          `\`${p}shazam\` · \`${p}excel <URL>\` · \`${p}pdf <URL>\``,
-          `\`${p}help tools\``,
-        ].join("\n"),
+        name: sections.tools,
+        value: `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\`\n\`${p}qr <${args.text}>\` · \`${p}food\` · \`${p}translate <${args.language}>\`\n\`${p}meme\` · \`${p}shazam\` · \`${p}help tools\` · \`${p}help food\`\n\`${p}excel <URL>\` · \`${p}pdf <URL>\``,
       },
     );
-
-  // ── Page 3 — Music & Voice ─────────────────────────────────────────────────
   } else if (page === 3) {
-    const desc = { en: "Music, radio, DJ & voice.", fr: "Musique, radio, DJ & vocal.", es: "Música, radio, DJ & voz.", de: "Musik, Radio, DJ & Sprache.", pt: "Música, rádio, DJ & voz.", it: "Musica, radio, DJ & voce." };
-    embed.setDescription(desc[tl]);
     embed.addFields(
       {
-        name: { en: "🎵 YouTube & Queue", fr: "🎵 YouTube & File", es: "🎵 YouTube & Cola", de: "🎵 YouTube & Warteschlange", pt: "🎵 YouTube & Fila", it: "🎵 YouTube & Coda" }[tl] ?? "🎵 YouTube & Queue",
-        value: [
-          `\`${p}y <${args.query}>\` · \`/play <${args.query}>\``,
-          `\`${p}np\` · \`${p}skip\` · \`${p}voteskip\` · \`${p}queue\``,
-          `\`${p}likes\` · \`${p}playlist add|play|list\``,
-        ].join("\n"),
+        name: sections.youtube,
+        value: `\`${p}y <${args.query}>\` · \`/play <${args.query}>\`\n\`${p}np\` · \`${p}skip\` · \`${p}queue\` · \`${p}likes\`\n\`${p}help youtube\` · \`${p}help playlist\``,
       },
       {
-        name: { en: "🎛️ DJ Console", fr: "🎛️ Console DJ", es: "🎛️ Consola de DJ", de: "🎛️ DJ-Konsole", pt: "🎛️ Console de DJ", it: "🎛️ Console DJ" }[tl] ?? "🎛️ DJ Console",
-        value: `\`${p}dj\` — ` + { en: "Interactive mixing table with buttons", fr: "Table de mixage interactive avec boutons", es: "Mesa de mezclas interactiva con botones", de: "Interaktiver Mixer mit Buttons", pt: "Mesa de mixagem interativa com botões", it: "Tavolo di mixaggio interattivo con pulsanti" }[tl],
+        name: sections.radio,
+        value: `\`${p}radio list\` · \`${p}radio <${args.station}>\`\n\`${p}dj\` · \`${p}help radio\` · \`${p}help dj\``,
       },
       {
-        name: { en: "📻 Radio", fr: "📻 Radio", es: "📻 Radio", de: "📻 Radio", pt: "📻 Rádio", it: "📻 Radio" }[tl] ?? "📻 Radio",
-        value: [
-          `\`${p}radio list\` · \`${p}radio <${args.station}>\``,
-          `\`${p}radio leave\``,
-          { en: "Examples: !radio jazz · !radio groove", fr: "Exemples : !radio jazz · !radio fip", es: "Ejemplos: !radio los40 · !radio hiphop", de: "Beispiele: !radio jazz · !radio groove", pt: "Exemplos: !radio jazz · !radio groove", it: "Esempi: !radio jazz · !radio classicfm" }[tl],
-        ].join("\n"),
-      },
-      {
-        name: { en: "🎤 Karaoke", fr: "🎤 Karaoké", es: "🎤 Karaoke", de: "🎤 Karaoke", pt: "🎤 Karaokê", it: "🎤 Karaoke" }[tl] ?? "🎤 Karaoke",
-        value: `\`${p}karaoke <${args.artistSong}>\`\n\`${p}karaoke stop\``,
-      },
-      {
-        name: { en: "🎵 Suno AI", fr: "🎵 Suno AI", es: "🎵 Suno AI", de: "🎵 Suno AI", pt: "🎵 Suno AI", it: "🎵 Suno AI" }[tl] ?? "🎵 Suno AI",
-        value: `\`${p}music generator <${args.prompt}>\`\n\`${p}music prompt\` · \`${p}balance\` · \`${p}credits\``,
+        name: sections.music,
+        value: `\`${p}karaoke <${args.artistSong}>\` · \`${p}help karaoke\`\n\`${p}music generator <${args.prompt}>\` · \`${p}help music\``,
       },
     );
 
-  // ── Page 4 — Voice & Server ────────────────────────────────────────────────
   } else if (page === 4) {
-    const desc = { en: "Voice.", fr: "Vocal.", es: "Voz.", de: "Sprache.", pt: "Voz.", it: "Voce." };
-    embed.setDescription(desc[tl]);
     embed.addFields(
       {
-        name: { en: "🎙️ Voice", fr: "🎙️ Vocal", es: "🎙️ Voz", de: "🎙️ Sprache", pt: "🎙️ Voz", it: "🎙️ Voce" }[tl] ?? "🎙️ Voice",
-        value: [
-          `\`${p}join\` · \`${p}leave\` · \`${p}subtitles\``,
-          `\`${p}voice chat on/off\` · \`${p}voice say <${args.text}>\``,
-          `\`${p}voice stop\` · \`${p}voice resume\``,
-        ].join("\n"),
+        name: sections.voice,
+        value: `\`${p}join\` · \`${p}leave\` · \`${p}subtitles\`\n\`${p}voice say <${args.text}>\``,
+      },
+      {
+        name: sections.voiceChat,
+        value: `\`${p}voice chat on/off\` · \`${p}voice stop\` · \`${p}voice resume\`\n\`${p}help voice\``,
       },
     );
-
-  // ── Page 5 — AI, memory & useful information ────────────────────────────────
   } else if (page === 5) {
-    const desc = { en: "AI, personal goals and verified information.", fr: "IA, objectifs personnels et informations vérifiées.", es: "IA, objetivos personales e información verificada.", de: "KI, persönliche Ziele und geprüfte Informationen.", pt: "IA, objetivos pessoais e informações verificadas.", it: "IA, obiettivi personali e informazioni verificate." };
-    const questGoalArgument = args.goal;
-    embed.setDescription(desc[tl]);
     embed.addFields(
       {
-        name: { en: "🤖 AI", fr: "🤖 IA", es: "🤖 IA", de: "🤖 KI", pt: "🤖 IA", it: "🤖 IA" }[tl] ?? "🤖 AI",
+        name: sections.ai,
         value: [
-          `\`@bot <${args.question}>\` · \`@bot analyse [@membre]\``,
-          `\`${p}ai battle <${args.topic}>\` · \`${p}ai stop\``,
-          `\`${p}conspiracy\` · \`${p}ai enable\``,
-          `\`${p}ai reset\` · \`${p}help ai\``,
+          `\`@bot <${args.question}>\` · \`${p}ai enable\``,
+          `\`${p}${weatherCommand} <${args.city}>\`${lang === "fr" ? ` · \`${p}trajet <${args.text}>\`` : ""}`,
+          `\`${p}ai memory\` · \`${p}persona help\` · \`${p}help ai\``,
         ].join("\n"),
       },
       {
-        name: { en: "🔒 Private memory", fr: "🔒 Mémoire privée", es: "🔒 Memoria privada", de: "🔒 Privater Speicher", pt: "🔒 Memória privada", it: "🔒 Memoria privata" }[tl] ?? "🔒 Private memory",
-        value: [
-          `\`${p}ai remember <${args.information}>\` · \`${p}ai memory\``,
-          `\`${p}ai forget <${args.number}|all>\``,
-          `\`${p}ai memory auto on\` · \`${p}ai memory auto off\``,
-          `\`${p}help memory\``,
-        ].join("\n"),
+        name: sections.quests,
+        value: `\`${p}quest start\` · \`${p}quest list\`\n\`${p}quest add <${args.goal}>\` · \`${p}quest done <N>\`\n\`${p}help quest\``,
       },
       {
-        name: { en: "🎯 Quests & levels", fr: "🎯 Quêtes & niveaux", es: "🎯 Misiones y niveles", de: "🎯 Quests & Level", pt: "🎯 Missões e níveis", it: "🎯 Missioni e livelli" }[tl] ?? "🎯 Quests & levels",
-        value: [
-          `\`${p}quest start\` · \`${p}quest add <${questGoalArgument}>\``,
-          `\`${p}quest list\` · \`${p}quest done <N|all>\` · \`${p}quest negotiate\``,
-          `\`${p}quest profile\` · \`${p}quest stats\``,
-          `\`${p}quest remind\` · \`${p}quest bully on|off\``,
-          `\`${p}quest reset\` · \`${p}help quest\``,
-        ].join("\n"),
+        name: sections.civic,
+        value: `\`${p}vote <${args.topic}>\` · \`${p}${lawCommand} <${args.article}>\`\n\`${p}${holidayCommand} <${args.country}> [${args.year}]\` · \`${p}help civic\``,
       },
-      {
-          name: { en: "📚 Civic information", fr: "📚 Infos civiques", es: "📚 Información cívica", de: "📚 Bürgerinfos", pt: "📚 Dados cívicos", it: "📚 Dati civici" }[tl] ?? "📚 Civic information",
-          value: [
-            `\`${p}vote <${args.topic}>\` · \`${p}loi <${args.article}>\``,
-            `\`${p}feries <${args.country}> [${args.year}]\``,
-            { en: "Assembly votes · Legifrance · sourced holiday dates.",
-              fr: "Scrutins de l’Assemblée · Légifrance · jours fériés sourcés.",
-              es: "Votos oficiales · Legifrance · festivos con fuente.",
-              de: "Abstimmungen · Legifrance · Feiertage mit Quelle.",
-              pt: "Votações · Legifrance · feriados com fonte.",
-              it: "Votazioni · Legifrance · festività con fonte." }[tl] ?? "",
-          ].join("\n"),
-        },
     );
   }
 
@@ -870,6 +925,7 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
         { name: `\`${p}poll <${args.question}> | opt1 | opt2\``, value: { en: "Create a poll with up to 9 options.", fr: "Créer un sondage avec jusqu'à 9 options.", es: "Crear una encuesta con hasta 9 opciones.", de: "Erstelle eine Umfrage mit bis zu 9 Optionen.", pt: "Criar uma enquete com até 9 opções.", it: "Crea un sondaggio con fino a 9 opzioni." }[tl] ?? "" },
         { name: `\`${p}joke\`  \`${p}compliment\`  \`${p}hug\`  \`${p}encouragement\``, value: { en: "Fun responses. Append a lang code: `!joke fr`, `!joke ja`, `!joke ru`, `!joke nl`…", fr: "Réponses fun. Ajoute un code langue : `!joke fr`, `!joke ja`, `!joke ru`…", es: "Respuestas divertidas. Añade código de idioma: `!joke fr`, `!joke ja`, `!joke ru`…", de: "Spaßige Antworten. Sprachkürzel anhängen: `!joke fr`, `!joke ja`, `!joke ru`…", pt: "Respostas divertidas. Adicione o código do idioma: `!joke fr`, `!joke ja`, `!joke ru`…", it: "Risposte divertenti. Aggiungi il codice lingua: `!joke fr`, `!joke ja`, `!joke ru`…" }[tl] ?? "" },
         { name: `\`${p}8ball <${args.question}>\``, value: { en: "Ask the magic 8-ball.", fr: "Demande à la boule magique.", es: "Pregunta a la bola mágica.", de: "Frag die magische 8-Ball.", pt: "Pergunte à bola mágica.", it: "Chiedi alla palla magica." }[tl] ?? "" },
+        { name: `\`${p}credits\``, value: { en: "Show the bot's project credits.", fr: "Afficher les crédits du projet du bot.", es: "Mostrar los créditos del proyecto del bot.", de: "Projekt-Credits des Bots anzeigen.", pt: "Mostrar os créditos do projeto do bot.", it: "Mostra i crediti del progetto del bot." }[tl] ?? "" },
         { name: `\`${p}dice [N]\``, value: { en: "Roll an N-sided die (default 6).", fr: "Lance un dé à N faces (défaut 6).", es: "Lanza un dado de N caras (defecto 6).", de: "Würfle einen N-seitigen Würfel (Standard 6).", pt: "Role um dado de N faces (padrão 6).", it: "Tira un dado a N facce (default 6)." }[tl] ?? "" },
       );
       break;

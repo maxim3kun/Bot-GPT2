@@ -1,10 +1,29 @@
-import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, type HelpLanguage, type HelpPage } from "./help-builders.js";
+import { buildHelpEmbed, buildTopicEmbed, HELP_TOTAL_PAGES, type HelpLanguage, type HelpPage, type HelpTopic } from "./help-builders.js";
 import { buildPersonaHelp, PERSONA_HELP_PAGES } from "./persona-help.js";
 
 const COMMAND_EXECUTION_BOUNDARY =
   "Executable bot tools are handled by a separate application-controlled router, not by this chat completion. " +
   "No executable tool result is attached here: never claim to have started a game, played audio, run a diagnostic, or performed any Discord action. " +
   "Never output text as an executable command, infer confirmation, or invent an action result. For unsupported action requests, explain the limit and suggest the real help command.";
+
+const HELP_TOPICS: HelpTopic[] = [
+  "language", "general", "games", "dj", "music", "radio", "youtube", "karaoke", "playlist",
+  "voice", "ai", "quest", "levels", "birthday", "guesslogo", "tools", "dictionary", "qr",
+  "echo", "pokemon", "welcome", "schedule", "agenda", "food", "civic", "tierlist", "blindtest",
+  "milliongame", "persona", "memory", "diagnostics", "translation", "meme",
+];
+
+function documentedCommands(language: HelpLanguage, prefix: string): string[] {
+  const commands = HELP_TOPICS.flatMap(topic => {
+    const embed = buildTopicEmbed(topic, language, prefix).toJSON();
+    const text = [embed.title, embed.description, ...(embed.fields ?? []).flatMap(field => [field.name, field.value])]
+      .filter(Boolean).join("\n");
+    return [...text.matchAll(/`([^`]+)`/g)]
+      .map(match => match[1]!.trim())
+      .filter(command => command.startsWith(prefix) || command.startsWith("/") || command.startsWith("@bot"));
+  });
+  return [...new Set(commands)];
+}
 
 /** Use the bot's real help catalogue, rather than a second AI-invented command list. */
 export function buildBotCommandContext(text: string, language: HelpLanguage, prefix: string): string {
@@ -14,6 +33,7 @@ export function buildBotCommandContext(text: string, language: HelpLanguage, pre
     return [page.description, ...(page.fields ?? []).map((field) => `${field.name}: ${field.value}`)]
       .filter(Boolean).join("\n");
   });
+  pages.push(`Command examples from detailed help topics:\n${documentedCommands(language, prefix).join("\n")}`);
   // These domain guides remain available to the AI even though their duplicate
   // pages were removed from the public paginator.
   for (let index = 0; index < PERSONA_HELP_PAGES; index++) {

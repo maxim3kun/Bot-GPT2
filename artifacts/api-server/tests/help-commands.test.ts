@@ -36,22 +36,26 @@ test("Every help page and topic serializes within Discord limits in every suppor
   }
 });
 
-test("Help keeps useful commands and details separate from the removed sixth page", () => {
+test("Help keeps the overview short and leaves complete command details available by topic", () => {
   const overview = JSON.stringify(buildHelpEmbed("fr", 1).toJSON());
   for (const hidden of ["!hello", "!ask", "!suggest", "!language"]) assert.equal(overview.includes(hidden), false);
   assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   assert.equal(HELP_TOTAL_PAGES, 5);
   for (const command of ["/help", "/poll", "/play", "/shellgame"]) assert.ok(all.includes(command), command);
-  assert.equal(all.includes("Automatic summaries"), false);
-  assert.equal(all.includes("my settings"), false);
-  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest", "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food", "excel <URL>", "pdf <URL>"]) assert.ok(all.includes(command), command);
+  for (const command of ["!transport", "!bus <ville>", "!metro <ville>", "!train <ville>", "!favoris",
+    "!birthday list", "!agenda list", "!help birthday", "!help agenda", "!help games", "!help tools",
+    "!meteo <ville>", "!quest start", "!vote <sujet>", "!loi <article>", "!feries <pays> [année]"]) {
+    assert.ok(all.includes(command), command);
+  }
+  const details = ["general", "memory", "games", "tools", "food", "birthday", "agenda", "quest", "tierlist", "blindtest", "milliongame"]
+    .map(topic => JSON.stringify(buildTopicEmbed(topic as HelpTopic, "fr").toJSON())).join("\n");
+  for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest",
+    "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food", "excel <URL>", "pdf <URL>", "quest negotiate", "credits"]) {
+    assert.ok(details.includes(command), command);
+  }
   for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
-  assert.equal(all.includes("Slash"), false);
-  assert.equal(all.includes("Sort 20 items"), false);
-  assert.equal(all.includes("Tous supportent"), false);
-  assert.ok(all.includes("quest add <objectif>"));
-  assert.ok(all.includes("quest negotiate"));
+  assert.ok(JSON.stringify(buildTopicEmbed("quest", "fr").toJSON()).includes("quest add <objectif>"));
   const frenchFood = JSON.stringify(buildTopicEmbed("food", "fr").toJSON());
   assert.match(frenchFood, /code-barres/);
   assert.ok(frenchFood.includes("food <nom|code-barres>"));
@@ -72,8 +76,17 @@ test("Help localizes command argument labels in French, English and Spanish", ()
   const english = JSON.stringify(buildHelpEmbed("en", 5).toJSON());
   const spanish = JSON.stringify(buildHelpEmbed("es", 5).toJSON());
   assert.ok(french.includes("!feries <pays> [année]"));
-  assert.ok(english.includes("!feries <country> [year]"));
-  assert.ok(spanish.includes("!feries <país> [año]"));
+  assert.ok(french.includes("!loi <article>"));
+  assert.ok(french.includes("!meteo <ville>"));
+  assert.ok(french.includes("!trajet <texte>"));
+  assert.equal(french.includes("!weather"), false);
+  assert.ok(english.includes("!holidays <country> [year]"));
+  assert.ok(english.includes("!law <article>"));
+  assert.ok(english.includes("!weather <city>"));
+  assert.equal(english.includes("!meteo"), false);
+  assert.equal(english.includes("!trajet"), false);
+  assert.ok(spanish.includes("!holidays <país> [año]"));
+  assert.ok(spanish.includes("!law <artículo>"));
   assert.ok(JSON.stringify(buildHelpEmbed("fr", 2).toJSON()).includes("!define <mot>"));
   assert.ok(JSON.stringify(buildHelpEmbed("es", 2).toJSON()).includes("!define <palabra>"));
   assert.ok(JSON.stringify(buildTopicEmbed("memory", "fr").toJSON()).includes("!ai remember <information>"));
@@ -85,7 +98,9 @@ test("Help overview uses deliberate mobile line breaks and never leaves emoji-on
   for (const language of languages) {
     for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
       const embed = buildHelpEmbed(language, page as HelpPage).toJSON();
+      assert.ok((embed.fields?.length ?? 0) <= 4, `${language}/${page}: too many sections`);
       for (const field of embed.fields ?? []) {
+        assert.ok(field.value.split("\n").length <= 4, `${language}/${page}: section is too long`);
         for (const line of field.value.split("\n")) {
           assert.equal(emojiOnly.test(line.trim()), false, `${language}/${page}: emoji-only row`);
           assert.ok(line.length <= 90, `${language}/${page}: line is too long (${line.length}): ${line}`);
@@ -96,6 +111,14 @@ test("Help overview uses deliberate mobile line breaks and never leaves emoji-on
   const frenchStart = buildHelpEmbed("fr", 1).toJSON();
   assert.ok(frenchStart.fields![1]!.value.includes("!transport` · `!bus <ville>`\n"));
   assert.ok(frenchStart.fields![2]!.value.includes("!joke` · `/joke` · `!compliment`"));
+  assert.equal(buildHelpEmbed("fr", 2).toJSON().fields![0]!.value.includes("!pendu"), true);
+  assert.equal(buildHelpEmbed("fr", 2).toJSON().fields![0]!.value.includes("!hangman"), false);
+  assert.equal(buildHelpEmbed("en", 2).toJSON().fields![0]!.value.includes("!hangman"), true);
+  assert.equal(buildHelpEmbed("en", 2).toJSON().fields![0]!.value.includes("!pendu"), false);
+  assert.equal(buildHelpEmbed("fr", 1).toJSON().fields![1]!.value.includes("!favoris"), true);
+  assert.equal(buildHelpEmbed("en", 1).toJSON().fields![1]!.value.includes("!favorites"), true);
+  assert.equal(buildHelpEmbed("ja", 1).toJSON().title, "🌟 まずはこちら");
+  assert.equal(buildHelpEmbed("tr", 1).toJSON().title, "🌟 Buradan başla");
 });
 
 test("Every help page uses the server prefix in fields and footer and the AI sees the expanded catalogue", () => {
@@ -148,6 +171,8 @@ test("The public command overview never advertises a slash-only command with a f
   const dataExport = readFileSync("src/discord/data-export.ts", "utf8");
   for (const match of dataExport.matchAll(/command === "(excel|pdf)"/g)) implemented.add(match[1]);
   const transportCommands = readFileSync("src/bot.ts", "utf8");
+  if (transportCommands.includes("handleWeatherCommand")) implemented.add("meteo");
+  if (transportCommands.includes("handleJourneyCommand")) implemented.add("trajet");
   if (transportCommands.includes("handleTransportCommand(message")) {
     for (const command of ["transport", "transports", "bus", "metro", "tram", "train"]) implemented.add(command);
   }
@@ -208,7 +233,7 @@ test("Help navigation reaches all pages, wraps, protects the author and disables
   const updates: any[] = [];
   const button = { customId: "help_next", user: { id: "author" }, update: async (payload: unknown) => { updates.push(payload); } };
   for (let i = 1; i < HELP_TOTAL_PAGES; i++) await fixture.handlers.get("collect")!(button);
-  assert.match(updates.at(-1).embeds[0].toJSON().title, /IA & infos utiles/);
+  assert.match(updates.at(-1).embeds[0].toJSON().title, /IA et infos utiles/);
   await fixture.handlers.get("collect")!(button);
   assert.match(updates.at(-1).embeds[0].toJSON().footer.text, new RegExp(`1/${HELP_TOTAL_PAGES}`));
   await fixture.handlers.get("collect")!({ ...button, customId: "help_prev" });
@@ -252,7 +277,7 @@ test("Help opens the Persona guide with an emoji button and returns to the same 
   await click("help_persona_tab_3");
   assert.equal(updates.at(-1).embeds[0].toJSON().title, "Mémoire et réglages");
   await click("help_persona_back");
-  assert.match(updates.at(-1).embeds[0].toJSON().description, /essentiels/i);
+  assert.match(updates.at(-1).embeds[0].toJSON().description, /essentielles/i);
   assert.match(updates.at(-1).embeds[0].toJSON().footer.text, /1\/5/);
   await click("help_personas", "other");
   assert.equal(replies.at(-1).ephemeral, true);
