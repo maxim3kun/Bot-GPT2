@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler } from "../src/discord/voice.js";
+import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler, voiceSubtitlesEnabled } from "../src/discord/voice.js";
+import { buildRadioSpeechMixArgs, createVoiceActivationChime, RADIO_DUCK_VOLUME, sanitizeSpeechText } from "../src/discord/voice-audio-policy.js";
 import { fixture } from "./fixtures/voice-chat.js";
 
 function makeMessage(guildId = "guild") {
@@ -46,7 +47,38 @@ test("Joining a voice channel does not start listening until a member opts in", 
   fixture.connection.emit("ready");
   assert.equal(fixture.connection.receiver.speaking.listenerCount("start"), 0);
   assert.equal(fixture.subscriptions, 0);
+  assert.equal(voiceSubtitlesEnabled("no-auto-listen"), false);
   assert.match(x.replies[0], /désactivée/);
+});
+
+test("Starting radio preserves each member's explicit voice-chat opt-in", async () => {
+  const x = makeMessage("radio-preserves-chat");
+  await joinVoice(x.message);
+  assert.equal(await enableVoiceChat(x.message), true);
+  assert.equal(fixture.connection.receiver.speaking.listenerCount("start"), 1);
+  fixture.voiceCleanupHook?.(x.message.guildId);
+  assert.equal(isInVoice(x.message.guildId), true);
+  assert.equal(fixture.connection.receiver.speaking.listenerCount("start"), 1);
+  await disableVoiceChat(x.message);
+});
+
+test("Speech playback strips emoji and stage directions without changing the written answer", () => {
+  assert.equal(sanitizeSpeechText("Je vais bien, merci 😊 ! *sourit*"), "Je vais bien, merci !");
+  assert.equal(sanitizeSpeechText("Bonjour 👋 — voici la réponse."), "Bonjour — voici la réponse.");
+});
+
+test("Activation sound is a short valid WAV and live-radio mixing keeps music under speech", () => {
+  const chime = createVoiceActivationChime();
+  assert.equal(chime.toString("ascii", 0, 4), "RIFF");
+  assert.equal(chime.toString("ascii", 8, 12), "WAVE");
+  assert.ok(chime.length < 30_000);
+
+  const args = buildRadioSpeechMixArgs("https://radio.example/live.mp3", 1);
+  const filter = args[args.indexOf("-filter_complex") + 1]!;
+  assert.match(filter, new RegExp(`volume=${RADIO_DUCK_VOLUME}`));
+  assert.match(filter, /amix=inputs=2:duration=shortest/);
+  assert.equal(args.at(-1), "pipe:1");
+  assert.throws(() => buildRadioSpeechMixArgs("file:///etc/passwd"));
 });
 
 test("Declined or unknown AI consent never activates voice capture", async () => {

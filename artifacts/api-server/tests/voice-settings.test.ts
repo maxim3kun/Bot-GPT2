@@ -20,7 +20,7 @@ function fixture(userId = "owner") {
   return { message, replies, updates, handlers };
 }
 
-test("Bot defaults to SIWIS; only server managers may save; Mongo errors never report success", async () => {
+test("Bot defaults to the masculine Gilles voice; only server managers may save", async () => {
   const x = fixture();
   assert.equal(await getBotVoice("guild"), DEFAULT_VOICE);
   f.admin = false;
@@ -40,7 +40,7 @@ test("Bot defaults to SIWIS; only server managers may save; Mongo errors never r
   assert.match(x.replies.pop(), /inconnue/);
   assert.equal(await getBotVoice("guild"), "gilles");
   await handleBotVoiceSelection(x.message, "default");
-  assert.equal(await getBotVoice("guild"), "siwis");
+  assert.equal(await getBotVoice("guild"), "gilles");
 });
 
 test("Persona voices are owner-only, isolated and resettable without changing memories or bot settings", async () => {
@@ -49,7 +49,7 @@ test("Persona voices are owner-only, isolated and resettable without changing me
   assert.equal(f.personas.azumi.ttsVoiceId, "gilles");
   assert.equal(f.personas.azumi.profile, "Keep this profile");
   assert.equal(f.personas.other.ttsVoiceId, "siwis");
-  assert.equal(await getBotVoice("guild"), "siwis");
+  assert.equal(await getBotVoice("guild"), "gilles");
   const attacker = fixture("intruder");
   await selectVoice(attacker.message, personaVoiceSelection(attacker.message, f.personas.azumi), "siwis");
   assert.match(attacker.replies.pop(), /permission/);

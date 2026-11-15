@@ -52,8 +52,8 @@ export async function selectVoice(message: Message, selection: VoiceSelection, r
   }
   const prefix = await getPrefix(message.guildId);
   const description = (id?: string) => copy(message,
-    `Voix actuelle : **${id ? voiceName(id) : "Par défaut"}**.\nVoix françaises locales, sans API payante. SIWIS est la voix de base. Les personas sans réglage héritent du bot.\nPour les autres langues, la voix Google existante est conservée.`,
-    `Current voice: **${id ? voiceName(id) : "Default"}**.\nLocal French voices, no paid API. SIWIS is the base voice; personas without an override inherit the bot.\nOther languages keep the existing Google voice.`);
+    `Voix actuelle : **${id ? voiceName(id) : "Gilles (voix masculine)"}**.\nVoix françaises locales, sans API payante. Les personas sans réglage héritent de la voix du bot; chacun peut garder sa propre voix.\nPour les autres langues, la voix Google existante est conservée.`,
+    `Current voice: **${id ? voiceName(id) : "Gilles (male voice)"}**.\nLocal French voices, no paid API. Personas without an override inherit the bot; each persona can keep its own voice.\nOther languages keep the existing Google voice.`);
   const embed = new EmbedBuilder().setColor(0x8b5cf6)
     .setTitle(copy(message, `Voix · ${selection.label}`, `Voice · ${selection.label}`))
     .setDescription(description(selection.current))

@@ -13,6 +13,7 @@ import { type Message, type TextChannel, EmbedBuilder, ActionRowBuilder, ButtonB
 import { get as httpsGet } from "https";
 import { get as httpGet } from "http";
 import type { IncomingMessage } from "http";
+import { spawn } from "node:child_process";
 import { logger } from "../lib/logger";
 import { ytdlpInfo, ytdlpStream, ytdlpStreamWithFx, ytdlpSearch, cleanYouTubeTitle, type YtInfo } from "../lib/ytdlp";
 import { customStationsCol } from "../lib/db.js";
@@ -21,6 +22,7 @@ import type { UserLang } from "./user-lang-store.js";
 import { authorizeAudioStream, togglePlaybackState } from "./audio-playback-state.js";
 import { enqueueAuthorizedTrack, removeAuthorizedTrack, playingTrackAuthorization, setPlayingTrackAuthorization, playAuthorizedQueuedStream, type PlaybackAuthorization } from "./audio-queue-access.js";
 import { searchActorAllowed, type SearchActor } from "./audio-search-access.js";
+import { buildRadioSpeechMixArgs } from "./voice-audio-policy.js";
 
 const RADIO_COMMAND_COPY: Record<UserLang, { missing: string; suggestions: string; fullList: string }> = {
   en: { missing: "No station found for", suggestions: "Station not found. Did you mean:", fullList: "Full list" },
@@ -406,6 +408,7 @@ interface RadioState {
   sbResume: { stationKey: string } | { youtubeUrl: string; authorize?: PlaybackAuthorization } | null;
   /** Current volume level (1.0 = 100%) */
   volume: number;
+  speechOverlayActive: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   activeResource: any | null;
 }
@@ -777,10 +780,8 @@ export async function replyNotInVoice(message: Message, pendingKey?: string): Pr
   }
 }
 
-// ── Bug 1 fix: hook so voice.ts can register a cleanup callback ───────────────
-// voice.ts already imports from radio.ts (one-way dep), so radio.ts cannot
-// import from voice.ts. Instead voice.ts registers a cleanup function here
-// that radio.ts calls before taking over the voice connection.
+// voice.ts registers a callback so radio can take over playback without
+// shutting down an explicitly enabled voice-chat receiver.
 let _voiceCleanupHook: ((guildId: string) => void) | null = null;
 export function setVoiceCleanupHook(fn: (guildId: string) => void): void {
   _voiceCleanupHook = fn;
@@ -819,8 +820,8 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
   }
 
   if (!radioStates.has(guildId)) {
-    // Bug 1 fix: if voice.ts has an active TTS session for this guild, clean it
-    // up before radio takes over the connection (avoids two players on one conn)
+    // Preserve the opted-in receiver; only stop an idle TTS player before radio
+    // takes over the connection's playback subscription.
     _voiceCleanupHook?.(guildId);
 
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
@@ -830,11 +831,12 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
     player.on(AudioPlayerStatus.Idle, () => {
       const s = radioStates.get(guildId);
       if (!s) return;
+      if (s.speechOverlayActive) return;
 
       if (s.stationKey) {
         // Radio stream dropped — reconnect with exponential backoff
         const key = s.stationKey;
-        const station = RADIO_STATIONS[key];
+        const station = RADIO_STATIONS[key] ?? customStations.get(key);
         if (!station) return;
         const MAX_ATTEMPTS = 6;
         const attempt = s.reconnectAttempt + 1;
@@ -933,6 +935,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
       requestedBy: null,
       sbResume: null,
       volume: 1.0,
+      speechOverlayActive: false,
       activeResource: null,
     });
   } else {
@@ -943,7 +946,7 @@ export async function ensureVoiceConnection(message: Message, onReady?: () => Pr
 }
 
 // ── Resume radio station directly (no Message needed) ─────────────────────────
-async function resumeRadioStation(guildId: string, stationKey: string): Promise<void> {
+async function resumeRadioStation(guildId: string, stationKey: string, notify = true): Promise<void> {
   const state = radioStates.get(guildId);
   if (!state) return;
   const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
@@ -965,11 +968,102 @@ async function resumeRadioStation(guildId: string, stationKey: string): Promise<
     state.activeResource = resource;
     setPlayingTrackAuthorization(state);
     state.player.play(resource);
-    state.notifyChannel?.send(`📻 Resuming **${station.name}** ${station.emoji}`).catch(() => null);
+    if (notify) state.notifyChannel?.send(`📻 Resuming **${station.name}** ${station.emoji}`).catch(() => null);
   } catch (err) {
     logger.error({ err, stationKey }, "Failed to resume radio after soundboard effect");
     startIdleTimer(guildId);
   }
+}
+
+/**
+ * Mix a live station under a short TTS reply. Returns null when there is no
+ * active station; false means mixing failed and the caller may use its
+ * pause-and-speak fallback.
+ */
+export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promise<boolean | null> {
+  const state = radioStates.get(guildId);
+  if (!state || !state.stationKey || state.paused || !state.activeResource || state.speechOverlayActive) return null;
+  const stationKey = state.stationKey;
+  const station = RADIO_STATIONS[stationKey] ?? customStations.get(stationKey);
+  if (!station) return null;
+
+  state.speechOverlayActive = true;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let child: ReturnType<typeof spawn> | undefined;
+  let succeeded = false;
+  try {
+    const args = buildRadioSpeechMixArgs(station.url, state.volume);
+    child = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "ignore"] });
+    const stdout = child.stdout;
+    const stdin = child.stdin;
+    if (!stdout || !stdin) throw new Error("Radio speech mixer pipes are unavailable");
+
+    const resource = createAudioResource(stdout, { inputType: StreamType.Raw });
+    state.player.stop();
+    state.activeResource = resource;
+
+    succeeded = await new Promise<boolean>((resolveMix) => {
+      let settled = false;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        state.player.off(AudioPlayerStatus.Idle, onIdle);
+        state.player.off("error", onPlayerError);
+      };
+      const finish = (result: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolveMix(result);
+      };
+      const onIdle = () => finish(true);
+      const onPlayerError = () => finish(false);
+      const onChildError = () => finish(false);
+      const onChildClose = (code: number | null) => {
+        if (code !== 0) finish(false);
+      };
+
+      state.player.once(AudioPlayerStatus.Idle, onIdle);
+      state.player.once("error", onPlayerError);
+      child?.once("error", onChildError);
+      child?.once("close", onChildClose);
+      stdin.once("error", onChildError);
+      timer = setTimeout(() => finish(false), 120_000);
+      state.player.play(resource);
+      stdin.end(voiceAudio);
+    });
+  } catch (error) {
+    logger.warn({ guildId, errorName: error instanceof Error ? error.name : "Error" }, "Live radio speech mix failed");
+  } finally {
+    if (child && child.exitCode === null) child.kill("SIGKILL");
+    state.speechOverlayActive = false;
+    if (radioStates.get(guildId) === state && state.stationKey === stationKey && !state.paused) {
+      await resumeRadioStation(guildId, stationKey, false);
+    }
+  }
+  return succeeded;
+}
+
+/** Pause a non-station music source while TTS speaks, then resume it. */
+export function pauseRadioForSpeech(guildId: string): (() => void) | null {
+  const state = radioStates.get(guildId);
+  if (!state) return null;
+  const wasPlaying = state.player.state.status === AudioPlayerStatus.Playing;
+  if (wasPlaying) state.player.pause(true);
+  return () => {
+    if (
+      radioStates.get(guildId) === state
+      && wasPlaying
+      && !state.paused
+      && state.player.state.status === AudioPlayerStatus.Paused
+    ) {
+      getVoiceConnection(guildId)?.subscribe(state.player);
+      state.player.unpause();
+    }
+  };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

@@ -12,17 +12,19 @@ export function sanitizeSpeechText(text: string): string {
     .trim();
 }
 
-export function buildRadioSpeechMixArgs(stationUrl: string): string[] {
+export function buildRadioSpeechMixArgs(stationUrl: string, musicVolume = 1): string[] {
   const parsed = new URL(stationUrl);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Radio speech mixing supports HTTP streams only");
   }
+  const duckedVolume = Math.max(0, Math.min(2, musicVolume)) * RADIO_DUCK_VOLUME;
   return [
     "-hide_banner", "-loglevel", "error",
+    "-rw_timeout", "8000000",
     "-i", parsed.href,
     "-i", "pipe:0",
     "-filter_complex",
-    `[0:a]volume=${RADIO_DUCK_VOLUME},aresample=48000,aformat=channel_layouts=stereo[music];[1:a]aresample=48000,aformat=channel_layouts=stereo[voice];[music][voice]amix=inputs=2:duration=shortest:dropout_transition=0:normalize=0[mix]`,
+    `[0:a]volume=${duckedVolume},aresample=48000,aformat=channel_layouts=stereo[music];[1:a]aresample=48000,aformat=channel_layouts=stereo[voice];[music][voice]amix=inputs=2:duration=shortest:dropout_transition=0:normalize=0[mix]`,
     "-map", "[mix]",
     "-f", "s16le", "-ar", "48000", "-ac", "2",
     "pipe:1",

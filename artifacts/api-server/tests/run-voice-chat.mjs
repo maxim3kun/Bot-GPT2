@@ -10,7 +10,7 @@ const stubs = {
     import { EventEmitter } from "node:events";
     export const AudioPlayerStatus = { Playing: "playing", Paused: "paused", Idle: "idle" };
     export const VoiceConnectionStatus = { Ready: "ready", Disconnected: "disconnected" };
-    export const StreamType = { Arbitrary: "arbitrary" };
+    export const StreamType = { Arbitrary: "arbitrary", Raw: "raw" };
     export const NoSubscriberBehavior = { Pause: "pause" };
     export const EndBehaviorType = { AfterSilence: "silence" };
     export const joinVoiceChannel = () => {
@@ -32,12 +32,18 @@ const stubs = {
       fixture.connection = connection;
       return connection;
     };
-    export const createAudioPlayer = () => ({
-      state: { status: "idle" },
-      stop() {},
-      play() {},
-      on() { return this; }, once() { return this; }, off() { return this; },
-    });
+    export const createAudioPlayer = () => {
+      const player = new EventEmitter();
+      player.state = { status: "idle" };
+      player.stop = () => { player.state.status = "idle"; player.emit("idle"); };
+      player.pause = () => { player.state.status = "paused"; };
+      player.unpause = () => { player.state.status = "playing"; };
+      player.play = () => {
+        player.state.status = "playing";
+        setTimeout(() => { player.state.status = "idle"; player.emit("idle"); }, 2);
+      };
+      return player;
+    };
     export const createAudioResource = value => value;
     export const getVoiceConnection = guildId => fixture.connection;`,
   "discord.js": `
@@ -48,8 +54,11 @@ const stubs = {
     }`,
   "radio.js": `
     export const replyNotInVoice = async message => message.reply("not in voice");
-    export const setVoiceCleanupHook = () => {};
-    export const stopForGuild = () => {};`,
+    export const setVoiceCleanupHook = fn => { fixture.voiceCleanupHook = fn; };
+    export const stopForGuild = () => {};
+    export const radioStates = new Map();
+    export const speakOverRadio = async () => null;
+    export const pauseRadioForSpeech = () => null;`,
   "prism-media": `
     import { EventEmitter } from "node:events";
     class Decoder extends EventEmitter {

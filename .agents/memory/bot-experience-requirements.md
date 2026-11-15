@@ -51,11 +51,11 @@ The user runs the bot on Railway.
 
 **How to apply:** Prepare runtime dependencies and voice models for Railway rather than assuming that a successful local Replit experiment is installed on the deployed bot.
 
-The user likes SIWIS and wants a default voice plus a selection for the bot and each persona.
+The bot's default French voice should be masculine Gilles; personas may keep their own voice.
 
-**Why:** The user explicitly approved the SIWIS sample and requested independent voice choices.
+**Why:** The user asked for a male bot voice while allowing persona-specific voices.
 
-**How to apply:** Keep SIWIS as the base choice and allow creator-controlled persona overrides. Use the bot's server voice when a persona has no override; keep model weights out of MongoDB.
+**How to apply:** Use Gilles when no server voice is saved; preserve explicit server selections and persona overrides. Keep voice-model files on the Railway runtime, not in MongoDB.
 
 Do not add a Persona reaction beneath every bot response. Show the available Personas and creation option only when someone explicitly asks to choose or speak with one.
 

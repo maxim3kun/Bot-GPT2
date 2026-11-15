@@ -7,6 +7,7 @@ export const fixture = {
   featureReadFails: false,
   blocked: false,
   connection: null as any,
+  voiceCleanupHook: null as ((guildId: string) => void) | null,
   decoder: null as any,
   subscriptions: 0,
   destroyedStreams: 0,
@@ -19,6 +20,7 @@ export const fixture = {
     this.featureReadFails = false;
     this.blocked = false;
     this.connection = null;
+    this.voiceCleanupHook = null;
     this.decoder = null;
     this.subscriptions = 0;
     this.destroyedStreams = 0;

@@ -11,12 +11,20 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import { type Message, type TextChannel, PermissionFlagsBits } from "discord.js";
-import { replyNotInVoice, setVoiceCleanupHook, stopForGuild } from "./radio.js";
+import {
+  pauseRadioForSpeech,
+  radioStates,
+  replyNotInVoice,
+  setVoiceCleanupHook,
+  speakOverRadio,
+  stopForGuild,
+} from "./radio.js";
 import { Readable } from "stream";
 import prism from "prism-media";
 import { logger } from "../lib/logger";
 import { piper, DEFAULT_VOICE, isVoiceId } from "./piper-tts.js";
 import { getBotVoice } from "./voice-settings.js";
+import { createVoiceActivationChime, sanitizeSpeechText } from "./voice-audio-policy.js";
 import { recordModuleSuccess, recordModuleFailureState } from "./module-technician.js";
 import { getConsent, requireConsent } from "./ai-consent.js";
 import { getEffectiveLanguage } from "./effective-language.js";
@@ -60,7 +68,6 @@ export async function textToSpeech(text: string, lang = "en"): Promise<Buffer> {
   return Buffer.concat(buffers);
 }
 
-const fallbackNotices = new Map<string, number>();
 const speakingGuilds = new Set<string>();
 async function speechAudio(text: string, lang: string, voice: string): Promise<{ audio: Buffer; degraded: boolean }> {
   // The curated local models are French. Preserve existing multilingual speech.
@@ -72,7 +79,7 @@ async function speechAudio(text: string, lang: string, voice: string): Promise<{
   }
   catch (error) {
     recordModuleFailureState("feature:piper", new Error("Local Piper synthesis failed"));
-    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Local voice unavailable; trying existing Google TTS");
+    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Local voice unavailable; trying the existing free Google TTS fallback");
     return { audio: await textToSpeech(text, lang), degraded: true };
   }
 }
@@ -175,6 +182,7 @@ interface GuildVoiceState {
 }
 
 const guildStates = new Map<string, GuildVoiceState>();
+const activationChimeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export interface VoiceChatTurnContext {
   guildId: string;
   userId: string;
@@ -183,6 +191,32 @@ export interface VoiceChatTurnContext {
 }
 type VoiceChatTurnHandler = (context: VoiceChatTurnContext) => Promise<boolean>;
 let voiceChatTurnHandler: VoiceChatTurnHandler | null = null;
+
+function createGuildVoiceState(
+  message: Message,
+  guildId: string,
+  connection: VoiceConnection,
+  subscribePlayer: boolean,
+): GuildVoiceState {
+  const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+  const state: GuildVoiceState = {
+    textChannel: message.channel as TextChannel,
+    player,
+    active: true,
+    subtitles: false,
+    listeningUsers: new Set(),
+    chatUsers: new Set(),
+    chatMessages: new Map(),
+    activeCaptures: new Map(),
+    botName: message.guild?.members.me?.displayName ?? "Bot",
+    botSpeaking: false,
+    botSpeakingUntil: 0,
+    receiverSetUp: false,
+  };
+  guildStates.set(guildId, state);
+  if (subscribePlayer) connection.subscribe(player);
+  return state;
+}
 
 export function setVoiceChatTurnHandler(handler: VoiceChatTurnHandler): void {
   voiceChatTurnHandler = handler;
@@ -195,6 +229,51 @@ export async function sendVoiceChatResponse<T>(
   const message = await sendText();
   if (speak) await speak().catch(() => false);
   return message;
+}
+
+async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<boolean> {
+  const state = guildStates.get(guildId);
+  const connection = getVoiceConnection(guildId);
+  if (!state || !state.active || !connection || !audio.length) return false;
+
+  const mixedWithRadio = await speakOverRadio(guildId, audio);
+  if (mixedWithRadio === true) return true;
+  if (mixedWithRadio === false) {
+    logger.warn({ guildId }, "Using pause-and-resume fallback after radio mix failed");
+  }
+  const resumeRadio = pauseRadioForSpeech(guildId);
+  try {
+    connection.subscribe(state.player);
+    const resource = createAudioResource(Readable.from(audio), { inputType: StreamType.Arbitrary });
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        state.player.off(AudioPlayerStatus.Idle, onIdle);
+        state.player.off("error", onError);
+      };
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(success);
+      };
+      const onIdle = () => finish(true);
+      const onError = () => finish(false);
+      const timer = setTimeout(() => {
+        state.player.stop();
+        finish(false);
+      }, 240_000);
+      state.player.once(AudioPlayerStatus.Idle, onIdle);
+      state.player.once("error", onError);
+      state.player.play(resource);
+    });
+  } catch (error) {
+    logger.error({ error, guildId }, "TTS playback failed");
+    return false;
+  } finally {
+    resumeRadio?.();
+  }
 }
 
 function userStillInVoiceChat(state: GuildVoiceState, guildId: string, userId: string): boolean {
@@ -230,6 +309,11 @@ async function disableVoiceChatForUser(guildId: string, userId: string): Promise
   if (!state) return;
   state.chatUsers.delete(userId);
   state.chatMessages.delete(userId);
+  const pendingChime = activationChimeTimers.get(guildId);
+  if (pendingChime) {
+    clearTimeout(pendingChime);
+    activationChimeTimers.delete(guildId);
+  }
   const capture = state.activeCaptures.get(userId);
   if (capture) {
     capture.abortController?.abort();
@@ -245,11 +329,15 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
     await replyNotInVoice(message);
     return false;
   }
-  const state = guildStates.get(guildId);
   const connection = getVoiceConnection(guildId);
-  if (!state || !connection || connection.joinConfig.channelId !== message.member.voice.channelId) {
+  if (!connection || connection.joinConfig.channelId !== message.member.voice.channelId) {
     await message.reply("❌ Rejoins le même salon vocal que le bot avant d’activer le chat vocal.");
     return false;
+  }
+  let state = guildStates.get(guildId);
+  if (!state) {
+    state = createGuildVoiceState(message, guildId, connection, !radioStates.has(guildId));
+    connection.on(VoiceConnectionStatus.Disconnected, () => guildStates.delete(guildId));
   }
   const groqKey = process.env["GROQ_API_KEY"];
   if (!groqKey) {
@@ -287,8 +375,18 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
   const prefix = getPrefix(guildId);
   await message.reply(
     "✅ **Chat vocal activé pour toi.** Seule ta voix sera transcrite par Groq pour répondre à l’IA; l’audio brut n’est pas conservé par le bot. " +
-    `La réponse reste écrite même si la synthèse vocale échoue. \`${prefix}voice chat off\` arrête ton écoute; \`${prefix}subtitles\` affiche ou masque la transcription.`,
+    `Les sous-titres sont masqués par défaut. La réponse reste écrite si la synthèse vocale échoue. \`${prefix}voice chat off\` arrête ton écoute; \`${prefix}subtitles\` affiche ou masque la transcription.`,
   );
+  const previousChime = activationChimeTimers.get(guildId);
+  if (previousChime) clearTimeout(previousChime);
+  const chimeTimer = setTimeout(() => {
+    activationChimeTimers.delete(guildId);
+    if (!guildStates.get(guildId)?.chatUsers.has(message.author.id)) return;
+    void playVoiceActivationChime(guildId).catch((error) => {
+      logger.warn({ guildId, errorName: error instanceof Error ? error.name : "Error" }, "Voice activation sound failed");
+    });
+  }, 250);
+  activationChimeTimers.set(guildId, chimeTimer);
   return true;
 }
 
@@ -302,13 +400,32 @@ export async function disableVoiceChat(message: Message): Promise<boolean> {
   return wasEnabled;
 }
 
-// Bug 1 fix: register a cleanup callback so radio.ts can evict our state when
-// it takes over the voice connection (radio.ts can't import voice.ts — circular dep)
+export async function playVoiceActivationChime(guildId: string): Promise<boolean> {
+  const state = guildStates.get(guildId);
+  if (!state || !state.active || state.chatUsers.size === 0 || speakingGuilds.has(guildId)) return false;
+  speakingGuilds.add(guildId);
+  state.botSpeaking = true;
+  try {
+    return await playAudioBufferInVoice(guildId, createVoiceActivationChime());
+  } finally {
+    state.botSpeaking = false;
+    state.botSpeakingUntil = Date.now() + 400;
+    speakingGuilds.delete(guildId);
+  }
+}
+
+// Radio takes over playback without discarding members' explicit voice-chat opt-in.
 setVoiceCleanupHook((guildId: string) => {
   const s = guildStates.get(guildId);
   if (s) {
     s.active = false;
     s.player.stop();
+    if (s.chatUsers.size > 0) {
+      s.active = true;
+      s.botSpeaking = false;
+      logger.info({ guildId, optedInUsers: s.chatUsers.size }, "Voice chat receiver preserved while radio takes playback");
+      return;
+    }
     guildStates.delete(guildId);
     logger.info({ guildId }, "Voice: TTS state cleaned up — radio took over connection");
   }
@@ -341,9 +458,14 @@ function setupReceiverForGuild(
       return;
     }
     state.listeningUsers.add(userId);
+    const pendingChime = activationChimeTimers.get(guildId);
+    if (pendingChime) {
+      clearTimeout(pendingChime);
+      activationChimeTimers.delete(guildId);
+    }
 
     const opusStream = receiver.subscribe(userId, {
-      end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 },
+      end: { behavior: EndBehaviorType.AfterSilence, duration: 500 },
     });
     const capture = { stream: opusStream, abortController: null as AbortController | null };
     state.activeCaptures.set(userId, capture);
@@ -360,7 +482,7 @@ function setupReceiverForGuild(
         if (!s || s.activeCaptures.get(userId) !== capture
           || !userStillInVoiceChat(s, guildId, userId) || pcmChunks.length === 0) return;
         const pcm = Buffer.concat(pcmChunks);
-        if (pcm.length < 288000) {
+        if (pcm.length < 115200) {
           if (s.subtitles) await s.textChannel.send("🎙️ Je n’ai pas compris cet extrait. Réessaie en parlant un peu plus longtemps.").catch(() => null);
           return;
         }
@@ -432,6 +554,10 @@ export function isInVoice(guildId: string): boolean {
   return guildStates.has(guildId);
 }
 
+export function voiceSubtitlesEnabled(guildId: string): boolean {
+  return guildStates.get(guildId)?.subtitles ?? false;
+}
+
 export function resubscribeVoicePlayer(guildId: string): void {
   const state = guildStates.get(guildId);
   const connection = getVoiceConnection(guildId);
@@ -467,27 +593,9 @@ export async function joinVoice(message: Message): Promise<void> {
     selfMute: false,
   });
 
-  const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-  connection.subscribe(player);
-
-  const botName = message.guild?.members.me?.displayName ?? "Bot";
+  createGuildVoiceState(message, guildId, connection, true);
   const prefix = getPrefix(guildId);
   const language = getEffectiveLanguage(guildId, message.author.id);
-
-  guildStates.set(guildId, {
-    textChannel: message.channel as TextChannel,
-    player,
-    active: true,
-    subtitles: false,
-    listeningUsers: new Set(),
-    chatUsers: new Set(),
-    chatMessages: new Map(),
-    activeCaptures: new Map(),
-    botName,
-    botSpeaking: false,
-    botSpeakingUntil: 0,
-    receiverSetUp: false,
-  });
 
   connection.on(VoiceConnectionStatus.Ready, () => {
     logger.info({ guildId, channel: voiceChannel.name }, "Voice ready");
@@ -596,8 +704,10 @@ export async function speakText(
   voiceId?: string,
 ): Promise<boolean> {
   const state = guildStates.get(guildId);
-  if (!state || !state.active || speakingGuilds.has(guildId)) return false;
+  const spokenText = sanitizeSpeechText(text);
+  if (!state || !state.active || speakingGuilds.has(guildId) || !spokenText) return false;
   speakingGuilds.add(guildId);
+  state.botSpeaking = true;
 
   try {
     // Post subtitle first so it appears as the audio starts
@@ -607,37 +717,15 @@ export async function speakText(
     }
 
     const selected = isVoiceId(voiceId) ? voiceId : await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
-    const { audio, degraded } = await speechAudio(text, lang, selected);
-    if (degraded && Date.now() - (fallbackNotices.get(guildId) ?? 0) > 300_000) {
-      fallbackNotices.set(guildId, Date.now());
-      await state.textChannel.send("⚠️ La voix locale est indisponible. J’utilise temporairement la voix Google de secours, sans API payante.").catch(() => null);
-    }
-    const resource = createAudioResource(Readable.from(audio), { inputType: StreamType.Arbitrary });
-
-    // Mark bot as speaking so the receiver ignores its own audio output
-    state.botSpeaking = true;
-    state.player.play(resource);
-
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => { clearTimeout(timer); state.player.off(AudioPlayerStatus.Idle, done); state.player.off("error", fail); };
-      const done = () => { cleanup(); resolve(); };
-      const fail = () => { cleanup(); reject(new Error("Voice playback failed")); };
-      const timer = setTimeout(() => { fail(); state.player.stop(); }, 240_000);
-      state.player.once(AudioPlayerStatus.Idle, done);
-      state.player.once("error", fail);
-    });
-
-    // 1 s cooldown after speaking so reverb/echo doesn't get transcribed
-    state.botSpeaking = false;
-    state.botSpeakingUntil = Date.now() + 1000;
-
-    return true;
+    const { audio } = await speechAudio(spokenText, lang, selected);
+    return await playAudioBufferInVoice(guildId, audio);
   } catch (err) {
     logger.error({ err, guildId }, "TTS error");
-    state.botSpeaking = false;
-    state.botSpeakingUntil = Date.now() + 1000;
     return false;
   } finally {
+    // Brief echo guard after either a radio mix or direct voice playback.
+    state.botSpeaking = false;
+    state.botSpeakingUntil = Date.now() + 600;
     speakingGuilds.delete(guildId);
   }
 }
