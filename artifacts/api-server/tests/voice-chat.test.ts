@@ -129,14 +129,24 @@ test("Disabled AI features, missing transcription configuration and unavailable 
   assert.equal(fixture.subscriptions, 0);
 });
 
-test("AI voice replies are delivered as text before playback, so TTS failure keeps the answer", async () => {
+test("Voice replies stay hidden by default and subtitles show text before speech", async () => {
   const events: string[] = [];
-  const result = await sendVoiceChatResponse(
-    async () => { events.push("text"); return "sent-message"; },
-    async () => { events.push("voice"); throw new Error("TTS unavailable"); },
+  const hidden = await sendVoiceChatResponse(
+    async () => { events.push("hidden-text"); return "sent-message"; },
+    async () => { events.push("hidden-voice"); },
+    false,
   );
-  assert.equal(result, "sent-message");
-  assert.deepEqual(events, ["text", "voice"]);
+  assert.equal(hidden, null);
+  assert.deepEqual(events, ["hidden-voice"]);
+
+  events.length = 0;
+  const shown = await sendVoiceChatResponse(
+    async () => { events.push("shown-text"); return "sent-message"; },
+    async () => { events.push("shown-voice"); throw new Error("TTS unavailable"); },
+    true,
+  );
+  assert.equal(shown, "sent-message");
+  assert.deepEqual(events, ["shown-text", "shown-voice"]);
 });
 
 test("An opted-in speaker's clip is transcribed and only its text reaches the AI handler", async () => {

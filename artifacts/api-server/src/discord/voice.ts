@@ -225,8 +225,10 @@ export function setVoiceChatTurnHandler(handler: VoiceChatTurnHandler): void {
 export async function sendVoiceChatResponse<T>(
   sendText: () => Promise<T>,
   speak: (() => Promise<unknown>) | null,
-): Promise<T> {
-  const message = await sendText();
+  showText: boolean,
+): Promise<T | null> {
+  // Text is opt-in through !subtitles; audio playback remains independent.
+  const message = showText ? await sendText() : null;
   if (speak) await speak().catch(() => false);
   return message;
 }
@@ -375,7 +377,7 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
   const prefix = getPrefix(guildId);
   await message.reply(
     "✅ **Chat vocal activé pour toi.** Seule ta voix sera transcrite par Groq pour répondre à l’IA; l’audio brut n’est pas conservé par le bot. " +
-    `Les sous-titres sont masqués par défaut. La réponse reste écrite si la synthèse vocale échoue. \`${prefix}voice chat off\` arrête ton écoute; \`${prefix}subtitles\` affiche ou masque la transcription.`,
+    `Les réponses écrites et les sous-titres sont masqués par défaut. \`${prefix}subtitles\` les affiche ou les masque; \`${prefix}voice chat off\` arrête ton écoute.`,
   );
   const previousChime = activationChimeTimers.get(guildId);
   if (previousChime) clearTimeout(previousChime);

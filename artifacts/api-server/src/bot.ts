@@ -4,7 +4,7 @@ import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
-import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse } from "./discord/voice";
+import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse, voiceSubtitlesEnabled } from "./discord/voice";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
@@ -600,8 +600,9 @@ export function startBot(): void {
             return sendVoiceChatResponse(
               () => textChannel.send(outgoing as Parameters<typeof textChannel.send>[0]),
               text && voiceRepliesEnabled
-                ? () => speakText(guildId, text, language, client.user?.username)
+                ? () => speakText(guildId, text, language, client.user?.username, false)
                 : null,
+              voiceSubtitlesEnabled(guildId),
             );
           };
         }
