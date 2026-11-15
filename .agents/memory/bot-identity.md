@@ -8,3 +8,9 @@ Maxime, also known as Maxim3kun, created and develops the MaximeGPT Discord bot.
 **Why:** The user explicitly asked the bot to identify Maxime or Maxim3kun as its creator after it incorrectly claimed OpenAI created it.
 
 **How to apply:** Use this fact in creator/owner answers and capability descriptions; distinguish the bot's product identity from whichever model powers it.
+
+The bot remains MaximeGPT. “Maxime” is a separate, optional AI persona based on the creator; do not make the bot itself impersonate Maxime.
+
+**Why:** The user wants people to be able to choose a persona representing him without making MaximeGPT itself represent him.
+
+**How to apply:** Keep the product/bot identity and the selectable creator persona distinct in names, commands, and replies.
