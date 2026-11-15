@@ -38,22 +38,28 @@ test("Every help page and topic serializes within Discord limits in every suppor
 
 test("Help keeps the overview short and leaves complete command details available by topic", () => {
   const overview = JSON.stringify(buildHelpEmbed("fr", 1).toJSON());
-  for (const hidden of ["!hello", "!ask", "!suggest", "!language"]) assert.equal(overview.includes(hidden), false);
+  for (const hidden of ["!hello", "!ask", "!suggest", "!language", "!help"]) assert.equal(overview.includes(hidden), false);
   assert.ok(overview.includes("/poll"));
   const all = Array.from({ length: HELP_TOTAL_PAGES }, (_, page) => JSON.stringify(buildHelpEmbed("fr", (page + 1) as HelpPage).toJSON())).join("\n");
   assert.equal(HELP_TOTAL_PAGES, 5);
   for (const command of ["/help", "/poll", "/play", "/shellgame"]) assert.ok(all.includes(command), command);
   for (const command of ["!transport", "!bus <ville>", "!metro <ville>", "!train <ville>", "!favoris",
-    "!birthday list", "!agenda list", "!help birthday", "!help agenda", "!help games", "!help tools",
+    "!birthday list", "!agenda list",
     "!meteo <ville>", "!quest start", "!vote <sujet>", "!loi <article>", "!feries <pays> [année]"]) {
     assert.ok(all.includes(command), command);
   }
+  assert.equal(all.includes("!help"), false);
   const details = ["general", "memory", "games", "tools", "food", "birthday", "agenda", "quest", "tierlist", "blindtest", "milliongame"]
     .map(topic => JSON.stringify(buildTopicEmbed(topic as HelpTopic, "fr").toJSON())).join("\n");
   for (const command of ["ai memory auto on", "ai memory auto off", "ai forget", "tierlist", "blindtest",
     "milliongame", "hangman", "pendu", "qr", "echo", "pokemon", "food", "excel <URL>", "pdf <URL>", "quest negotiate", "credits"]) {
     assert.ok(details.includes(command), command);
   }
+  const birthdayHelp = JSON.stringify(buildTopicEmbed("birthday", "fr").toJSON());
+  const agendaHelp = JSON.stringify(buildTopicEmbed("agenda", "fr").toJSON());
+  assert.ok(birthdayHelp.includes("birthday add DD/MM"));
+  assert.ok(agendaHelp.includes("agenda list"));
+  assert.equal(JSON.stringify(buildTopicEmbed("tools", "fr").toJSON()).includes("!help"), false);
   for (const command of ["!persona create", "!persona avatar", "!tech", "!server language", "!prefix", "!voicechannels", "!welcome", "!schedule", "!ai server"]) assert.equal(all.includes(command), false, command);
   assert.ok(JSON.stringify(buildTopicEmbed("quest", "fr").toJSON()).includes("quest add <objectif>"));
   const frenchFood = JSON.stringify(buildTopicEmbed("food", "fr").toJSON());
@@ -98,6 +104,7 @@ test("Help overview uses deliberate mobile line breaks and never leaves emoji-on
   for (const language of languages) {
     for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
       const embed = buildHelpEmbed(language, page as HelpPage).toJSON();
+      assert.equal(JSON.stringify(embed).includes("!help"), false, `${language}/${page}: redundant help command`);
       assert.ok((embed.fields?.length ?? 0) <= 4, `${language}/${page}: too many sections`);
       for (const field of embed.fields ?? []) {
         assert.ok(field.value.split("\n").length <= 4, `${language}/${page}: section is too long`);
@@ -121,11 +128,12 @@ test("Help overview uses deliberate mobile line breaks and never leaves emoji-on
   assert.equal(buildHelpEmbed("tr", 1).toJSON().title, "🌟 Buradan başla");
 });
 
-test("Every help page uses the server prefix in fields and footer and the AI sees the expanded catalogue", () => {
+test("Every help page uses the server prefix in commands and the AI sees the expanded catalogue", () => {
   for (let page = 1; page <= HELP_TOTAL_PAGES; page++) {
     const json = validateEmbed(buildHelpEmbed("fr", page as HelpPage, "??"), `prefix/${page}`);
     assert.equal(JSON.stringify(json).includes("`!"), false, `prefix/${page}`);
-    assert.match(json.footer!.text, /\?\?help/);
+    assert.ok(json.footer!.text.includes(`${page}/`));
+    assert.equal(json.footer!.text.includes("??help"), false);
   }
   const context = buildBotCommandContext("Quelles commandes peux-tu utiliser ?", "fr", "??");
   assert.match(context, /persona create/);
@@ -136,7 +144,7 @@ test("Every help page uses the server prefix in fields and footer and the AI see
   for (const prefix of ["!!", "!m", "+"]) {
     const json = buildHelpEmbed("fr", 1, prefix).toJSON();
     assert.ok(json.fields![0]!.value.includes(`\`${prefix}say\``), prefix);
-    assert.ok(json.footer!.text.includes(`${prefix}help`), prefix);
+    assert.doesNotMatch(json.footer!.text, /help/i, prefix);
     assert.equal(JSON.stringify(json).includes("{{command-prefix}}"), false);
   }
 });
@@ -532,7 +540,7 @@ test("Persona help has short themed pages, real examples and the current command
     }
     assert.ok(all.join("\n").includes("??persona bully"), `${language}/bully`);
     assert.match(all.join("\n"), /quest reminders|rappels de quêtes/);
-    assert.match(all.join("\n"), /🎭/);
+    assert.doesNotMatch(all.join("\n"), /retire la réaction|remove your reaction/i);
   }
   const frenchStart = JSON.stringify(buildPersonaHelp("fr", 0, "??").toJSON());
   assert.match(frenchStart, /personality|personnalité|description/i);

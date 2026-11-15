@@ -129,17 +129,17 @@ function textLang(lang: HelpLanguage): TextLang {
 const L = {
   title:    { en: "📖 Bot Help",       fr: "📖 Aide du bot",    es: "📖 Ayuda del bot",   de: "📖 Bot-Hilfe",      pt: "📖 Ajuda do bot",   it: "📖 Guida del bot",  ja: "📖 ボットヘルプ",   nl: "📖 Bot hulp",       ru: "📖 Помощь бота",   pl: "📖 Pomoc bota",     tr: "📖 Bot yardım"     },
   footer:   { en: "Page",              fr: "Page",               es: "Página",             de: "Seite",             pt: "Página",            it: "Pagina",            ja: "ページ",           nl: "Pagina",            ru: "Страница",         pl: "Strona",            tr: "Sayfa"             },
-  nav:      { en: "Use buttons to navigate  •  !help <command> for details",
-               fr: "Navigue avec les boutons  •  !help <commande> pour les détails",
-               es: "Navega con los botones  •  !help <comando> para detalles",
-               de: "Navigiere mit den Tasten  •  !help <Befehl> für Details",
-               pt: "Navegue com os botões  •  !help <comando> para detalhes",
-               it: "Naviga con i pulsanti  •  !help <comando> per i dettagli",
-               ja: "ボタンで移動  •  !help <コマンド> で詳細",
-               nl: "Navigeer met knoppen  •  !help <commando> voor details",
-               ru: "Используй кнопки для навигации  •  !help <команда> для деталей",
-               pl: "Nawiguj przyciskami  •  !help <polecenie> po szczegóły",
-               tr: "Gezinmek için düğmeleri kullan  •  !help <komut> için detaylar" },
+  nav:      { en: "Use the buttons to navigate",
+               fr: "Utilise les boutons pour naviguer",
+               es: "Usa los botones para navegar",
+               de: "Mit den Tasten navigieren",
+               pt: "Use os botões para navegar",
+               it: "Usa i pulsanti per navigare",
+               ja: "ボタンで移動",
+               nl: "Gebruik de knoppen om te navigeren",
+               ru: "Используй кнопки для навигации",
+               pl: "Użyj przycisków, aby nawigować",
+               tr: "Gezinmek için düğmeleri kullan" },
   prev:     { en: "⬅️ Prev", fr: "⬅️ Préc.", es: "⬅️ Ant.", de: "⬅️ Zurück", pt: "⬅️ Ant.", it: "⬅️ Prec.", ja: "⬅️ 前", nl: "⬅️ Vorige", ru: "⬅️ Назад", pl: "⬅️ Poprz.", tr: "⬅️ Önceki" },
   next:     { en: "Next ➡️", fr: "Suiv. ➡️", es: "Sig. ➡️", de: "Weiter ➡️", pt: "Próx. ➡️", it: "Succ. ➡️", ja: "次 ➡️", nl: "Volgende ➡️", ru: "Вперёд ➡️", pl: "Następna ➡️", tr: "Sonraki ➡️" },
   expired:  { en: "Expired · Run !help again", fr: "Expirée · Relance !help", es: "Expirada · Usa !help de nuevo",
@@ -182,9 +182,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   en: {
     titles: ["🌟 Start here", "🎮 Games & tools", "🎵 Music & radio", "🎙️ Voice", "🤖 AI & useful info"],
     descriptions: [
-      "Essential commands; use `!help <command>` for details.",
-      "Popular games and tools; use topic help for options.",
-      "Start music and radio; topic help has more controls.",
+      "Essential commands for everyday use.",
+      "Popular games and practical tools.",
+      "Music and radio controls.",
       "Voice channel controls and optional AI voice chat.",
       "AI, personal goals and official information.",
     ],
@@ -194,9 +194,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   fr: {
     titles: ["🌟 Pour commencer", "🎮 Jeux et outils", "🎵 Musique et radio", "🎙️ Vocal", "🤖 IA et infos utiles"],
     descriptions: [
-      "Les commandes essentielles; `!help <commande>` pour les détails.",
-      "Les jeux et outils principaux; consulte leur aide pour les options.",
-      "Musique et radio; les aides de chaque thème donnent les commandes.",
+      "Les commandes essentielles du quotidien.",
+      "Les jeux et outils principaux.",
+      "Les commandes de musique et de radio.",
       "Commandes vocales et chat vocal IA facultatif.",
       "IA, objectifs personnels et informations officielles.",
     ],
@@ -206,9 +206,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   es: {
     titles: ["🌟 Para empezar", "🎮 Juegos y herramientas", "🎵 Música y radio", "🎙️ Voz", "🤖 IA e información útil"],
     descriptions: [
-      "Comandos esenciales; usa `!help <comando>` para ver detalles.",
-      "Juegos y herramientas principales; consulta su ayuda para opciones.",
-      "Música y radio; cada tema tiene comandos adicionales.",
+      "Comandos esenciales para el día a día.",
+      "Juegos y herramientas principales.",
+      "Controles de música y radio.",
       "Controles de voz y chat de voz con IA opcional.",
       "IA, objetivos personales e información oficial.",
     ],
@@ -218,9 +218,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   de: {
     titles: ["🌟 Erste Schritte", "🎮 Spiele und Tools", "🎵 Musik und Radio", "🎙️ Sprache", "🤖 KI und nützliche Infos"],
     descriptions: [
-      "Wichtige Befehle; `!help <Befehl>` zeigt Details.",
-      "Beliebte Spiele und Tools; weitere Optionen stehen in der Themenhilfe.",
-      "Musik und Radio; weitere Befehle stehen in der Themenhilfe.",
+      "Wichtige Befehle für den Alltag.",
+      "Beliebte Spiele und praktische Tools.",
+      "Musik- und Radiosteuerung.",
       "Sprachkanal-Steuerung und optionaler KI-Sprachchat.",
       "KI, persönliche Ziele und offizielle Informationen.",
     ],
@@ -230,9 +230,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   pt: {
     titles: ["🌟 Comece aqui", "🎮 Jogos e ferramentas", "🎵 Música e rádio", "🎙️ Voz", "🤖 IA e informações úteis"],
     descriptions: [
-      "Comandos essenciais; use `!help <comando>` para ver detalhes.",
-      "Jogos e ferramentas populares; consulte a ajuda do tema para opções.",
-      "Música e rádio; a ajuda de cada tema mostra outros comandos.",
+      "Comandos essenciais para o dia a dia.",
+      "Jogos e ferramentas populares.",
+      "Controles de música e rádio.",
       "Controles de voz e chat de voz com IA opcional.",
       "IA, objetivos pessoais e informações oficiais.",
     ],
@@ -242,9 +242,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   it: {
     titles: ["🌟 Per iniziare", "🎮 Giochi e strumenti", "🎵 Musica e radio", "🎙️ Voce", "🤖 IA e informazioni utili"],
     descriptions: [
-      "Comandi essenziali; usa `!help <comando>` per i dettagli.",
-      "Giochi e strumenti principali; consulta la guida del tema per le opzioni.",
-      "Musica e radio; la guida di ogni tema mostra altri comandi.",
+      "Comandi essenziali per ogni giorno.",
+      "Giochi e strumenti principali.",
+      "Controlli per musica e radio.",
       "Controlli vocali e chat vocale IA facoltativa.",
       "IA, obiettivi personali e informazioni ufficiali.",
     ],
@@ -254,9 +254,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   ja: {
     titles: ["🌟 まずはこちら", "🎮 ゲームとツール", "🎵 音楽とラジオ", "🎙️ ボイス", "🤖 AIと便利な情報"],
     descriptions: [
-      "基本コマンド。詳細は `!help <コマンド>` を確認してください。",
-      "主なゲームとツール。追加の操作は各ヘルプで確認できます。",
-      "音楽とラジオ。各ヘルプでほかの操作を確認できます。",
+      "毎日使える基本コマンド。",
+      "主なゲームと便利なツール。",
+      "音楽とラジオの操作。",
       "ボイスチャンネル操作と任意のAI音声チャット。",
       "AI、個人の目標、公式情報。",
     ],
@@ -266,9 +266,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   nl: {
     titles: ["🌟 Begin hier", "🎮 Games en tools", "🎵 Muziek en radio", "🎙️ Spraak", "🤖 AI en nuttige info"],
     descriptions: [
-      "Belangrijke opdrachten; gebruik `!help <opdracht>` voor details.",
-      "Populaire games en tools; bekijk de themagids voor opties.",
-      "Muziek en radio; elke themagids toont meer opdrachten.",
+      "Belangrijke opdrachten voor dagelijks gebruik.",
+      "Populaire games en handige tools.",
+      "Bediening voor muziek en radio.",
       "Spraakkanaalbediening en optionele AI-spraakchat.",
       "AI, persoonlijke doelen en officiële informatie.",
     ],
@@ -278,9 +278,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   ru: {
     titles: ["🌟 Начало", "🎮 Игры и инструменты", "🎵 Музыка и радио", "🎙️ Голос", "🤖 ИИ и полезная информация"],
     descriptions: [
-      "Основные команды; подробности: `!help <команда>`.",
-      "Популярные игры и инструменты; остальные настройки — в справке темы.",
-      "Музыка и радио; дополнительные команды — в справке темы.",
+      "Основные команды на каждый день.",
+      "Популярные игры и полезные инструменты.",
+      "Управление музыкой и радио.",
       "Управление голосовым каналом и необязательный голосовой чат с ИИ.",
       "ИИ, личные цели и официальная информация.",
     ],
@@ -290,9 +290,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   pl: {
     titles: ["🌟 Zacznij tutaj", "🎮 Gry i narzędzia", "🎵 Muzyka i radio", "🎙️ Głos", "🤖 AI i przydatne informacje"],
     descriptions: [
-      "Podstawowe polecenia; szczegóły: `!help <polecenie>`.",
-      "Popularne gry i narzędzia; pozostałe opcje znajdziesz w pomocy tematu.",
-      "Muzyka i radio; więcej poleceń znajdziesz w pomocy tematu.",
+      "Podstawowe polecenia na co dzień.",
+      "Popularne gry i praktyczne narzędzia.",
+      "Sterowanie muzyką i radiem.",
       "Sterowanie kanałem głosowym i opcjonalny czat głosowy AI.",
       "AI, osobiste cele i oficjalne informacje.",
     ],
@@ -302,9 +302,9 @@ const MOBILE_HELP_COPY: Record<HelpLanguage, MobileHelpCopy> = {
   tr: {
     titles: ["🌟 Buradan başla", "🎮 Oyunlar ve araçlar", "🎵 Müzik ve radyo", "🎙️ Ses", "🤖 Yapay zekâ ve bilgiler"],
     descriptions: [
-      "Temel komutlar; ayrıntılar için `!help <komut>` kullan.",
-      "Popüler oyunlar ve araçlar; diğer seçenekler konu yardımında.",
-      "Müzik ve radyo; diğer komutlar konu yardımında.",
+      "Günlük kullanım için temel komutlar.",
+      "Popüler oyunlar ve kullanışlı araçlar.",
+      "Müzik ve radyo kontrolleri.",
       "Ses kanalı kontrolleri ve isteğe bağlı yapay zekâ sesli sohbeti.",
       "Yapay zekâ, kişisel hedefler ve resmî bilgiler.",
     ],
@@ -633,7 +633,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
     .setTitle(copy.titles[page - 1])
     .setColor(COLORS[lang])
     .setDescription(copy.descriptions[page - 1])
-    .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES} · ${t("nav", lang).split("•").at(-1)!.trim().replaceAll("!help", `${p}help`)}` });
+    .setFooter({ text: `${t("footer", lang)} ${page}/${HELP_TOTAL_PAGES} · ${t("nav", lang)}` });
 
   // Keep overviews short; topic help retains the full command lists and explanations.
   if (page === 1) {
@@ -652,7 +652,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: sections.daily,
-        value: `\`${p}birthday list\` · \`${p}agenda list\`\n\`${p}timer 20m <${args.title}>\`\n\`${p}help birthday\` · \`${p}help agenda\``,
+        value: `\`${p}birthday list\` · \`${p}agenda list\`\n\`${p}timer 20m <${args.title}>\``,
       },
     );
 
@@ -660,26 +660,26 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
     embed.addFields(
       {
         name: sections.games,
-        value: `\`${p}minesweeper\` · \`${p}geo\` · \`${p}trivia\`\n\`${p}${hangmanCommand}\` · \`${p}connect4\` · \`${p}guessnumber\`\n\`${p}guessthelogo\` · \`${p}tierlist\` · \`${p}blindtest\`\n\`/shellgame\` · \`${p}help games\` · \`${p}help guesslogo\``,
+        value: `\`${p}minesweeper\` · \`${p}geo\` · \`${p}trivia\`\n\`${p}${hangmanCommand}\` · \`${p}connect4\` · \`${p}guessnumber\`\n\`${p}guessthelogo\` · \`${p}tierlist\` · \`${p}blindtest\`\n\`/shellgame\``,
       },
       {
         name: sections.tools,
-        value: `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\`\n\`${p}qr <${args.text}>\` · \`${p}food\` · \`${p}translate <${args.language}>\`\n\`${p}meme\` · \`${p}shazam\` · \`${p}help tools\` · \`${p}help food\`\n\`${p}excel <URL>\` · \`${p}pdf <URL>\``,
+        value: `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\`\n\`${p}qr <${args.text}>\` · \`${p}food\` · \`${p}translate <${args.language}>\`\n\`${p}meme\` · \`${p}shazam\`\n\`${p}excel <URL>\` · \`${p}pdf <URL>\``,
       },
     );
   } else if (page === 3) {
     embed.addFields(
       {
         name: sections.youtube,
-        value: `\`${p}y <${args.query}>\` · \`/play <${args.query}>\`\n\`${p}np\` · \`${p}skip\` · \`${p}queue\` · \`${p}likes\`\n\`${p}help youtube\` · \`${p}help playlist\``,
+        value: `\`${p}y <${args.query}>\` · \`/play <${args.query}>\`\n\`${p}np\` · \`${p}skip\` · \`${p}queue\` · \`${p}likes\``,
       },
       {
         name: sections.radio,
-        value: `\`${p}radio list\` · \`${p}radio <${args.station}>\`\n\`${p}dj\` · \`${p}help radio\` · \`${p}help dj\``,
+        value: `\`${p}radio list\` · \`${p}radio <${args.station}>\`\n\`${p}dj\``,
       },
       {
         name: sections.music,
-        value: `\`${p}karaoke <${args.artistSong}>\` · \`${p}help karaoke\`\n\`${p}music generator <${args.prompt}>\` · \`${p}help music\``,
+        value: `\`${p}karaoke <${args.artistSong}>\`\n\`${p}music generator <${args.prompt}>\``,
       },
     );
 
@@ -691,7 +691,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: sections.voiceChat,
-        value: `\`${p}voice chat on/off\` · \`${p}voice stop\` · \`${p}voice resume\`\n\`${p}help voice\``,
+        value: `\`${p}voice chat on/off\` · \`${p}voice stop\` · \`${p}voice resume\``,
       },
     );
   } else if (page === 5) {
@@ -701,16 +701,16 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         value: [
           `\`@bot <${args.question}>\` · \`${p}ai enable\``,
           `\`${p}${weatherCommand} <${args.city}>\`${lang === "fr" ? ` · \`${p}trajet <${args.text}>\`` : ""}`,
-          `\`${p}ai memory\` · \`${p}persona help\` · \`${p}help ai\``,
+          `\`${p}ai memory\` · \`${p}persona help\``,
         ].join("\n"),
       },
       {
         name: sections.quests,
-        value: `\`${p}quest start\` · \`${p}quest list\`\n\`${p}quest add <${args.goal}>\` · \`${p}quest done <N>\`\n\`${p}help quest\``,
+        value: `\`${p}quest start\` · \`${p}quest list\`\n\`${p}quest add <${args.goal}>\` · \`${p}quest done <N>\``,
       },
       {
         name: sections.civic,
-        value: `\`${p}vote <${args.topic}>\` · \`${p}${lawCommand} <${args.article}>\`\n\`${p}${holidayCommand} <${args.country}> [${args.year}]\` · \`${p}help civic\``,
+        value: `\`${p}vote <${args.topic}>\` · \`${p}${lawCommand} <${args.article}>\`\n\`${p}${holidayCommand} <${args.country}> [${args.year}]\``,
       },
     );
   }
@@ -1071,7 +1071,6 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
 
     case "tools":
       embed.setTitle({ en: "🔍 Tools", fr: "🔍 Outils", es: "🔍 Herramientas", de: "🔍 Werkzeuge", pt: "🔍 Ferramentas", it: "🔍 Strumenti" }[tl] ?? "🔍 Tools");
-      embed.setDescription({ en: "Run `!help <tool>` for more details on any tool.", fr: "Lance `!help <outil>` pour plus de détails.", es: "Usa `!help <herramienta>` para más detalles.", de: "`!help <Werkzeug>` für mehr Details ausführen.", pt: "Use `!help <ferramenta>` para mais detalhes.", it: "Usa `!help <strumento>` per più dettagli." }[tl] ?? "");
       embed.addFields(
         { name: `\`${p}define <${args.word}>\``, value: { en: "English dictionary with phonetics, examples, synonyms.", fr: "Dictionnaire anglais avec phonétique, exemples, synonymes.", es: "Diccionario inglés con fonética, ejemplos, sinónimos.", de: "Englisches Wörterbuch mit Phonetik, Beispielen, Synonymen.", pt: "Dicionário inglês com fonética, exemplos, sinônimos.", it: "Dizionario inglese con fonetica, esempi, sinonimi." }[tl] ?? "" },
         { name: `\`${p}qr <${args.text}>\``, value: { en: "Generate a QR code or read one from an attached image.", fr: "Générer un QR code ou en lire un depuis une image jointe.", es: "Generar un QR o leer uno desde una imagen adjunta.", de: "QR-Code erstellen oder aus einem angehängten Bild lesen.", pt: "Gerar um QR code ou ler um de uma imagem anexada.", it: "Generare un codice QR o leggerne uno da un'immagine allegata." }[tl] ?? "" },

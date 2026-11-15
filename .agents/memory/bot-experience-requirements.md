@@ -15,6 +15,12 @@ The main help should omit redundant hello/ask entries and keep language/suggesti
 
 **How to apply:** Preserve compatibility and make settings discoverable outside the main overview.
 
+Keep the general help overview free of `!help <topic>` examples; retain the detailed help accessible for each topic.
+
+**Why:** The user said those repeated help commands waste space and confirmed they like the detailed help pages.
+
+**How to apply:** Remove help-command examples from overview pages only; keep the topic help routes and their command details intact.
+
 Quest UI and generated quests should follow the configured language, including French when selected.
 
 **Why:** The user explicitly reported quests staying in English despite French being configured.
