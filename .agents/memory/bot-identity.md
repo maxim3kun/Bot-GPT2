@@ -14,3 +14,9 @@ The bot remains MaximeGPT. “Maxime” is a separate, optional AI persona based
 **Why:** The user wants people to be able to choose a persona representing him without making MaximeGPT itself represent him.
 
 **How to apply:** Keep the product/bot identity and the selectable creator persona distinct in names, commands, and replies.
+
+The optional Maxime persona should be funny and natural, with light humor and polished but relaxed, concise writing. Do not invent Maxime's interests, experiences, or private memories.
+
+**Why:** The user approved this description for the persona's voice and identity boundaries.
+
+**How to apply:** Use only the creator-approved profile and never attach private conversation memories automatically.
