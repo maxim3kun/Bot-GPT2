@@ -97,6 +97,8 @@ test("Activation sound is a short valid WAV and live-radio mixing keeps music un
   assert.equal(chime.toString("ascii", 0, 4), "RIFF");
   assert.equal(chime.toString("ascii", 8, 12), "WAVE");
   assert.ok(chime.length < 30_000);
+  const chimePeak = Math.max(...Array.from({ length: (chime.length - 44) / 2 }, (_, i) => Math.abs(chime.readInt16LE(44 + i * 2))));
+  assert.ok(chimePeak < 1_000, "activation chime should stay quiet");
 
   const args = buildRadioSpeechMixArgs("https://radio.example/live.mp3", 1);
   const filter = args[args.indexOf("-filter_complex") + 1]!;

@@ -25,7 +25,7 @@
     "test:road": "esbuild tests/road-journeys.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/road-journeys.test.mjs && node ./node_modules/.cache/road-journeys.test.mjs",
     "test:itinerary-cards": "esbuild tests/transport-itinerary-cards.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/transport-itinerary-cards.test.mjs && node ./node_modules/.cache/transport-itinerary-cards.test.mjs",
     "test:quebec": "esbuild tests/quebec-transport.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/quebec-transport.test.mjs && node ./node_modules/.cache/quebec-transport.test.mjs",
-    "dev": "export NODE_ENV=development && bash ../../scripts/ensure-ytdlp.sh && pnpm run build && pnpm run start",
+    "dev": "export NODE_ENV=development && bash ../../scripts/ensure-ytdlp.sh && python3 ../../scripts/setup-piper.py && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",

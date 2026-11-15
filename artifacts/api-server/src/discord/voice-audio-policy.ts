@@ -78,14 +78,21 @@ export function buildRadioSpeechMixArgs(stationUrl: string, musicVolume = 1): st
 
 export function createVoiceActivationChime(): Buffer {
   const sampleRate = 48_000;
-  const durationSeconds = 0.2;
+  const durationSeconds = 0.27;
   const sampleCount = Math.floor(sampleRate * durationSeconds);
   const pcm = Buffer.alloc(sampleCount * 2);
+  const notes = [
+    { start: 0, end: 0.07, frequency: 392 },
+    { start: 0.085, end: 0.155, frequency: 494 },
+    { start: 0.17, end: 0.255, frequency: 587 },
+  ];
   for (let index = 0; index < sampleCount; index++) {
     const time = index / sampleRate;
-    const progress = time / durationSeconds;
-    const envelope = Math.min(1, progress * 18, (1 - progress) * 12);
-    const value = Math.sin(2 * Math.PI * 520 * time) * envelope * 0.045;
+    const note = notes.find(({ start, end }) => time >= start && time < end);
+    if (!note) continue;
+    const progress = (time - note.start) / (note.end - note.start);
+    const envelope = Math.min(1, progress * 16, (1 - progress) * 10);
+    const value = Math.sin(2 * Math.PI * note.frequency * time) * envelope * 0.025;
     pcm.writeInt16LE(Math.round(value * 32_767), index * 2);
   }
   const header = Buffer.alloc(44);

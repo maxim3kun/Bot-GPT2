@@ -57,6 +57,12 @@ The bot's default French voice should be masculine Gilles; personas may keep the
 
 **How to apply:** Use Gilles when no server voice is saved; preserve explicit server selections and persona overrides. Keep voice-model files on the Railway runtime, not in MongoDB.
 
+The voice-chat activation sound should be gentle and non-alarming.
+
+**Why:** The user said the previous activation beep sounded frightening.
+
+**How to apply:** Keep activation feedback short, soft, and clearly melodic rather than sharp or ominous.
+
 When voice chat runs over radio, lower music only when a real spoken reply is ready; never duck or interrupt music for an AI failure notice. Restore radio immediately after speech.
 
 **Why:** The user reported needless volume changes and silence after speech on Railway.
