@@ -35,8 +35,13 @@ export class FranceLocations {
     const result = await this.json(url.href, 1_000_000);
     if (!Array.isArray(result)) throw Error("Invalid official municipality response");
     let communes = result as Commune[];
-    const exact = communes.filter(commune => normalizeCityName(commune.nom ?? "") === normalizeCityName(name));
+    const normalizedName = normalizeCityName(name);
+    const exact = communes.filter(commune => normalizeCityName(commune.nom ?? "") === normalizedName);
     if (exact.length) communes = exact;
+    else if (normalizedName.length >= 3) {
+      const prefixMatches = communes.filter(commune => normalizeCityName(commune.nom ?? "").startsWith(normalizedName));
+      if (prefixMatches.length) communes = prefixMatches;
+    }
     if (qualifier) communes = communes.filter(commune => qualifier.length === 5
       ? commune.codesPostaux?.includes(qualifier)
       : (commune.departement?.code ?? commune.codeDepartement) === qualifier);

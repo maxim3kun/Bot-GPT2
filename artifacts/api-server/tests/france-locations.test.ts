@@ -74,6 +74,22 @@ test("named French transport cities use the official commune API and keep exact 
   assert.deepEqual((await client.municipalities("Frejus 83600")).map(city => city.id), ["83061"]);
   assert.ok(calls.every(url => url.searchParams.get("nom") === "Frejus"));
 });
+test("French bus city prefixes return only matching municipality names", async () => {
+  const found = [
+    { nom: "Strasbourg", code: "67482", codeDepartement: "67", centre: { coordinates: [7.7621, 48.5691] },
+      departement: { code: "67", nom: "Bas-Rhin" }, region: { nom: "Grand Est" }, population: 293771 },
+    { nom: "Strazeele", code: "59582", codeDepartement: "59", centre: { coordinates: [2.6189, 50.7233] },
+      departement: { code: "59", nom: "Nord" }, region: { nom: "Hauts-de-France" }, population: 942 },
+    { nom: "Strasbourg-sur-Mer", code: "14001", codeDepartement: "14", centre: { coordinates: [0, 49] },
+      departement: { code: "14", nom: "Calvados" }, region: { nom: "Normandie" }, population: 50 },
+    { nom: "Marseille", code: "13055", codeDepartement: "13", centre: { coordinates: [5.37, 43.3] },
+      departement: { code: "13", nom: "Bouches-du-Rhône" }, region: { nom: "Provence-Alpes-Côte d'Azur" }, population: 870000 },
+  ];
+  const client = new FranceTransportClient(async () => Response.json(found));
+  const matches = await client.municipalities("stras");
+  assert.deepEqual(matches.map(city => city.name), ["Strasbourg", "Strasbourg-sur-Mer"]);
+  assert.ok(matches.every(city => city.territory === "fr"));
+});
 test("French city-to-territory lookups are stored as public Mongo metadata", async () => {
   let key: any, ttl = 0;
   const metadata = { async get(value: any, lifetime: number, load: () => Promise<unknown>) {
@@ -88,7 +104,7 @@ test("French city-to-territory lookups are stored as public Mongo metadata", asy
   assert.equal(paris?.territory, "fr");
   assert.equal(paris?.label, "Paris — 75, Paris, Île-de-France");
   assert.deepEqual([key.territory, key.provider, key.kind], ["fr", "geo", "locations"]);
-  assert.equal(key.version, "geo-api-v2", "old cached postcode-heavy labels must be invalidated");
+  assert.equal(key.version, "geo-api-v3", "old cached search results must be invalidated");
   assert.equal(ttl, 24 * 3600_000);
 });
 test("metro shortcut keeps Paris and line 8 intact while omitting optional territory selection", () => {

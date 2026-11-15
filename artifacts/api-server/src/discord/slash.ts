@@ -51,6 +51,26 @@ export const SLASH_COMMANDS = [
     )
     .toJSON(),
 
+  // ── Bus city autocomplete ──────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("bus")
+    .setDescription("Find a French bus route with city suggestions")
+    .setDescriptionLocalizations({
+      fr: "Chercher une ligne de bus en France avec des suggestions de communes",
+      "es-ES": "Buscar una línea de autobús en Francia con sugerencias de ciudades",
+    })
+    .addStringOption(opt => opt
+      .setName("ville")
+      .setNameLocalizations({ "en-US": "city", "en-GB": "city", "es-ES": "ciudad" })
+      .setDescription("Type the beginning of a French city name")
+      .setDescriptionLocalizations({
+        fr: "Saisis le début du nom d’une commune",
+        "es-ES": "Escribe el comienzo del nombre de una ciudad",
+      })
+      .setRequired(true)
+      .setAutocomplete(true))
+    .toJSON(),
+
   // ── Now Playing ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("np")

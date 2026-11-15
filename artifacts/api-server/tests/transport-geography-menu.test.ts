@@ -286,6 +286,21 @@ test("a uniquely resolved French metro city skips the territory prompt", async (
   card.collector.stop("cancelled");
 });
 
+test("a partial French city name offers its single bus-city suggestion before loading routes", async () => {
+  const d = fakeDiscord(), s = service();
+  const city = { id: "67482", name: "Strasbourg", label: "Strasbourg — 67, Bas-Rhin, Grand Est",
+    latitude: 48.5691, longitude: 7.7621 };
+  s.value.cities = async (...args: unknown[]) => { s.requests.push(args); return [city] as any; };
+  await handleTransportSearch(d.message, { place: "stras", territory: "fr", mode: "bus" }, "fr", "!", s.value);
+  const card = d.cards[0]!;
+  assert.match(card.last.content!, /Quelle commune de départ/);
+  const selector = card.last.components.flatMap(row => row.components)
+    .find((component: any) => component.custom_id?.includes(":choose")) as any;
+  assert.deepEqual(selector.options.map((option: any) => option.label), ["Strasbourg"]);
+  assert.deepEqual(s.requests, [["stras", "fr", "bus"]]);
+  card.collector.stop("cancelled");
+});
+
 test("selected metro arrivals omit redundant route notes and keep result controls in two rows", async () => {
   const d = fakeDiscord(), s = service();
   const city = { id: "75056", name: "Paris", label: "Paris — 75", latitude: 48.85, longitude: 2.35 };

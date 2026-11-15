@@ -78,7 +78,8 @@ import { buildResearchQuery, classifyAiMessage, currentTimeAnswer, directCapabil
 import { handlePublicTransportRequest } from "./discord/public-transport.js";
 import { handleTransportDialogue, handleJourneyCommand } from "./discord/transport-dialogue.js";
 import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
-import { handleTransportCommand, handleTransportFavoritesCommand, prewarmIrishBusRouteIndex } from "./discord/transport-menu.js";
+import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch,
+  prewarmIrishBusRouteIndex, transportCityAutocomplete } from "./discord/transport-menu.js";
 import { handleCivicCommand, isCivicCommand } from "./discord/civic-command.js";
 import { prewarmAssemblyVoteIndex } from "./discord/civic-data.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
@@ -661,6 +662,29 @@ export function startBot(): void {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isAutocomplete()) return;
+    if (interaction.commandName === "bus") {
+      const focused = interaction.options.getFocused(true);
+      if (focused.name !== "ville" || typeof focused.value !== "string" || focused.value.trim().length < 3) {
+        await interaction.respond([]);
+        return;
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const suggestions = await Promise.race([
+          transportCityAutocomplete(focused.value),
+          new Promise<[]>(resolve => {
+            timer = setTimeout(() => resolve([]), 2_000);
+            timer.unref();
+          }),
+        ]);
+        await interaction.respond(suggestions);
+      } catch {
+        await interaction.respond([]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      return;
+    }
     if (interaction.commandName !== "youtube") return;
 
     const focused = interaction.options.getFocused(true);
@@ -748,6 +772,13 @@ export function startBot(): void {
       const fakeMsg = createSlashMessageAdapter(interaction, member);
 
       switch (interaction.commandName) {
+        case "bus": {
+          const city = interaction.options.getString("ville", true);
+          await handleTransportSearch(fakeMsg, { place: city, territory: "fr", mode: "bus" },
+            responseLang, getPrefix(interaction.guildId));
+          break;
+        }
+
         case "poll":
           await handlePollCommand(fakeMsg, [
             interaction.options.getString("question", true), "|", interaction.options.getString("choices", true),

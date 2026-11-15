@@ -89,6 +89,13 @@ export async function handleTransportCommand(
     undefined, preferencesStore);
 }
 
+export async function transportCityAutocomplete(query: string) {
+  const value = query.trim();
+  if (normalizeTransitText(value).length < 3) return [];
+  const cities = await browser.cities(value, "fr", "bus");
+  return cities.slice(0, 25).map(city => ({ name: city.label.slice(0, 100), value: city.name.slice(0, 100) }));
+}
+
 export async function handleTransportFavoritesCommand(
   message: Message, language: string, prefix = "!", service = browser,
   preferencesStore: TransportPreferencesStore = transportPreferences,
@@ -624,7 +631,11 @@ export async function handleTransportSearch(
       return;
     }
     filter = ""; page = 0;
-    if (cities.length === 1) { city = cities[0]; await afterCity(); }
+    const queryName = normalizeCityName(place);
+    const solePrefixSuggestion = cities.length === 1 && queryName.length >= 3 &&
+      normalizeCityName(cities[0]!.name).startsWith(queryName) &&
+      normalizeCityName(cities[0]!.name) !== queryName;
+    if (cities.length === 1 && !solePrefixSuggestion) { city = cities[0]; await afterCity(); }
     else { stage = "cities"; await render(); }
   }
 
