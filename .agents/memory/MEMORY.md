@@ -33,3 +33,4 @@
 - [Bot product vision](bot-product-vision.md) — User's requested roadmap: broader transport, flights, personas, games, voice, reminders, knowledge and creation tools.
 - [API bundle runtime externals](api-bundle-runtime-externals.md) — Externals in the API esbuild must be direct runtime dependencies; keep jsdom external to preserve its bundled stylesheet assets.
 - [Discord Activity setup](discord-activity-setup.md) — A browser preview is not an Activity launch; Discord needs the application ID, a public URL, and Developer Portal URL mapping.
+- [Discord Activity privacy model](discord-activity-privacy.md) — One shared session per server, with personalized private state per authenticated member.
