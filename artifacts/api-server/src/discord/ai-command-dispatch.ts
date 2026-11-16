@@ -29,11 +29,16 @@ const activeCommands = new Set<string>();
 const seen = new Map<string, number>();
 const attempted = new WeakMap<Message, Promise<boolean>>();
 const parameters = new Map<string, { promptId: string; expires: number; parameter: CommandParameter }>();
-export interface CommandOptions { personaId?: string }
+export interface CommandOptions {
+  personaId?: string;
+  voiceInput?: boolean;
+  voiceReply?: (text: string) => Promise<void>;
+}
 const scopeKey = (m: Message, options: CommandOptions = {}) => JSON.stringify([m.guildId, m.channelId, m.author.id, options.personaId ?? "bot"]);
 export function hasAiCommandParameterReply(message: Message, options: CommandOptions = {}) {
   const pending = parameters.get(scopeKey(message, options));
-  return Boolean(pending && pending.expires > Date.now() && message.reference?.messageId === pending.promptId);
+  return Boolean(pending && pending.expires > Date.now() &&
+    (options.voiceInput ? pending.promptId === "voice" : message.reference?.messageId === pending.promptId));
 }
 export const knownRadioStations = () => ({ ...RADIO_STATIONS, ...Object.fromEntries(customStations) });
 const GAME_FEATURES: Record<string, string> = {
@@ -148,7 +153,8 @@ export function commandExecutor(message: Message, language: Language, openai: Op
             await handleTransportSearch(message, action, language, getPrefix(message.guildId), undefined, undefined, async () => {
               if (initial) { initial = false; return true; }
               return executor.authorize(action);
-            });
+            }, undefined, undefined,
+            options.voiceInput && options.voiceReply ? { speak: options.voiceReply } : undefined);
             break;
           }
           case "module_diagnostic": await handleTechnicianCommand(message, ["status"]); break;
@@ -229,7 +235,8 @@ async function runCommandRequest(message: Message, text: string, openai: OpenAI 
       : language === "fr" ? " Trop de questions sont ouvertes : reformule la demande complète." : "Too many questions are open: give the full request."
       : "";
     const prompt = await message.reply({ content: (language === "fr" ? `Aucune action exécutée. ${intent.fr}` : `No action executed. ${intent.en}`) + guidance, allowedMentions: { parse: [] } });
-    if (binding && parameters.get(scope) === binding && prompt.id) binding.promptId = prompt.id;
+    if (binding && parameters.get(scope) === binding && (options.voiceInput || prompt.id))
+      binding.promptId = options.voiceInput ? "voice" : prompt.id;
     return true;
   } catch (error) {
     logger.error({ error }, "AI command request failed");

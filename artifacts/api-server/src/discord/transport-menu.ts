@@ -21,12 +21,24 @@ import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
 import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode, irelandCountyFromSearch } from "./ireland-regions.js";
 import type { MobilityCountryCoverage } from "./mobility-database-transport.js";
+import { looksLikeNewSpokenTransportRequest, matchSpokenTransportChoice, parseSpokenTransportResultAction } from "./transport-voice.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient().enableMobilityDatabase();
 const active = new Map<string, () => void>();
+const voiceSessions = new Map<string, (input: string) => Promise<boolean>>();
 type Stage = "territory" | "mode" | "city" | "regions" | "provinces" | "counties" | "cities" | "networks" | "lines" | "origins" | "arrivals" | "result" | "error";
 type Choice = { label: string; description?: string; value: string };
+
+export interface TransportVoiceOptions {
+  speak: (text: string) => Promise<void>;
+}
+
+export async function handleTransportVoiceInput(message: Message, input: string): Promise<boolean> {
+  const sessionKey = `${message.channelId}:${message.author.id}`;
+  const session = voiceSessions.get(sessionKey);
+  return session ? session(input) : false;
+}
 
 export function prewarmIrishBusRouteIndex(): void {
   void browser.prewarmRegionIndex("ie", "bus")
@@ -186,6 +198,7 @@ export async function handleTransportSearch(
   message: Message, parsed: TransportSearch, language: string, prefix = "!", service = browser, lookupTimeoutMs = 45_000,
   authorize?: () => Promise<boolean>, preferencesStore: TransportPreferencesStore = transportPreferences,
   favoriteToResume?: TransportFavorite,
+  voiceOptions?: TransportVoiceOptions,
 ): Promise<void> {
   const { mode } = parsed;
   logger.info({ mode: mode ?? "choose", runtime: process.version }, "Transport command received");
@@ -197,6 +210,7 @@ export async function handleTransportSearch(
     return;
   }
   active.get(sessionKey)?.();
+  voiceSessions.delete(sessionKey);
   let place = /^(list|liste|aide|help)$/i.test(parsed.place) ? "" : parsed.place;
   let direction = parsed.direction ?? "";
   let lineFilter = parsed.line ?? "";
@@ -239,6 +253,7 @@ export async function handleTransportSearch(
   let mobilityCoverage: MobilityCountryCoverage | undefined;
   let mobilityCoverageLoaded = false;
   let validControls = new Set<string>();
+  let voiceHandler: ((input: string) => Promise<boolean>) | undefined;
   const id = `transport:${randomUUID()}`;
   const prompt = await message.reply({
     content: text("Recherche de transport en cours…", "Starting transport lookup…"),
@@ -250,7 +265,8 @@ export async function handleTransportSearch(
     new ButtonBuilder().setCustomId(`${id}:${action}`).setLabel(label).setStyle(style);
   const iconButton = (action: string, emoji: string) =>
     new ButtonBuilder().setCustomId(`${id}:${action}`).setEmoji(emoji).setStyle(ButtonStyle.Secondary);
-  const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>, embed?: APIEmbed) => {
+  const edit = async (content: string, components?: NonNullable<MessageCreateOptions["components"]>, embed?: APIEmbed,
+    spokenText?: string) => {
     if (!live) return;
     revision++;
     // A delayed click from the previous list cannot select item 0 in a new list.
@@ -274,6 +290,8 @@ export async function handleTransportSearch(
       lastEmbed = undefined;
       await prompt.edit({ ...options, content: lastContent, embeds: [] });
     }
+    const speech = spokenText ?? (stage === "error" ? content : undefined);
+    if (speech && voiceOptions) await voiceOptions.speak(speech).catch(() => undefined);
   };
 
   async function cityInput() {
@@ -511,7 +529,104 @@ export async function handleTransportSearch(
     const boundaryAttribution = stage === "regions" && territory && supportsAdministrativeRegionBrowsing(territory) &&
       typeof service.regionBoundaryAttribution === "function"
       ? `\n${await service.regionBoundaryAttribution(territory)}` : "";
-    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${regionListNote}${boundaryAttribution}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`, rows);
+    const voiceChoices = matching.slice(0, 6).map(choice => choice.label);
+    const spokenPrompt = matching.length
+      ? `${titles[stage]}. ${context}. ${text(
+        `Dis le nom du choix souhaité, par exemple : ${voiceChoices.join(", ")}.`,
+        `Say the name of the choice you want, for example: ${voiceChoices.join(", ")}.`,
+      )}`
+      : `${titles[stage]}. ${empty}`;
+    if (voiceOptions) {
+      voiceHandler = async input => {
+        if (!live) return false;
+        const spokenAction = parseSpokenTransportResultAction(input);
+        if (stage !== "result" && (spokenAction === "nextPage" || spokenAction === "previousPage")) {
+          if (busy) {
+            await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
+            return true;
+          }
+          const count = choices().filter(choice =>
+            normalizeTransitText(`${choice.label} ${choice.description ?? ""}`).includes(normalizeTransitText(filter))).length;
+          const pages = Math.max(1, Math.ceil(count / 25));
+          const nextPage = page + (spokenAction === "nextPage" ? 1 : -1);
+          if (nextPage < 0 || nextPage >= pages) {
+            await voiceOptions.speak(nextPage < 0
+              ? text("Tu es déjà sur la première page.", "You are already on the first page.")
+              : text("Tu es déjà sur la dernière page.", "You are already on the last page."));
+            return true;
+          }
+          busy = true;
+          page = nextPage;
+          await run(render);
+          return true;
+        }
+        if (stage !== "result" && spokenAction === "return") {
+          if (busy) {
+            await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
+            return true;
+          }
+          busy = true;
+          await run(goBack);
+          return true;
+        }
+        const action = stage === "result" &&
+          (spokenAction === "refresh" || spokenAction === "return" || spokenAction === "more" ||
+            spokenAction === "stops" || spokenAction === "modify" || spokenAction === "favorite" ||
+            spokenAction === "cancel")
+          ? spokenAction : spokenAction === "cancel" ? "cancel" : null;
+        if (action) {
+          if (busy) {
+            await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
+            return true;
+          }
+          busy = true;
+          if (action === "cancel") {
+            collector.stop("cancelled");
+            await voiceOptions.speak(text("Recherche terminée.", "Search finished."));
+            return true;
+          }
+          await run(async () => {
+            if (action === "refresh") { showPreviousStops = false; await showDepartures(); }
+            else if (action === "return") { showPreviousStops = false; await showReturn(); }
+            else if (action === "more") { expanded = !expanded; await showDepartures(false); }
+            else if (action === "stops") { showPreviousStops = !showPreviousStops; await showDepartures(false); }
+            else if (action === "modify") { resumeFavorite = undefined; showPreviousStops = false; await loadOrigins(); }
+            else if (action === "favorite") {
+              const favorite = favoriteForCurrentJourney();
+              if (!favorite) return;
+              const result = await bestEffortPreference(preferencesStore.toggleFavorite(message.author.id, favorite),
+                { ok: false, saved: false });
+              favoriteNotice = result.ok
+                ? text(result.saved ? "Trajet ajouté aux favoris." : "Trajet retiré des favoris.",
+                  result.saved ? "Journey saved to favorites." : "Journey removed from favorites.")
+                : text("Les favoris ne peuvent pas être enregistrés pour le moment.",
+                  "Favorites cannot be saved right now.");
+              await showDepartures(false);
+            }
+          });
+          return true;
+        }
+        const value = stage === "result" ? null : matchSpokenTransportChoice(input, matching);
+        if (value !== null) {
+          if (busy) {
+            await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
+            return true;
+          }
+          busy = true;
+          await run(() => applyChoice(value));
+          return true;
+        }
+        if (looksLikeNewSpokenTransportRequest(input)) {
+          voiceSessions.delete(sessionKey);
+          return false;
+        }
+        await voiceOptions.speak(`${text("Je n’ai pas reconnu ce choix.", "I didn’t recognize that choice.")} ${spokenPrompt}`);
+        return true;
+      };
+      voiceSessions.set(sessionKey, voiceHandler);
+    }
+    await edit(`**${titles[stage]}**${context ? `\n${context}` : ""}\n${matching.length ? `${matching.length} ${countLabel} · ${page + 1}/${pages}` : empty}${pageHint}${filter ? `\n${text("Filtre", "Filter")} : ${filter}` : ""}${coverageNote}${regionListNote}${boundaryAttribution}${note}${regionalNote}${zoneNote}${stage === "lines" ? listingNote : ""}${(stage === "origins" || stage === "arrivals") && serviceNote ? `\n${serviceNote}` : ""}${stage === "cities" && (isMobilityTerritory(territory) || territory === "ie" || territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" || territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua") ? "\n© OpenStreetMap contributors · openstreetmap.org/copyright" : ""}`,
+      rows, undefined, voiceOptions ? spokenPrompt : undefined);
   }
 
   async function loadModeChoices() {
@@ -886,7 +1001,7 @@ export async function handleTransportSearch(
       } else cardContent += `\n\n**${title}**\n${stopText}`;
     }
     if (favoriteNotice) cardContent = `${favoriteNotice}\n${cardContent}`;
-    await edit(cardContent, [primary, secondary], cardEmbed);
+    await edit(cardContent, [primary, secondary], cardEmbed, voiceOptions ? cardContent.slice(0, 900) : undefined);
   }
 
   function favoriteForCurrentJourney(): TransportFavorite | null {
@@ -1080,6 +1195,31 @@ export async function handleTransportSearch(
     }
   }
 
+  async function goBack() {
+    filter = ""; page = 0;
+    if (stage === "result") { await loadArrivals(); return; }
+    if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
+    if (stage === "regions") { regions = []; await cityInput(); return; }
+    if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
+    if (stage === "counties") { stage = "provinces"; province = ""; await render(); return; }
+    if (stage === "provinces") { await cityInput(); return; }
+    if (stage === "lines" && (isMobilityTerritory(territory) || territory === "qc" || territory === "en" || territory === "ie" ||
+      territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
+      territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua" || region)) {
+      stage = "networks"; network = undefined; await render(); return;
+    }
+    if (stage === "networks" && region) {
+      region = undefined;
+      if (territory === "ie" && province) { stage = "counties"; await render(); }
+      else await cityInput();
+      return;
+    }
+    if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
+    if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
+    if (stage === "lines" && cities.length > 1) { stage = "cities"; city = undefined; line = undefined; await render(); return; }
+    stage = "mode"; city = undefined; line = undefined; origin = undefined; await render();
+  }
+
   async function interact(interaction: MessageComponentInteraction) {
     if (!interaction.customId.startsWith(`${id}:`)) return;
     if (interaction.user.id !== message.author.id) {
@@ -1159,75 +1299,61 @@ export async function handleTransportSearch(
         return;
       }
       if (action === "back") {
-        filter = ""; page = 0;
-        if (stage === "result") { await loadArrivals(); return; }
-        if (stage === "arrivals") { stage = "origins"; origin = undefined; await render(); return; }
-        if (stage === "regions") { regions = []; await cityInput(); return; }
-        if (stage === "origins") { stage = "lines"; line = undefined; await render(); return; }
-        if (stage === "counties") { stage = "provinces"; province = ""; await render(); return; }
-        if (stage === "provinces") { await cityInput(); return; }
-        if (stage === "lines" && (isMobilityTerritory(territory) || territory === "qc" || territory === "en" || territory === "ie" ||
-          territory === "lu" || territory === "ch" || territory === "no" || territory === "is" || territory === "sg" ||
-          territory === "lv" || territory === "cz" || territory === "pt" || territory === "au" || territory === "ua" || region)) { stage = "networks"; network = undefined; await render(); return; }
-        if (stage === "networks" && region) {
-          region = undefined;
-          if (territory === "ie" && province) { stage = "counties"; await render(); }
-          else await cityInput();
-          return;
-        }
-        if (stage === "networks" && cities.length === 1) { await cityInput(); return; }
-        if (stage === "networks") { stage = "cities"; city = undefined; await render(); return; }
-        if (stage === "lines" && cities.length > 1) { stage = "cities"; city = undefined; line = undefined; await render(); return; }
-        stage = "mode"; city = undefined; line = undefined; origin = undefined; await render(); return;
+        await goBack();
+        return;
       }
       if (!interaction.isStringSelectMenu() || action !== "choose") return;
-      const value = interaction.values[0] ?? "";
-      if (!choices().some((choice) => choice.value === value)) return;
-      if (stage === "territory") {
-        territory = value as TransportTerritory;
-        province = "";
-        preferredTerritory = territory;
-        await bestEffortPreference(preferencesStore.setPreferredTerritory(message.author.id, territory), false);
-        if (selectedMode) await loadCities(); else { stage = "mode"; if (await loadModeChoices()) await render(); }
-      } else if (stage === "mode") {
-        if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
-        selectedMode = value as TransitMode;
-        await loadCities();
-      } else if (stage === "regions") {
-        place = value;
-        lineFilter = ""; direction = ""; filter = ""; page = 0;
-        region = await service.region?.(place, territory ?? "fr") ?? undefined;
-        if (!region) throw new TransportDataError("La limite de cette région n’a pas pu être vérifiée.");
-        await loadNetworks();
-      } else if (stage === "provinces") {
-        province = value;
-        filter = ""; page = 0; stage = "counties"; await render();
-      } else if (stage === "counties") {
-        const county = irelandCountyByCode(value);
-        if (!county) throw new TransportDataError("Le comté sélectionné n’est plus disponible.");
-        place = county.osmName;
-        lineFilter = ""; direction = "";
-        region = await service.region?.(county.osmName, "ie") ?? undefined;
-        if (!region) throw new TransportDataError("La limite de ce comté n’a pas pu être vérifiée.");
-        await loadNetworks();
-      } else if (stage === "cities") {
-        city = cities[Number(value)]; await afterCity();
-      } else if (stage === "networks") {
-        await selectNetwork(networks[Number(value)]!);
-      } else if (stage === "lines") {
-        line = lines[Number(value)]; await loadOrigins();
-      } else if (stage === "origins") {
-        origin = origins[Number(value)]; await loadArrivals();
-      } else if (stage === "arrivals") {
-        arrival = arrivals[Number(value)]; await showDepartures();
-      }
+      await applyChoice(interaction.values[0] ?? "");
     });
+  }
+
+  async function applyChoice(value: string) {
+    if (!choices().some(choice => choice.value === value)) return;
+    if (stage === "territory") {
+      territory = value as TransportTerritory;
+      province = "";
+      preferredTerritory = territory;
+      await bestEffortPreference(preferencesStore.setPreferredTerritory(message.author.id, territory), false);
+      if (selectedMode) await loadCities(); else { stage = "mode"; if (await loadModeChoices()) await render(); }
+    } else if (stage === "mode") {
+      if (selectedMode && selectedMode !== value) { lineFilter = ""; direction = ""; }
+      selectedMode = value as TransitMode;
+      await loadCities();
+    } else if (stage === "regions") {
+      place = value;
+      lineFilter = ""; direction = ""; filter = ""; page = 0;
+      region = await service.region?.(place, territory ?? "fr") ?? undefined;
+      if (!region) throw new TransportDataError("La limite de cette région n’a pas pu être vérifiée.");
+      await loadNetworks();
+    } else if (stage === "provinces") {
+      province = value;
+      filter = ""; page = 0; stage = "counties"; await render();
+    } else if (stage === "counties") {
+      const county = irelandCountyByCode(value);
+      if (!county) throw new TransportDataError("Le comté sélectionné n’est plus disponible.");
+      place = county.osmName;
+      lineFilter = ""; direction = "";
+      region = await service.region?.(county.osmName, "ie") ?? undefined;
+      if (!region) throw new TransportDataError("La limite de ce comté n’a pas pu être vérifiée.");
+      await loadNetworks();
+    } else if (stage === "cities") {
+      city = cities[Number(value)]; await afterCity();
+    } else if (stage === "networks") {
+      await selectNetwork(networks[Number(value)]!);
+    } else if (stage === "lines") {
+      line = lines[Number(value)]; await loadOrigins();
+    } else if (stage === "origins") {
+      origin = origins[Number(value)]; await loadArrivals();
+    } else if (stage === "arrivals") {
+      arrival = arrivals[Number(value)]; await showDepartures();
+    }
   }
   collector.on("collect", (interaction) => { void interact(interaction).catch((error) => {
     logger.warn({ err: error }, "Transport menu interaction failed");
   }); });
   collector.on("end", (_items, reason) => {
     live = false; sequence++;
+    if (voiceHandler && voiceSessions.get(sessionKey) === voiceHandler) voiceSessions.delete(sessionKey);
     // A replacement must not remove the newer session's ownership entry.
     if (active.get(sessionKey) === stop) active.delete(sessionKey);
     const notice = reason === "denied" ? text("Cette recherche n’est plus autorisée.", "This lookup is no longer authorized.")

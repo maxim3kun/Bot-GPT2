@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch } from "../src/discord/transport-menu.js";
+import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch, handleTransportVoiceInput } from "../src/discord/transport-menu.js";
 import { TransportBrowserClient } from "../src/discord/transport-browser.js";
 import { administrativeRegionCountryCode, administrativeRegionWithinTerritory } from "../src/discord/transport-provider.js";
 import { fakeDiscord, type FakeCard } from "./fixtures/transport-discord.js";
@@ -609,4 +609,27 @@ test("numbered bus routes sort low to high and a unique search opens it directly
   assert.match(card.last.content!, /906/);
   assert.doesNotMatch(card.last.content!, /Choose a route/);
   card.collector.stop("cancelled");
+});
+
+test("A voice transport search can choose a city, route and stops without clicking Discord buttons", async () => {
+  const d = fakeDiscord(), s = service(), spoken: string[] = [];
+  await handleTransportSearch(d.message, { place: "Beauvais", territory: "fr", mode: "bus" }, "fr", "!",
+    s.value, 45_000, undefined, undefined, undefined, { speak: async text => { spoken.push(text); } });
+  assert.match(spoken.at(-1) ?? "", /Dis le nom du choix/);
+
+  for (const choice of ["Beauvais", "ligne 1", "Gare", "Arrivée"]) {
+    assert.equal(await handleTransportVoiceInput(d.message, choice), true, choice);
+  }
+  assert.equal(d.cards[0]!.last.embeds.length, 1,
+    JSON.stringify({ content: d.cards[0]!.last.content, spoken }));
+  assert.match(spoken.at(-1) ?? "", /Horaires théoriques/);
+  d.cards[0]!.collector.stop("cancelled");
+});
+
+test("An unfinished voice transport search can be cancelled by speech", async () => {
+  const d = fakeDiscord(), s = service(), spoken: string[] = [];
+  await handleTransportSearch(d.message, { place: "Beauvais", territory: "fr", mode: "bus" }, "fr", "!",
+    s.value, 45_000, undefined, undefined, undefined, { speak: async text => { spoken.push(text); } });
+  assert.equal(await handleTransportVoiceInput(d.message, "annule la recherche"), true);
+  assert.match(spoken.at(-1) ?? "", /Recherche terminée/);
 });

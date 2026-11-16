@@ -5,8 +5,7 @@ import OpenAI from "openai";
 import { logger } from "./lib/logger";
 import { playMinesweeper, playGeoguessr, playTrivia, playGuessNumber, playConnect4, playGuessLogo, stopGuessLogo, isLogoActive, startLogoGameFromButton } from "./games";
 import { joinVoice, leaveVoice, speakText, isInVoice, toggleSubtitles, setVoiceChatTurnHandler, sendVoiceChatResponse, voiceSubtitlesEnabled, interruptVoiceReply } from "./discord/voice";
-import { isVoiceOperationalError } from "./discord/voice-audio-policy.js";
-import { isSpokenStopCommand, spokenRadioStationCommand } from "./discord/voice-audio-policy.js";
+import { isSpokenStopCommand, isVoiceOperationalError, sanitizeSpeechText, spokenRadioStationCommand } from "./discord/voice-audio-policy.js";
 import { playRadio, stopRadio, buildRadioListEmbed, langToPage, playYoutube, nowPlaying, RADIO_STATIONS, searchAndQueue, skipYoutube, getQueueEmbed, startVoteSkip, consumePendingVoiceCmd, pauseToggle, skipCurrentTrack, stopForGuild, buildNpButtonRows, buildRadioNpButtonRows, radioStates, consumePendingSearch, navigateSearch, setActivityCallback, setChannelNameCallback, playLive, nextRadioStation, execSwitchRadioStation, addCustomRadio, removeCustomRadio, customStations } from "./discord/radio";
 import { addLike, getLikes, removeLike, isLiked } from "./discord/likes-store";
 import { startKaraoke, stopKaraoke, setGuildKaraokeSource, getGuildKaraokeSource, setKaraokeOffset } from "./discord/karaoke";
@@ -66,7 +65,7 @@ import { FACTUAL_ACCURACY_GUIDANCE } from "./discord/ai-completion-quality.js";
 import { buildBotCommandContext } from "./discord/ai-command-context.js";
 import { handleAiActionRequest } from "./discord/ai-actions.js";
 import { commandSafety } from "./discord/ai-command-intent.js";
-import { hasAiCommandParameterReply } from "./discord/ai-command-dispatch.js";
+import { hasAiCommandParameterReply, type CommandOptions } from "./discord/ai-command-dispatch.js";
 import { canUsePendingSearch } from "./discord/radio.js";
 import { createReliableCompletion } from "./discord/ai-reliable-completion.js";
 import { registerAiFeedback, trackAiReplies } from "./discord/ai-feedback.js";
@@ -83,7 +82,7 @@ import { handleTransportDialogue, handleJourneyCommand } from "./discord/transpo
 import { handleWeatherDialogue, handleWeatherCommand } from "./discord/weather-dialogue.js";
 import { type UserLang } from "./discord/user-lang-store.js";
 import { handleTransportCommand, handleTransportFavoritesCommand, handleTransportSearch,
-  prewarmIrishBusRouteIndex, transportCityAutocomplete } from "./discord/transport-menu.js";
+  handleTransportVoiceInput, prewarmIrishBusRouteIndex, transportCityAutocomplete } from "./discord/transport-menu.js";
 import { handleCivicCommand, isCivicCommand } from "./discord/civic-command.js";
 import { prewarmAssemblyVoteIndex } from "./discord/civic-data.js";
 import { handleTierlistButton } from "./discord/tierlist.js";
@@ -419,6 +418,7 @@ export function startBot(): void {
     userText: string,
     responseLang: Parameters<typeof botText>[0],
     prefix: string,
+    commandOptions: CommandOptions = {},
   ): Promise<void> => {
     const prompt = userText.trim();
     const aiResponseLang = getAiResponseLanguage(message.author.id, prompt, responseLang);
@@ -435,7 +435,8 @@ export function startBot(): void {
       await message.reply(PORNOGRAPHIC_SITE_REFUSAL);
       return;
     }
-    if (commandSafety(prompt) === "multiple" && await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
+    if (commandSafety(prompt) === "multiple" &&
+      await handleAiActionRequest(message, prompt, openai, aiResponseLang, commandOptions)) return;
     if (!commandSafety(prompt) && extractNaturalHelpCommand(prompt) === "help") {
       await sendHelpPaginator(message, aiResponseLang);
       return;
@@ -448,7 +449,7 @@ export function startBot(): void {
 
     if (await handleWeatherDialogue(message, prompt, aiResponseLang)) return;
     if (await handleTransportDialogue(message, prompt, aiResponseLang)) return;
-    if (await handleAiActionRequest(message, prompt, openai, aiResponseLang)) return;
+    if (await handleAiActionRequest(message, prompt, openai, aiResponseLang, commandOptions)) return;
     const route = classifyAiMessage(prompt);
     if (route.intent === "greeting") {
       await message.reply(directGreeting(message, aiResponseLang));
@@ -635,7 +636,15 @@ export function startBot(): void {
       },
     });
 
-    await answerAiQuestion(voiceMessage, transcript, language, await getPrefix(guildId));
+    if (await handleTransportVoiceInput(voiceMessage, transcript)) return true;
+    const commandOptions: CommandOptions = { voiceInput: true };
+    if (voiceRepliesEnabled) {
+      commandOptions.voiceReply = async text => {
+        const speech = sanitizeSpeechText(text);
+        if (speech) await speakText(guildId, speech, language, client.user?.username, false);
+      };
+    }
+    await answerAiQuestion(voiceMessage, transcript, language, await getPrefix(guildId), commandOptions);
     return true;
   });
 

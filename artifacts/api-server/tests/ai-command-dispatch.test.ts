@@ -116,6 +116,15 @@ test("Known natural radio request runs the real handler directly using existing 
   assert.ok(fixture.fetches >= 3, "members, bot and text channel are fetched at execution");
 });
 
+test("A voice reply can fill a clarification without a Discord message-reply button", async () => {
+  fixture.reset();
+  await handleAiCommandRequest(fakeMessage() as unknown as Message, "Mets une radio", null, "fr", { voiceInput: true });
+  const clarification = fixture.replies.at(-1) as { content?: string } | undefined;
+  assert.match(clarification?.content ?? String(clarification), /radio connue/i);
+  await handleAiCommandRequest(fakeMessage() as unknown as Message, "NRJ", null, "fr", { voiceInput: true });
+  assert.deepEqual(fixture.handlers, ["radio:nrj"]);
+});
+
 test("Existing deterministic help stays on its original route without a model or new consent", async () => {
   fixture.reset();
   fixture.consent = "unknown";

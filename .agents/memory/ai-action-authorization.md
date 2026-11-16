@@ -23,6 +23,12 @@ Prefer bounded local recognition for ordinary executable requests; a free-form m
 
 **How to apply:** Extend supported phrasing with deterministic tests. Keep actual domain AI usage, such as generating trivia questions, separate from choosing permission-bearing actions. A missing parameter belongs to its original request and persona, not to ambient chat.
 
+After a member explicitly enables voice chat, supported ordinary commands should work hands-free through the existing handlers; ask and accept missing choices by speech rather than requiring a button for each step. Sensitive actions need an explicit spoken confirmation.
+
+**Why:** The user wants to request tasks such as bus searches entirely by voice and chose spoken confirmation for sensitive actions.
+
+**How to apply:** Preserve explicit per-speaker voice opt-in. Route only recognized, allowlisted commands; bind spoken follow-ups and confirmations to the same member, guild, channel and active request. Never treat an unrestricted AI reply as confirmation.
+
 A media search is not consent to automatic playback. Recheck authority immediately before using a newly opened audio stream, not only when interpreting the request.
 
 **Why:** Network setup and delayed result selection can outlive a member's voice context, consent or enabled features.
