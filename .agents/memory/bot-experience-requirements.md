@@ -67,7 +67,7 @@ The voice-chat activation sound should be gentle and non-alarming.
 
 **Why:** The user said the previous activation beep sounded frightening.
 
-**How to apply:** Keep activation feedback short, soft, and clearly melodic rather than sharp or ominous.
+**How to apply:** Keep activation feedback short, soft, and clearly melodic rather than sharp or ominous. If a radio is playing, use the text confirmation instead of triggering a brief radio-stream handoff for the chime.
 
 When voice chat runs over radio, lower music only when a real spoken reply is ready; never duck or interrupt music for an AI failure notice. Restore radio immediately after speech.
 

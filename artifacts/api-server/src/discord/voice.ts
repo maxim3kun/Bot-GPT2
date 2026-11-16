@@ -5,6 +5,7 @@ import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   getVoiceConnection,
+  entersState,
   StreamType,
   NoSubscriberBehavior,
   EndBehaviorType,
@@ -344,20 +345,12 @@ async function disableVoiceChatForUser(guildId: string, userId: string): Promise
 
 export async function enableVoiceChat(message: Message): Promise<boolean> {
   const guildId = message.guildId;
-  if (!guildId || !message.member?.voice.channelId) {
+  const channel = message.member?.voice.channel;
+  if (!guildId || !channel) {
     await replyNotInVoice(message);
     return false;
   }
-  const connection = getVoiceConnection(guildId);
-  if (!connection || connection.joinConfig.channelId !== message.member.voice.channelId) {
-    await message.reply("❌ Rejoins le même salon vocal que le bot avant d’activer le chat vocal.");
-    return false;
-  }
-  let state = guildStates.get(guildId);
-  if (!state) {
-    state = createGuildVoiceState(message, guildId, connection, !radioStates.has(guildId));
-    connection.on(VoiceConnectionStatus.Disconnected, () => guildStates.delete(guildId));
-  }
+
   const groqKey = process.env["GROQ_API_KEY"];
   if (!groqKey) {
     await message.reply("⚠️ La transcription vocale n’est pas configurée. Aucune voix ne sera écoutée.");
@@ -370,7 +363,6 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
   const language = getEffectiveLanguage(guildId, message.author.id);
   if (!await requireConsent(message, language) || await getConsent(message.author.id) !== "accepted") return false;
 
-  const channel = message.member.voice.channel;
   const botMember = message.guild?.members.me;
   const userPermissions = channel?.permissionsFor(message.member);
   const botPermissions = channel && botMember ? channel.permissionsFor(botMember) : null;
@@ -388,13 +380,43 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
     return false;
   }
 
+  let connection = getVoiceConnection(guildId);
+  if (connection && connection.joinConfig.channelId !== channel.id) {
+    await message.reply("❌ Le bot est déjà dans un autre salon vocal. Déplace-le avec `!join`, puis relance `!voice chat on`.");
+    return false;
+  }
+  if (!connection) {
+    connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId,
+      adapterCreator: channel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
+    });
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+    } catch {
+      connection.destroy();
+      await message.reply("❌ Je n’ai pas réussi à rejoindre le salon vocal. Vérifie mes permissions et réessaie.");
+      return false;
+    }
+  }
+
+  let state = guildStates.get(guildId);
+  if (!state) {
+    // Reuse a radio connection in place. Subscribing the idle voice-chat player
+    // here would replace the radio's active player and cut the music.
+    state = createGuildVoiceState(message, guildId, connection, !radioStates.has(guildId));
+    connection.on(VoiceConnectionStatus.Disconnected, () => guildStates.delete(guildId));
+  }
+
   state.chatUsers.add(message.author.id);
   state.chatMessages.set(message.author.id, message);
   setupReceiverForGuild(guildId, connection, groqKey);
   const prefix = getPrefix(guildId);
   await message.reply(
-    "✅ **Chat vocal activé pour toi.** Seule ta voix sera transcrite par Groq pour répondre à l’IA; l’audio brut n’est pas conservé par le bot. " +
-    `Les réponses écrites et les sous-titres sont masqués par défaut. \`${prefix}subtitles\` les affiche ou les masque; \`${prefix}voice chat off\` arrête ton écoute.`,
+    `✅ **Chat vocal activé dans ${channel.name}.** Seule ta voix est écoutée; l’audio n’est pas conservé. ` +
+    `Sous-titres désactivés · \`${prefix}subtitles\` pour les afficher · \`${prefix}voice chat off\` pour arrêter.`,
   );
   const previousChime = activationChimeTimers.get(guildId);
   if (previousChime) clearTimeout(previousChime);
@@ -422,6 +444,10 @@ export async function disableVoiceChat(message: Message): Promise<boolean> {
 export async function playVoiceActivationChime(guildId: string): Promise<boolean> {
   const state = guildStates.get(guildId);
   if (!state || !state.active || state.chatUsers.size === 0 || speakingGuilds.has(guildId)) return false;
+  const radio = radioStates.get(guildId);
+  // Avoid restarting a live radio stream for a confirmation sound lasting only
+  // a fraction of a second; the text confirmation already signals activation.
+  if (radio?.stationKey && !radio.paused) return false;
   speakingGuilds.add(guildId);
   state.botSpeaking = true;
   try {

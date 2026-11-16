@@ -14,9 +14,11 @@ const stubs = {
     export const NoSubscriberBehavior = { Pause: "pause" };
     export const EndBehaviorType = { AfterSilence: "silence" };
     export const joinVoiceChannel = () => {
+      fixture.joinCalls += 1;
       const speaking = new EventEmitter();
       const connection = new EventEmitter();
       connection.joinConfig = { channelId: "voice" };
+      connection.state = { status: "ready" };
       connection.receiver = {
         speaking,
         subscribe() {
@@ -32,6 +34,7 @@ const stubs = {
       fixture.connection = connection;
       return connection;
     };
+    export const entersState = async connection => connection;
     export const createAudioPlayer = () => {
       const player = new EventEmitter();
       player.state = { status: "idle" };
@@ -55,9 +58,9 @@ const stubs = {
   "radio.js": `
     export const replyNotInVoice = async message => message.reply("not in voice");
     export const setVoiceCleanupHook = fn => { fixture.voiceCleanupHook = fn; };
-    export const stopForGuild = () => {};
-    export const radioStates = new Map();
-    export const speakOverRadio = async () => fixture.radioMixResult;
+    export const stopForGuild = () => { fixture.radioStopCalls += 1; };
+    export const radioStates = fixture.radioStates;
+    export const speakOverRadio = async () => { fixture.radioMixCalls += 1; return fixture.radioMixResult; };
     export const interruptRadioSpeech = () => false;
     export const pauseRadioForSpeech = () => { fixture.radioPauseCalls += 1; return () => {}; }`,
   "prism-media": `

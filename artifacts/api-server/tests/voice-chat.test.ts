@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, sendVoiceChatResponse, setVoiceChatTurnHandler, speakText, voiceSubtitlesEnabled } from "../src/discord/voice.js";
+import { disableVoiceChat, enableVoiceChat, isInVoice, joinVoice, playVoiceActivationChime, sendVoiceChatResponse, setVoiceChatTurnHandler, speakText, voiceSubtitlesEnabled } from "../src/discord/voice.js";
 import { buildRadioSpeechMixArgs, createVoiceActivationChime, isSpokenStopCommand, isVoiceOperationalError, RADIO_DUCK_VOLUME, sanitizeSpeechText, spokenRadioStationCommand } from "../src/discord/voice-audio-policy.js";
 import { fixture } from "./fixtures/voice-chat.js";
 
@@ -49,6 +49,47 @@ test("Joining a voice channel does not start listening until a member opts in", 
   assert.equal(fixture.subscriptions, 0);
   assert.equal(voiceSubtitlesEnabled("no-auto-listen"), false);
   assert.match(x.replies[0], /désactivée/);
+});
+
+test("Voice chat joins the member's channel directly when the bot is not connected", async () => {
+  const x = makeMessage("direct-voice-chat-join");
+  assert.equal(fixture.connection, null);
+  assert.equal(await enableVoiceChat(x.message), true);
+  assert.equal(fixture.joinCalls, 1);
+  assert.equal(fixture.connection.joinConfig.channelId, "voice");
+  assert.equal(fixture.connection.receiver.speaking.listenerCount("start"), 1);
+  assert.match(x.replies[0], /Chat vocal activé dans Test Voice/);
+  await disableVoiceChat(x.message);
+});
+
+test("Voice-chat opt-in reuses an active radio connection without stopping playback", async () => {
+  const x = makeMessage("radio-voice-chat-join");
+  await joinVoice(x.message);
+  fixture.voiceCleanupHook?.(x.message.guildId);
+  fixture.radioStates.set(x.message.guildId, { stationKey: "nrj", paused: false });
+  const joinsBefore = fixture.joinCalls;
+  const stopsBefore = fixture.radioStopCalls;
+  const subscriptionsBefore = fixture.subscriptions;
+
+  assert.equal(await enableVoiceChat(x.message), true);
+  assert.equal(fixture.joinCalls, joinsBefore);
+  assert.equal(fixture.radioStopCalls, stopsBefore);
+  assert.equal(fixture.subscriptions, subscriptionsBefore);
+  assert.equal(fixture.radioStates.has(x.message.guildId), true);
+  assert.equal(fixture.connection.receiver.speaking.listenerCount("start"), 1);
+  await disableVoiceChat(x.message);
+});
+
+test("Radio playback skips the activation chime to avoid a needless stream handoff", async () => {
+  const x = makeMessage("radio-activation-chime");
+  await joinVoice(x.message);
+  assert.equal(await enableVoiceChat(x.message), true);
+  fixture.radioStates.set(x.message.guildId, { stationKey: "nrj", paused: false });
+  const mixesBefore = fixture.radioMixCalls;
+
+  assert.equal(await playVoiceActivationChime(x.message.guildId), false);
+  assert.equal(fixture.radioMixCalls, mixesBefore);
+  await disableVoiceChat(x.message);
 });
 
 test("Starting radio preserves each member's explicit voice-chat opt-in", async () => {
