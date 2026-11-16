@@ -21,7 +21,8 @@ import { addDays, localDate, scheduledEpoch } from "./gtfs-realtime.js";
 import { transportPreferences, type TransportFavorite, type TransportPreferencesStore } from "./transport-preferences.js";
 import { IRELAND_PROVINCES, irelandCounties, irelandCountyByCode, irelandCountyFromSearch } from "./ireland-regions.js";
 import type { MobilityCountryCoverage } from "./mobility-database-transport.js";
-import { looksLikeNewSpokenTransportRequest, matchSpokenTransportChoice, parseSpokenTransportResultAction } from "./transport-voice.js";
+import { looksLikeNewSpokenTransportRequest, matchSpokenTransportChoice, parseSpokenTransportResultAction,
+  parseSpokenTransportTimeRequest } from "./transport-voice.js";
 export { parseTransportCommand } from "./transport-command-query.js";
 
 const browser = new TransportBrowserClient().enableMobilityDatabase();
@@ -530,7 +531,13 @@ export async function handleTransportSearch(
       typeof service.regionBoundaryAttribution === "function"
       ? `\n${await service.regionBoundaryAttribution(territory)}` : "";
     const voiceChoices = matching.slice(0, 6).map(choice => choice.label);
-    const spokenPrompt = matching.length
+    const spokenPrompt = stage === "result"
+      ? arrival?.viaTransfer
+        ? text("Dis l’heure de départ souhaitée, par exemple : partir à 8 h 30. Pour la correspondance, tu peux aussi dire l’heure du second train et l’attente minimale.",
+          "Say the desired departure time, for example: leave at 8:30. For a transfer, you can also say the second-train time and minimum wait.")
+        : text("Dis l’heure de départ souhaitée, par exemple : partir à 8 h 30.",
+          "Say the desired departure time, for example: leave at 8:30.")
+      : matching.length
       ? `${titles[stage]}. ${context}. ${text(
         `Dis le nom du choix souhaité, par exemple : ${voiceChoices.join(", ")}.`,
         `Say the name of the choice you want, for example: ${voiceChoices.join(", ")}.`,
@@ -540,6 +547,55 @@ export async function handleTransportSearch(
       voiceHandler = async input => {
         if (!live) return false;
         const spokenAction = parseSpokenTransportResultAction(input);
+        const timeRequest = stage === "result" ? parseSpokenTransportTimeRequest(input) : null;
+        if (timeRequest) {
+          if (busy) {
+            await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
+            return true;
+          }
+          if ((timeRequest.kind === "connection" || timeRequest.kind === "wait") && !arrival?.viaTransfer) {
+            await voiceOptions.speak(text("Cette recherche n’a pas de correspondance à régler.", "This journey has no transfer to configure."));
+            return true;
+          }
+          if (timeRequest.kind === "wait") {
+            if (timeRequest.minutes === null) {
+              await voiceOptions.speak(text("Indique une attente minimale entre 0 et 360 minutes.",
+                "Say a minimum wait between 0 and 360 minutes."));
+              return true;
+            }
+            timeOptions = { ...timeOptions, minimumWaitSeconds: timeRequest.minutes * 60 };
+          } else {
+            if (!timeRequest.time) {
+              await voiceOptions.speak(text("Je n’ai pas reconnu l’heure. Dis une heure comme 8 h 30.",
+                "I couldn’t recognize the time. Say a time such as 8:30."));
+              return true;
+            }
+            const timezone = index?.metadata.timezone || "Europe/Paris";
+            const reference = timeRequest.kind === "connection"
+              ? timeOptions.departureAfter ?? service.currentTimeSeconds()
+              : service.currentTimeSeconds();
+            const epoch = localTimeOption(timeRequest.time, reference, timezone);
+            if (epoch === null || epoch === undefined) {
+              await voiceOptions.speak(text("Heure invalide. Dis une heure entre 0 h et 23 h 59.",
+                "Invalid time. Say a time between 00:00 and 23:59."));
+              return true;
+            }
+            timeOptions = timeRequest.kind === "connection"
+              ? { ...timeOptions, connectionAfter: epoch }
+              : { ...timeOptions, departureAfter: epoch };
+          }
+          showPreviousStops = false;
+          await run(() => showDepartures());
+          if (stage === "result") {
+            const confirmation = timeRequest.kind === "wait"
+              ? text(`Attente minimale réglée à ${timeRequest.minutes} minutes; horaires recalculés.`,
+                `Minimum wait set to ${timeRequest.minutes} minutes; timetables recalculated.`)
+              : text(`Recherche recalculée avec ${timeRequest.kind === "connection" ? "le second train" : "un départ"} après ${timeRequest.time}.`,
+                `Search recalculated with ${timeRequest.kind === "connection" ? "the second train" : "a departure"} after ${timeRequest.time}.`);
+            await voiceOptions.speak(confirmation);
+          }
+          return true;
+        }
         if (stage !== "result" && (spokenAction === "nextPage" || spokenAction === "previousPage")) {
           if (busy) {
             await voiceOptions.speak(text("La recherche est en cours. Patiente un instant.", "The lookup is running. Please wait."));
@@ -1001,7 +1057,12 @@ export async function handleTransportSearch(
       } else cardContent += `\n\n**${title}**\n${stopText}`;
     }
     if (favoriteNotice) cardContent = `${favoriteNotice}\n${cardContent}`;
-    await edit(cardContent, [primary, secondary], cardEmbed, voiceOptions ? cardContent.slice(0, 900) : undefined);
+    const voiceInstruction = arrival?.viaTransfer
+      ? text("Tu peux dire l’heure de départ souhaitée. Pour la correspondance, dis aussi l’heure du second train ou l’attente minimale.",
+        "Say the desired departure time. For a transfer, you can also say the second-train time or minimum wait.")
+      : text("Tu peux dire l’heure de départ souhaitée, par exemple : partir à 8 h 30.",
+        "Say the desired departure time, for example: leave at 8:30.");
+    await edit(cardContent, [primary, secondary], cardEmbed, voiceOptions ? voiceInstruction : undefined);
   }
 
   function favoriteForCurrentJourney(): TransportFavorite | null {

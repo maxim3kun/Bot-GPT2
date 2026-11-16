@@ -622,8 +622,55 @@ test("A voice transport search can choose a city, route and stops without clicki
   }
   assert.equal(d.cards[0]!.last.embeds.length, 1,
     JSON.stringify({ content: d.cards[0]!.last.content, spoken }));
-  assert.match(spoken.at(-1) ?? "", /Horaires théoriques/);
+  assert.match(spoken.at(-1) ?? "", /heure de départ souhaitée/);
   d.cards[0]!.collector.stop("cancelled");
+});
+
+test("Voice can set departure, second-train and minimum-wait times from a transfer result", async () => {
+  const d = fakeDiscord(), s = service(), spoken: string[] = [], receivedOptions: any[] = [];
+  const now = Date.UTC(2026, 10, 16, 8) / 1000; // 09:00 in Paris.
+  s.value.currentTimeSeconds = () => now;
+  s.value.index = async () => ({
+    stops: new Map([["O", { id: "O", name: "Gare" }], ["D", { id: "D", name: "Arrivée" }]]),
+    visits: new Map([["trip", [{ stopId: "O", pickup: true, dropoff: true }, { stopId: "D", pickup: true, dropoff: true }]]]),
+    metadata: { timezone: "Europe/Paris" },
+  } as any);
+  s.value.availableStops = async (_line: any, _index: any, options: any[]) => ({
+    options: options.some(option => option.ids.includes("D"))
+      ? [...options, { label: "Arrivée avec correspondance", ids: ["T"], viaTransfer: true }]
+      : options,
+    note: "",
+  });
+  s.value.departures = async (...args: any[]) => {
+    receivedOptions.push(args[5]);
+    return { content: "Horaires vérifiés", source: { name: "Source", url: "https://transport.data.gouv.fr/test" },
+      embed: { title: "Trajet vérifié", description: "Horaires vérifiés" } } as any;
+  };
+  await handleTransportSearch(d.message, { place: "Beauvais", territory: "fr", mode: "bus" }, "fr", "!",
+    s.value, 45_000, undefined, undefined, undefined, { speak: async text => { spoken.push(text); } });
+  const card = d.cards[0]!;
+  await choose(card, "0"); // city
+  await choose(card, "0"); // route
+  await choose(card, "1"); // transfer arrival
+  await settle(() => receivedOptions.length === 1);
+  assert.equal(receivedOptions.length, 1);
+  assert.match(spoken.at(-1) ?? "", /attente minimale/);
+
+  assert.equal(await handleTransportVoiceInput(d.message, "je veux partir à 10 h"), true);
+  assert.equal(await handleTransportVoiceInput(d.message, "le deuxième train à 11 h"), true);
+  assert.equal(await handleTransportVoiceInput(d.message, "attente minimale de douze minutes"), true);
+
+  const departureAfter = Date.UTC(2026, 10, 16, 9) / 1000;
+  const connectionAfter = Date.UTC(2026, 10, 16, 10) / 1000;
+  assert.deepEqual(receivedOptions, [
+    {},
+    { departureAfter },
+    { departureAfter, connectionAfter },
+    { departureAfter, connectionAfter, minimumWaitSeconds: 720 },
+  ]);
+  assert.match(spoken.at(-1) ?? "", /Attente minimale réglée à 12 minutes/);
+  assert.match(card.last.embeds[0]?.description ?? "", /Horaires vérifiés/);
+  card.collector.stop("cancelled");
 });
 
 test("An unfinished voice transport search can be cancelled by speech", async () => {
