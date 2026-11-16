@@ -20,8 +20,9 @@ function fixture(userId = "owner") {
   return { message, replies, updates, handlers };
 }
 
-test("Bot defaults to the masculine Gilles voice; only server managers may save", async () => {
+test("Bot always uses masculine Gilles and only server managers can confirm its setting", async () => {
   const x = fixture();
+  f.guilds.guild = { ttsVoiceId: "siwis" };
   assert.equal(await getBotVoice("guild"), DEFAULT_VOICE);
   f.admin = false;
   await handleBotVoiceSelection(x.message, "gilles");
@@ -32,15 +33,29 @@ test("Bot defaults to the masculine Gilles voice; only server managers may save"
   assert.match(x.replies.pop(), /enregistrée/);
   assert.equal(await getBotVoice("guild"), "gilles");
   f.fail = true;
-  await handleBotVoiceSelection(x.message, "siwis");
-  assert.match(x.replies.pop(), /Impossible/);
+  await handleBotVoiceSelection(x.message, "gilles");
+  assert.match(x.replies.pop(), /MongoDB/);
   assert.equal(await getBotVoice("guild"), "gilles");
   f.fail = false;
+  const writesBeforeSiuvis = f.writes;
+  await handleBotVoiceSelection(x.message, "siwis");
+  assert.match(x.replies.pop(), /réservée aux personas/);
+  assert.equal(f.writes, writesBeforeSiuvis);
   await handleBotVoiceSelection(x.message, "unknown");
   assert.match(x.replies.pop(), /inconnue/);
   assert.equal(await getBotVoice("guild"), "gilles");
   await handleBotVoiceSelection(x.message, "default");
   assert.equal(await getBotVoice("guild"), "gilles");
+});
+
+test("Voice status explains the actual French voice and the multilingual limitation", async () => {
+  const x = fixture();
+  await handleBotVoiceSelection(x.message, "status");
+  const payload = x.replies.at(-1);
+  assert.match(payload.embeds[0].toJSON().description, /Gilles, voix masculine locale/);
+  assert.match(payload.embeds[0].toJSON().description, /voix masculine non garantie/);
+  assert.match(payload.embeds[0].toJSON().description, /Personas/);
+  assert.equal(payload.allowedMentions.parse.length, 0);
 });
 
 test("Persona voices are owner-only, isolated and resettable without changing memories or bot settings", async () => {

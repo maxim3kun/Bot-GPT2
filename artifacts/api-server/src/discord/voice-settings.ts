@@ -1,5 +1,5 @@
 import { ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits, EmbedBuilder, escapeMarkdown, type Message } from "discord.js";
-import { getGuildDoc, setGuildTtsVoice, getAiPersona, saveAiPersona, type AiPersonaRecord } from "../lib/db.js";
+import { setGuildTtsVoice, getAiPersona, saveAiPersona, type AiPersonaRecord } from "../lib/db.js";
 import { getEffectiveLanguage } from "./effective-language.js";
 import { getPrefix } from "./prefix-store.js";
 import { DEFAULT_VOICE, VOICE_CATALOG, isVoiceId, voiceName } from "./piper-tts.js";
@@ -7,8 +7,10 @@ import { logger } from "../lib/logger.js";
 
 const copy = (message: Message, fr: string, en: string) => getEffectiveLanguage(message.guildId, message.author.id) === "fr" ? fr : en;
 export async function getBotVoice(guildId: string): Promise<string> {
-  const stored = (await getGuildDoc(guildId))?.ttsVoiceId;
-  return isVoiceId(stored) ? stored : DEFAULT_VOICE;
+  // MaximeGPT's French voice is deliberately fixed to Gilles. Older guild
+  // settings may still contain "siwis", but that voice is reserved for personas.
+  void guildId;
+  return DEFAULT_VOICE;
 }
 
 export interface VoiceSelection {
@@ -97,14 +99,56 @@ export async function handleBotVoiceSelection(message: Message, requested?: stri
     return;
   }
   const guildId = message.guildId;
-  const current = (await getGuildDoc(guildId))?.ttsVoiceId;
-  await selectVoice(message, {
-    label: "MaximeGPT",
-    current: isVoiceId(current) ? current : undefined,
-    canEdit: async () => {
-      const member = await message.guild?.members.fetch(message.author.id).catch(() => null);
-      return member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false;
-    },
-    save: id => setGuildTtsVoice(guildId, id ?? null),
-  }, requested);
+  const action = requested?.toLowerCase();
+  const language = getEffectiveLanguage(guildId, message.author.id);
+  const prefix = await getPrefix(guildId);
+
+  if (!action || ["status", "statut", "list", "liste"].includes(action)) {
+    const description = language === "fr"
+      ? `**Français :** Gilles, voix masculine locale.\n**Autres langues :** Google TTS, voix masculine non garantie.\n**Personas :** leur réglage de voix reste indépendant.\n\n${prefix}voice gilles · ${prefix}voice status`
+      : `**French:** Gilles, local male voice.\n**Other languages:** Google TTS; a male voice is not guaranteed.\n**Personas:** keep their own independent voice setting.\n\n${prefix}voice gilles · ${prefix}voice status`;
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setTitle(language === "fr" ? "Voix · MaximeGPT" : "Voice · MaximeGPT")
+      .setDescription(description);
+    await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+    return;
+  }
+
+  const member = await message.guild?.members.fetch(message.author.id).catch(() => null);
+  if (!member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    await message.reply(copy(message, "Tu n’as pas la permission de modifier cette voix.", "You cannot change this voice."));
+    return;
+  }
+
+  if (action === "siwis") {
+    await message.reply(copy(
+      message,
+      "SIWIS est une voix féminine réservée aux personas. MaximeGPT utilise Gilles, la voix masculine.",
+      "SIWIS is a feminine voice reserved for personas. MaximeGPT uses Gilles, the male voice.",
+    ));
+    return;
+  }
+  if (!["gilles", "default"].includes(action)) {
+    await message.reply(copy(
+      message,
+      `MaximeGPT utilise Gilles. Utilise \`${prefix}voice status\` pour voir les voix; SIWIS reste disponible pour les personas.`,
+      `MaximeGPT uses Gilles. Use \`${prefix}voice status\` to see the voice details; SIWIS remains available for personas.`,
+    ));
+    return;
+  }
+
+  try {
+    // Clear any old feminine guild setting so it cannot be mistaken for the
+    // active voice by other parts of the app; runtime selection is fixed above.
+    await setGuildTtsVoice(guildId, action === "gilles" ? "gilles" : null);
+    await message.reply(copy(message, "Voix de MaximeGPT confirmée : **Gilles**, voix masculine.", "MaximeGPT voice confirmed: **Gilles**, male voice."));
+  } catch (error) {
+    logger.warn({ errorName: error instanceof Error ? error.name : "Error" }, "Could not save the fixed bot voice");
+    await message.reply(copy(
+      message,
+      "Je garde Gilles comme voix pendant cette session, mais le réglage n’a pas pu être enregistré dans MongoDB.",
+      "Gilles remains the voice for this session, but the setting could not be saved to MongoDB.",
+    ));
+  }
 }
