@@ -1455,7 +1455,7 @@ export async function sendAdminGuide(message: Message, prefix = "!", language: H
     })
     .addFields({
       name: language === "fr" ? "Voix du bot" : "Bot voice",
-      value: `\`${p}voice list\` · \`${p}voice siwis\` · \`${p}voice gilles\` · \`${p}voice default\`\n${language === "fr" ? "Choix réservé à Gérer le serveur. Gilles par défaut ; les personas peuvent garder leur propre voix." : "Manage Server required. Gilles is the default; personas can keep their own voice."}`,
+      value: `\`${p}voice status\` · \`${p}voice gilles\`\n${language === "fr" ? "Gilles, voix masculine, pour MaximeGPT. SIWIS reste disponible pour les personas." : "Gilles, male voice, for MaximeGPT. SIWIS remains available for personas."}`,
     }, {
       name: language === "fr" ? "Mémoire commune du serveur" : "Shared server memory",
       value: `\`${p}ai server remember <information>\` · \`${p}ai server forget\``,

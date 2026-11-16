@@ -132,8 +132,8 @@ export async function handleBotVoiceSelection(message: Message, requested?: stri
   if (!["gilles", "default"].includes(action)) {
     await message.reply(copy(
       message,
-      `MaximeGPT utilise Gilles. Utilise \`${prefix}voice status\` pour voir les voix; SIWIS reste disponible pour les personas.`,
-      `MaximeGPT uses Gilles. Use \`${prefix}voice status\` to see the voice details; SIWIS remains available for personas.`,
+      `Option inconnue. MaximeGPT utilise Gilles; consulte \`${prefix}voice status\`. SIWIS reste disponible pour les personas.`,
+      `Unknown option. MaximeGPT uses Gilles; see \`${prefix}voice status\`. SIWIS remains available for personas.`,
     ));
     return;
   }

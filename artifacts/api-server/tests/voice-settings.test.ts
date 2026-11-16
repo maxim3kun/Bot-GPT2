@@ -30,7 +30,7 @@ test("Bot always uses masculine Gilles and only server managers can confirm its 
   assert.equal(f.writes, 0);
   f.admin = true;
   await handleBotVoiceSelection(x.message, "gilles");
-  assert.match(x.replies.pop(), /enregistrée/);
+  assert.match(x.replies.pop(), /confirmée/);
   assert.equal(await getBotVoice("guild"), "gilles");
   f.fail = true;
   await handleBotVoiceSelection(x.message, "gilles");
@@ -75,32 +75,13 @@ test("Persona voices are owner-only, isolated and resettable without changing me
   assert.equal(f.personas.azumi.ttsVoiceId, undefined);
 });
 
-test("Voice menu acknowledges before saving, protects the author and shows the actual saved selection", async () => {
+test("Legacy voice list is now a read-only status without a voice-selection menu", async () => {
   const x = fixture();
   await handleBotVoiceSelection(x.message);
-  assert.equal(x.replies[0].components[0].toJSON().components[0].type, 3);
-  const notices: any[] = [], events: string[] = [];
-  const click = {
-    customId: "tts_voice_select", values: ["gilles"], user: { id: "owner" },
-    isStringSelectMenu: () => true,
-    deferReply: async () => { events.push("defer"); },
-    editReply: async (text: string) => { events.push("reply"); notices.push(text); },
-    reply: async () => { events.push("denied"); },
-  };
-  await x.handlers.get("collect")({ ...click, user: { id: "intruder" } });
-  assert.deepEqual(events, ["denied"]);
-  events.length = 0;
-  await x.handlers.get("collect")(click);
-  assert.deepEqual(events, ["defer", "reply"]);
-  assert.match(notices[0], /Gilles/);
-  assert.match(x.updates.at(-1).embeds[0].toJSON().description, /actuelle : \*\*Gilles/);
-  f.admin = false;
-  await x.handlers.get("collect")({ ...click, values: ["siwis"] });
-  assert.match(notices.at(-1), /non enregistrée/);
-  assert.equal(await getBotVoice("guild"), "gilles");
-  x.handlers.get("end")();
-  assert.equal(x.updates.at(-1).components[0].toJSON().components[0].disabled, true);
-  f.admin = true;
+  const payload = x.replies[0];
+  assert.match(payload.embeds[0].toJSON().title, /MaximeGPT/);
+  assert.match(payload.embeds[0].toJSON().description, /Gilles, voix masculine locale/);
+  assert.equal(payload.components, undefined);
 });
 
 test("Piper validates voices, bounds the queue and produces real WAV through its worker", async () => {

@@ -51,11 +51,11 @@ The user runs the bot on Railway.
 
 **How to apply:** Prepare runtime dependencies and voice models for Railway rather than assuming that a successful local Replit experiment is installed on the deployed bot.
 
-The bot's default French voice should be masculine Gilles; personas may keep their own voice.
+MaximeGPT must use masculine Gilles for French speech; ignore legacy server voice choices, and keep SIWIS available only to personas. Other-language TTS must be clearly identified because its voice gender is not guaranteed.
 
 **Why:** The user asked for a male bot voice while allowing persona-specific voices.
 
-**How to apply:** Use Gilles when no server voice is saved; preserve explicit server selections and persona overrides. Keep voice-model files on the Railway runtime, not in MongoDB.
+**How to apply:** Never use a saved server SIWIS selection for MaximeGPT. Keep persona voice overrides independent, and report unsupported voice guarantees instead of silently claiming a male voice. Keep voice-model files on the Railway runtime, not in MongoDB.
 
 Voice model downloads must use an immutable source revision and verified SHA-256 checksums; validate actual synthesis before declaring local voice support ready.
 
