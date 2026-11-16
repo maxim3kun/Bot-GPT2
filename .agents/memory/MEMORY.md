@@ -32,3 +32,4 @@
 - [Entur Norway timetable format](norway-entur-schedule-contract.md) — The national GTFS download contains stops only; official timetable exports are NeTEx.
 - [Bot product vision](bot-product-vision.md) — User's requested roadmap: broader transport, flights, personas, games, voice, reminders, knowledge and creation tools.
 - [API bundle runtime externals](api-bundle-runtime-externals.md) — Externals in the API esbuild must be direct runtime dependencies; keep jsdom external to preserve its bundled stylesheet assets.
+- [Discord Activity setup](discord-activity-setup.md) — A browser preview is not an Activity launch; Discord needs the application ID, a public URL, and Developer Portal URL mapping.

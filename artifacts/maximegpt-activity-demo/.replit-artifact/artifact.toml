@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MaximeGPT Activity"
+description = "Activity Discord de démonstration : une page intégrée à Discord avec un texte et une couleur de fond qui change toutes les deux secondes."
+version = "1.0.0"
+id = "artifacts/maximegpt-activity-demo"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19883
+
+[services.development]
+run = "pnpm --filter @workspace/maximegpt-activity-demo run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/maximegpt-activity-demo", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/maximegpt-activity-demo/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19883"
+BASE_PATH = "/"
