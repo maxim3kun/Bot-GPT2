@@ -8,12 +8,12 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / ".piper" / "models"
 CATALOG = json.loads((ROOT / "config/piper-voices.json").read_text())
-BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c/"
 
 
-def checksum(path):
+def sha256(path):
     with path.open("rb") as file:
-        return hashlib.file_digest(file, "md5").hexdigest()
+        return hashlib.file_digest(file, "sha256").hexdigest()
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
             name = voice["model"] + suffix
             target = DEST / name
             if target.exists():
-                if suffix == ".onnx" and checksum(target) == voice["md5"]:
+                if suffix == ".onnx" and sha256(target) == voice["sha256"]:
                     continue
                 if suffix == ".onnx.json":
                     try:
@@ -35,14 +35,14 @@ def main():
             sample = ROOT / "generated-artifacts/piper/models" / name
             temporary = target.with_suffix(target.suffix + ".part")
             try:
-                if sample.is_file() and (suffix != ".onnx" or checksum(sample) == voice["md5"]):
+                if sample.is_file() and (suffix != ".onnx" or sha256(sample) == voice["sha256"]):
                     shutil.copyfile(sample, temporary)
                 else:
                     url = BASE + voice["path"] + "/" + name
                     with urllib.request.urlopen(url, timeout=120) as response, temporary.open("wb") as file:
                         shutil.copyfileobj(response, file)
                 if suffix == ".onnx":
-                    if checksum(temporary) != voice["md5"]:
+                    if sha256(temporary) != voice["sha256"]:
                         raise RuntimeError(f"Invalid model checksum: {name}")
                 else:
                     json.loads(temporary.read_text())

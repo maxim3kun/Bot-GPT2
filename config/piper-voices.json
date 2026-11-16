@@ -7,7 +7,7 @@
       "description": "Français · voix féminine",
       "model": "fr_FR-siwis-medium",
       "path": "fr/fr_FR/siwis/medium",
-      "md5": "20e876e8c839e9b11a26085858f2300c",
+      "sha256": "b1d946fd68d0347155fa59bce0a018924abbef3c1561181db45ca463d83963ef",
       "license": "Dataset CC-BY-4.0",
       "source": "https://datashare.is.ed.ac.uk/handle/10283/2353"
     },
@@ -17,7 +17,7 @@
       "description": "Français · voix masculine, modèle léger",
       "model": "fr_FR-gilles-low",
       "path": "fr/fr_FR/gilles/low",
-      "md5": "f984386d1f0927597f09a3ec10b11b5d",
+      "sha256": "5cd711846720e261c2a176f6924c198a7424d0a75dd4b0a5357a5fb9cb739285",
       "license": "Dataset CC0",
       "source": "https://www.kaggle.com/datasets/bryanpark/french-single-speaker-speech-dataset"
     }

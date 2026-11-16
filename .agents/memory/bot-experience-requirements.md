@@ -57,6 +57,12 @@ The bot's default French voice should be masculine Gilles; personas may keep the
 
 **How to apply:** Use Gilles when no server voice is saved; preserve explicit server selections and persona overrides. Keep voice-model files on the Railway runtime, not in MongoDB.
 
+Voice model downloads must use an immutable source revision and verified SHA-256 checksums; validate actual synthesis before declaring local voice support ready.
+
+**Why:** The upstream Piper model repository changed while the bot still expected old checksums, so startup failed before speech could work.
+
+**How to apply:** Pin the voice catalog revision, verify each model against its published SHA-256, and synthesize a non-silent sample for each configured voice before deployment.
+
 The voice-chat activation sound should be gentle and non-alarming.
 
 **Why:** The user said the previous activation beep sounded frightening.
