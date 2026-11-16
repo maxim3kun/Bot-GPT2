@@ -39,6 +39,8 @@ const stubs = {
     fixture.handlers.push("pokemon:" + query + ":" + language);
     return reply("real PokéAPI result");
   };`,
+  "civic-command.js": `export const handleCivicCommand = async (message, command, args) =>
+    handler("civic:" + command + ":" + args.join(" "), message);`,
   "message-game-commands.js": `
     export const handleGameMessageCommand = (message, command, args, openai) =>
       command === "trivia" && !openai ? message.reply("AI features are not configured") : handler(command + ":" + args.join(","), message);`,

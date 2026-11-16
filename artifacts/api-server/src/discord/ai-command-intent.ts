@@ -11,8 +11,10 @@ const starters = "(?:lance|demarre|joue|mets|cherche|recherche|ouvre|affiche|mon
 export function commandSafety(text: string): "quoted" | "multiple" | null {
   const n = actionText(text);
   const explicitWeather = weatherTurn(text) !== null;
+  const explicitCivicLookup = /\b(?:explique|que dit|quel est|recherche|cherche|consulte)\b/.test(n)
+    && /\b(?:article|code civil|code penal|loi)\b/.test(n);
   if (/^[>"'«`]|```/.test(text.trim()) ||
-    /^(?:explique|traduis|cite|repete|imagine|suppose|si |quand |il a dit|elle a dit|on m a dit|comment (?:faire|utiliser|lancer|jouer))/.test(n) ||
+    !explicitCivicLookup && /^(?:explique|traduis|cite|repete|imagine|suppose|si |quand |il a dit|elle a dit|on m a dit|comment (?:faire|utiliser|lancer|jouer))/.test(n) ||
     /\b(?:si tu|si je|si on|si nous|if you|if i|if we|quand tu|when you|a titre d exemple)\b/.test(n) ||
     /\bpar exemple\b/.test(n) && !explicitWeather ||
     /\b(?:ne pas|ne jamais|pas maintenant|not now)\b/.test(n) ||
@@ -48,6 +50,26 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
     const checked = parseAiCommandTool([{ type: "function", function: { name, arguments: JSON.stringify(args) } }], Object.keys(stations));
     return checked ? { kind: "action", action: checked } : clarify("Précise des paramètres valides, sans commande, lien externe ni identifiant de membre ou de salon.", "Use valid arguments without commands, external links, or member/channel identifiers.");
   };
+  if (/\b(?:votes?|scrutins?)\b/.test(n) && /\b(?:assemblee|parlement|scrutin|vote)\b/.test(n)) {
+    const voteMatch = body.match(/\b(?:votes?|scrutins?)\b/i);
+    const query = (voteMatch ? body.slice(voteMatch.index! + voteMatch[0].length) : "")
+      .replace(/^\s*(?:de l['’]assembl[eé]e(?: nationale)?|du parlement)\b/i, "")
+      .replace(/^\s*(?:sur|concernant|pour)\s+/i, "").trim();
+    return action({ name: "civic_lookup", section: "votes", query: query.slice(0, 160) });
+  }
+  if (/\b(?:jours? f[eé]ri[eé]s?|bank holidays?)\b/i.test(body)) {
+    const afterLabel = body.replace(/^.*?\b(?:jours? f[eé]ri[eé]s?|bank holidays?)\b/i, "")
+      .replace(/^\s*(?:en|au|aux|de|du|for|in)\s+/i, "")
+      .replace(/\s+(?:en|for)\s+(?=\d{4}\b)/i, " ").replace(/[?!.,]+$/g, "").trim();
+    return afterLabel
+      ? action({ name: "civic_lookup", section: "holidays", query: afterLabel.slice(0, 160) })
+      : clarify("Pour quel pays et quelle année veux-tu les jours fériés ?", "Which country and year should I check for public holidays?");
+  }
+  if (/\b(?:article|code civil|code p[eé]nal|loi|legislation|legislation)\b/i.test(body)) {
+    const query = body.replace(/^(?:(?:explique(?:[- ]moi)?|que dit|cherche|recherche|consulte|affiche|montre(?: moi)?|quelle est|what is|find)\s+)?/i, "")
+      .replace(/^l['’]article\b/i, "Article").replace(/\bdu (code\b)/i, "$1").replace(/[?!.,]+$/g, "").trim();
+    if (query.length > 2) return action({ name: "civic_lookup", section: "law", query: query.slice(0, 160) });
+  }
   const station = extractRadioStationRequest(body, stations);
   const weather = weatherTurn(body);
   if (weather) return action({ name: "get_weather", ...weather });

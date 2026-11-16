@@ -240,6 +240,13 @@ test("Timetables reach the typed transport handler with all supplied fields and 
   fixture.consent = "declined";
   assert.equal(await fixture.searches[0].authorize(), false); // Subsequent menu calls re-check consent.
 });
+test("Assembly requests use the existing civic handler and never a model-generated answer", async () => {
+  fixture.reset();
+  await handleAiCommandRequest(fakeMessage() as unknown as Message,
+    "Quels sont les derniers votes de l’Assemblée nationale ?", fakeModel("start_trivia") as unknown as OpenAI, "fr");
+  assert.deepEqual(fixture.handlers, ["civic:votes:"]);
+  assert.equal(fixture.modelCalls, 0);
+});
 test("YouTube calls its real search handler, with no generated claim of playback", async () => {
   fixture.reset();
   await handleAiCommandRequest(fakeMessage() as unknown as Message, "Joue Stromae Papaoutai sur YouTube", fakeModel("play_radio", { station: "nrj" }) as unknown as OpenAI, "fr");

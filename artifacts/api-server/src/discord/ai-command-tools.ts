@@ -9,6 +9,7 @@ export type AiCommandAction =
   | ({ name: "plan_journey" } & JourneyRequest)
   | { name: "show_help" }
   | { name: "lookup_pokemon"; query: string }
+  | { name: "civic_lookup"; section: "votes" | "holidays" | "law"; query: string }
   | { name: "start_minesweeper"; difficulty: "easy" | "medium" | "hard" }
   | { name: "start_connect4" }
   | { name: "start_geoguessr" | "start_guess_logo"; difficulty: "easy" | "medium" | "hard" }
@@ -51,6 +52,10 @@ export function parseAiCommandTool(
     && ["origin", "destination", "time"].every(k => args[k] === undefined || safeSearchText(args[k], k === "time" ? 80 : 140) && (args[k] as string).trim().length > 0))
     return { name, mode: args.mode, ...(args.origin ? { origin: args.origin } : {}),
       ...(args.destination ? { destination: args.destination } : {}), ...(args.time ? { time: args.time } : {}) } as AiCommandAction;
+  if (name === "civic_lookup" && Object.keys(args).every(k => ["section", "query"].includes(k))
+    && ["votes", "holidays", "law"].includes(args.section as string)
+    && safeSearchText(args.query, 160))
+    return { name, section: args.section as "votes" | "holidays" | "law", query: args.query.trim() } as AiCommandAction;
   if (["show_help", "start_connect4", "module_diagnostic", "start_trivia", "start_guess_number",
     "music_pause", "music_resume", "music_skip", "music_stop", "music_queue", "music_current"].includes(name)) {
     if (Object.keys(args).length !== 0) return null;
@@ -98,6 +103,9 @@ export function buildAiCommandTools(stationKeys: string[]) {
       mode: { enum: ["car", "transit", null] }, origin: { type: "string", maxLength: 140 },
       destination: { type: "string", maxLength: 140 }, time: { type: "string", maxLength: 80 },
     }, ["mode"]),
+    tool("civic_lookup", "Use the existing official-source handlers for National Assembly votes, public holidays, or French legal texts. Do not invent results; holidays need a country and law searches need a subject or article.", {
+      section: { enum: ["votes", "holidays", "law"] }, query: { type: "string", maxLength: 160 },
+    }, ["section", "query"]),
     tool("show_help", "Show the bot's real help, only when the user requests help."),
     tool("start_minesweeper", "Start a spoiler minesweeper board, only on explicit request.", {
       difficulty: { type: "string", enum: ["easy", "medium", "hard"] },

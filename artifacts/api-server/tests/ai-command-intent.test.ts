@@ -28,7 +28,17 @@ for (const [text, expected] of [
   ["Montre les horaires des trains à Montréal au Québec", { name: "search_transport", mode: "rail", place: "Montréal", territory: "qc" }],
   ["Horaires tram Québec", { name: "search_transport", mode: "tram", place: "Québec" }],
   ["Peux-tu chercher les horaires du métro à Paris en France ?", { name: "search_transport", mode: "metro", place: "Paris", territory: "fr" }],
+  ["Quels sont les derniers votes de l’Assemblée nationale ?", { name: "civic_lookup", section: "votes", query: "" }],
+  ["Montre les votes de l’Assemblée sur le budget", { name: "civic_lookup", section: "votes", query: "le budget" }],
+  ["Quels sont les jours fériés en France en 2027 ?", { name: "civic_lookup", section: "holidays", query: "France 2027" }],
+  ["Explique-moi l’article 1240 du Code civil", { name: "civic_lookup", section: "law", query: "Article 1240 Code civil" }],
 ] as [string, AiCommandAction][]) test(`Natural action: ${text}`, () => assert.deepEqual(selected(text), expected));
+test("Civic lookups never invent missing parameters or accept unsafe arguments", () => {
+  assert.equal(selectAiCommand("Quels sont les jours fériés ?", stations).kind, "clarify");
+  assert.equal(selectAiCommand("Cherche les votes de l’Assemblée sur un sujet", stations).kind, "action");
+  const tool = { type: "function", function: { name: "civic_lookup", arguments: JSON.stringify({ section: "holidays", query: "France 2027", admin: true }) } };
+  assert.equal(parseAiCommandTool([tool], []), null);
+});
 test("Timetable searches do not absorb a transfer itinerary", () => {
   assert.equal(isTimetableSearch("Montre les horaires du métro à Paris"), true);
   assert.equal(isTimetableSearch("Quel trajet de Dugommier à Pointe du Lac avec correspondance ?"), false);

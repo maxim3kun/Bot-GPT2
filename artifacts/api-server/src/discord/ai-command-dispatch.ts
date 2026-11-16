@@ -22,6 +22,7 @@ import { handleTransportDialogue } from "./transport-dialogue.js";
 import { handleWeatherDialogue } from "./weather-dialogue.js";
 import { commandSafety, completeAiCommand, selectAiCommand, type CommandParameter } from "./ai-command-intent.js";
 import { handlePokemon } from "./pokemon.js";
+import { handleCivicCommand } from "./civic-command.js";
 import type { Language } from "./responses.js";
 
 const activeRequests = new Set<string>();
@@ -89,7 +90,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
         ])),
         botCanReply: !message.guild || Boolean(botPermissions?.has([
           PermissionFlagsBits.ViewChannel, send,
-          ...(["show_help", "lookup_pokemon", "play_radio", "play_youtube", "search_youtube", "music_queue", "music_current"].includes(action.name)
+          ...(["show_help", "lookup_pokemon", "civic_lookup", "play_radio", "play_youtube", "search_youtube", "music_queue", "music_current"].includes(action.name)
             || action.name.startsWith("start_") && action.name !== "start_minesweeper" ? [PermissionFlagsBits.EmbedLinks] : []),
           ...(action.name === "start_connect4" ? [PermissionFlagsBits.AddReactions, PermissionFlagsBits.ReadMessageHistory] : []),
           ...(action.name === "start_guess_logo" ? [PermissionFlagsBits.AttachFiles] : []),
@@ -122,7 +123,7 @@ export function commandExecutor(message: Message, language: Language, openai: Op
       }
       const module = isMusicAction(action) ? "music"
         : action.name === "module_diagnostic" ? "admin"
-        : ["show_help", "lookup_pokemon", "search_transport", "plan_journey", "get_weather"].includes(action.name) ? "other" : "games";
+        : ["show_help", "lookup_pokemon", "civic_lookup", "search_transport", "plan_journey", "get_weather"].includes(action.name) ? "other" : "games";
       await runModuleWithFallback(message, module, async () => {
         if (isMusicAction(action)) {
           let expectedVoice = action.name === "search_youtube" ? null : authorizedVoice;
@@ -140,6 +141,11 @@ export function commandExecutor(message: Message, language: Language, openai: Op
           case "show_help": await sendHelpPaginator(message, language); break;
           case "lookup_pokemon":
             await handlePokemon(action.query, language, opts => message.reply(opts as Parameters<Message["reply"]>[0])); break;
+          case "civic_lookup": {
+            const command = action.section === "votes" ? "votes" : action.section === "holidays" ? "holidays" : "law";
+            await handleCivicCommand(message, command, action.query ? action.query.split(/\s+/) : [], language);
+            break;
+          }
           case "start_minesweeper":
             await handleGameMessageCommand(message, "minesweeper", [action.difficulty], openai, language); break;
           case "start_connect4":
