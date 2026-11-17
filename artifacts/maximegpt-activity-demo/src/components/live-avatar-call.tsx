@@ -12,10 +12,7 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import portrait from '../../../../attached_assets/generated_images/maxime-live-idle.webp';
-import blinkPortrait from '../../../../attached_assets/generated_images/maxime-live-blink.webp';
-import speakingPortrait from '../../../../attached_assets/generated_images/maxime-live-speaking.webp';
-import typingPortrait from '../../../../attached_assets/generated_images/maxime-live-typing.webp';
+import { LiveAvatarModel } from './live-avatar-model';
 import './live-avatar-call.css';
 
 export type LiveVoiceStatus = 'ready' | 'listening' | 'thinking' | 'speaking' | 'error';
@@ -77,11 +74,7 @@ export function LiveAvatarCall({
   const [blinking, setBlinking] = useState(false);
   const currentLabel = starting ? 'Connexion au micro…' : modeLabel[status];
   const safeLevel = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
-  const mouthOpacity = mode === 'speaking'
-    ? Math.min(1, Math.max(0, (safeLevel - 0.012) * 7))
-    : 0;
   const mouthStyle = {
-    '--avatar-mouth-opacity': mouthOpacity,
     '--avatar-bob': `${safeLevel * -2.5}px`,
   } as CSSProperties;
 
@@ -123,13 +116,6 @@ export function LiveAvatarCall({
       reducedMotion.removeEventListener('change', handleMotionPreference);
       stopTimers();
     };
-  }, []);
-
-  useEffect(() => {
-    [blinkPortrait, speakingPortrait, typingPortrait].forEach((source) => {
-      const image = new Image();
-      image.src = source;
-    });
   }, []);
 
   useEffect(() => {
@@ -203,16 +189,7 @@ export function LiveAvatarCall({
               data-mode={mode}
               style={mouthStyle}
             >
-              <img
-                className="live-avatar-art"
-                src={portrait}
-                alt="Maxime, personnage manga en tenue lumineuse cyan"
-                draggable={false}
-                data-testid="img-live-character"
-              />
-              <img className="live-avatar-pose" src={typingPortrait} alt="" aria-hidden="true" draggable={false} />
-              <img className="live-avatar-expression live-avatar-expression--blink" src={blinkPortrait} alt="" aria-hidden="true" draggable={false} />
-              <img className="live-avatar-expression live-avatar-expression--speaking" src={speakingPortrait} alt="" aria-hidden="true" draggable={false} />
+              <LiveAvatarModel mode={mode} audioLevel={safeLevel} blinking={blinking && mode !== 'thinking'} />
             </div>
             <span className="live-avatar-aria" aria-live="polite">
               {mode === 'speaking' && answer ? `Maxime te répond : ${answer}` : currentLabel}
