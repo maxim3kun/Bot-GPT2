@@ -394,7 +394,7 @@
 }
 
 .activity-background {
-  background-color: var(--scene-color);
+  background-color: var(--scene-color, #efe3c2);
   transition: background-color 900ms cubic-bezier(.2,.75,.25,1);
 }
 

@@ -32,6 +32,10 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.maximegpt.com",
   "https://maxim3kun.github.io",
   "https://www.maxim3kun.com",
+  ...(process.env["ACTIVITY_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   ...(process.env["REPLIT_DEV_DOMAIN"]
     ? [`https://${process.env["REPLIT_DEV_DOMAIN"]}`]
     : []),

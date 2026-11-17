@@ -345,6 +345,12 @@ export function getBotTelemetryCollection<T extends import("mongodb").Document>(
 ): Collection<T> | null {
   return db?.collection<T>(name) ?? null;
 }
+export function getDiscordActivitySessionsCollection(): Collection<DiscordActivitySessionDoc> | null {
+  return discordActivitySessionsCol;
+}
+export function getDiscordActivityStoriesCollection(): Collection<DiscordActivityStoryDoc> | null {
+  return discordActivityStoriesCol;
+}
 interface DailyImageQuotaDoc {
   _id: string;
   count: number;
@@ -367,6 +373,22 @@ interface LegifranceOAuthTokenDoc {
   updatedAt: Date;
 }
 
+export interface DiscordActivitySessionDoc {
+  _id: string; // SHA-256 of the Discord guild id
+  sessionId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+}
+
+export interface DiscordActivityStoryDoc {
+  _id: string; // SHA-256 of the guild and member ids
+  consentAccepted: boolean;
+  consentAcceptedAt?: Date;
+  encryptedStory?: string;
+  updatedAt: Date;
+}
+
 export let usersCol: Collection<UserDoc> | null = null;
 export let guildsCol: Collection<GuildDoc> | null = null;
 export let logoBrandsCacheCol: Collection<LogoBrandCacheDoc> | null = null;
@@ -384,6 +406,8 @@ let privateAgendaCol: Collection<PrivateAgendaDoc> | null = null;
 let transportPreferencesCol: Collection<TransportPreferencesDoc> | null = null;
 let commandFavoritesCol: Collection<CommandFavoritesDoc> | null = null;
 let legifranceOAuthTokensCol: Collection<LegifranceOAuthTokenDoc> | null = null;
+let discordActivitySessionsCol: Collection<DiscordActivitySessionDoc> | null = null;
+let discordActivityStoriesCol: Collection<DiscordActivityStoryDoc> | null = null;
 export let dailyImageQuotaCol: Collection<DailyImageQuotaDoc> | null = null;
 export let betaTestersCol: Collection<BetaTesterDoc> | null = null;
 export let mgLeaderboardCol: Collection<{
@@ -473,6 +497,8 @@ export async function connectDb(): Promise<void> {
     transportPreferencesCol = db.collection<TransportPreferencesDoc>("transport_preferences");
     commandFavoritesCol = db.collection<CommandFavoritesDoc>("command_favorites");
     legifranceOAuthTokensCol = db.collection<LegifranceOAuthTokenDoc>("civic_oauth_tokens");
+    discordActivitySessionsCol = db.collection<DiscordActivitySessionDoc>("discord_activity_sessions");
+    discordActivityStoriesCol = db.collection<DiscordActivityStoryDoc>("discord_activity_stories");
     dailyImageQuotaCol = db.collection<DailyImageQuotaDoc>("daily_image_quotas");
     betaTestersCol = db.collection<BetaTesterDoc>("beta_testers");
     await aiConsentCol.createIndex({ userId: 1 }, { unique: true });
@@ -484,6 +510,7 @@ export async function connectDb(): Promise<void> {
     await aiPersonaPublicProfilesCol.createIndex({ ownerKey: 1, guildKey: 1 }, { unique: true });
     await aiTimezoneCol.createIndex({ updatedAt: -1 });
     await privateAgendaCol.createIndex({ updatedAt: -1 });
+    await discordActivitySessionsCol.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await dailyImageQuotaCol.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
     await betaTestersCol.createIndex({ addedAt: -1 });
     mgLeaderboardCol = db.collection("mg_leaderboard");
@@ -506,6 +533,8 @@ export async function connectDb(): Promise<void> {
     aiPersonaPublicProfilesCol = null;
     transportPreferencesCol = null;
     commandFavoritesCol = null;
+    discordActivitySessionsCol = null;
+    discordActivityStoriesCol = null;
     betaTestersCol = null;
   }
 }
