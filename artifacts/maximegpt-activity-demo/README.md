@@ -12,6 +12,7 @@ Ne mets jamais de token de bot, de secret OAuth ni de clé de chiffrement dans u
 - `DISCORD_ACTIVITY_CLIENT_ID` et `DISCORD_ACTIVITY_CLIENT_SECRET` : identifiants OAuth de l’application utilisée par l’Activity. Pour l’identifiant public, le serveur reprend sinon `DISCORD_CLIENT_ID`, puis `VITE_DISCORD_CLIENT_ID`. Pour le secret, il reprend sinon `DISCORD_CLIENT_SECRET`.
 - `SESSION_SECRET` : clé de signature des sessions privées, déjà utilisée par l’API.
 - `DATABASE_URL` et `ENCRYPTION_KEY` : MongoDB et chiffrement des histoires.
+- `GROQ_API_KEY` : réponses de l’IA dans le chat privé de l’Activity.
 - `ACTIVITY_ALLOWED_ORIGINS` : liste séparée par des virgules des origines HTTPS exactes de l’Activity, sans chemin.
 
 Le navigateur doit utiliser le même identifiant d’application que le serveur. Une configuration API ne sert qu’une application Discord à la fois. Le secret OAuth reste uniquement sur le serveur API.
@@ -22,4 +23,6 @@ Le navigateur doit utiliser le même identifiant d’application que le serveur.
 - La session active de chaque serveur est identifiée par une clé hachée et expire après quatre heures sans activité.
 - Les histoires sont indexées par un identifiant de membre et de serveur haché, puis chiffrées avec `ENCRYPTION_KEY` avant MongoDB.
 - Aucun enregistrement n’a lieu avant l’accord explicite. Retirer l’accord supprime l’histoire et sa preuve de consentement.
+- Le chat IA réutilise le consentement IA du membre. Ses échanges restent en mémoire du serveur au plus 30 minutes après la dernière activité; ils ne sont pas sauvegardés dans MongoDB.
+- L’avatar ne reçoit pas le micro de la page. Le chat vocal Discord existant transmet seulement des états généraux à l’Activity (écoute, réflexion, parole, pause), jamais de transcription ni d’audio.
 - L’aperçu navigateur n’accède pas aux histoires. Le lancement public nécessite une URL HTTPS et son mapping dans le Developer Portal Discord.

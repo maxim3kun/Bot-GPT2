@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { DiscordSDK, RPCCloseCodes } from '@discord/embedded-app-sdk';
 import {
   Check,
   CircleHelp,
   LockKeyhole,
   LoaderCircle,
+  Send,
   Save,
   ShieldCheck,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
+import { AvatarCharacter, type AvatarMode } from '@/components/avatar-character';
 
 type ViewState = 'checking' | 'authorizing' | 'ready' | 'preview' | 'error';
 type ApiErrorBody = { error?: string };
+type AiConsentStatus = 'accepted' | 'declined' | 'unknown';
+type CompanionMessage = { role: 'user' | 'assistant'; content: string };
 
 interface ActivityAuthResponse {
   activityToken: string;
@@ -117,6 +122,13 @@ function messageForError(error: unknown): string {
     story_consent_required: 'Accepte d’abord la conservation chiffrée pour enregistrer cette histoire.',
     unauthorized: 'Ta session Discord a expiré. Relance l’Activity.',
     explicit_acceptance_required: 'L’enregistrement ne peut être activé que par un accord explicite.',
+    ai_consent_required: 'Active d’abord les fonctions IA dans cette Activity.',
+    ai_consent_declined: 'Tu as refusé les fonctions IA. Aucune requête n’a été envoyée.',
+    activity_ai_unavailable: 'Le service IA est indisponible pour le moment.',
+    activity_ai_empty_response: 'Je n’ai pas de réponse utile à ajouter.',
+    activity_ai_rate_limited: 'Tu envoies trop de demandes. Attends une minute avant de réessayer.',
+    activity_speech_unavailable: 'La réponse écrite est disponible, mais la voix est momentanément indisponible.',
+    invalid_activity_message: 'Le message est vide ou dépasse la limite autorisée.',
   };
   return messages[code] ?? 'Une erreur est survenue. Aucun contenu privé n’a été partagé.';
 }
@@ -146,8 +158,27 @@ function Home() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [localPrompt, setLocalPrompt] = useState(privatePrompt);
   const [busy, setBusy] = useState(false);
+  const [aiConsent, setAiConsent] = useState<AiConsentStatus>('unknown');
+  const [aiConsentBusy, setAiConsentBusy] = useState(false);
+  const [chatMessages, setChatMessages] = useState<CompanionMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const [localAvatarMode, setLocalAvatarMode] = useState<AvatarMode>('idle');
+  const [remoteAvatarMode, setRemoteAvatarMode] = useState<AvatarMode>('idle');
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [audioNeedsClick, setAudioNeedsClick] = useState(false);
   const sdkRef = useRef<DiscordSDK | null>(null);
   const tokenRef = useRef('');
+  const conversationIdRef = useRef(crypto.randomUUID());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<HTMLAudioElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const stopLocalSpeechRef = useRef<() => void>(() => undefined);
+  const chatLogEndRef = useRef<HTMLDivElement | null>(null);
 
   const updateToken = useCallback((nextToken: string) => {
     tokenRef.current = nextToken;
@@ -222,13 +253,15 @@ function Home() {
         updateToken(login.activityToken);
         setDisplayName(login.displayName || discordUser.user.username);
         setSessionId(login.sessionId);
-        const personal = await apiRequest<{ story: StoryState }>('/api/activity/me', {
-          token: login.activityToken,
-        });
+        const [personal, aiConsentState] = await Promise.all([
+          apiRequest<{ story: StoryState }>('/api/activity/me', { token: login.activityToken }),
+          apiRequest<{ status: AiConsentStatus }>('/api/activity/ai-consent', { token: login.activityToken }),
+        ]);
         if (!mounted) return;
         setConsentAccepted(personal.story.consentAccepted);
         setStory(personal.story.story || '');
         setSavedAt(personal.story.updatedAt);
+        setAiConsent(aiConsentState.status);
         setView('ready');
       } catch (error) {
         if (!mounted) return;
@@ -260,6 +293,225 @@ function Home() {
     }, 5 * 60 * 1_000);
     return () => window.clearInterval(timer);
   }, [view, updateToken]);
+
+  useEffect(() => {
+    if (view !== 'ready' || !token) return;
+    let disposed = false;
+    const controller = new AbortController();
+    const waitBeforeRetry = () => new Promise<void>((resolve) => window.setTimeout(resolve, 1_500));
+
+    const readEvents = async () => {
+      while (!disposed) {
+        try {
+          const response = await fetch(apiUrl('/api/activity/events'), {
+            cache: 'no-store',
+            headers: { authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) {
+            if (response.status === 401) setRemoteAvatarMode('idle');
+            await waitBeforeRetry();
+            continue;
+          }
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          while (!disposed) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split(/\r?\n\r?\n/);
+            buffer = events.pop() ?? '';
+            for (const event of events) {
+              const line = event.split(/\r?\n/).find((part) => part.startsWith('data:'));
+              if (!line) continue;
+              try {
+                const parsed = JSON.parse(line.slice(5).trim()) as { mode?: AvatarMode; stop?: boolean };
+                if (parsed.mode && ['idle', 'listening', 'thinking', 'speaking', 'paused'].includes(parsed.mode)) {
+                  setRemoteAvatarMode(parsed.mode);
+                }
+                if (parsed.stop) stopLocalSpeechRef.current();
+              } catch {
+                // Ignore malformed or partial server events; they carry no chat content.
+              }
+            }
+          }
+          reader.releaseLock();
+        } catch {
+          if (disposed) break;
+        }
+        if (!disposed) await waitBeforeRetry();
+      }
+    };
+    void readEvents();
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  }, [view, token]);
+
+  useEffect(() => {
+    chatLogEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [chatMessages, chatBusy]);
+
+  const stopLocalSpeech = useCallback(() => {
+    if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+    const audio = audioRef.current;
+    audioRef.current = null;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+    audioAnalyserRef.current = null;
+    audioSourceRef.current = null;
+    setAudioNeedsClick(false);
+    setAudioLevel(0);
+    setLocalAvatarMode('idle');
+  }, []);
+  stopLocalSpeechRef.current = stopLocalSpeech;
+
+  useEffect(() => () => {
+    if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    audioRef.current?.pause();
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    void audioContextRef.current?.close().catch(() => undefined);
+  }, []);
+
+  const allowAi = async (status: Exclude<AiConsentStatus, 'unknown'>) => {
+    if (!token) return;
+    setAiConsentBusy(true);
+    setChatError('');
+    try {
+      await apiRequest('/api/activity/ai-consent', { method: 'PUT', token, body: { status } });
+      setAiConsent(status);
+      if (status === 'declined') {
+        stopLocalSpeech();
+        setChatMessages([]);
+        setChatDraft('');
+        setChatError('');
+      }
+    } catch (error) {
+      setChatError(messageForError(error));
+    } finally {
+      setAiConsentBusy(false);
+    }
+  };
+
+  const startAudioPlayback = async (audio: HTMLAudioElement) => {
+    try {
+      const AudioContextConstructor = window.AudioContext;
+      if (AudioContextConstructor && audioSourceRef.current !== audio) {
+        const context = new AudioContextConstructor();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        const source = context.createMediaElementSource(audio);
+        source.connect(analyser);
+        analyser.connect(context.destination);
+        audioContextRef.current = context;
+        audioAnalyserRef.current = analyser;
+        audioSourceRef.current = audio;
+      }
+      const context = audioContextRef.current;
+      const analyser = audioAnalyserRef.current;
+      if (context) await context.resume();
+      const samples = analyser ? new Uint8Array(analyser.fftSize) : null;
+      const sampleLevel = () => {
+        if (audioRef.current !== audio || !analyser || !samples) return;
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          setAudioLevel(0);
+          return;
+        }
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128;
+          sum += normalized * normalized;
+        }
+        setAudioLevel(Math.min(1, Math.sqrt(sum / samples.length) * 4.2));
+        animationFrameRef.current = requestAnimationFrame(sampleLevel);
+      };
+      audio.onplay = () => {
+        if (audioRef.current !== audio) return;
+        setLocalAvatarMode('speaking');
+        sampleLevel();
+      };
+      await audio.play();
+      setAudioNeedsClick(false);
+    } catch {
+      setAudioNeedsClick(true);
+      setLocalAvatarMode('idle');
+    }
+  };
+
+  const sendActivityMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = chatDraft.trim();
+    if (!token || !text || chatBusy || aiConsent !== 'accepted') return;
+    stopLocalSpeech();
+    setChatDraft('');
+    setChatError('');
+    setChatMessages((messages) => [...messages, { role: 'user', content: text }]);
+    setChatBusy(true);
+    setLocalAvatarMode('thinking');
+    try {
+      const result = await apiRequest<{ answer: string; intentionallySilent: boolean }>('/api/activity/chat', {
+        method: 'POST',
+        token,
+        body: { text, conversationId: conversationIdRef.current },
+      });
+      if (!result.answer || result.intentionallySilent) {
+        setLocalAvatarMode('idle');
+        return;
+      }
+      setChatMessages((messages) => [...messages, { role: 'assistant', content: result.answer }]);
+      const speechResponse = await fetch(apiUrl('/api/activity/speech'), {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: result.answer }),
+      });
+      if (!speechResponse.ok) {
+        const data = await speechResponse.json().catch(() => ({})) as ApiErrorBody;
+        setChatError(messageForError(new Error(data.error || 'activity_speech_unavailable')));
+        setLocalAvatarMode('idle');
+        return;
+      }
+      const url = URL.createObjectURL(await speechResponse.blob());
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (audioRef.current !== audio) return;
+        stopLocalSpeech();
+      };
+      audio.onerror = () => {
+        if (audioRef.current !== audio) return;
+        setChatError('La réponse écrite reste disponible, mais la lecture audio a échoué.');
+        stopLocalSpeech();
+      };
+      await startAudioPlayback(audio);
+    } catch (error) {
+      setChatError(messageForError(error));
+      setLocalAvatarMode('idle');
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  const avatarMode: AvatarMode = localAvatarMode === 'thinking' || localAvatarMode === 'speaking'
+    ? localAvatarMode
+    : remoteAvatarMode;
 
   const saveStory = async () => {
     if (!token || !consentAccepted || !story.trim()) return;
@@ -362,6 +614,13 @@ function Home() {
           <Brand />
           <h1 className="mt-12 font-serif text-4xl tracking-tight">À ouvrir dans Discord</h1>
           <p className="mt-4 leading-7 text-[#60576a]">La page de test ne reçoit pas l’identité Discord. Ouvre l’Activity dans un serveur pour accéder à ton espace privé.</p>
+          <div className="mt-8 flex flex-col items-center gap-5 rounded-2xl border border-[#302b3d]/10 bg-white/65 p-5 text-center sm:flex-row sm:text-left">
+            <AvatarCharacter mode="idle" accessibleLabel="Aperçu du personnage MaximeGPT" />
+            <div>
+              <p className="font-semibold text-[#40384a]">Personnage animé</p>
+              <p className="mt-2 text-sm leading-6 text-[#756d7b]">Ce portrait montre seulement l’animation visuelle. Le chat privé et le vocal restent accessibles après vérification dans Discord.</p>
+            </div>
+          </div>
           <div className="mt-8 flex gap-3 rounded-2xl bg-[#f0ece4] p-4 text-sm leading-6 text-[#60576a]">
             <CircleHelp className="mt-1 shrink-0 text-[#7c6888]" size={18} />
             <span>L’aperçu navigateur n’affiche ni données de membre ni histoire enregistrée.</span>
@@ -399,6 +658,172 @@ function Home() {
             <X size={18} />
           </button>
         </header>
+
+        <section className="mt-6 overflow-hidden rounded-[28px] border border-[#302b3d]/10 bg-[#fffaf2]/90 shadow-[0_20px_60px_rgba(48,43,61,.12)]" data-testid="activity-companion">
+          <div className="grid md:grid-cols-[220px_minmax(0,1fr)]">
+            <div className="flex flex-col items-center justify-center gap-5 bg-[#302b3d] px-5 py-8 text-center text-white">
+              <AvatarCharacter
+                mode={avatarMode}
+                audioLevel={localAvatarMode === 'speaking' ? audioLevel : undefined}
+              />
+              <div>
+                <p className="text-sm font-semibold">MaximeGPT</p>
+                <p className="mt-1 text-xs leading-5 text-white/65">Avatar animé dans l’Activity</p>
+              </div>
+            </div>
+
+            <div className="min-w-0 p-5 sm:p-7">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[.2em] text-[#756b7e]">Compagnon privé</p>
+                  <h2 className="mt-2 font-serif text-3xl tracking-[-.04em] sm:text-4xl">Parler avec MaximeGPT</h2>
+                </div>
+                <span className="rounded-full bg-[#e9f1e9] px-3 py-2 text-xs font-semibold text-[#42664e]">
+                  {avatarMode === 'listening' ? 'Chat vocal actif dans Discord' :
+                    avatarMode === 'thinking' ? 'Réflexion en cours' :
+                      avatarMode === 'speaking' ? 'En train de parler' :
+                        avatarMode === 'paused' ? 'Chat vocal en pause' : 'À ton écoute'}
+                </span>
+              </div>
+
+              {aiConsent === 'unknown' ? (
+                <div className="mt-6 rounded-2xl border border-[#866a91]/20 bg-[#f5f0f6] p-4 sm:p-5">
+                  <div className="flex gap-3">
+                    <ShieldCheck className="mt-0.5 shrink-0 text-[#74587f]" size={19} />
+                    <div>
+                      <h3 className="font-semibold text-[#40384a]">Autoriser les réponses de l’IA ?</h3>
+                      <p className="mt-2 text-sm leading-6 text-[#625969]">
+                        Le texte de tes demandes est transmis à Groq. Pour la voix, le texte de la réponse passe par Piper en local ou par Google TTS selon la langue et la disponibilité. Aucun micro n’est activé par cette page. Le contexte reste en mémoire du serveur au plus 30 minutes après ton dernier message; il n’est pas sauvegardé dans MongoDB.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={aiConsentBusy}
+                      onClick={() => void allowAi('accepted')}
+                      className="rounded-xl bg-[#302b3d] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#463e54] disabled:opacity-50"
+                      data-testid="activity-ai-consent-accept"
+                    >
+                      {aiConsentBusy ? 'Enregistrement…' : 'Accepter'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={aiConsentBusy}
+                      onClick={() => void allowAi('declined')}
+                      className="rounded-xl border border-[#302b3d]/15 bg-white/70 px-4 py-2.5 text-sm font-semibold text-[#51485b] transition hover:bg-white disabled:opacity-50"
+                      data-testid="activity-ai-consent-decline"
+                    >
+                      Refuser
+                    </button>
+                  </div>
+                </div>
+              ) : aiConsent === 'declined' ? (
+                <div className="mt-6 rounded-2xl border border-[#302b3d]/10 bg-white/65 p-4 text-sm leading-6 text-[#625969]">
+                  Tu as refusé les fonctions IA. Aucun message n’est transmis. Pour changer ce choix, utilise <code className="rounded bg-[#302b3d]/5 px-1.5 py-0.5">!ai reset</code> dans Discord.
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="mt-6 flex max-h-80 min-h-32 flex-col gap-3 overflow-y-auto rounded-2xl border border-[#302b3d]/10 bg-white/65 p-3 sm:p-4"
+                    role="log"
+                    aria-live="polite"
+                    aria-label="Conversation privée avec MaximeGPT"
+                    data-testid="activity-chat-log"
+                  >
+                    {chatMessages.length === 0 && (
+                      <p className="m-auto max-w-sm px-3 py-5 text-center text-sm leading-6 text-[#756d7b]">
+                        {displayName ? `Bonjour ${displayName}. ` : ''}Écris ici pour commencer. Cette conversation reste distincte pour chaque membre, est gardée jusqu’à 30 minutes d’inactivité en mémoire du serveur et n’est pas sauvegardée dans MongoDB.
+                      </p>
+                    )}
+                    {chatMessages.map((item, index) => (
+                      <div
+                        key={`${index}-${item.role}`}
+                        className={`max-w-[92%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-6 ${
+                          item.role === 'user'
+                            ? 'self-end rounded-br-md bg-[#302b3d] text-white'
+                            : 'self-start rounded-bl-md border border-[#302b3d]/10 bg-[#f4f0e9] text-[#302b3d]'
+                        }`}
+                        data-testid={`activity-chat-message-${item.role}`}
+                      >
+                        {item.content}
+                      </div>
+                    ))}
+                    {chatBusy && (
+                      <div className="inline-flex items-center gap-2 self-start rounded-2xl bg-[#f4f0e9] px-3.5 py-2.5 text-sm text-[#625969]" role="status">
+                        <LoaderCircle className="animate-spin" size={16} /> MaximeGPT réfléchit…
+                      </div>
+                    )}
+                    <div ref={chatLogEndRef} />
+                  </div>
+
+                  <form onSubmit={(event) => void sendActivityMessage(event)} className="mt-3 flex items-end gap-2">
+                    <label className="sr-only" htmlFor="activity-chat-input">Ton message</label>
+                    <textarea
+                      id="activity-chat-input"
+                      value={chatDraft}
+                      onChange={(event) => setChatDraft(event.target.value.slice(0, 2_000))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      maxLength={2_000}
+                      rows={2}
+                      placeholder="Écris un message…"
+                      disabled={chatBusy}
+                      className="min-h-12 flex-1 resize-y rounded-xl border border-[#302b3d]/15 bg-white/80 px-3.5 py-3 text-sm leading-6 text-[#302b3d] outline-none transition placeholder:text-[#817888] focus:border-[#866a91] focus:ring-4 focus:ring-[#866a91]/10 disabled:opacity-60"
+                      data-testid="activity-chat-input"
+                    />
+                    {audioRef.current && (
+                      <button
+                        type="button"
+                        onClick={stopLocalSpeech}
+                        aria-label="Arrêter la réponse vocale"
+                        className="grid size-12 shrink-0 place-items-center rounded-xl border border-[#302b3d]/15 bg-white text-[#51485b] transition hover:bg-[#f4f0e9]"
+                        data-testid="activity-stop-speech"
+                      >
+                        <Square size={17} fill="currentColor" />
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={!chatDraft.trim() || chatBusy}
+                      aria-label="Envoyer le message"
+                      className="grid size-12 shrink-0 place-items-center rounded-xl bg-[#6156d9] text-white transition hover:bg-[#5248c6] disabled:cursor-not-allowed disabled:opacity-45"
+                      data-testid="activity-chat-send"
+                    >
+                      {chatBusy ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />}
+                    </button>
+                  </form>
+
+                  {audioNeedsClick && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (audioRef.current) void startAudioPlayback(audioRef.current);
+                      }}
+                      className="mt-3 rounded-xl border border-[#302b3d]/15 bg-white px-4 py-2.5 text-sm font-semibold text-[#51485b] hover:bg-[#f4f0e9]"
+                      data-testid="activity-play-answer"
+                    >
+                      Lire la réponse à voix haute
+                    </button>
+                  )}
+                  <p className="mt-3 text-xs leading-5 text-[#756d7b]">
+                    L’Activity ne prend pas le micro. Dans le salon vocal, utilise <code>!voice chat on</code> puis <code>!voice chat off</code> pour activer ou couper l’écoute; son état s’affichera ici. <code>!ai reset</code> permet de retirer ton accord IA.
+                  </p>
+                </>
+              )}
+
+              {chatError && (
+                <p role="alert" className="mt-3 rounded-xl bg-[#fbefec] px-4 py-3 text-sm leading-6 text-[#8e4b42]" data-testid="activity-chat-error">
+                  {chatError}
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
 
         <section className="mt-9 rounded-[28px] border border-[#302b3d]/10 bg-[#fffaf2]/85 p-5 shadow-[0_20px_60px_rgba(48,43,61,.12)] sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">

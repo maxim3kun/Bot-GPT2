@@ -1,7 +1,7 @@
 kind = "web"
 previewPath = "/"
 title = "MaximeGPT Activity"
-description = "Activity Discord de démonstration : une page intégrée à Discord avec un texte et une couleur de fond qui change toutes les deux secondes."
+description = "Activity Discord privée avec avatar animé, chat IA vocal et état du chat vocal."
 version = "1.0.0"
 id = "artifacts/maximegpt-activity-demo"
 router = "path"

@@ -34,6 +34,7 @@ import { isFeatureEnabled } from "../bootstrap/feature-flags.js";
 import { getGuildFeatures } from "../lib/features-store.js";
 import { checkCommandBlock, sendBlockedMessage } from "./command-suggest.js";
 import { getPrefix } from "./prefix-store.js";
+import { publishActivityAvatarMode } from "./discord-activity-events.js";
 
 // ── Google Translate TTS ──────────────────────────────────────────────────────
 
@@ -341,6 +342,10 @@ async function disableVoiceChatForUser(guildId: string, userId: string): Promise
     state.activeCaptures.delete(userId);
   }
   state.listeningUsers.delete(userId);
+  publishActivityAvatarMode(
+    guildId,
+    state.chatUsers.size === 0 ? "idle" : state.active ? "listening" : "paused",
+  );
 }
 
 export async function enableVoiceChat(message: Message): Promise<boolean> {
@@ -407,11 +412,15 @@ export async function enableVoiceChat(message: Message): Promise<boolean> {
     // Reuse a radio connection in place. Subscribing the idle voice-chat player
     // here would replace the radio's active player and cut the music.
     state = createGuildVoiceState(message, guildId, connection, !radioStates.has(guildId));
-    connection.on(VoiceConnectionStatus.Disconnected, () => guildStates.delete(guildId));
+    connection.on(VoiceConnectionStatus.Disconnected, () => {
+      guildStates.delete(guildId);
+      publishActivityAvatarMode(guildId, "idle");
+    });
   }
 
   state.chatUsers.add(message.author.id);
   state.chatMessages.set(message.author.id, message);
+  publishActivityAvatarMode(guildId, "listening");
   setupReceiverForGuild(guildId, connection, groqKey);
   const prefix = getPrefix(guildId);
   await message.reply(
@@ -468,6 +477,7 @@ export function interruptVoiceReply(guildId: string): boolean {
   state.botSpeakingUntil = 0;
   interruptRadioSpeech(guildId);
   state.player.stop(true);
+  publishActivityAvatarMode(guildId, state.chatUsers.size ? "listening" : "idle", true);
   return true;
 }
 
@@ -592,8 +602,17 @@ function setupReceiverForGuild(
         }
         const turnMessage = s.chatMessages.get(userId);
         if (turnMessage && voiceChatTurnHandler) {
-          const keepListening = await voiceChatTurnHandler({ guildId, userId, transcript, message: turnMessage });
-          if (!keepListening) await disableVoiceChatForUser(guildId, userId);
+          publishActivityAvatarMode(guildId, "thinking");
+          try {
+            const keepListening = await voiceChatTurnHandler({ guildId, userId, transcript, message: turnMessage });
+            if (!keepListening) await disableVoiceChatForUser(guildId, userId);
+          } finally {
+            const current = guildStates.get(guildId);
+            publishActivityAvatarMode(
+              guildId,
+              !current?.chatUsers.size ? "idle" : current.active ? "listening" : "paused",
+            );
+          }
         }
       } catch (err) {
         if (!(err instanceof Error && err.name === "AbortError")) {
@@ -679,6 +698,7 @@ export async function joinVoice(message: Message): Promise<void> {
 
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     guildStates.delete(guildId);
+    publishActivityAvatarMode(guildId, "idle");
     logger.info({ guildId }, "Voice disconnected");
   });
 
@@ -707,6 +727,7 @@ export async function leaveVoice(message: Message): Promise<void> {
   }
   connection.destroy();
   guildStates.delete(guildId);
+  publishActivityAvatarMode(guildId, "idle");
   await message.reply("👋 Disconnected from the voice channel. See you!");
 }
 
@@ -721,6 +742,7 @@ export async function voiceStop(message: Message): Promise<void> {
   }
   state.active = false;
   state.player.stop();
+  publishActivityAvatarMode(guildId, "paused", true);
   await message.reply("🔇 Muted. Use `!voice resume` to unmute.");
 }
 
@@ -734,6 +756,7 @@ export async function voiceResume(message: Message): Promise<void> {
     return;
   }
   state.active = true;
+  publishActivityAvatarMode(guildId, state.chatUsers.size ? "listening" : "idle");
   await message.reply("🎙️ Voice mode resumed — I'll speak again!");
 }
 
@@ -782,6 +805,7 @@ export async function speakText(
   speakingGuilds.add(guildId);
   const speechSequence = ++state.speechSequence;
   state.botSpeaking = true;
+  publishActivityAvatarMode(guildId, "thinking");
 
   try {
     // Post subtitle first so it appears as the audio starts
@@ -793,6 +817,7 @@ export async function speakText(
     const selected = isVoiceId(voiceId) ? voiceId : await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
     const audio = await speechAudio(spokenText, lang, selected);
     if (state.speechSequence !== speechSequence || !state.active) return false;
+    publishActivityAvatarMode(guildId, "speaking");
     const played = await playAudioBufferInVoice(guildId, audio);
     return played && state.speechSequence === speechSequence;
   } catch (err) {
@@ -803,7 +828,22 @@ export async function speakText(
     state.botSpeaking = false;
     state.botSpeakingUntil = Date.now() + 600;
     speakingGuilds.delete(guildId);
+    publishActivityAvatarMode(
+      guildId,
+      state.chatUsers.size === 0 ? "idle" : state.active ? "listening" : "paused",
+    );
   }
+}
+
+export async function synthesizeActivitySpeech(
+  guildId: string,
+  text: string,
+  lang = "fr",
+): Promise<Buffer> {
+  const spokenText = sanitizeSpeechText(text);
+  if (!spokenText || spokenText.length > 1_500) throw new Error("invalid_activity_speech");
+  const voice = await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
+  return speechAudio(spokenText, lang, voice);
 }
 
 export async function speakPersonaReply(

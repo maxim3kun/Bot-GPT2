@@ -1,6 +1,17 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { isDbReady, isMongoConnected } from "../lib/db.js";
+import { getConsent, setConsent } from "../discord/ai-consent.js";
+import { answerDiscordActivityTurn } from "../discord/discord-activity-ai.js";
+import { clearActivityConversationsForMember } from "../discord/discord-activity-conversations.js";
+import {
+  getActivityAvatarEvent,
+  subscribeToActivityAvatar,
+  type ActivityAvatarEvent,
+} from "../discord/discord-activity-events.js";
+import { synthesizeActivitySpeech } from "../discord/voice.js";
+import { getEffectiveLanguage } from "../discord/effective-language.js";
 import {
   DiscordActivityOAuthError,
   exchangeDiscordActivityCode,
@@ -23,6 +34,7 @@ import {
 const router: IRouter = Router();
 const STORY_MAX_LENGTH = 4_000;
 const authRateLimits = new Map<string, { count: number; resetAt: number }>();
+const aiRateLimits = new Map<string, { count: number; resetAt: number }>();
 
 function activityClientId(): string {
   return process.env.DISCORD_ACTIVITY_CLIENT_ID?.trim()
@@ -51,6 +63,23 @@ function checkAuthRateLimit(ip: string): boolean {
   }
   current.count += 1;
   return current.count <= 25;
+}
+
+function checkAiRateLimit(guildId: string, userId: string): boolean {
+  const key = createHash("sha256").update(`${guildId}:${userId}`).digest("hex");
+  const now = Date.now();
+  const current = aiRateLimits.get(key);
+  if (!current || current.resetAt <= now) {
+    aiRateLimits.set(key, { count: 1, resetAt: now + 60_000 });
+    if (aiRateLimits.size > 5_000) {
+      for (const [entryKey, entry] of aiRateLimits) {
+        if (entry.resetAt <= now) aiRateLimits.delete(entryKey);
+      }
+    }
+    return true;
+  }
+  current.count += 1;
+  return current.count <= 12;
 }
 
 function getClaims(req: Request): DiscordActivityClaims | null {
@@ -180,6 +209,152 @@ router.post("/activity/auth", async (req: Request, res: Response) => {
     logger.warn({ errorName: error instanceof Error ? error.name : "unknown" }, "Discord Activity authorization failed");
     res.status(503).json({ error: "activity_storage_unavailable" });
   }
+});
+
+router.get("/activity/ai-consent", async (req: Request, res: Response) => {
+  const claims = await requireCurrentSession(req, res);
+  if (!claims) return;
+  try {
+    res.json({ status: await getConsent(claims.sub) });
+  } catch {
+    res.status(503).json({ error: "activity_ai_consent_unavailable" });
+  }
+});
+
+router.put("/activity/ai-consent", async (req: Request, res: Response) => {
+  const claims = await requireCurrentSession(req, res);
+  if (!claims) return;
+  const body = typeof req.body === "object" && req.body !== null ? req.body as { status?: unknown } : {};
+  const { status } = body;
+  if (status !== "accepted" && status !== "declined") {
+    res.status(400).json({ error: "invalid_ai_consent" });
+    return;
+  }
+  await setConsent(claims.sub, status);
+  if (status === "declined") {
+    clearActivityConversationsForMember(claims.guildId, claims.sub);
+  }
+  res.json({ status });
+});
+
+router.post("/activity/chat", async (req: Request, res: Response) => {
+  const claims = await requireCurrentSession(req, res);
+  if (!claims) return;
+  const consent = await getConsent(claims.sub);
+  if (consent !== "accepted") {
+    res.status(403).json({ error: consent === "declined" ? "ai_consent_declined" : "ai_consent_required" });
+    return;
+  }
+  if (!checkAiRateLimit(claims.guildId, claims.sub)) {
+    res.status(429).json({ error: "activity_ai_rate_limited" });
+    return;
+  }
+  const body = typeof req.body === "object" && req.body !== null
+    ? req.body as { text?: unknown; conversationId?: unknown }
+    : {};
+  const { text, conversationId } = body;
+  if (
+    typeof text !== "string"
+    || !text.trim()
+    || text.trim().length > 2_000
+    || typeof conversationId !== "string"
+    || !/^[0-9a-f-]{36}$/i.test(conversationId)
+  ) {
+    res.status(400).json({ error: "invalid_activity_message", maxLength: 2_000 });
+    return;
+  }
+  try {
+    const answer = await answerDiscordActivityTurn({
+      guildId: claims.guildId,
+      userId: claims.sub,
+      sessionId: claims.activitySessionId,
+      conversationId,
+      text: text.trim(),
+    });
+    res.json({ answer, intentionallySilent: !answer });
+  } catch (error) {
+    if (error instanceof Error && error.message === "invalid_activity_message") {
+      res.status(400).json({ error: "invalid_activity_message", maxLength: 2_000 });
+      return;
+    }
+    logger.warn({ errorName: error instanceof Error ? error.name : "unknown" }, "Discord Activity AI turn failed");
+    res.status(503).json({ error: "activity_ai_unavailable" });
+  }
+});
+
+router.post("/activity/speech", async (req: Request, res: Response) => {
+  const claims = await requireCurrentSession(req, res);
+  if (!claims) return;
+  if (await getConsent(claims.sub) !== "accepted") {
+    res.status(403).json({ error: "ai_consent_required" });
+    return;
+  }
+  if (!checkAiRateLimit(claims.guildId, claims.sub)) {
+    res.status(429).json({ error: "activity_ai_rate_limited" });
+    return;
+  }
+  const body = typeof req.body === "object" && req.body !== null ? req.body as { text?: unknown } : {};
+  const { text } = body;
+  if (typeof text !== "string" || !text.trim() || text.trim().length > 1_500) {
+    res.status(400).json({ error: "invalid_activity_speech", maxLength: 1_500 });
+    return;
+  }
+  try {
+    const language = getEffectiveLanguage(claims.guildId, claims.sub);
+    const audio = await synthesizeActivitySpeech(claims.guildId, text.trim(), language);
+    const contentType = audio.toString("ascii", 0, 4) === "RIFF" ? "audio/wav" : "audio/mpeg";
+    res.status(200).set({
+      "Content-Type": contentType,
+      "Content-Length": String(audio.length),
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    }).end(audio);
+  } catch (error) {
+    if (error instanceof Error && error.message === "invalid_activity_speech") {
+      res.status(400).json({ error: "invalid_activity_speech", maxLength: 1_500 });
+      return;
+    }
+    logger.warn({ errorName: error instanceof Error ? error.name : "unknown" }, "Discord Activity speech synthesis failed");
+    res.status(503).json({ error: "activity_speech_unavailable" });
+  }
+});
+
+router.get("/activity/events", async (req: Request, res: Response) => {
+  const claims = await requireCurrentSession(req, res);
+  if (!claims) return;
+  let streamReady = false;
+  let pendingEvent: ActivityAvatarEvent | null = null;
+  const sendEvent = (event: ActivityAvatarEvent) => {
+    if (!streamReady) {
+      pendingEvent = event;
+      return;
+    }
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  const unsubscribe = subscribeToActivityAvatar(claims.guildId, sendEvent);
+  if (!unsubscribe) {
+    res.status(429).json({ error: "activity_too_many_viewers" });
+    return;
+  }
+  res.status(200).set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-store, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders();
+  streamReady = true;
+  sendEvent(getActivityAvatarEvent(claims.guildId));
+  if (pendingEvent) sendEvent(pendingEvent);
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": keep-alive\n\n");
+  }, 20_000);
+  const maxLifetime = setTimeout(() => res.end(), 4 * 60 * 1_000);
+  res.on("close", () => {
+    clearInterval(heartbeat);
+    clearTimeout(maxLifetime);
+    unsubscribe();
+  });
 });
 
 router.get("/activity/me", async (req: Request, res: Response) => {
