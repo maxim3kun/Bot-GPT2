@@ -44,6 +44,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "catalog:",
     "chokidar": "^4.0.3",
     "class-variance-authority": "catalog:",
@@ -70,5 +71,9 @@
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "three": "^0.187.0"
   }
 }
