@@ -718,7 +718,7 @@
   font: inherit;
   font-size: 12px;
   font-weight: 650;
-  touch-action: none;
+  touch-action: manipulation;
   user-select: none;
   transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
 }
@@ -732,6 +732,16 @@
 .live-call-talk--active {
   transform: scale(0.985);
   background: #0b657f;
+}
+
+.live-call-talk--active:not(:active) {
+  border-color: #ffb1b9;
+  background: linear-gradient(110deg, #9e3449, #c34a5c);
+  box-shadow: 0 4px 19px #da51623a;
+}
+
+.live-call-talk--active:hover:not(:disabled) {
+  background: linear-gradient(110deg, #b33d53, #d95a6a);
 }
 
 .live-call-talk:disabled {
@@ -764,26 +774,6 @@
   align-items: center;
   justify-content: flex-end;
   gap: 9px;
-}
-
-.live-call-cancel {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 11px;
-  border: 1px solid #e8a4ac3d;
-  border-radius: 11px;
-  color: #ffdadd;
-  background: #5129378c;
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-
-.live-call-cancel:hover {
-  background: #6a3040;
 }
 
 .live-call-error,
@@ -1124,20 +1114,6 @@
     width: 100%;
     min-width: 0;
     min-height: 48px;
-  }
-
-  .live-call-console-controls:has(.live-call-cancel) {
-    width: 100%;
-  }
-
-  .live-call-console-controls:has(.live-call-cancel) .live-call-talk {
-    flex: 1;
-    width: auto;
-  }
-
-  .live-call-console-controls:has(.live-call-cancel) .live-call-cancel {
-    min-height: 48px;
-    padding: 0 9px;
   }
 
   .live-call-messages {

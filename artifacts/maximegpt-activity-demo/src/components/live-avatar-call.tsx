@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { CSSProperties, PointerEvent } from 'react';
+import type { CSSProperties } from 'react';
 import {
   AudioLines,
   CircleHelp,
@@ -24,15 +24,14 @@ export interface LiveAvatarCallProps {
   answer: string;
   error: string;
   recording: boolean;
-  canTalk: boolean;
+  listeningMode: boolean;
+  starting: boolean;
   audioLevel: number;
   settingsOpen: boolean;
   inputs: MediaDeviceInfo[];
   selectedDevice: string;
   permission: string;
-  onTalkStart: () => void;
-  onTalkEnd: () => void;
-  onTalkCancel: () => void;
+  onToggleListening: () => void;
   onReset: () => void;
   onStopSpeech: () => void;
   onToggleSettings: () => void;
@@ -58,15 +57,14 @@ export function LiveAvatarCall({
   answer,
   error,
   recording,
-  canTalk,
+  listeningMode,
+  starting,
   audioLevel,
   settingsOpen,
   inputs,
   selectedDevice,
   permission,
-  onTalkStart,
-  onTalkEnd,
-  onTalkCancel,
+  onToggleListening,
   onReset,
   onStopSpeech,
   onToggleSettings,
@@ -75,7 +73,7 @@ export function LiveAvatarCall({
   onDismissError,
 }: LiveAvatarCallProps) {
   const mode: Exclude<LiveVoiceStatus, 'error'> = status === 'error' ? 'ready' : status;
-  const currentLabel = modeLabel[status];
+  const currentLabel = starting ? 'Connexion au micro…' : modeLabel[status];
   const safeLevel = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
   const mouthStyle = {
     '--avatar-mouth-height': `${2.5 + safeLevel * 13}px`,
@@ -92,13 +90,6 @@ export function LiveAvatarCall({
     window.addEventListener('keydown', dismissOnEscape);
     return () => window.removeEventListener('keydown', dismissOnEscape);
   }, [settingsOpen, onCloseSettings]);
-
-  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (!canTalk || event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    onTalkStart();
-  };
 
   return (
     <main className="live-call-page" data-status={status} data-testid="live-voice-page">
@@ -141,7 +132,7 @@ export function LiveAvatarCall({
               ))}
             </select>
             <p className="live-call-permission"><i className={`permission-dot${permission === 'Autorisé' ? ' permission-dot--ok' : permission === 'Bloqué' ? ' permission-dot--blocked' : ''}`} /> Autorisation : <strong>{permission}</strong></p>
-            <p className="live-call-settings-note">Le micro est demandé uniquement quand tu appuies pour parler.</p>
+            <p className="live-call-settings-note">Le micro s’active après ton clic et reste ouvert jusqu’à ce que tu arrêtes l’écoute.</p>
           </section>
         )}
 
@@ -193,45 +184,23 @@ export function LiveAvatarCall({
 
         <section className="live-call-console" aria-label="Commandes de l’appel vocal">
           <div className="live-call-console-copy">
-            <span className="live-call-eyebrow">{recording ? 'MICRO OUVERT' : mode === 'thinking' ? 'UN INSTANT' : mode === 'speaking' ? 'RÉPONSE VOCALE' : 'À TOI'}</span>
-            <h1>{recording ? 'Je t’écoute.' : mode === 'thinking' ? 'Maxime réfléchit.' : mode === 'speaking' ? 'Maxime te répond.' : 'Parle-lui.'}</h1>
-            <p>{recording ? 'Relâche pour envoyer, ou Échap pour annuler.' : mode === 'thinking' ? statusNote : mode === 'speaking' ? 'Tu peux l’interrompre quand tu veux.' : status === 'error' ? 'Vérifie le micro ou réessaie.' : 'Maintiens le bouton pour parler.'}</p>
+            <span className="live-call-eyebrow">{starting ? 'DEMANDE DU MICRO' : recording ? 'PHRASE CAPTÉE' : listeningMode ? 'ÉCOUTE ACTIVÉE' : mode === 'thinking' ? 'UN INSTANT' : mode === 'speaking' ? 'RÉPONSE VOCALE' : 'À TOI'}</span>
+            <h1>{starting ? 'Autorise le micro.' : recording ? 'Je t’écoute.' : mode === 'thinking' ? 'Maxime réfléchit.' : mode === 'speaking' ? 'Maxime te répond.' : listeningMode ? 'Parle naturellement.' : 'Parle-lui.'}</h1>
+            <p>{starting ? statusNote : recording ? 'Je réponds dès que tu as fini ta phrase.' : listeningMode && mode === 'listening' ? 'Tu peux enchaîner; je réponds après une petite pause.' : listeningMode ? 'Le micro est actif. Clique sur Arrêter pour couper.' : mode === 'thinking' ? statusNote : mode === 'speaking' ? 'Tu peux interrompre sa voix à tout moment.' : status === 'error' ? 'Vérifie le micro ou réessaie.' : 'Clique une fois pour commencer à parler.'}</p>
           </div>
           <div className="live-call-console-controls">
             <button
               type="button"
-              className={`live-call-talk${recording ? ' live-call-talk--active' : ''}`}
-              disabled={!canTalk}
-              aria-label={recording ? 'Relâcher pour envoyer, ou Échap pour annuler' : 'Maintenir pour parler'}
-              onPointerDown={handlePointerDown}
-              onPointerUp={() => onTalkEnd()}
-              onPointerCancel={() => onTalkCancel()}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && recording) {
-                  event.preventDefault();
-                  onTalkCancel();
-                } else if ((event.key === ' ' || event.key === 'Enter') && !event.repeat && !recording && canTalk) {
-                  event.preventDefault();
-                  onTalkStart();
-                }
-              }}
-              onKeyUp={(event) => {
-                if ((event.key === ' ' || event.key === 'Enter') && recording) {
-                  event.preventDefault();
-                  onTalkEnd();
-                }
-              }}
-              data-testid="button-hold-to-talk"
+              className={`live-call-talk${listeningMode ? ' live-call-talk--active' : ''}`}
+              aria-label={starting ? 'Annuler l’activation du microphone' : listeningMode ? 'Arrêter la conversation et couper le micro' : 'Activer la conversation vocale'}
+              aria-pressed={listeningMode}
+              onClick={onToggleListening}
+              data-testid="button-toggle-listening"
             >
-              <span className="live-call-talk-icon">{recording ? <MicOff size={21} /> : <Mic size={21} />}</span>
-              <span>{recording ? 'Relâche pour envoyer' : mode === 'thinking' ? 'Un instant…' : 'Maintenir pour parler'}</span>
-              {!recording && <kbd>ESPACE</kbd>}
+              <span className="live-call-talk-icon">{listeningMode ? <MicOff size={21} /> : <Mic size={21} />}</span>
+              <span>{starting ? 'Annuler' : listeningMode ? 'Arrêter la conversation' : status === 'error' ? 'Réessayer' : 'Commencer à parler'}</span>
+              <kbd>CLIC</kbd>
             </button>
-            {recording && (
-              <button type="button" className="live-call-cancel" onClick={onTalkCancel} data-testid="button-cancel-recording">
-                <X size={16} /> Annuler
-              </button>
-            )}
           </div>
           {error && (
             <div className="live-call-error" role="alert" data-testid="text-live-error">
@@ -248,8 +217,8 @@ export function LiveAvatarCall({
         </section>
 
         <details className="live-call-privacy" data-testid="text-live-privacy">
-          <summary><ShieldCheck size={16} /> Audio envoyé temporairement à Groq · contexte en mémoire vive 15 min · aucun historique durable</summary>
-          <p>L’audio passe par le serveur puis Groq pour la transcription et la réponse. La voix utilise le service disponible (Piper ou Google TTS). La conversation n’est pas enregistrée dans MongoDB, le navigateur ou les journaux. Les règles de conservation des fournisseurs s’appliquent.</p>
+          <summary><ShieldCheck size={16} /> Micro activé par toi · phrases envoyées temporairement · aucun historique durable</summary>
+          <p>Le micro reste ouvert uniquement après ton clic et jusqu’à ce que tu arrêtes la conversation. La détection des pauses se fait sur ton appareil; seules les phrases parlées sont envoyées temporairement à Groq pour transcription et réponse. La voix utilise le service disponible (Piper ou Google TTS). La conversation n’est pas enregistrée dans MongoDB ou le navigateur. Les règles de conservation des fournisseurs s’appliquent.</p>
         </details>
         <footer className="live-call-footer"><CircleHelp size={14} /> La page n’utilise pas ta caméra et reste séparée de Discord.</footer>
       </div>
