@@ -7,6 +7,7 @@ import featuresRouter from "./features.js";
 import guildsRouter  from "./guilds.js";
 import civicRouter from "./civic.js";
 import activityRouter from "./activity.js";
+import liveRouter from "./live.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(featuresRouter);
 router.use(guildsRouter);
 router.use(civicRouter);
 router.use(activityRouter);
+router.use(liveRouter);
 
 export default router;

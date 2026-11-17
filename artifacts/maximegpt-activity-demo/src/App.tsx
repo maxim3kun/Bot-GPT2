@@ -13,6 +13,8 @@ import {
   X,
 } from 'lucide-react';
 import { AvatarCharacter, type AvatarMode } from '@/components/avatar-character';
+import { Link, Route, Switch } from 'wouter';
+import LiveVoice from '@/pages/LiveVoice';
 
 type ViewState = 'checking' | 'authorizing' | 'ready' | 'preview' | 'error';
 type ApiErrorBody = { error?: string };
@@ -941,6 +943,31 @@ function Brand() {
   );
 }
 
+function NotFound() {
+  return (
+    <main className="activity-background grain flex min-h-[100dvh] items-center justify-center px-5 py-10 text-[#302b3d]">
+      <section className="w-full max-w-lg rounded-[28px] border border-[#302b3d]/10 bg-[#fffaf2]/90 p-8 shadow-[0_24px_70px_rgba(48,43,61,.15)]">
+        <Brand />
+        <p className="mt-12 text-[11px] font-bold uppercase tracking-[.2em] text-[#756b7e]">Erreur 404</p>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight">Cette page n’existe pas.</h1>
+        <p className="mt-4 leading-7 text-[#60576a]">Le lien a peut-être changé. Reviens à l’espace MaximeGPT.</p>
+        <Link href="/" className="mt-7 inline-flex rounded-xl bg-[#302b3d] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#463e54]" data-testid="link-not-found-home">
+          Retour à l’accueil
+        </Link>
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
-  return <Home />;
+  return (
+    <Switch>
+      <Route path="/live" component={LiveVoice} />
+      <Route path="/activity/:clientId" component={Home} />
+      <Route path="/activity/" component={Home} />
+      <Route path="/activity" component={Home} />
+      <Route path="/" component={Home} />
+      <Route component={NotFound} />
+    </Switch>
+  );
 }

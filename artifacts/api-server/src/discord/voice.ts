@@ -145,6 +145,43 @@ async function transcribeGroq(wav: Buffer, groqKey: string, signal?: AbortSignal
   return text || null;
 }
 
+const PUBLIC_LIVE_AUDIO_EXTENSIONS: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "mp4",
+  "audio/m4a": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+};
+
+export async function transcribePublicLiveAudio(
+  audio: Buffer,
+  mimeType: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const extension = PUBLIC_LIVE_AUDIO_EXTENSIONS[mimeType];
+  if (!groqKey || !extension || audio.length === 0 || audio.length > 1_500_000) {
+    throw new Error("invalid_live_audio");
+  }
+  const body = new FormData();
+  body.append("file", new Blob([new Uint8Array(audio)], { type: mimeType }), `speech.${extension}`);
+  body.append("model", "whisper-large-v3-turbo");
+  body.append("response_format", "text");
+  const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${groqKey}` },
+    body,
+    signal,
+  });
+  if (!response.ok) {
+    logger.warn({ status: response.status }, "Groq public live transcription failed");
+    throw new Error("live_transcription_failed");
+  }
+  return (await response.text()).trim().slice(0, 1_600);
+}
+
 // ── Whisper hallucination denylist ────────────────────────────────────────────
 // Whisper reliably outputs these phrases on near-silence or very short audio.
 // We drop any transcript that matches (case-insensitive, after trimming punctuation).
@@ -844,6 +881,14 @@ export async function synthesizeActivitySpeech(
   if (!spokenText || spokenText.length > 1_500) throw new Error("invalid_activity_speech");
   const voice = await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
   return speechAudio(spokenText, lang, voice);
+}
+
+export async function synthesizePublicLiveSpeech(text: string, lang = "fr"): Promise<Buffer> {
+  const spokenText = sanitizeSpeechText(text);
+  if (!spokenText || spokenText.length > 1_800 || !/^[a-z]{2}(?:-[A-Z]{2})?$/i.test(lang)) {
+    throw new Error("invalid_live_speech");
+  }
+  return speechAudio(spokenText, lang, DEFAULT_VOICE);
 }
 
 export async function speakPersonaReply(

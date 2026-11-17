@@ -90,6 +90,10 @@ app.get(/^\/activity(?:\/[^/]+)?\/?$/, (_req, res) => {
   res.sendFile(path.join(activityDir, "index.html"));
 });
 app.use(express.static(publicDir));
+app.get(/^\/live\/?$/, (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.sendFile(path.join(activityDir, "index.html"));
+});
 app.get("/", (_req, res) => res.sendFile(path.join(publicDir, "index.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(publicDir, "dashboard.html")));
 export default app;
