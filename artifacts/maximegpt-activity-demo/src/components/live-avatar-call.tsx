@@ -75,11 +75,13 @@ export function LiveAvatarCall({
   onDismissError,
 }: LiveAvatarCallProps) {
   const mode: Exclude<LiveVoiceStatus, 'error'> = status === 'error' ? 'ready' : status;
+  const currentLabel = modeLabel[status];
   const safeLevel = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
   const mouthStyle = {
-    '--avatar-mouth-height': `${2.5 + safeLevel * 10}px`,
-    '--avatar-mouth-width': `${8 + safeLevel * 5}px`,
+    '--avatar-mouth-height': `${2.5 + safeLevel * 13}px`,
+    '--avatar-mouth-width': `${25 + safeLevel * 18}px`,
     '--avatar-glow-opacity': `${0.22 + safeLevel * 0.42}`,
+    '--avatar-bob': `${safeLevel * -4}px`,
   } as CSSProperties;
 
   useEffect(() => {
@@ -143,13 +145,13 @@ export function LiveAvatarCall({
           </section>
         )}
 
-        <section className="live-call-stage" aria-label="Appel vocal avec le personnage Maxime" data-testid="live-avatar-stage">
+        <section className="live-call-stage" aria-label="Appel vocal avec le personnage Maxime" data-status={status} data-testid="live-avatar-stage">
           <div className="live-call-stars" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
           <div className="live-call-stage-top">
             <span className="live-call-live-indicator"><i /> SESSION VOCALE</span>
-            <span className={`live-call-mode-pill live-call-mode-pill--${mode}`} role="status" aria-live="polite" data-testid="status-live-state">
+            <span className={`live-call-mode-pill live-call-mode-pill--${status}`} role="status" aria-live="polite" data-testid="status-live-state">
               {mode === 'thinking' && <LoaderCircle size={13} className="animate-spin" />}
-              {modeLabel[mode]}
+              {currentLabel}
             </span>
           </div>
           <div className={`live-avatar-scene live-avatar-scene--${mode}`} data-mode={mode} style={mouthStyle}>
@@ -158,7 +160,6 @@ export function LiveAvatarCall({
               <img className="live-avatar-art" src={portrait} alt="Maxime, personnage animé en tenue lumineuse cyan" draggable={false} data-testid="img-live-character" />
               <span className="live-avatar-light" aria-hidden="true" />
               <span className="live-avatar-mouth" aria-hidden="true" />
-              <span className="live-avatar-scanline" aria-hidden="true" />
             </div>
             <div className={`live-avatar-desk${mode === 'thinking' ? ' live-avatar-desk--typing' : ''}`} aria-hidden="true">
               <div className="live-avatar-desk-top" />
@@ -180,7 +181,7 @@ export function LiveAvatarCall({
           </div>
           <div className="live-call-identity">
             <span className="live-call-identity-avatar" aria-hidden="true">M</span>
-            <span><strong>Maxime</strong><small>{modeLabel[mode]}</small></span>
+            <span><strong>Maxime</strong><small>{currentLabel}</small></span>
             <span className="live-call-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
           </div>
           {status === 'speaking' && (
@@ -194,7 +195,7 @@ export function LiveAvatarCall({
           <div className="live-call-console-copy">
             <span className="live-call-eyebrow">{recording ? 'MICRO OUVERT' : mode === 'thinking' ? 'UN INSTANT' : mode === 'speaking' ? 'RÉPONSE VOCALE' : 'À TOI'}</span>
             <h1>{recording ? 'Je t’écoute.' : mode === 'thinking' ? 'Maxime réfléchit.' : mode === 'speaking' ? 'Maxime te répond.' : 'Parle-lui.'}</h1>
-            <p>{recording ? 'Relâche pour envoyer, ou Échap pour annuler.' : mode === 'thinking' ? statusNote : mode === 'speaking' ? 'La bouche suit le son de sa vraie réponse.' : 'Maintiens le bouton pour parler.'}</p>
+            <p>{recording ? 'Relâche pour envoyer, ou Échap pour annuler.' : mode === 'thinking' ? statusNote : mode === 'speaking' ? 'Tu peux l’interrompre quand tu veux.' : status === 'error' ? 'Vérifie le micro ou réessaie.' : 'Maintiens le bouton pour parler.'}</p>
           </div>
           <div className="live-call-console-controls">
             <button
@@ -226,6 +227,11 @@ export function LiveAvatarCall({
               <span>{recording ? 'Relâche pour envoyer' : mode === 'thinking' ? 'Un instant…' : 'Maintenir pour parler'}</span>
               {!recording && <kbd>ESPACE</kbd>}
             </button>
+            {recording && (
+              <button type="button" className="live-call-cancel" onClick={onTalkCancel} data-testid="button-cancel-recording">
+                <X size={16} /> Annuler
+              </button>
+            )}
           </div>
           {error && (
             <div className="live-call-error" role="alert" data-testid="text-live-error">
@@ -243,7 +249,7 @@ export function LiveAvatarCall({
 
         <details className="live-call-privacy" data-testid="text-live-privacy">
           <summary><ShieldCheck size={16} /> Audio envoyé temporairement à Groq · contexte en mémoire vive 15 min · aucun historique durable</summary>
-          <p>L’audio passe par le serveur puis Groq pour la transcription et la réponse. Le français utilise Piper sur le serveur; les autres langues utilisent Google TTS. La conversation n’est pas enregistrée dans MongoDB, le navigateur ou les journaux. Les règles de conservation des fournisseurs s’appliquent.</p>
+          <p>L’audio passe par le serveur puis Groq pour la transcription et la réponse. La voix utilise le service disponible (Piper ou Google TTS). La conversation n’est pas enregistrée dans MongoDB, le navigateur ou les journaux. Les règles de conservation des fournisseurs s’appliquent.</p>
         </details>
         <footer className="live-call-footer"><CircleHelp size={14} /> La page n’utilise pas ta caméra et reste séparée de Discord.</footer>
       </div>

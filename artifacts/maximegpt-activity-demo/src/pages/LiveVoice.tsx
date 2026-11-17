@@ -85,16 +85,23 @@ export default function LiveVoice() {
   const audioUrlRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const audioFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
-  const stopAudioMeter = useCallback((resetVisual = true) => {
+  const stopAudioMeter = useCallback((resetVisual = true, closeContext = false) => {
     if (audioFrameRef.current !== null) window.cancelAnimationFrame(audioFrameRef.current);
     audioFrameRef.current = null;
+    const analyser = analyserRef.current;
     analyserRef.current = null;
-    const context = audioContextRef.current;
-    audioContextRef.current = null;
-    if (context && context.state !== 'closed') void context.close().catch(() => undefined);
+    try { audioSourceRef.current?.disconnect(); } catch { /* The playback graph may already be closed. */ }
+    audioSourceRef.current = null;
+    try { analyser?.disconnect(); } catch { /* The playback graph may already be closed. */ }
+    if (closeContext) {
+      const context = audioContextRef.current;
+      audioContextRef.current = null;
+      if (context && context.state !== 'closed') void context.close().catch(() => undefined);
+    }
     if (resetVisual && mountedRef.current) setAudioLevel(0);
   }, []);
 
@@ -111,6 +118,10 @@ export default function LiveVoice() {
     audioRef.current = null;
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     audioUrlRef.current = null;
+  }, [stopAudioMeter]);
+
+  const closeAudioContext = useCallback(() => {
+    stopAudioMeter(true, true);
   }, [stopAudioMeter]);
 
   const closeSession = useCallback((keepalive = false) => {
@@ -185,9 +196,10 @@ export default function LiveVoice() {
       }
       stopTracks();
       releaseAudio();
+      closeAudioContext();
       closeSession(true);
     };
-  }, [clearRecordingTimer, closeSession, refreshInputs, releaseAudio, stopTracks]);
+  }, [clearRecordingTimer, closeAudioContext, closeSession, refreshInputs, releaseAudio, stopTracks]);
 
   const playSpeech = async (sessionId: string, text: string, language: string, signal: AbortSignal) => {
     const audioBlob = await fetchSpeech(sessionId, text, language, signal);
@@ -198,15 +210,17 @@ export default function LiveVoice() {
     const audio = new Audio(url);
     audioRef.current = audio;
     try {
-      const context = new AudioContext();
+      const existingContext = audioContextRef.current;
+      const context = existingContext && existingContext.state !== 'closed' ? existingContext : new AudioContext();
+      audioContextRef.current = context;
       const analyser = context.createAnalyser();
       const source = context.createMediaElementSource(audio);
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.82;
+      source.connect(context.destination);
       source.connect(analyser);
-      analyser.connect(context.destination);
-      audioContextRef.current = context;
       analyserRef.current = analyser;
+      audioSourceRef.current = source;
       const samples = new Uint8Array(analyser.fftSize);
       const readAudioLevel = () => {
         if (audioRef.current !== audio || analyserRef.current !== analyser) return;
@@ -223,7 +237,7 @@ export default function LiveVoice() {
       audioFrameRef.current = window.requestAnimationFrame(readAudioLevel);
       void context.resume().catch(() => undefined);
     } catch {
-      stopAudioMeter();
+      stopAudioMeter(false);
     }
     audio.onended = () => {
       if (audioRef.current !== audio) return;
@@ -242,6 +256,7 @@ export default function LiveVoice() {
     try {
       await audio.play();
     } catch {
+      releaseAudio();
       setStatus('ready');
       setStatusNote('La réponse est prête à lire');
     }
@@ -282,6 +297,16 @@ export default function LiveVoice() {
   const beginRecording = async () => {
     if (recording || capturePendingRef.current || status === 'thinking') return;
     releaseAudio();
+    try {
+      if (typeof AudioContext !== 'undefined') {
+        const existingContext = audioContextRef.current;
+        const context = existingContext && existingContext.state !== 'closed' ? existingContext : new AudioContext();
+        audioContextRef.current = context;
+        void context.resume().catch(() => undefined);
+      }
+    } catch {
+      // Audio playback remains available through the browser if level analysis is unsupported.
+    }
     setError('');
     setTranscript('');
     setAnswer('');
@@ -396,6 +421,7 @@ export default function LiveVoice() {
     recorderRef.current = null;
     stopTracks();
     releaseAudio();
+    closeAudioContext();
     closeSession();
     chunksRef.current = [];
     setRecording(false);
