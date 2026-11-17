@@ -12,6 +12,7 @@ import {
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -49,6 +50,7 @@ const sampleVrmUrl =
 export function VrmExample() {
   const stageRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef<AvatarMode>('idle');
+  const gazeRef = useRef({ x: 0, y: 0, active: false });
   const [mode, setMode] = useState<AvatarMode>(() => {
     const requested = new URLSearchParams(window.location.search).get('mode');
     return modes.some((item) => item.id === requested) ? requested as AvatarMode : 'idle';
@@ -99,7 +101,10 @@ export function VrmExample() {
     let leftLowerLeg: Object3D | null = null;
     let rightLowerLeg: Object3D | null = null;
     let modelBaseY = 0;
+    let avatarHeight = 1;
+    let gazeTarget: Object3D | null = null;
     const baseRotations = new Map<Object3D, Euler>();
+    const gazePoint = new Vector3();
     let keyboard: Group | null = null;
     const typingKeys: Mesh[] = [];
     const setBoneRotation = (bone: Object3D | null, x = 0, y = 0, z = 0) => {
@@ -157,8 +162,12 @@ export function VrmExample() {
         vrm.scene.updateMatrixWorld(true);
         const bounds = new Box3().setFromObject(vrm.scene);
         const height = Math.max(1, bounds.max.y - bounds.min.y);
+        avatarHeight = height;
         vrm.scene.position.y -= bounds.min.y;
         modelBaseY = vrm.scene.position.y;
+        gazeTarget = new Object3D();
+        scene.add(gazeTarget);
+        if (vrm.lookAt) vrm.lookAt.target = gazeTarget;
         const humanoid = vrm.humanoid;
         head = humanoid?.getNormalizedBoneNode('head') ?? null;
         spine = humanoid?.getNormalizedBoneNode('spine') ?? null;
@@ -369,6 +378,18 @@ export function VrmExample() {
             spineX = Math.sin(elapsed * 1.7) * 0.012;
         }
 
+        if (gazeTarget) {
+          const pointer = gazeRef.current;
+          const gazeX = pointer.active ? pointer.x * 0.78 : Math.sin(elapsed * 0.38) * 0.18;
+          const gazeY = pointer.active ? pointer.y * 0.44 : Math.sin(elapsed * 0.53) * 0.1;
+          gazePoint.set(
+            gazeX * avatarHeight * 0.72,
+            avatarHeight * (0.84 - gazeY * 0.16),
+            avatarHeight * 1.75,
+          );
+          gazeTarget.position.lerp(gazePoint, 1 - Math.exp(-delta * 7));
+        }
+
         vrm.scene.position.y = modelBaseY + rootLift;
         setBoneRotation(head, headX, headY, headZ);
         setBoneRotation(spine, spineX, 0, spineZ);
@@ -390,11 +411,24 @@ export function VrmExample() {
           }
           const blinkElapsed = blinkStarted < 0 ? Infinity : now - blinkStarted;
           const blink = blinkElapsed < 150 ? Math.sin((blinkElapsed / 150) * Math.PI) : 0;
-          const mouth = isSpeaking
-            ? 0.16 + Math.max(0, Math.sin(elapsed * 10.5)) * 0.42
+          const setExpression = (name: string, value: number) => {
+            if (expressions.getExpression(name)) expressions.setValue(name, value);
+          };
+          const mouthPhase = elapsed * 8.5;
+          const mouthOpen = isSpeaking ? 0.12 + Math.abs(Math.sin(mouthPhase)) * 0.52 : 0;
+          const viseme = Math.floor(mouthPhase / 1.5) % 4;
+          const moodHappy = ['speaking', 'waving', 'dancing'].includes(currentMode);
+          const surprise = currentMode === 'jumping'
+            ? Math.max(0, Math.sin(elapsed * 2.7)) * 0.42
             : 0;
-          expressions.setValue('blink', blink);
-          expressions.setValue('aa', mouth);
+          setExpression('blink', blink);
+          setExpression('aa', viseme === 0 ? mouthOpen : mouthOpen * 0.2);
+          setExpression('ih', viseme === 1 ? mouthOpen * 0.78 : 0);
+          setExpression('ou', viseme === 2 ? mouthOpen * 0.7 : 0);
+          setExpression('ee', viseme === 3 ? mouthOpen * 0.72 : 0);
+          setExpression('happy', moodHappy ? 0.2 + Math.max(0, Math.sin(elapsed * 1.4)) * 0.12 : 0);
+          setExpression('relaxed', currentMode === 'idle' || currentMode === 'listening' ? 0.12 : 0);
+          setExpression('surprised', surprise);
         }
         vrm.update(delta);
       }
@@ -428,9 +462,9 @@ export function VrmExample() {
     <main className="vrm-demo">
       <header className="vrm-demo__header">
         <div>
-          <p className="vrm-demo__eyebrow">ESSAI DU RENDU 3D</p>
-          <h1>Un vrai modèle VRM dans le navigateur</h1>
-          <p className="vrm-demo__subtitle">Modèle d’exemple · test visuel · micro désactivé</p>
+          <p className="vrm-demo__eyebrow">PERSONNAGE VIRTUEL · ESSAI 3D</p>
+          <h1>Un personnage qui réagit à toi</h1>
+          <p className="vrm-demo__subtitle">Regard interactif · expressions · mouvements · sans caméra ni micro</p>
         </div>
         <button
           type="button"
@@ -450,7 +484,20 @@ export function VrmExample() {
           </div>
           <span className="vrm-demo__state">{modes.find((item) => item.id === mode)?.label}</span>
         </div>
-        <div className="vrm-demo__stage">
+        <div
+          className="vrm-demo__stage"
+          onPointerMove={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            gazeRef.current = {
+              x: ((event.clientX - bounds.left) / bounds.width - 0.5) * 2,
+              y: ((event.clientY - bounds.top) / bounds.height - 0.5) * 2,
+              active: true,
+            };
+          }}
+          onPointerLeave={() => {
+            gazeRef.current.active = false;
+          }}
+        >
           <div className="vrm-demo__canvas-host" ref={stageRef} aria-hidden="true" />
           {!loaded && !error && (
             <div className="vrm-demo__loading">
@@ -461,6 +508,7 @@ export function VrmExample() {
           )}
           {error && <p className="vrm-demo__error">{error}</p>}
           <div className="vrm-demo__floor" aria-hidden="true" />
+          <span className="vrm-demo__gaze-hint">Déplace le pointeur : elle le suit du regard</span>
         </div>
         <div className="vrm-demo__controls">
           {[
@@ -487,8 +535,9 @@ export function VrmExample() {
         <div className="vrm-demo__notice">
           <strong>Ce que montre cet essai</strong>
           <p>
-            Marche/course sur place, saut, clavier, salut, pointage et danse sont simulés sur le squelette VRM.
-            Ce ne sont pas des captures de mouvement; la voix et le micro ne sont pas reliés.
+            Elle suit le pointeur, cligne des yeux, change d’expression et articule des formes de bouche simulées.
+            Marche/course sur place, saut, clavier, salut, pointage et danse restent des mouvements de démonstration.
+            Aucun micro ni audio réel n’est relié.
           </p>
           <p>
             Alicia Solid reste le modèle d’exemple pour les personas; ton avatar Maxime reste distinct.

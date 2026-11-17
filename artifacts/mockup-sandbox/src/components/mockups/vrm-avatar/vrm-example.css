@@ -113,6 +113,18 @@
     linear-gradient(155deg, #131a31 0%, #10172a 52%, #101a2f 100%);
 }
 
+.vrm-demo__stage::before {
+  position: absolute;
+  z-index: 0;
+  inset: -25% 12% 0;
+  background:
+    radial-gradient(ellipse at 50% 60%, rgb(120 95 255 / 15%), transparent 42%),
+    radial-gradient(ellipse at 50% 64%, rgb(75 220 242 / 10%), transparent 62%);
+  content: "";
+  pointer-events: none;
+  animation: vrm-stage-light 6s ease-in-out infinite alternate;
+}
+
 .vrm-demo__canvas-host {
   position: absolute;
   z-index: 1;
@@ -137,6 +149,22 @@
   background: radial-gradient(ellipse, rgb(71 183 233 / 18%), transparent 68%);
   box-shadow: 0 0 55px rgb(55 163 230 / 15%);
   transform: translateX(-50%);
+}
+
+.vrm-demo__gaze-hint {
+  position: absolute;
+  z-index: 2;
+  bottom: 17px;
+  left: 50%;
+  padding: 8px 12px;
+  border: 1px solid rgb(157 181 222 / 15%);
+  border-radius: 999px;
+  color: #c5d6ee;
+  background: rgb(11 16 31 / 62%);
+  font-size: 11px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
 }
 
 .vrm-demo__loading,
@@ -264,6 +292,11 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes vrm-stage-light {
+  from { opacity: .48; transform: scale(.96); }
+  to { opacity: 1; transform: scale(1.04); }
+}
+
 @media (max-width: 640px) {
   .vrm-demo {
     padding: 16px 12px 22px;
@@ -287,6 +320,13 @@
   .vrm-demo__stage {
     height: 62vh;
     min-height: 420px;
+  }
+
+  .vrm-demo__gaze-hint {
+    bottom: 11px;
+    width: max-content;
+    max-width: calc(100% - 20px);
+    font-size: 10px;
   }
 
   .vrm-demo__controls {
