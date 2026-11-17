@@ -347,246 +347,100 @@
 .live-avatar-video {
   position: relative;
   z-index: 1;
-  width: min(56%, 470px);
-  height: 116%;
+  width: min(70%, 580px);
+  height: 100%;
   overflow: hidden;
-  border: 1px solid #7deaf23d;
-  border-bottom: 0;
-  border-radius: 230px 230px 0 0 / 160px 160px 0 0;
-  background: #071c2d;
-  box-shadow: 0 0 60px #22d5f12a, inset 0 0 50px #25d9ef13;
-  transform-origin: center 70%;
+  border: 0;
+  border-radius: 230px 230px 0 0 / 190px 190px 0 0;
+  background: transparent;
+  box-shadow: 0 0 58px #22d5f12a;
+  transform-origin: center 82%;
   translate: 0 var(--avatar-bob, 0px);
-  animation: live-avatar-idle 5s ease-in-out infinite;
-  transition: translate 45ms linear;
+  animation: live-avatar-idle 5.4s ease-in-out infinite;
+  transition: translate 60ms linear, filter 220ms ease, box-shadow 220ms ease;
 }
 
 .live-avatar-video::after {
   position: absolute;
+  z-index: 4;
   inset: 0;
   content: "";
   pointer-events: none;
-  background: linear-gradient(180deg, #03111a07 48%, #06162435 74%, #061624 100%);
+  background: linear-gradient(180deg, transparent 78%, #06162414 100%);
 }
 
-.live-avatar-art {
+.live-avatar-art,
+.live-avatar-pose,
+.live-avatar-expression {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 23%;
+  object-position: center;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-.live-avatar-light {
-  position: absolute;
-  z-index: 1;
-  top: 33%;
-  left: 65%;
-  width: 22px;
-  height: 12px;
-  opacity: var(--avatar-glow-opacity, 0.22);
-  border-radius: 50%;
-  background: #b2fff4;
-  filter: blur(15px);
+.live-avatar-pose,
+.live-avatar-expression {
+  opacity: 0;
   pointer-events: none;
-  transition: opacity 70ms linear;
+  transition: opacity 150ms ease;
 }
 
-.live-avatar-mouth {
-  position: absolute;
+.live-avatar-pose {
+  z-index: 1;
+}
+
+.live-avatar-expression {
   z-index: 2;
-  top: 56%;
-  left: 65%;
-  width: var(--avatar-mouth-width, 8px);
-  height: var(--avatar-mouth-height, 2.5px);
-  opacity: 0;
-  border: 1px solid #5a213f;
-  border-radius: 50% 50% 48% 48%;
-  background: linear-gradient(180deg, #491c37, #a84a62 55%, #3a1b35);
-  box-shadow: 0 0 7px #f17b9d48;
-  transform: translate(-50%, -50%);
-  transition: height 55ms linear, width 55ms linear, opacity 110ms ease;
+  object-position: center;
+}
+
+.live-avatar-expression--blink {
+  clip-path: ellipse(8% 2.6% at 72% 41%);
+}
+
+.live-avatar-expression--speaking {
+  clip-path: ellipse(4.4% 2.8% at 56% 52%);
+  opacity: var(--avatar-mouth-opacity, 0);
+  transition: opacity 55ms linear;
+}
+
+.live-avatar-video[data-blinking="true"] .live-avatar-expression--blink {
+  opacity: 1;
+}
+
+.live-avatar-aria {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .live-avatar-scene--listening .live-avatar-video {
-  box-shadow: 0 0 0 1px #61e7f24d, 0 0 70px #22d5f13f, inset 0 0 50px #25d9ef18;
+  animation: live-avatar-listening 2.9s ease-in-out infinite;
+  box-shadow: 0 0 72px #22d5f13f;
 }
 
 .live-avatar-scene--thinking .live-avatar-video {
-  animation: live-avatar-thinking 2.8s ease-in-out infinite;
+  width: min(80%, 660px);
+  animation: live-avatar-thinking 2.7s ease-in-out infinite;
+  box-shadow: 0 0 70px #22d5f13b;
+}
+
+.live-avatar-scene--thinking .live-avatar-pose {
+  opacity: 1;
 }
 
 .live-avatar-scene--speaking .live-avatar-video {
-  animation: none;
-  box-shadow: 0 0 58px #22d5f148;
-}
-
-.live-avatar-scene--speaking .live-avatar-mouth {
-  opacity: 0.98;
-}
-
-.live-avatar-desk {
-  position: absolute;
-  z-index: 3;
-  right: -4%;
-  bottom: -9%;
-  left: -4%;
-  height: 31%;
-  perspective: 700px;
-  pointer-events: none;
-}
-
-.live-avatar-desk-top {
-  position: absolute;
-  inset: 27% 0 0;
-  border-top: 1px solid #7af1ff72;
-  background: linear-gradient(180deg, #0b3c57, #071b2b 75%);
-  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
-  box-shadow: inset 0 14px 42px #27d5ee19;
-}
-
-.live-avatar-keyboard {
-  position: absolute;
-  z-index: 2;
-  top: 2%;
-  left: 50%;
-  width: min(46%, 400px);
-  height: 65%;
-  padding: 9px 12px 7px;
-  border: 1px solid #75eaff72;
-  border-radius: 11px 11px 18px 18px;
-  background: linear-gradient(180deg, #17485d, #071a2a);
-  box-shadow: 0 8px 26px #020b16a8, inset 0 1px #c7fbff33;
-  transform: translateX(-50%) rotateX(22deg);
-  transform-origin: bottom;
-}
-
-.live-avatar-keys {
-  display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.live-avatar-keys i {
-  height: 10px;
-  border: 1px solid #71e7f13e;
-  border-radius: 3px;
-  background: linear-gradient(145deg, #1b4e63, #0b293c);
-  box-shadow: 0 2px 0 #041320;
-}
-
-.live-avatar-keys i:nth-child(7n + 2),
-.live-avatar-keys i:nth-child(11n + 4) {
-  animation: live-key-tap 420ms ease-in-out infinite;
-  animation-play-state: paused;
-}
-
-.live-avatar-desk--typing .live-avatar-keys i:nth-child(7n + 2),
-.live-avatar-desk--typing .live-avatar-keys i:nth-child(11n + 4) {
-  animation-play-state: running;
-}
-
-.live-avatar-spacebar {
-  display: block;
-  width: 36%;
-  height: 7px;
-  margin: 7px auto 0;
-  border: 1px solid #71e7f132;
-  border-radius: 4px;
-  background: #103249;
-}
-
-.live-avatar-caret {
-  position: absolute;
-  top: 27%;
-  left: 51%;
-  width: 2px;
-  height: 8px;
-  opacity: 0;
-  background: #a3faff;
-  box-shadow: 0 0 10px #48f0ff;
-}
-
-.live-avatar-desk--typing .live-avatar-caret {
-  opacity: 1;
-  animation: live-caret-hop 540ms steps(2, end) infinite;
-}
-
-.live-avatar-sleeves {
-  position: absolute;
-  z-index: 1;
-  right: 30%;
-  bottom: 42%;
-  left: 30%;
-  display: flex;
-  justify-content: space-between;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-.live-avatar-desk--typing .live-avatar-sleeves {
-  opacity: 1;
-}
-
-.live-avatar-sleeves span {
-  width: 18%;
-  height: 31px;
-  border: 1px solid #74e9fa80;
-  border-radius: 12px 12px 6px 6px;
-  background: linear-gradient(180deg, #1592af, #082b40);
-  box-shadow: inset 0 1px #e4ffff2c, 0 0 15px #20d6e735;
-  transform: rotate(-18deg);
-}
-
-.live-avatar-sleeves span:last-child {
-  transform: rotate(18deg);
-}
-
-.live-avatar-desk--typing .live-avatar-sleeves span {
-  animation: live-hand-type 230ms ease-in-out infinite alternate;
-}
-
-.live-avatar-desk--typing .live-avatar-sleeves span:last-child {
-  animation-delay: 110ms;
-}
-
-.live-avatar-desk-glow {
-  position: absolute;
-  bottom: 13%;
-  left: 50%;
-  width: 42%;
-  height: 1px;
-  background: #53eaff8c;
-  box-shadow: 0 0 15px 3px #21c9ec55;
-  transform: translateX(-50%);
-}
-
-.live-avatar-caption {
-  position: absolute;
-  z-index: 4;
-  bottom: 26%;
-  left: 50%;
-  width: min(70%, 560px);
-  max-height: 78px;
-  overflow: auto;
-  padding: 10px 15px;
-  border: 1px solid #86e7f42a;
-  border-radius: 14px;
-  color: #e1f5f8;
-  background: #071a2bd8;
-  box-shadow: 0 8px 28px #020a138a;
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: center;
-  backdrop-filter: blur(12px);
-  transform: translateX(-50%);
-}
-
-.live-avatar-caption:empty {
-  display: none;
+  animation: live-avatar-speaking 1.7s ease-in-out infinite;
+  box-shadow: 0 0 72px #22d5f148;
 }
 
 .live-call-identity {
@@ -911,39 +765,33 @@
 }
 
 @keyframes live-avatar-idle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0); }
+  24% { transform: translate3d(2px, -2px, 0) rotate(0.25deg); }
+  52% { transform: translate3d(-1px, -6px, 0) rotate(-0.35deg); }
+  78% { transform: translate3d(-2px, -2px, 0) rotate(0.15deg); }
+}
+
+@keyframes live-avatar-listening {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  42% { transform: translate3d(0, -5px, 0) scale(1.015); }
+  72% { transform: translate3d(1px, -2px, 0) scale(1.008); }
 }
 
 @keyframes live-avatar-thinking {
-  0%, 100% { transform: rotate(0) translateY(0); }
-  38% { transform: rotate(0.7deg) translateY(-3px); }
-  72% { transform: rotate(-0.6deg); }
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0); }
+  34% { transform: translate3d(2px, -3px, 0) rotate(0.5deg); }
+  66% { transform: translate3d(-2px, -1px, 0) rotate(-0.65deg); }
 }
 
 @keyframes live-avatar-speaking {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.006); }
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  32% { transform: translate3d(1px, -3px, 0) scale(1.008); }
+  68% { transform: translate3d(-1px, -2px, 0) scale(1.004); }
 }
 
 @keyframes live-wave {
   from { height: 4px; opacity: 0.55; }
   to { height: 15px; opacity: 1; }
-}
-
-@keyframes live-key-tap {
-  0%, 100% { transform: translateY(0); background: linear-gradient(145deg, #1b4e63, #0b293c); }
-  45% { transform: translateY(3px); background: #1a8292; }
-}
-
-@keyframes live-caret-hop {
-  0%, 100% { transform: translateY(0); opacity: 0.3; }
-  50% { transform: translateY(6px); opacity: 1; }
-}
-
-@keyframes live-hand-type {
-  from { transform: translateY(0) rotate(-18deg); }
-  to { transform: translateY(3px) rotate(-15deg); }
 }
 
 @media (max-width: 700px) {
@@ -1000,66 +848,17 @@
 
   .live-avatar-video {
     width: 82%;
-    height: 112%;
+    height: 100%;
     border-radius: 190px 190px 0 0 / 140px 140px 0 0;
   }
 
-  .live-avatar-art {
-    object-position: center 20%;
-  }
-
-  .live-avatar-mouth {
-    top: 54%;
+  .live-avatar-scene--thinking .live-avatar-video {
+    width: 96%;
   }
 
   .live-avatar-aura {
     bottom: -30%;
     width: 110vw;
-  }
-
-  .live-avatar-desk {
-    right: -14%;
-    bottom: -2%;
-    left: -14%;
-    height: 25%;
-  }
-
-  .live-avatar-keyboard {
-    top: 5%;
-    width: 62%;
-    height: 67%;
-    padding: 7px 9px 5px;
-  }
-
-  .live-avatar-keys {
-    gap: 3px;
-  }
-
-  .live-avatar-keys i {
-    height: 8px;
-  }
-
-  .live-avatar-spacebar {
-    height: 6px;
-    margin-top: 5px;
-  }
-
-  .live-avatar-sleeves {
-    right: 24%;
-    bottom: 41%;
-    left: 24%;
-  }
-
-  .live-avatar-sleeves span {
-    height: 22px;
-  }
-
-  .live-avatar-caption {
-    bottom: 25%;
-    width: min(86%, 480px);
-    max-height: 62px;
-    padding: 8px 10px;
-    font-size: 10px;
   }
 
   .live-call-identity {
@@ -1152,9 +951,6 @@
     min-height: 375px;
   }
 
-  .live-avatar-video {
-    height: 113%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
