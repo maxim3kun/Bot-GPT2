@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   AudioLines,
@@ -12,7 +12,10 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import portrait from '../../../../attached_assets/generated_images/maxime-stage-portrait-center.jpg';
+import portrait from '../../../../attached_assets/generated_images/maxime-live-idle.webp';
+import blinkPortrait from '../../../../attached_assets/generated_images/maxime-live-blink.webp';
+import speakingPortrait from '../../../../attached_assets/generated_images/maxime-live-speaking.webp';
+import typingPortrait from '../../../../attached_assets/generated_images/maxime-live-typing.webp';
 import './live-avatar-call.css';
 
 export type LiveVoiceStatus = 'ready' | 'listening' | 'thinking' | 'speaking' | 'error';
@@ -48,8 +51,6 @@ const modeLabel: Record<LiveVoiceStatus, string> = {
   error: 'Micro indisponible',
 };
 
-const keyboardKeys = Array.from({ length: 36 }, (_, index) => index);
-
 export function LiveAvatarCall({
   status,
   statusNote,
@@ -73,14 +74,63 @@ export function LiveAvatarCall({
   onDismissError,
 }: LiveAvatarCallProps) {
   const mode: Exclude<LiveVoiceStatus, 'error'> = status === 'error' ? 'ready' : status;
+  const [blinking, setBlinking] = useState(false);
   const currentLabel = starting ? 'Connexion au micro…' : modeLabel[status];
   const safeLevel = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
+  const mouthOpacity = mode === 'speaking'
+    ? Math.min(1, Math.max(0, (safeLevel - 0.012) * 7))
+    : 0;
   const mouthStyle = {
-    '--avatar-mouth-height': `${2.5 + safeLevel * 13}px`,
-    '--avatar-mouth-width': `${25 + safeLevel * 18}px`,
-    '--avatar-glow-opacity': `${0.22 + safeLevel * 0.42}`,
-    '--avatar-bob': `${safeLevel * -4}px`,
+    '--avatar-mouth-opacity': mouthOpacity,
+    '--avatar-bob': `${safeLevel * -2.5}px`,
   } as CSSProperties;
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let motionAllowed = !reducedMotion.matches;
+    let blinkTimer: number | undefined;
+    let blinkEndTimer: number | undefined;
+
+    const stopTimers = () => {
+      if (blinkTimer !== undefined) window.clearTimeout(blinkTimer);
+      if (blinkEndTimer !== undefined) window.clearTimeout(blinkEndTimer);
+      blinkTimer = undefined;
+      blinkEndTimer = undefined;
+      setBlinking(false);
+    };
+
+    const scheduleBlink = () => {
+      if (!motionAllowed) return;
+      blinkTimer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          setBlinking(true);
+          blinkEndTimer = window.setTimeout(() => setBlinking(false), 125);
+        }
+        scheduleBlink();
+      }, 2600 + Math.random() * 2800);
+    };
+
+    const handleMotionPreference = () => {
+      stopTimers();
+      motionAllowed = !reducedMotion.matches;
+      if (motionAllowed) scheduleBlink();
+    };
+
+    reducedMotion.addEventListener('change', handleMotionPreference);
+    scheduleBlink();
+
+    return () => {
+      reducedMotion.removeEventListener('change', handleMotionPreference);
+      stopTimers();
+    };
+  }, []);
+
+  useEffect(() => {
+    [blinkPortrait, speakingPortrait, typingPortrait].forEach((source) => {
+      const image = new Image();
+      image.src = source;
+    });
+  }, []);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -147,28 +197,26 @@ export function LiveAvatarCall({
           </div>
           <div className={`live-avatar-scene live-avatar-scene--${mode}`} data-mode={mode} style={mouthStyle}>
             <div className="live-avatar-aura" aria-hidden="true" />
-            <div className="live-avatar-video">
-              <img className="live-avatar-art" src={portrait} alt="Maxime, personnage animé en tenue lumineuse cyan" draggable={false} data-testid="img-live-character" />
-              <span className="live-avatar-light" aria-hidden="true" />
-              <span className="live-avatar-mouth" aria-hidden="true" />
+            <div
+              className="live-avatar-video"
+              data-blinking={blinking && mode !== 'thinking'}
+              data-mode={mode}
+              style={mouthStyle}
+            >
+              <img
+                className="live-avatar-art"
+                src={portrait}
+                alt="Maxime, personnage manga en tenue lumineuse cyan"
+                draggable={false}
+                data-testid="img-live-character"
+              />
+              <img className="live-avatar-pose" src={typingPortrait} alt="" aria-hidden="true" draggable={false} />
+              <img className="live-avatar-expression live-avatar-expression--blink" src={blinkPortrait} alt="" aria-hidden="true" draggable={false} />
+              <img className="live-avatar-expression live-avatar-expression--speaking" src={speakingPortrait} alt="" aria-hidden="true" draggable={false} />
             </div>
-            <div className={`live-avatar-desk${mode === 'thinking' ? ' live-avatar-desk--typing' : ''}`} aria-hidden="true">
-              <div className="live-avatar-desk-top" />
-              <div className="live-avatar-keyboard">
-                <div className="live-avatar-keys">
-                  {keyboardKeys.map((key) => <i key={key} />)}
-                </div>
-                <span className="live-avatar-spacebar" />
-                <span className="live-avatar-caret" />
-              </div>
-              <div className="live-avatar-sleeves">
-                <span /><span />
-              </div>
-              <span className="live-avatar-desk-glow" />
-            </div>
-            <div className="live-avatar-caption" aria-live="polite" data-testid="text-live-avatar-caption">
-              {mode === 'speaking' && answer ? answer : mode === 'listening' ? 'Je t’écoute…' : mode === 'thinking' ? 'Je prépare ma réponse…' : 'Prends ton temps, je suis là.'}
-            </div>
+            <span className="live-avatar-aria" aria-live="polite">
+              {mode === 'speaking' && answer ? `Maxime te répond : ${answer}` : currentLabel}
+            </span>
           </div>
           <div className="live-call-identity">
             <span className="live-call-identity-avatar" aria-hidden="true">M</span>
