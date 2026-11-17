@@ -4,6 +4,7 @@ import {
   Box3,
   BoxGeometry,
   DirectionalLight,
+  Euler,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -17,13 +18,29 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import './vrm-example.css';
 
-type AvatarMode = 'idle' | 'listening' | 'thinking' | 'speaking';
+type AvatarMode =
+  | 'idle'
+  | 'listening'
+  | 'thinking'
+  | 'speaking'
+  | 'walking'
+  | 'running'
+  | 'jumping'
+  | 'waving'
+  | 'pointing'
+  | 'dancing';
 
-const modes: Array<{ id: AvatarMode; label: string; duration: number }> = [
-  { id: 'idle', label: 'Repos', duration: 2100 },
-  { id: 'listening', label: 'Écoute', duration: 2500 },
-  { id: 'thinking', label: 'Réflexion', duration: 2300 },
-  { id: 'speaking', label: 'Parole', duration: 3200 },
+const modes: Array<{ id: AvatarMode; label: string; duration: number; category: 'conversation' | 'movement' }> = [
+  { id: 'idle', label: 'Repos', duration: 2100, category: 'conversation' },
+  { id: 'listening', label: 'Écoute', duration: 2500, category: 'conversation' },
+  { id: 'thinking', label: 'Clavier', duration: 2800, category: 'conversation' },
+  { id: 'speaking', label: 'Parole', duration: 3200, category: 'conversation' },
+  { id: 'walking', label: 'Marche', duration: 2600, category: 'movement' },
+  { id: 'running', label: 'Course', duration: 2500, category: 'movement' },
+  { id: 'jumping', label: 'Saut', duration: 2300, category: 'movement' },
+  { id: 'waving', label: 'Salut', duration: 2500, category: 'movement' },
+  { id: 'pointing', label: 'Pointer', duration: 2200, category: 'movement' },
+  { id: 'dancing', label: 'Danse', duration: 3200, category: 'movement' },
 ];
 
 const sampleVrmUrl =
@@ -70,12 +87,27 @@ export function VrmExample() {
 
     let disposed = false;
     let vrm: VRM | undefined;
+    let head: Object3D | null = null;
+    let spine: Object3D | null = null;
+    let hips: Object3D | null = null;
     let leftUpperArm: Object3D | null = null;
     let rightUpperArm: Object3D | null = null;
-    let leftArmBase = 0;
-    let rightArmBase = 0;
+    let leftLowerArm: Object3D | null = null;
+    let rightLowerArm: Object3D | null = null;
+    let leftUpperLeg: Object3D | null = null;
+    let rightUpperLeg: Object3D | null = null;
+    let leftLowerLeg: Object3D | null = null;
+    let rightLowerLeg: Object3D | null = null;
+    let modelBaseY = 0;
+    const baseRotations = new Map<Object3D, Euler>();
     let keyboard: Group | null = null;
     const typingKeys: Mesh[] = [];
+    const setBoneRotation = (bone: Object3D | null, x = 0, y = 0, z = 0) => {
+      if (!bone) return;
+      const base = baseRotations.get(bone);
+      if (!base) return;
+      bone.rotation.set(base.x + x, base.y + y, base.z + z);
+    };
     const scene = new Scene();
     const camera = new PerspectiveCamera(30, 1, 0.1, 100);
     const modelRoot = new Group();
@@ -126,10 +158,34 @@ export function VrmExample() {
         const bounds = new Box3().setFromObject(vrm.scene);
         const height = Math.max(1, bounds.max.y - bounds.min.y);
         vrm.scene.position.y -= bounds.min.y;
+        modelBaseY = vrm.scene.position.y;
+        const humanoid = vrm.humanoid;
+        head = humanoid?.getNormalizedBoneNode('head') ?? null;
+        spine = humanoid?.getNormalizedBoneNode('spine') ?? null;
+        hips = humanoid?.getNormalizedBoneNode('hips') ?? null;
         leftUpperArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm') ?? null;
         rightUpperArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm') ?? null;
-        leftArmBase = leftUpperArm?.rotation.z ?? 0;
-        rightArmBase = rightUpperArm?.rotation.z ?? 0;
+        leftLowerArm = humanoid?.getNormalizedBoneNode('leftLowerArm') ?? null;
+        rightLowerArm = humanoid?.getNormalizedBoneNode('rightLowerArm') ?? null;
+        leftUpperLeg = humanoid?.getNormalizedBoneNode('leftUpperLeg') ?? null;
+        rightUpperLeg = humanoid?.getNormalizedBoneNode('rightUpperLeg') ?? null;
+        leftLowerLeg = humanoid?.getNormalizedBoneNode('leftLowerLeg') ?? null;
+        rightLowerLeg = humanoid?.getNormalizedBoneNode('rightLowerLeg') ?? null;
+        [
+          head,
+          spine,
+          hips,
+          leftUpperArm,
+          rightUpperArm,
+          leftLowerArm,
+          rightLowerArm,
+          leftUpperLeg,
+          rightUpperLeg,
+          leftLowerLeg,
+          rightLowerLeg,
+        ].forEach((bone) => {
+          if (bone) baseRotations.set(bone, bone.rotation.clone());
+        });
         keyboard = new Group();
         keyboard.position.set(0, height * 0.52, height * 0.18);
         keyboard.rotation.x = 0.22;
@@ -201,30 +257,130 @@ export function VrmExample() {
           material.emissiveIntensity = isThinking ? 0.12 + pulse * 0.38 : 0.06;
           key.position.y = Number(key.userData.restY) + (isThinking ? pulse * 0.004 : 0);
         });
-        const head = vrm.humanoid?.getNormalizedBoneNode('head');
-        const spine = vrm.humanoid?.getNormalizedBoneNode('spine');
-        if (head) {
-          const thinking = currentMode === 'thinking' ? 0.12 : 0;
-          const listening = currentMode === 'listening' ? 0.035 : 0;
-          head.rotation.x = thinking + Math.sin(elapsed * 1.15) * 0.018;
-          head.rotation.y = Math.sin(elapsed * 0.55) * (currentMode === 'listening' ? 0.055 : 0.018);
-          head.rotation.z = (currentMode === 'thinking' ? -0.075 : listening)
-            + Math.sin(elapsed * 0.8) * 0.012;
+        const stepPhase = elapsed * (currentMode === 'running' ? 8 : 4.8);
+        const step = Math.sin(stepPhase);
+        const bounce = Math.abs(Math.sin(stepPhase * 2));
+        let rootLift = 0;
+        let headX = isThinking ? 0.12 : 0;
+        let headY = Math.sin(elapsed * 0.55) * (currentMode === 'listening' ? 0.055 : 0.018);
+        let headZ = currentMode === 'thinking' ? -0.075 : 0;
+        let spineX = Math.sin(elapsed * 1.7) * 0.012 + (isThinking ? 0.018 : 0);
+        let spineZ = 0;
+        let hipsY = 0;
+        let hipsZ = 0;
+        let leftArmX = 0;
+        let rightArmX = 0;
+        let leftArmY = 0;
+        let rightArmY = 0;
+        let leftArmZ = 0.6;
+        let rightArmZ = -0.6;
+        let leftForearmX = 0;
+        let rightForearmX = 0;
+        let leftForearmZ = 0;
+        let rightForearmZ = 0;
+        let leftLegX = 0;
+        let rightLegX = 0;
+        let leftKneeX = 0;
+        let rightKneeX = 0;
+
+        switch (currentMode) {
+          case 'listening':
+            headX += Math.sin(elapsed * 2.2) * 0.028;
+            headZ += Math.sin(elapsed * 0.8) * 0.025;
+            break;
+          case 'thinking':
+            headX += 0.045 + Math.sin(elapsed * 1.7) * 0.025;
+            leftArmY = -1.42;
+            rightArmY = 1.42;
+            leftArmZ = 0.75;
+            rightArmZ = -0.75;
+            leftForearmX = -0.08 + Math.sin(elapsed * 12) * 0.05;
+            rightForearmX = -0.08 + Math.sin(elapsed * 12 + 1) * 0.05;
+            leftForearmZ = Math.sin(elapsed * 12) * 0.06;
+            rightForearmZ = Math.sin(elapsed * 12 + 1) * 0.06;
+            break;
+          case 'speaking':
+            leftArmZ = 0.44 + Math.sin(elapsed * 2.1) * 0.12;
+            leftArmX = Math.sin(elapsed * 1.8) * 0.1;
+            spineX += Math.sin(elapsed * 2.4) * 0.018;
+            headX += Math.sin(elapsed * 2.4) * 0.025;
+            break;
+          case 'walking':
+            leftLegX = step * 0.34;
+            rightLegX = -step * 0.34;
+            leftKneeX = Math.max(0, -step) * 0.38;
+            rightKneeX = Math.max(0, step) * 0.38;
+            leftArmX = -step * 0.25;
+            rightArmX = step * 0.25;
+            rootLift = bounce * 0.022;
+            hipsY = Math.sin(stepPhase) * 0.035;
+            break;
+          case 'running':
+            leftLegX = step * 0.58;
+            rightLegX = -step * 0.58;
+            leftKneeX = Math.max(0, -step) * 0.82;
+            rightKneeX = Math.max(0, step) * 0.82;
+            leftArmX = -step * 0.48;
+            rightArmX = step * 0.48;
+            leftArmZ = 0.32;
+            rightArmZ = -0.32;
+            rootLift = bounce * 0.052;
+            hipsY = Math.sin(stepPhase) * 0.05;
+            spineX = -0.06 + Math.sin(stepPhase * 2) * 0.025;
+            break;
+          case 'jumping': {
+            const jump = Math.max(0, Math.sin(elapsed * 2.7));
+            rootLift = jump * 0.34;
+            leftLegX = -jump * 0.24;
+            rightLegX = -jump * 0.24;
+            leftKneeX = jump * 0.48;
+            rightKneeX = jump * 0.48;
+            leftArmZ = -0.82 - jump * 0.12;
+            rightArmZ = 0.82 + jump * 0.12;
+            spineX = -jump * 0.06;
+            break;
+          }
+          case 'waving':
+            leftArmZ = -0.92;
+            leftArmY = -0.16;
+            leftForearmZ = -0.2 + Math.sin(elapsed * 6.2) * 0.42;
+            leftForearmX = Math.sin(elapsed * 6.2) * 0.12;
+            break;
+          case 'pointing':
+            leftArmZ = 0.06;
+            leftArmY = -1.28;
+            leftForearmZ = -0.02;
+            headY = -0.12 + Math.sin(elapsed * 0.8) * 0.025;
+            break;
+          case 'dancing':
+            hipsY = Math.sin(elapsed * 3.1) * 0.2;
+            hipsZ = Math.sin(elapsed * 3.1) * 0.08;
+            spineZ = Math.sin(elapsed * 3.1) * 0.12;
+            leftArmZ = -0.25 + Math.sin(elapsed * 3.1) * 0.55;
+            rightArmZ = 0.25 - Math.sin(elapsed * 3.1 + 1.5) * 0.55;
+            leftArmX = Math.sin(elapsed * 3.1 + 0.4) * 0.24;
+            rightArmX = -Math.sin(elapsed * 3.1 + 1.1) * 0.24;
+            leftLegX = Math.sin(elapsed * 3.1) * 0.25;
+            rightLegX = -Math.sin(elapsed * 3.1) * 0.25;
+            rootLift = bounce * 0.035;
+            headZ = Math.sin(elapsed * 3.1) * 0.08;
+            break;
+          default:
+            spineX = Math.sin(elapsed * 1.7) * 0.012;
         }
-        if (spine) {
-          spine.rotation.x = Math.sin(elapsed * 1.7) * 0.012
-            + (isSpeaking ? Math.sin(elapsed * 2.4) * 0.018 : 0)
-            + (isThinking ? 0.018 : 0);
-        }
-        const typingReach = isThinking ? -0.15 : 0;
-        if (leftUpperArm) {
-          leftUpperArm.rotation.z = leftArmBase + (isSpeaking ? 0.43 + Math.sin(elapsed * 2.1) * 0.08 : 0.6 - typingReach);
-          leftUpperArm.rotation.y = isThinking ? -1.42 : 0;
-        }
-        if (rightUpperArm) {
-          rightUpperArm.rotation.z = rightArmBase - 0.6 + typingReach;
-          rightUpperArm.rotation.y = isThinking ? 1.42 : 0;
-        }
+
+        vrm.scene.position.y = modelBaseY + rootLift;
+        setBoneRotation(head, headX, headY, headZ);
+        setBoneRotation(spine, spineX, 0, spineZ);
+        setBoneRotation(hips, 0, hipsY, hipsZ);
+        setBoneRotation(leftUpperArm, leftArmX, leftArmY, leftArmZ);
+        setBoneRotation(rightUpperArm, rightArmX, rightArmY, rightArmZ);
+        setBoneRotation(leftLowerArm, leftForearmX, 0, leftForearmZ);
+        setBoneRotation(rightLowerArm, rightForearmX, 0, rightForearmZ);
+        setBoneRotation(leftUpperLeg, leftLegX);
+        setBoneRotation(rightUpperLeg, rightLegX);
+        setBoneRotation(leftLowerLeg, leftKneeX);
+        setBoneRotation(rightLowerLeg, rightKneeX);
         const expressions = vrm.expressionManager;
         if (expressions) {
           const now = performance.now();
@@ -306,26 +462,36 @@ export function VrmExample() {
           {error && <p className="vrm-demo__error">{error}</p>}
           <div className="vrm-demo__floor" aria-hidden="true" />
         </div>
-        <div className="vrm-demo__controls" role="group" aria-label="États du personnage">
-          {modes.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-pressed={!automatic && mode === item.id}
-              onClick={() => selectMode(item.id)}
-            >
-              {item.label}
-            </button>
+        <div className="vrm-demo__controls">
+          {[
+            { id: 'conversation', title: 'Conversation' },
+            { id: 'movement', title: 'Mouvements' },
+          ].map((group) => (
+            <section className="vrm-demo__control-group" key={group.id} aria-label={group.title}>
+              <h2>{group.title}</h2>
+              <div className="vrm-demo__control-row" role="group" aria-label={group.title}>
+                {modes.filter((item) => item.category === group.id).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={!automatic && mode === item.id}
+                    onClick={() => selectMode(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
         <div className="vrm-demo__notice">
           <strong>Ce que montre cet essai</strong>
           <p>
-            Le modèle réagit aux quatre états; un clavier apparaît pendant la réflexion.
-            La bouche et les clignements sont simulés, sans voix ni micro.
+            Marche/course sur place, saut, clavier, salut, pointage et danse sont simulés sur le squelette VRM.
+            Ce ne sont pas des captures de mouvement; la voix et le micro ne sont pas reliés.
           </p>
           <p>
-            C’est Alicia Solid, un modèle de démonstration de DWANGO, pas encore le personnage Maxime.
+            Alicia Solid reste le modèle d’exemple pour les personas; ton avatar Maxime reste distinct.
             <a href="https://3d.nicovideo.jp/alicia/rule.html" target="_blank" rel="noreferrer"> Conditions et attribution du modèle</a>.
           </p>
         </div>
