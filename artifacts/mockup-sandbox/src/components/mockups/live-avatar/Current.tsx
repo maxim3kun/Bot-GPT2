@@ -12,7 +12,10 @@ const states: Array<{ value: LiveVoiceStatus; label: string }> = [
 const noop = () => undefined;
 
 export function Current() {
-  const [status, setStatus] = useState<LiveVoiceStatus>('ready');
+  const [status, setStatus] = useState<LiveVoiceStatus>(() => {
+    const initial = new URLSearchParams(window.location.search).get('state');
+    return states.find((state) => state.value === initial)?.value ?? 'speaking';
+  });
   const isSpeaking = status === 'speaking';
 
   return (
