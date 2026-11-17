@@ -7,6 +7,7 @@
 - [Bot answer detail style](bot-answer-detail-style.md) — Put the useful answer first, with optional details on demand and no fixed word limit.
 - [API workflow startup order](api-workflow-startup.md) — Start the API artifact before the wrapper; simultaneous startup can race for port 8080.
 - [Persona reply labeling](persona-reply-labeling.md) — Do not add an AI-generated label; Discord already identifies the account as a bot.
+- [Persona VRM animation](persona-vrm-animation.md) — Keep Alicia Solid for personas and Maxime’s own avatar separate; full-body actions need compatible motion data.
 - [Module health and fallbacks](module-health-fallbacks.md) — Track runtime/dependency failures and use only real alternate paths; otherwise report degraded service honestly.
 - [Persona factual reliability](persona-factual-reliability.md) — Keep the configured role without inventing expertise or figures; use relevant evidence or admit uncertainty.
 - [Controlled AI actions](ai-action-authorization.md) — Explicit ordinary requests run without extra confirmation; preserve permissions, feature settings and the existing general AI consent.
