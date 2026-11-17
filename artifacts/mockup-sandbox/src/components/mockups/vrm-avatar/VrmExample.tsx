@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import {
   AmbientLight,
   Box3,
+  BoxGeometry,
   DirectionalLight,
   Group,
+  Mesh,
+  MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   Scene,
@@ -71,6 +74,8 @@ export function VrmExample() {
     let rightUpperArm: Object3D | null = null;
     let leftArmBase = 0;
     let rightArmBase = 0;
+    let keyboard: Group | null = null;
+    const typingKeys: Mesh[] = [];
     const scene = new Scene();
     const camera = new PerspectiveCamera(30, 1, 0.1, 100);
     const modelRoot = new Group();
@@ -125,6 +130,41 @@ export function VrmExample() {
         rightUpperArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm') ?? null;
         leftArmBase = leftUpperArm?.rotation.z ?? 0;
         rightArmBase = rightUpperArm?.rotation.z ?? 0;
+        keyboard = new Group();
+        keyboard.position.set(0, height * 0.52, height * 0.18);
+        keyboard.rotation.x = 0.22;
+        keyboard.visible = false;
+        const keyboardDeck = new Mesh(
+          new BoxGeometry(height * 0.76, height * 0.018, height * 0.2),
+          new MeshStandardMaterial({ color: 0x10192a, metalness: 0.2, roughness: 0.46 }),
+        );
+        keyboard.add(keyboardDeck);
+        const rows = 3;
+        const columns = 11;
+        const keyWidth = height * 0.047;
+        const keyDepth = height * 0.038;
+        for (let row = 0; row < rows; row += 1) {
+          for (let column = 0; column < columns; column += 1) {
+            const key = new Mesh(
+              new BoxGeometry(keyWidth, height * 0.009, keyDepth),
+              new MeshStandardMaterial({
+                color: 0x263a56,
+                emissive: 0x22a9c6,
+                emissiveIntensity: 0.06,
+                roughness: 0.34,
+              }),
+            );
+            key.position.set(
+              (column - (columns - 1) / 2) * keyWidth * 1.14,
+              height * 0.014,
+              (row - (rows - 1) / 2) * keyDepth * 1.18,
+            );
+            key.userData.restY = key.position.y;
+            keyboard.add(key);
+            typingKeys.push(key);
+          }
+        }
+        scene.add(keyboard);
         camera.position.set(0, height * 0.52, height * 1.95);
         camera.lookAt(0, height * 0.51, 0);
         setLoaded(true);
@@ -152,6 +192,15 @@ export function VrmExample() {
       const currentMode = modeRef.current;
 
       if (vrm) {
+        const isThinking = currentMode === 'thinking';
+        const isSpeaking = currentMode === 'speaking';
+        if (keyboard) keyboard.visible = isThinking;
+        typingKeys.forEach((key, index) => {
+          const pulse = (Math.sin(elapsed * 12 + index * 0.83) + 1) / 2;
+          const material = key.material as MeshStandardMaterial;
+          material.emissiveIntensity = isThinking ? 0.12 + pulse * 0.38 : 0.06;
+          key.position.y = Number(key.userData.restY) + (isThinking ? pulse * 0.004 : 0);
+        });
         const head = vrm.humanoid?.getNormalizedBoneNode('head');
         const spine = vrm.humanoid?.getNormalizedBoneNode('spine');
         if (head) {
@@ -164,11 +213,18 @@ export function VrmExample() {
         }
         if (spine) {
           spine.rotation.x = Math.sin(elapsed * 1.7) * 0.012
-            + (currentMode === 'speaking' ? Math.sin(elapsed * 2.4) * 0.018 : 0);
+            + (isSpeaking ? Math.sin(elapsed * 2.4) * 0.018 : 0)
+            + (isThinking ? 0.018 : 0);
         }
-        const speakingGesture = currentMode === 'speaking' ? Math.sin(elapsed * 2.1) * 0.1 : 0;
-        if (leftUpperArm) leftUpperArm.rotation.z = leftArmBase + 0.6 + speakingGesture;
-        if (rightUpperArm) rightUpperArm.rotation.z = rightArmBase - 0.6 - speakingGesture;
+        const typingReach = isThinking ? -0.15 : 0;
+        if (leftUpperArm) {
+          leftUpperArm.rotation.z = leftArmBase + (isSpeaking ? 0.43 + Math.sin(elapsed * 2.1) * 0.08 : 0.6 - typingReach);
+          leftUpperArm.rotation.y = isThinking ? -1.42 : 0;
+        }
+        if (rightUpperArm) {
+          rightUpperArm.rotation.z = rightArmBase - 0.6 + typingReach;
+          rightUpperArm.rotation.y = isThinking ? 1.42 : 0;
+        }
         const expressions = vrm.expressionManager;
         if (expressions) {
           const now = performance.now();
@@ -178,7 +234,7 @@ export function VrmExample() {
           }
           const blinkElapsed = blinkStarted < 0 ? Infinity : now - blinkStarted;
           const blink = blinkElapsed < 150 ? Math.sin((blinkElapsed / 150) * Math.PI) : 0;
-          const mouth = currentMode === 'speaking'
+          const mouth = isSpeaking
             ? 0.16 + Math.max(0, Math.sin(elapsed * 10.5)) * 0.42
             : 0;
           expressions.setValue('blink', blink);
@@ -195,6 +251,13 @@ export function VrmExample() {
       renderer.setAnimationLoop(null);
       renderer.dispose();
       if (vrm) VRMUtils.deepDispose(vrm.scene);
+      keyboard?.traverse((object) => {
+        if (object instanceof Mesh) {
+          object.geometry.dispose();
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach((material) => material.dispose());
+        }
+      });
       scene.clear();
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement);
     };
@@ -258,8 +321,8 @@ export function VrmExample() {
         <div className="vrm-demo__notice">
           <strong>Ce que montre cet essai</strong>
           <p>
-            Le modèle 3D réagit à quatre états. La bouche et les clignements sont simulés;
-            aucune voix ni aucun micro ne sont utilisés.
+            Le modèle réagit aux quatre états; un clavier apparaît pendant la réflexion.
+            La bouche et les clignements sont simulés, sans voix ni micro.
           </p>
           <p>
             C’est Alicia Solid, un modèle de démonstration de DWANGO, pas encore le personnage Maxime.
