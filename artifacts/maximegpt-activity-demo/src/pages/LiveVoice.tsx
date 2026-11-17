@@ -1,23 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'wouter';
-import {
-  AlertCircle,
-  AudioLines,
-  ChevronDown,
-  CircleHelp,
-  Headphones,
-  LoaderCircle,
-  Mic,
-  MicOff,
-  MoreHorizontal,
-  RotateCcw,
-  ShieldCheck,
-  Square,
-  Volume2,
-  X,
-} from 'lucide-react';
-import { AvatarCharacter, type AvatarMode } from '@/components/avatar-character';
-import './live-voice.css';
+import { LiveAvatarCall } from '@/components/live-avatar-call';
 
 interface LiveVoiceTurnResponse {
   transcript: string;
@@ -89,6 +71,7 @@ export default function LiveVoice() {
   const [selectedDevice, setSelectedDevice] = useState('');
   const [permission, setPermission] = useState('Non demandée');
   const [recording, setRecording] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
   const sessionRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -100,9 +83,23 @@ export default function LiveVoice() {
   const controllerRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
+  const stopAudioMeter = useCallback((resetVisual = true) => {
+    if (audioFrameRef.current !== null) window.cancelAnimationFrame(audioFrameRef.current);
+    audioFrameRef.current = null;
+    analyserRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== 'closed') void context.close().catch(() => undefined);
+    if (resetVisual && mountedRef.current) setAudioLevel(0);
+  }, []);
+
   const releaseAudio = useCallback(() => {
+    stopAudioMeter();
     const audio = audioRef.current;
     if (audio) {
       audio.onended = null;
@@ -114,7 +111,7 @@ export default function LiveVoice() {
     audioRef.current = null;
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     audioUrlRef.current = null;
-  }, []);
+  }, [stopAudioMeter]);
 
   const closeSession = useCallback((keepalive = false) => {
     const id = sessionRef.current;
@@ -200,6 +197,34 @@ export default function LiveVoice() {
     audioUrlRef.current = url;
     const audio = new Audio(url);
     audioRef.current = audio;
+    try {
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      const source = context.createMediaElementSource(audio);
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.82;
+      source.connect(analyser);
+      analyser.connect(context.destination);
+      audioContextRef.current = context;
+      analyserRef.current = analyser;
+      const samples = new Uint8Array(analyser.fftSize);
+      const readAudioLevel = () => {
+        if (audioRef.current !== audio || analyserRef.current !== analyser) return;
+        analyser.getByteTimeDomainData(samples);
+        let energy = 0;
+        for (const sample of samples) {
+          const amplitude = (sample - 128) / 128;
+          energy += amplitude * amplitude;
+        }
+        const rms = Math.sqrt(energy / samples.length);
+        if (mountedRef.current) setAudioLevel(Math.min(1, Math.max(0, (rms - 0.012) * 6)));
+        audioFrameRef.current = window.requestAnimationFrame(readAudioLevel);
+      };
+      audioFrameRef.current = window.requestAnimationFrame(readAudioLevel);
+      void context.resume().catch(() => undefined);
+    } catch {
+      stopAudioMeter();
+    }
     audio.onended = () => {
       if (audioRef.current !== audio) return;
       releaseAudio();
@@ -233,7 +258,7 @@ export default function LiveVoice() {
     const controller = new AbortController();
     controllerRef.current = controller;
     setStatus('thinking');
-    setStatusNote('J’écoute ton message');
+    setStatusNote('Je prépare ma réponse');
     setError('');
     try {
       const result = await sendTurn(blob, mimeType, sessionId, controller.signal);
@@ -381,152 +406,37 @@ export default function LiveVoice() {
     setStatusNote('Conversation réinitialisée');
   };
 
-  const mode: AvatarMode = status === 'listening' ? 'listening'
-    : status === 'thinking' ? 'thinking'
-      : status === 'speaking' ? 'speaking'
-        : 'idle';
   const canTalk = status !== 'thinking';
 
+  const stopSpeech = () => {
+    releaseAudio();
+    setStatus('ready');
+    setStatusNote('Réponse arrêtée');
+  };
+
   return (
-    <main className="live-page grain min-h-[100dvh] overflow-hidden px-4 pb-8 pt-5 text-[#302b3d] sm:px-8 sm:pt-7" data-testid="live-voice-page">
-      <div className="live-shell mx-auto max-w-6xl">
-        <header className="live-topbar flex items-center justify-between gap-4">
-          <Link href="/" className="live-brand" data-testid="link-live-home" aria-label="MaximeGPT, accueil">
-            <span className="live-brand-mark" aria-hidden="true"><AudioLines size={20} /></span>
-            <span><strong>MaximeGPT</strong><small>Compagnon vocal</small></span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <span className="live-public-badge"><span /> Public · navigateur</span>
-            <button
-              type="button"
-              className="live-icon-button"
-              aria-label="Réglages du microphone"
-              aria-expanded={settingsOpen}
-              onClick={() => setSettingsOpen((open) => !open)}
-              data-testid="button-microphone-settings"
-            ><MoreHorizontal size={21} /></button>
-          </div>
-        </header>
-
-        {settingsOpen && (
-          <section className="live-settings" aria-label="Réglages du microphone" data-testid="panel-microphone-settings">
-            <div className="flex items-start justify-between gap-3">
-              <div><p className="live-eyebrow">Entrée audio</p><h2>Réglages du micro</h2></div>
-              <button type="button" className="live-close" aria-label="Fermer les réglages" onClick={() => setSettingsOpen(false)} data-testid="button-close-settings"><X size={17} /></button>
-            </div>
-            <label htmlFor="live-input-device">Microphone</label>
-            <select id="live-input-device" value={selectedDevice} onChange={(event) => setSelectedDevice(event.target.value)} data-testid="select-microphone">
-              {inputs.length === 0 && <option value="">Microphone par défaut</option>}
-              {inputs.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
-            </select>
-            <p className="live-permission"><span className={permission === 'Autorisé' ? 'permission-dot permission-dot--ok' : permission === 'Bloqué' ? 'permission-dot permission-dot--blocked' : 'permission-dot'} /> Autorisation : <strong>{permission}</strong></p>
-            <p className="live-settings-note">Le navigateur peut masquer les noms des appareils avant l’autorisation du micro.</p>
-          </section>
-        )}
-
-        <section className="live-stage" aria-label="Conversation vocale avec MaximeGPT">
-          <div className="live-stage-copy">
-            <p className="live-eyebrow"><span className="live-eyebrow-line" /> Une conversation, simplement</p>
-            <h1>Une voix.<br /><em>Une vraie présence.</em></h1>
-            <p className="live-intro">Parle comme tu es. Maxime écoute, réfléchit et te répond à voix haute. Le serveur garde le fil en mémoire vive pendant la courte session, puis l’efface.</p>
-            <div className="live-avatar-wrap">
-              <div className="live-orbit-label live-orbit-label--one">À l’écoute</div>
-              <div className="live-avatar-halo" />
-              <AvatarCharacter mode={mode} accessibleLabel="MaximeGPT dans le chat vocal public" />
-              <div className="live-orbit-label live-orbit-label--two">En direct</div>
-            </div>
-            <div className="live-presence" role="status" aria-live="polite" data-testid="status-live-state">
-              <span className={`live-state-dot live-state-dot--${status}`} />
-              <span>{statusNote}</span>
-              {status === 'thinking' && <LoaderCircle size={15} className="animate-spin" />}
-            </div>
-          </div>
-
-          <div className="live-conversation">
-            <div className="live-card-heading">
-              <div>
-                <p className="live-eyebrow">Salon vocal privé à cette page</p>
-                <h2>Dis-moi ce qui te passe par la tête.</h2>
-              </div>
-              <button type="button" className="live-reset" onClick={resetConversation} data-testid="button-reset-conversation">
-                <RotateCcw size={15} /><span>Effacer</span>
-              </button>
-            </div>
-
-            <div className={`live-turn-card ${transcript || answer ? 'live-turn-card--filled' : ''}`} aria-live="polite" data-testid="live-turn-content">
-              {transcript || answer ? (
-                <>
-                  {transcript && <div className="live-message live-message--you"><span>Toi</span><p data-testid="text-live-transcript">{transcript}</p></div>}
-                  {answer && <div className="live-message live-message--maxime"><span>MaximeGPT</span><p data-testid="text-live-answer">{answer}</p></div>}
-                </>
-              ) : (
-                <div className="live-empty">
-                  <span className="live-empty-mark"><Headphones size={21} /></span>
-                  <p>La prochaine phrase sera la première.</p>
-                  <span>Ton échange reste ici, le temps de cette visite.</span>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div className="live-error" role="alert" data-testid="text-live-error">
-                <AlertCircle size={18} /><span>{error}</span>
-                <button type="button" onClick={() => setError('')} aria-label="Fermer le message d’erreur" data-testid="button-dismiss-error"><X size={16} /></button>
-              </div>
-            )}
-
-            <div className="live-controls">
-              <button
-                type="button"
-                className={`live-talk-button ${recording ? 'live-talk-button--active' : ''}`}
-                disabled={!canTalk}
-                aria-label={recording ? 'Relâcher pour envoyer, ou appuyer sur Échap pour annuler' : 'Maintenir pour parler'}
-                onPointerDown={(event) => {
-                  if (!canTalk || event.button !== 0) return;
-                  event.preventDefault();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  void beginRecording();
-                }}
-                onPointerUp={() => finishRecording()}
-                onPointerCancel={() => finishRecording(true)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape' && recording) { event.preventDefault(); finishRecording(true); return; }
-                  if ((event.key === ' ' || event.key === 'Enter') && !event.repeat && !recording) {
-                    event.preventDefault();
-                    void beginRecording();
-                  }
-                }}
-                onKeyUp={(event) => {
-                  if ((event.key === ' ' || event.key === 'Enter') && recording) {
-                    event.preventDefault();
-                    finishRecording();
-                  }
-                }}
-                data-testid="button-hold-to-talk"
-              >
-                <span className="live-talk-icon">{recording ? <MicOff size={22} /> : status === 'thinking' ? <LoaderCircle size={22} className="animate-spin" /> : <Mic size={22} />}</span>
-                <span>{recording ? 'Relâcher pour envoyer' : status === 'thinking' ? 'Un instant…' : 'Maintenir pour parler'}</span>
-              </button>
-              {recording ? (
-                <button type="button" className="live-cancel-button" onClick={() => finishRecording(true)} data-testid="button-cancel-recording"><Square size={15} /> Annuler</button>
-              ) : audioRef.current ? (
-                <button type="button" className="live-cancel-button" onClick={() => { releaseAudio(); setStatus('ready'); setStatusNote('Réponse arrêtée'); }} data-testid="button-stop-speech"><Square size={15} /> Arrêter la voix</button>
-              ) : (
-                <p className="live-hint"><Volume2 size={15} /> Relâche pour envoyer, Échap pour annuler</p>
-              )}
-            </div>
-            <div className="live-privacy-note" data-testid="text-live-privacy">
-              <ShieldCheck size={17} />
-              <p><strong>Ta voix est envoyée temporairement.</strong> L’audio passe par le serveur et Groq pour la transcription et la réponse. Le français utilise Piper sur le serveur ; les autres langues, Google Traduction TTS. Le contexte reste en mémoire vive jusqu’à l’effacement ou 15 minutes d’inactivité. Aucun historique durable dans MongoDB, le navigateur ou les journaux. Les règles de conservation des fournisseurs s’appliquent. Ce chat est séparé de Discord.</p>
-            </div>
-          </div>
-        </section>
-
-        <footer className="live-footer">
-          <span><CircleHelp size={15} /> Un accès microphone est demandé uniquement quand tu parles.</span>
-          <Link href="/" data-testid="link-discord-activity">Séparé de l’Activity Discord <ChevronDown size={14} className="-rotate-90" /></Link>
-        </footer>
-      </div>
-    </main>
+    <LiveAvatarCall
+      status={status}
+      statusNote={statusNote}
+      transcript={transcript}
+      answer={answer}
+      error={error}
+      recording={recording}
+      canTalk={canTalk}
+      audioLevel={audioLevel}
+      settingsOpen={settingsOpen}
+      inputs={inputs}
+      selectedDevice={selectedDevice}
+      permission={permission}
+      onTalkStart={() => { void beginRecording(); }}
+      onTalkEnd={() => finishRecording()}
+      onTalkCancel={() => finishRecording(true)}
+      onReset={resetConversation}
+      onStopSpeech={stopSpeech}
+      onToggleSettings={() => setSettingsOpen((open) => !open)}
+      onCloseSettings={() => setSettingsOpen(false)}
+      onSelectDevice={setSelectedDevice}
+      onDismissError={() => setError('')}
+    />
   );
 }
