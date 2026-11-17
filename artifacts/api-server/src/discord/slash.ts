@@ -1,4 +1,10 @@
-import { REST, Routes, SlashCommandBuilder } from "discord.js";
+import {
+  ApplicationCommandType,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  type RESTPostAPIApplicationCommandsJSONBody,
+} from "discord.js";
 import { logger } from "../lib/logger";
 
 export const SLASH_COMMANDS = [
@@ -498,11 +504,79 @@ export const SLASH_COMMANDS = [
     .toJSON(),
 ] as const;
 
+type PrimaryEntryPointCommandPayload = Extract<
+  RESTPostAPIApplicationCommandsJSONBody,
+  { type: ApplicationCommandType.PrimaryEntryPoint }
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Discord rejects bulk command updates that omit an application's Activity
+ * Entry Point. Preserve its writable fields while dropping response-only IDs.
+ */
+export function mergePrimaryEntryPointCommand(
+  commands: readonly RESTPostAPIApplicationCommandsJSONBody[],
+  existingCommands: readonly unknown[],
+): RESTPostAPIApplicationCommandsJSONBody[] {
+  const primaryEntryPoints = existingCommands.filter(
+    (command): command is Record<string, unknown> =>
+      isRecord(command) && command.type === ApplicationCommandType.PrimaryEntryPoint,
+  );
+
+  const preservedCommands = primaryEntryPoints.map((command) => {
+    if (typeof command.name !== "string" || command.name.length === 0) {
+      throw new Error("Discord returned an invalid Activity Entry Point command");
+    }
+
+    const payload: Record<string, unknown> = {
+      name: command.name,
+      type: ApplicationCommandType.PrimaryEntryPoint,
+    };
+
+    for (const field of [
+      "name_localizations",
+      "description",
+      "description_localizations",
+      "options",
+      "default_member_permissions",
+      "dm_permission",
+      "nsfw",
+      "integration_types",
+      "contexts",
+      "handler",
+    ]) {
+      if (command[field] !== undefined) payload[field] = command[field];
+    }
+
+    return payload as unknown as PrimaryEntryPointCommandPayload;
+  });
+
+  return [
+    ...commands.filter((command) => command.type !== ApplicationCommandType.PrimaryEntryPoint),
+    ...preservedCommands,
+  ];
+}
+
 export async function registerSlashCommands(clientId: string, token: string): Promise<void> {
   const rest = new REST().setToken(token);
   try {
-    await rest.put(Routes.applicationCommands(clientId), { body: SLASH_COMMANDS });
-    logger.info({ count: SLASH_COMMANDS.length }, "Slash commands registered globally");
+    const route = Routes.applicationCommands(clientId);
+    const existingCommands = await rest.get(route) as unknown;
+    if (!Array.isArray(existingCommands)) {
+      throw new Error("Discord returned an invalid global command list");
+    }
+
+    const commands = mergePrimaryEntryPointCommand(SLASH_COMMANDS, existingCommands);
+    await rest.put(route, { body: commands });
+    logger.info({
+      count: commands.length,
+      preservedActivityEntryPoint: commands.some(
+        (command) => command.type === ApplicationCommandType.PrimaryEntryPoint,
+      ),
+    }, "Slash commands registered globally");
   } catch (err) {
     logger.error({ err }, "Failed to register slash commands");
   }
