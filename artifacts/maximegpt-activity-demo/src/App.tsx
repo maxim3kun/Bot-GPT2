@@ -102,6 +102,14 @@ function privatePrompt(): string {
   return PRIVATE_PROMPTS[index] ?? PRIVATE_PROMPTS[0]!;
 }
 
+function activityClientId(): string {
+  const segments = window.location.pathname.split('/').filter(Boolean);
+  if (segments[0] === 'activity' && /^\d{17,20}$/.test(segments[1] ?? '')) {
+    return segments[1]!;
+  }
+  return (import.meta.env.VITE_DISCORD_CLIENT_ID ?? '').trim();
+}
+
 function messageForError(error: unknown): string {
   const code = error instanceof Error ? error.message : '';
   if (/failed to fetch|networkerror|load failed/i.test(code)) {
@@ -187,7 +195,7 @@ function Home() {
 
   useEffect(() => {
     let mounted = true;
-    const clientId = (import.meta.env.VITE_DISCORD_CLIENT_ID ?? '').trim();
+    const clientId = activityClientId();
     const start = async () => {
       if (!clientId) {
         setView('error');

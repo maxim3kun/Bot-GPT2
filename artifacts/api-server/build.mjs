@@ -3,13 +3,31 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm, access } from "node:fs/promises";
+import { cp, mkdir, rm, access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const workspaceDir = path.resolve(artifactDir, "../..");
+
+async function buildActivityAssets() {
+  const activityDir = path.resolve(workspaceDir, "artifacts/maximegpt-activity-demo");
+  const sourceDir = path.resolve(activityDir, "dist/public");
+  const destinationDir = path.resolve(artifactDir, "public/activity");
+  await new Promise((resolve, reject) => {
+    const child = spawn("pnpm", ["--filter", "@workspace/maximegpt-activity-demo", "run", "build"], {
+      cwd: workspaceDir,
+      env: { ...process.env, BASE_PATH: "/activity/", PORT: "19883" },
+      stdio: "inherit",
+    });
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`Activity build exited ${code}`))));
+  });
+  await rm(destinationDir, { recursive: true, force: true });
+  await mkdir(path.dirname(destinationDir), { recursive: true });
+  await cp(sourceDir, destinationDir, { recursive: true });
+}
 
 /** Regenerate DJ assets only when the generator script is newer than the output */
 async function ensureDjAssets() {
@@ -55,6 +73,7 @@ async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
+  await buildActivityAssets();
   await ensureDjAssets();
   await ensureShellGameAssets();
 

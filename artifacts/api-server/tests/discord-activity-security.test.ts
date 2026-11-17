@@ -7,8 +7,10 @@ import {
   verifyDiscordActivityToken,
 } from "../src/discord/discord-activity-security.js";
 import {
+  configuredDiscordActivityOAuthClients,
   DiscordActivityOAuthError,
   exchangeDiscordActivityCode,
+  resolveDiscordActivityOAuthClient,
 } from "../src/discord/discord-activity-oauth.js";
 import {
   createPrivateActivityStoryService,
@@ -22,6 +24,35 @@ const GUILD_B = "223456789012345678";
 const USER_A = "323456789012345678";
 const USER_B = "423456789012345678";
 const NOW = 1_800_000_000_000;
+
+test("Activity OAuth accepts only complete, exact per-application credential pairs", () => {
+  const environment = {
+    DISCORD_ACTIVITY_CLIENT_ID: "first-app",
+    DISCORD_ACTIVITY_CLIENT_SECRET: "first-secret",
+    DISCORD_ACTIVITY_CLIENT_ID_2: "second-app",
+    DISCORD_ACTIVITY_CLIENT_SECRET_2: "second-secret",
+  };
+  assert.deepEqual(
+    configuredDiscordActivityOAuthClients(environment).map((client) => client.clientId),
+    ["first-app", "second-app"],
+  );
+  assert.deepEqual(resolveDiscordActivityOAuthClient("first-app", environment), {
+    clientId: "first-app",
+    clientSecret: "first-secret",
+  });
+  assert.deepEqual(resolveDiscordActivityOAuthClient("second-app", environment), {
+    clientId: "second-app",
+    clientSecret: "second-secret",
+  });
+  assert.equal(resolveDiscordActivityOAuthClient("unlisted-app", environment), null);
+  assert.equal(
+    resolveDiscordActivityOAuthClient("second-app", {
+      ...environment,
+      DISCORD_ACTIVITY_CLIENT_SECRET_2: "",
+    }),
+    null,
+  );
+});
 
 test("activity tokens are short-lived, signed and isolated from dashboard JWT audiences", () => {
   const token = issueDiscordActivityToken(

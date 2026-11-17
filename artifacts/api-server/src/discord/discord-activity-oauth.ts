@@ -5,6 +5,45 @@ export interface DiscordActivityOAuthConfig {
   clientSecret: string;
 }
 
+export type DiscordActivityOAuthEnvironment = Partial<Pick<
+  NodeJS.ProcessEnv,
+  | "DISCORD_ACTIVITY_CLIENT_ID"
+  | "DISCORD_ACTIVITY_CLIENT_SECRET"
+  | "DISCORD_CLIENT_ID"
+  | "DISCORD_CLIENT_SECRET"
+  | "VITE_DISCORD_CLIENT_ID"
+  | "DISCORD_ACTIVITY_CLIENT_ID_2"
+  | "DISCORD_ACTIVITY_CLIENT_SECRET_2"
+>>;
+
+export function configuredDiscordActivityOAuthClients(
+  environment: DiscordActivityOAuthEnvironment = process.env,
+): DiscordActivityOAuthConfig[] {
+  const primaryClientId = environment.DISCORD_ACTIVITY_CLIENT_ID?.trim()
+    || environment.DISCORD_CLIENT_ID?.trim()
+    || environment.VITE_DISCORD_CLIENT_ID?.trim()
+    || "";
+  const primaryClientSecret = environment.DISCORD_ACTIVITY_CLIENT_SECRET?.trim()
+    || environment.DISCORD_CLIENT_SECRET?.trim()
+    || "";
+  const secondaryClientId = environment.DISCORD_ACTIVITY_CLIENT_ID_2?.trim() || "";
+  const secondaryClientSecret = environment.DISCORD_ACTIVITY_CLIENT_SECRET_2?.trim() || "";
+
+  return [
+    { clientId: primaryClientId, clientSecret: primaryClientSecret },
+    { clientId: secondaryClientId, clientSecret: secondaryClientSecret },
+  ].filter((client) => client.clientId && client.clientSecret);
+}
+
+export function resolveDiscordActivityOAuthClient(
+  clientId: string,
+  environment: DiscordActivityOAuthEnvironment = process.env,
+): DiscordActivityOAuthConfig | null {
+  if (!clientId) return null;
+  return configuredDiscordActivityOAuthClients(environment)
+    .find((client) => client.clientId === clientId) ?? null;
+}
+
 export interface DiscordActivityOAuthIdentity {
   userId: string;
   username: string;

@@ -13,8 +13,10 @@ import {
 import { synthesizeActivitySpeech } from "../discord/voice.js";
 import { getEffectiveLanguage } from "../discord/effective-language.js";
 import {
+  configuredDiscordActivityOAuthClients,
   DiscordActivityOAuthError,
   exchangeDiscordActivityCode,
+  resolveDiscordActivityOAuthClient,
 } from "../discord/discord-activity-oauth.js";
 import {
   issueDiscordActivityToken,
@@ -35,19 +37,6 @@ const router: IRouter = Router();
 const STORY_MAX_LENGTH = 4_000;
 const authRateLimits = new Map<string, { count: number; resetAt: number }>();
 const aiRateLimits = new Map<string, { count: number; resetAt: number }>();
-
-function activityClientId(): string {
-  return process.env.DISCORD_ACTIVITY_CLIENT_ID?.trim()
-    || process.env.DISCORD_CLIENT_ID?.trim()
-    || process.env.VITE_DISCORD_CLIENT_ID?.trim()
-    || "";
-}
-
-function activityClientSecret(): string {
-  return process.env.DISCORD_ACTIVITY_CLIENT_SECRET?.trim()
-    || process.env.DISCORD_CLIENT_SECRET?.trim()
-    || "";
-}
 
 function checkAuthRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -132,14 +121,17 @@ router.use((_req, res, next) => {
 // This public status exposes no credentials. The browser still cannot establish
 // a session unless the server can exchange Discord codes and encrypt user data.
 router.get("/activity/config", (req: Request, res: Response) => {
+  const requestedClientId = typeof req.query.clientId === "string" ? req.query.clientId : "";
+  const configuredClients = configuredDiscordActivityOAuthClients();
   const checks = {
-    discordOAuth: Boolean(activityClientId() && activityClientSecret()),
+    discordOAuth: configuredClients.length > 0,
     sessionSigning: Boolean(process.env.SESSION_SECRET),
     mongo: isMongoConnected(),
     encryption: isDbReady(),
   };
-  const requestedClientId = typeof req.query.clientId === "string" ? req.query.clientId : "";
-  const clientIdMatches = !requestedClientId || requestedClientId === activityClientId();
+  const clientIdMatches = requestedClientId
+    ? Boolean(resolveDiscordActivityOAuthClient(requestedClientId))
+    : configuredClients.length > 0;
   res.json({
     ready: checks.discordOAuth && checks.sessionSigning && checks.mongo && checks.encryption && clientIdMatches,
     checks,
@@ -173,9 +165,8 @@ router.post("/activity/auth", async (req: Request, res: Response) => {
     return;
   }
 
-  const configuredClientId = activityClientId();
-  const clientSecret = activityClientSecret();
-  if (!configuredClientId || !clientSecret || !process.env.SESSION_SECRET) {
+  const oauthClient = resolveDiscordActivityOAuthClient(clientId);
+  if (!oauthClient || !process.env.SESSION_SECRET) {
     res.status(503).json({ error: "activity_oauth_not_configured" });
     return;
   }
@@ -183,7 +174,7 @@ router.post("/activity/auth", async (req: Request, res: Response) => {
   try {
     const identity = await exchangeDiscordActivityCode(
       { code, codeVerifier, guildId, clientId },
-      { clientId: configuredClientId, clientSecret },
+      oauthClient,
     );
     const session = await ensureDiscordActivitySession(guildId);
     const activityToken = issueDiscordActivityToken(
