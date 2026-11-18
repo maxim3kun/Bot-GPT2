@@ -4,6 +4,7 @@ import {
   Box3,
   DirectionalLight,
   Euler,
+  MeshStandardMaterial,
   MathUtils,
   Object3D,
   PerspectiveCamera,
@@ -16,6 +17,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import { LiveAvatarModel } from './live-avatar-model';
+import { createLiveBedroomScene, type LiveBedroomScene } from './live-bedroom-scene';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
 interface LiveVrmAvatarProps {
@@ -26,11 +28,15 @@ interface LiveVrmAvatarProps {
 
 type BoneName =
   | 'head'
+  | 'hips'
+  | 'chest'
   | 'spine'
   | 'leftUpperArm'
   | 'rightUpperArm'
   | 'leftLowerArm'
-  | 'rightLowerArm';
+  | 'rightLowerArm'
+  | 'leftHand'
+  | 'rightHand';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -38,11 +44,13 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
   const hostRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef(mode);
   const audioLevelRef = useRef(audioLevel);
+  const blinkingRef = useRef(blinking);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
 
   modeRef.current = mode;
   audioLevelRef.current = Number.isFinite(audioLevel) ? clamp(audioLevel, 0, 1) : 0;
+  blinkingRef.current = blinking;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -62,23 +70,33 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
     let disposed = false;
     let vrm: VRM | undefined;
+    let bedroom: LiveBedroomScene | undefined;
+    let avatarHeight = 1;
     let lastFrame = 0;
     let elapsed = 0;
     let smoothedMouth = 0;
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
     let blinkStarted = -1;
+    let motionFactor = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1;
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotionPreference = () => {
+      motionFactor = motionPreference.matches ? 0 : 1;
+    };
     const baseRotations = new Map<BoneName, Euler>();
     const bones = new Map<BoneName, Object3D>();
-    const camera = new PerspectiveCamera(32, 1, 0.05, 100);
+    const camera = new PerspectiveCamera(29, 1, 0.05, 100);
     const scene = new Scene();
     const modelRoot = new Object3D();
+    const gazeTarget = new Object3D();
 
     renderer.outputColorSpace = SRGBColorSpace;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
     scene.add(modelRoot);
+    scene.add(gazeTarget);
+    motionPreference.addEventListener('change', updateMotionPreference);
 
     const ambient = new AmbientLight(0xc5e8ff, 1.35);
     const keyLight = new DirectionalLight(0xffead6, 2.1);
@@ -121,16 +139,24 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         vrm.scene.updateMatrixWorld(true);
         const bounds = new Box3().setFromObject(vrm.scene);
         const height = Math.max(0.1, bounds.max.y - bounds.min.y);
+        avatarHeight = height;
         vrm.scene.position.y -= bounds.min.y;
+
+        bedroom = createLiveBedroomScene(height);
+        scene.add(bedroom.group);
 
         const humanoid = vrm.humanoid;
         for (const name of [
           'head',
+          'hips',
+          'chest',
           'spine',
           'leftUpperArm',
           'rightUpperArm',
           'leftLowerArm',
           'rightLowerArm',
+          'leftHand',
+          'rightHand',
         ] as const) {
           const bone = humanoid?.getNormalizedBoneNode(name);
           if (!bone) continue;
@@ -138,8 +164,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           baseRotations.set(name, bone.rotation.clone());
         }
 
-        camera.position.set(0, height * 0.64, height * 2.2);
-        camera.lookAt(0, height * 0.52, 0);
+        vrm.lookAt && (vrm.lookAt.target = gazeTarget);
+        camera.position.set(0, height * 0.78, height * 1.48);
+        camera.lookAt(0, height * 0.72, 0);
         setError('');
         setLoaded(true);
       },
@@ -163,7 +190,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const speaking = currentMode === 'speaking';
         const thinking = currentMode === 'thinking';
         const listening = currentMode === 'listening';
-        const breath = Math.sin(elapsed * 1.7) * 0.012;
+        const energy = speaking ? clamp((audioLevelRef.current - 0.015) * 3.4, 0, 1) : 0;
+        const breath = Math.sin(elapsed * 1.18) * 0.009 * motionFactor;
+        const idleSway = motionFactor;
 
         const setBonePose = (name: BoneName, x: number, y: number, z: number) => {
           const bone = bones.get(name);
@@ -176,17 +205,38 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           );
         };
 
-        setBonePose('spine', breath + (speaking ? Math.sin(elapsed * 2.2) * 0.018 : 0), 0, 0);
+        setBonePose('hips', 0, Math.sin(elapsed * 0.52) * 0.008 * idleSway, 0);
+        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0), 0, 0);
+        setBonePose('chest', Math.sin(elapsed * 1.1) * 0.008 * idleSway, 0, speaking ? Math.sin(elapsed * 1.35) * energy * 0.018 : 0);
         setBonePose(
           'head',
-          (thinking ? 0.12 : 0) + (listening ? Math.sin(elapsed * 2) * 0.035 : Math.sin(elapsed * 0.7) * 0.012),
-          Math.sin(elapsed * 0.5) * (listening ? 0.04 : 0.018),
-          thinking ? -0.075 : speaking ? Math.sin(elapsed * 2.1) * 0.035 : 0,
+          (thinking ? 0.1 : 0) + (listening ? Math.sin(elapsed * 1.8) * 0.022 * idleSway : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
+          Math.sin(elapsed * 0.39) * (listening ? 0.034 : 0.017) * idleSway,
+          thinking ? -0.065 : speaking ? Math.sin(elapsed * 1.3) * (0.012 + energy * 0.035) * idleSway : Math.sin(elapsed * 0.51) * 0.012 * idleSway,
         );
-        setBonePose('leftUpperArm', 0, 0, 1.18 + (speaking ? Math.sin(elapsed * 1.9) * 0.08 : 0));
-        setBonePose('rightUpperArm', 0, 0, -1.18 - (speaking ? Math.sin(elapsed * 1.9 + 1) * 0.07 : 0));
-        setBonePose('leftLowerArm', -0.08, 0, 0.04);
-        setBonePose('rightLowerArm', -0.08, 0, -0.04);
+        const typingPhase = elapsed * 10.5;
+        const typePulse = thinking ? motionFactor : 0;
+        const speechGesture = speaking ? motionFactor * energy * (0.45 + 0.55 * Math.max(0, Math.sin(elapsed * 1.55))) : 0;
+        setBonePose('leftUpperArm', thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11 : Math.sin(elapsed * 0.66) * 0.012 * idleSway, thinking ? -1.2 : speaking ? -0.25 : 0, thinking ? 0.66 : speaking ? 1.02 + speechGesture * 0.14 : 1.18);
+        setBonePose('rightUpperArm', thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08 : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway, thinking ? 1.2 : speaking ? 0.18 : 0, thinking ? -0.66 : -1.18);
+        setBonePose('leftLowerArm', thinking ? -0.1 + Math.sin(typingPhase) * 0.06 * typePulse : speaking ? -0.28 : -0.04, 0, thinking ? Math.sin(typingPhase) * 0.035 * typePulse : 0.035);
+        setBonePose('rightLowerArm', thinking ? -0.1 + Math.sin(typingPhase + 1.5) * 0.06 * typePulse : speaking ? -0.08 : -0.04, 0, thinking ? Math.sin(typingPhase + 1.5) * 0.035 * typePulse : -0.035);
+        setBonePose('leftHand', 0, 0, thinking ? Math.sin(typingPhase) * 0.045 * typePulse : 0);
+        setBonePose('rightHand', 0, 0, thinking ? Math.sin(typingPhase + 1.5) * 0.045 * typePulse : 0);
+
+        const lookX = Math.sin(elapsed * (thinking ? 0.72 : 0.31)) * (thinking ? 0.16 : 0.045) * idleSway;
+        const lookY = avatarHeight * (listening ? 0.79 : thinking ? 0.73 : 0.76) + Math.sin(elapsed * 0.47) * avatarHeight * 0.008 * idleSway;
+        gazeTarget.position.set(lookX * avatarHeight, lookY, avatarHeight * 2.6);
+
+        bedroom?.keyboardKeys.forEach((key, index) => {
+          const restY = Number(key.userData.restY ?? key.position.y);
+          const pulse = (Math.sin(typingPhase + index * 0.77) + 1) * 0.5;
+          key.position.y = restY + pulse * (typePulse ? avatarHeight * 0.003 : 0);
+          const material = key.material;
+          if (material instanceof MeshStandardMaterial) {
+            material.emissiveIntensity = typePulse ? 0.1 + pulse * 0.2 : 0.1;
+          }
+        });
 
         const expressions = vrm.expressionManager;
         if (expressions) {
@@ -196,19 +246,22 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
             nextBlink = now + 2600 + Math.random() * 2600;
           }
           const blinkElapsed = blinkStarted < 0 ? Infinity : now - blinkStarted;
-          const blink = blinkElapsed < 170
+          const automaticBlink = blinkElapsed < 170
             ? Math.sin((blinkElapsed / 170) * Math.PI)
             : 0;
-          const targetMouth = speaking
-            ? clamp((audioLevelRef.current - 0.018) * 2.7, 0, 0.86)
-            : 0;
+          const blink = Math.max(automaticBlink, blinkingRef.current ? 1 : 0);
+          const targetMouth = speaking ? clamp((audioLevelRef.current - 0.014) * 3.1, 0, 0.92) : 0;
           smoothedMouth = MathUtils.damp(smoothedMouth, targetMouth, 15, delta);
           const setExpression = (name: string, value: number) => {
             if (expressions.getExpression(name)) expressions.setValue(name, value);
           };
           setExpression('blink', blink);
           setExpression('aa', smoothedMouth);
-          setExpression('ou', smoothedMouth * 0.24);
+          const mouthShape = 0.72 + Math.sin(elapsed * 5.3) * 0.18;
+          setExpression('ih', smoothedMouth * Math.max(0, 0.45 - mouthShape));
+          setExpression('ee', smoothedMouth * Math.max(0, mouthShape - 0.58));
+          setExpression('ou', smoothedMouth * (1 - Math.abs(Math.sin(elapsed * 4.1))) * 0.38);
+          setExpression('happy', speaking ? 0.08 + energy * 0.12 : 0);
         }
 
         vrm.update(delta);
@@ -220,8 +273,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     return () => {
       disposed = true;
       resizeObserver.disconnect();
+      motionPreference.removeEventListener('change', updateMotionPreference);
       renderer.setAnimationLoop(null);
       renderer.dispose();
+      bedroom?.dispose();
       if (vrm) VRMUtils.deepDispose(vrm.scene);
       scene.clear();
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement);

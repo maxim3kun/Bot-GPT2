@@ -177,7 +177,6 @@ export function LiveAvatarCall({
         )}
 
         <section className="live-call-stage" aria-label="Appel vocal avec le personnage Maxime" data-status={status} data-testid="live-avatar-stage">
-          <div className="live-call-stars" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
           <div className="live-call-stage-top">
             <span className="live-call-live-indicator"><i /> SESSION VOCALE</span>
             <span className={`live-call-mode-pill live-call-mode-pill--${status}`} role="status" aria-live="polite" data-testid="status-live-state">
