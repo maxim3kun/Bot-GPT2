@@ -185,17 +185,6 @@ export function LiveAvatarCall({
             </span>
           </div>
           <div className={`live-avatar-scene live-avatar-scene--${mode}`} data-mode={mode} style={mouthStyle}>
-            <div className="live-bedroom-backdrop" aria-hidden="true">
-              <div className="live-bedroom-window">
-                <i className="live-bedroom-moon" />
-                <i className="live-bedroom-city" />
-                <i className="live-bedroom-window-cross" />
-              </div>
-              <span className="live-bedroom-curtain live-bedroom-curtain--left" />
-              <span className="live-bedroom-curtain live-bedroom-curtain--right" />
-              <div className="live-bedroom-shelf"><i /><i /><i /><i /><i /></div>
-              <div className="live-bedroom-lamp"><i /></div>
-            </div>
             <div className="live-avatar-aura" aria-hidden="true" />
             <div
               className="live-avatar-video"

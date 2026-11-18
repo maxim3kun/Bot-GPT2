@@ -65,7 +65,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     try {
       renderer = new WebGLRenderer({
         alpha: true,
-        antialias: true,
+        antialias: window.innerWidth > 700,
         powerPreference: 'high-performance',
       });
     } catch {
@@ -78,9 +78,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     let bedroom: LiveBedroomScene | undefined;
     let avatarHeight = 1;
     let lastFrame = 0;
-    let elapsed = 0;
+    let elapsed = 9;
     let smoothedMouth = 0;
     let deskPositionX = 0;
+    let bedroomAspect = 0;
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
     let blinkStarted = -1;
     let motionFactor = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1;
@@ -95,23 +96,36 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     scene.background = null;
     const modelRoot = new Object3D();
     const gazeTarget = new Object3D();
-    const roomContainer = host.closest('.live-avatar-scene') as HTMLElement | null;
 
     renderer.outputColorSpace = SRGBColorSpace;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
-    renderer.setClearColor(0xf3f0e9, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
+    renderer.setClearColor(0xf1f0eb, 0);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
     scene.add(modelRoot);
     scene.add(gazeTarget);
     motionPreference.addEventListener('change', updateMotionPreference);
 
-    const ambient = new AmbientLight(0xc5e8ff, 1.35);
-    const keyLight = new DirectionalLight(0xffead6, 2.1);
+    const ambient = new AmbientLight(0xe7e5dc, 1.75);
+    const keyLight = new DirectionalLight(0xffe2bd, 2.25);
     keyLight.position.set(-3, 5, 4);
-    const fillLight = new DirectionalLight(0x45caff, 0.9);
+    const fillLight = new DirectionalLight(0xa4c7d3, 0.65);
     fillLight.position.set(3, 2, -3);
     scene.add(ambient, keyLight, fillLight);
+
+    const rebuildBedroom = () => {
+      if (!vrm || !avatarHeight) return;
+      const cameraDistance = Math.hypot(camera.position.y - avatarHeight * 0.47, camera.position.z);
+      const visibleWorldWidth = 2 * cameraDistance * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect;
+      const nextBedroom = createLiveBedroomScene(avatarHeight, deskPositionX - visibleWorldWidth * 0.385);
+      if (bedroom) {
+        scene.remove(bedroom.group);
+        bedroom.dispose();
+      }
+      bedroom = nextBedroom;
+      bedroomAspect = camera.aspect;
+      scene.add(bedroom.group);
+    };
 
     const resize = () => {
       const width = host.clientWidth;
@@ -120,6 +134,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      if (vrm && Math.abs(camera.aspect - bedroomAspect) > 0.01) rebuildBedroom();
     };
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(host);
@@ -154,8 +169,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         modelRoot.position.x = deskPositionX;
         modelRoot.position.z = -height * 0.26;
 
-        bedroom = createLiveBedroomScene(height);
-        scene.add(bedroom.group);
+        camera.position.set(deskPositionX, height * 0.9, height * 1.15);
+        camera.lookAt(deskPositionX, height * 0.47, 0);
+        rebuildBedroom();
 
         const humanoid = vrm.humanoid;
         for (const name of [
@@ -183,8 +199,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         }
 
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
-        camera.position.set(deskPositionX, height * 0.9, height * 1.15);
-        camera.lookAt(deskPositionX, height * 0.47, 0);
         setError('');
         setLoaded(true);
       },
@@ -241,10 +255,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         modelRoot.position.x = MathUtils.damp(modelRoot.position.x, deskPositionX - windowTravel * travelProgress, 4, delta);
         camera.position.x = modelRoot.position.x;
         camera.lookAt(modelRoot.position.x, avatarHeight * 0.47, 0);
-        roomContainer?.style.setProperty(
-          '--room-pan-x',
-          `${((deskPositionX - modelRoot.position.x) / Math.max(visibleWorldWidth, 0.01)) * host.clientWidth}px`,
-        );
         const walkFacing = walkingOut || atWindow
           ? -Math.PI / 2
           : walkingBack
