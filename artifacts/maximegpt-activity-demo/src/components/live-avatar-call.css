@@ -1090,3 +1090,230 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* The live call is a viewport-sized workspace, not a card floating on a page. */
+.live-call-page {
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100svh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding:
+    max(10px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.live-call-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.live-call-header {
+  flex: 0 0 auto;
+}
+
+.live-call-stage {
+  height: auto;
+  max-height: none;
+  min-height: 220px;
+  flex: 1 1 auto;
+  margin-top: 10px;
+}
+
+.live-call-console {
+  flex: 0 0 auto;
+}
+
+.live-call-privacy,
+.live-call-footer {
+  flex: 0 0 auto;
+}
+
+.live-vrm-placeholder {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(230px, 72%);
+  justify-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #8a989325;
+  border-radius: 12px;
+  color: #687176;
+  background: #f5f3eef0;
+  box-shadow: 0 8px 30px #473e3210;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+
+.live-vrm-progress-track {
+  display: block;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #d8d9d5;
+}
+
+.live-vrm-progress-track i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0.12);
+  transform-origin: left center;
+  border-radius: inherit;
+  background: #758b8e;
+  transition: transform 240ms ease;
+}
+
+.live-avatar-style-toggle {
+  position: fixed;
+  z-index: 30;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #d9e3e1;
+  border-radius: 999px;
+  color: #39494b;
+  background: #f6f5f0ed;
+  box-shadow: 0 5px 20px #0817222a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.live-avatar-style-toggle:hover {
+  transform: translateY(-2px);
+  background: #fff;
+}
+
+.live-avatar-style-toggle:active {
+  transform: scale(0.97);
+}
+
+.live-avatar-style-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #17a8bf;
+}
+
+.live-avatar-style-toggle[aria-pressed="true"] .live-avatar-style-dot {
+  background: #6e8c79;
+}
+
+.live-avatar-scene[data-style="vrm"] .live-avatar-video,
+.live-avatar-scene[data-style="vrm"].live-avatar-scene--listening .live-avatar-video,
+.live-avatar-scene[data-style="vrm"].live-avatar-scene--thinking .live-avatar-video,
+.live-avatar-scene[data-style="vrm"].live-avatar-scene--speaking .live-avatar-video {
+  animation: none;
+  translate: 0 0;
+  filter: none;
+}
+
+.live-call-page button:focus-visible {
+  outline-color: #126e78;
+}
+
+@media (max-width: 700px) {
+  .live-call-page {
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+  }
+
+  .live-call-header {
+    min-height: 40px;
+  }
+
+  .live-call-stage {
+    min-height: 185px;
+    margin-top: 7px;
+    border-radius: 16px;
+  }
+
+  .live-call-console {
+    gap: 9px;
+    margin-top: 8px;
+    padding: 11px 12px;
+  }
+
+  .live-call-console-copy h1 {
+    font-size: 16px;
+  }
+
+  .live-call-console-copy p {
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .live-call-talk {
+    min-height: 43px;
+  }
+
+  .live-call-messages p {
+    max-height: 64px;
+  }
+
+  .live-call-privacy {
+    margin-top: 7px;
+  }
+
+  .live-call-footer {
+    margin-top: 5px;
+    padding-right: 150px;
+  }
+
+  .live-avatar-style-toggle {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    min-height: 33px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+}
+
+@media (max-height: 690px) {
+  .live-call-page {
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+
+  .live-call-stage {
+    min-height: 160px;
+  }
+
+  .live-call-console {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-vrm-progress-track i {
+    transition: none;
+  }
+}

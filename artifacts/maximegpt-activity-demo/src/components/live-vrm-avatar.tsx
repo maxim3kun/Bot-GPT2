@@ -15,7 +15,6 @@ import {
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { LiveAvatarModelMode } from './live-avatar-model';
-import { LiveAvatarModel } from './live-avatar-model';
 import { createLiveBedroomScene, type LiveBedroomScene } from './live-bedroom-scene';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
@@ -51,6 +50,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
   const audioLevelRef = useRef(audioLevel);
   const blinkingRef = useRef(blinking);
   const [loaded, setLoaded] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState('');
 
   modeRef.current = mode;
@@ -61,11 +61,16 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     const host = hostRef.current;
     if (!host) return;
 
+    const isPhone = window.matchMedia('(max-width: 700px)').matches;
+    const lowPowerDevice = isPhone && (
+      (navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4)
+      || ('deviceMemory' in navigator && Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory) <= 4)
+    );
     let renderer: WebGLRenderer;
     try {
       renderer = new WebGLRenderer({
         alpha: true,
-        antialias: window.innerWidth > 700,
+        antialias: !lowPowerDevice,
         powerPreference: 'high-performance',
       });
     } catch {
@@ -82,6 +87,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     let smoothedMouth = 0;
     let deskPositionX = 0;
     let bedroomAspect = 0;
+    let previousRouteX = 0;
+    let smoothedVelocityX = 0;
+    let cameraLookX = 0;
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
     let blinkStarted = -1;
     let motionFactor = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1;
@@ -98,7 +106,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     const gazeTarget = new Object3D();
 
     renderer.outputColorSpace = SRGBColorSpace;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1.45 : isPhone ? 1.8 : 2));
     renderer.setClearColor(0xf1f0eb, 0);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
@@ -171,6 +179,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
         camera.position.set(deskPositionX, height * 0.9, height * 1.15);
         camera.lookAt(deskPositionX, height * 0.47, 0);
+        previousRouteX = deskPositionX;
+        cameraLookX = deskPositionX;
         rebuildBedroom();
 
         const humanoid = vrm.humanoid;
@@ -202,7 +212,11 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         setError('');
         setLoaded(true);
       },
-      undefined,
+      (progress) => {
+        if (!disposed && progress.total > 0) {
+          setLoadProgress(clamp(progress.loaded / progress.total, 0, 1));
+        }
+      },
       (loadError) => {
         if (!disposed) {
           setError(loadError instanceof Error
@@ -252,16 +266,30 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         );
         modelRoot.userData.walkBlend = walkBlend;
         const travelProgress = windowProgress * motionFactor;
-        modelRoot.position.x = MathUtils.damp(modelRoot.position.x, deskPositionX - windowTravel * travelProgress, 4, delta);
-        camera.position.x = modelRoot.position.x;
-        camera.lookAt(modelRoot.position.x, avatarHeight * 0.47, 0);
-        const walkFacing = walkingOut || atWindow
+        const routeTargetX = deskPositionX - windowTravel * travelProgress;
+        modelRoot.position.x = MathUtils.damp(modelRoot.position.x, routeTargetX, 2.7, delta);
+        const routeVelocityX = delta > 0 ? (routeTargetX - previousRouteX) / delta : 0;
+        previousRouteX = routeTargetX;
+        smoothedVelocityX = MathUtils.damp(smoothedVelocityX, routeVelocityX, 3.2, delta);
+
+        // The camera trails the route slightly and looks just ahead, keeping Maxime framed
+        // while the room moves through the composition instead of sliding the character away.
+        const cameraTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.13, -avatarHeight * 0.18, avatarHeight * 0.18);
+        camera.position.x = MathUtils.damp(camera.position.x, cameraTargetX, 2.4, delta);
+        const lookTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.055, -avatarHeight * 0.08, avatarHeight * 0.08);
+        cameraLookX = MathUtils.damp(cameraLookX, lookTargetX, 3.1, delta);
+        camera.lookAt(cameraLookX, avatarHeight * 0.47, 0);
+
+        const facingTarget = walkingOut
           ? -Math.PI / 2
-          : walkingBack
-            ? Math.PI / 2
-            : 0;
-        modelRoot.rotation.y = MathUtils.damp(modelRoot.rotation.y, walkFacing * motionFactor, 3.5, delta);
-        const gaitPhase = elapsed * 5.8;
+          : atWindow
+            ? -Math.PI / 2 + Math.PI * smoothStep((promenadeTime - 10.2) / 1.8)
+            : walkingBack
+              ? Math.PI / 2 * (1 - smoothStep((promenadeTime - 14.4) / 1.6))
+              : 0;
+        const facingDelta = Math.atan2(Math.sin(facingTarget - modelRoot.rotation.y), Math.cos(facingTarget - modelRoot.rotation.y));
+        modelRoot.rotation.y += facingDelta * (1 - Math.exp(-2.1 * delta));
+        const gaitPhase = elapsed * 5.1 + Math.sin(elapsed * 0.42) * 0.12;
         const leftStep = Math.sin(gaitPhase) * walkBlend;
         const rightStep = Math.sin(gaitPhase + Math.PI) * walkBlend;
 
@@ -362,16 +390,18 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
   return (
     <div className="live-vrm-avatar" data-testid="live-vrm-avatar" data-loaded={loaded}>
-      <div className={`live-vrm-fallback${loaded && !error ? ' live-vrm-fallback--hidden' : ''}`}>
-        <LiveAvatarModel mode={mode} audioLevel={audioLevel} blinking={blinking} />
-      </div>
       <div
         ref={hostRef}
         className={`live-vrm-canvas${loaded && !error ? ' live-vrm-canvas--visible' : ''}`}
         aria-label="Personnage Maxime en 3D"
         data-testid="canvas-live-vrm"
       />
-      {!loaded && !error && <span className="live-vrm-notice" role="status">Chargement du personnage 3D…</span>}
+      {!loaded && !error && (
+        <div className="live-vrm-placeholder" role="status" aria-live="polite">
+          <span className="live-vrm-progress-track" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(0.12, loadProgress)})` }} /></span>
+          <span>{loadProgress > 0 ? 'Chargement du personnage 3D…' : 'Préparation du personnage 3D…'}</span>
+        </div>
+      )}
       {error && <span className="live-vrm-notice live-vrm-notice--error" role="status">{error}</span>}
     </div>
   );

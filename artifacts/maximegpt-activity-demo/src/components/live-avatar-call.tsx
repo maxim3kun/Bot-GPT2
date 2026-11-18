@@ -76,6 +76,7 @@ export function LiveAvatarCall({
 }: LiveAvatarCallProps) {
   const mode: Exclude<LiveVoiceStatus, 'error'> = status === 'error' ? 'ready' : status;
   const [blinking, setBlinking] = useState(false);
+  const [avatarStyle, setAvatarStyle] = useState<'vrm' | 'illustration'>('vrm');
   const currentLabel = starting ? 'Connexion au micro…' : modeLabel[status];
   const safeLevel = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
   const mouthStyle = {
@@ -184,7 +185,7 @@ export function LiveAvatarCall({
               {currentLabel}
             </span>
           </div>
-          <div className={`live-avatar-scene live-avatar-scene--${mode}`} data-mode={mode} style={mouthStyle}>
+          <div className={`live-avatar-scene live-avatar-scene--${mode}`} data-mode={mode} data-style={avatarStyle} style={mouthStyle}>
             <div className="live-avatar-aura" aria-hidden="true" />
             <div
               className="live-avatar-video"
@@ -192,13 +193,17 @@ export function LiveAvatarCall({
               data-mode={mode}
               style={mouthStyle}
             >
-              <Suspense fallback={<LiveAvatarModel mode={mode} audioLevel={safeLevel} blinking={blinking && mode !== 'thinking'} />}>
-                <LiveVrmAvatar
-                  mode={mode}
-                  audioLevel={safeLevel}
-                  blinking={blinking && mode !== 'thinking'}
-                />
-              </Suspense>
+              {avatarStyle === 'illustration' ? (
+                <LiveAvatarModel mode={mode} audioLevel={safeLevel} blinking={blinking && mode !== 'thinking'} />
+              ) : (
+                <Suspense fallback={<div className="live-vrm-placeholder" role="status"><span className="live-vrm-progress-track"><i /></span><span>Préparation du personnage 3D…</span></div>}>
+                  <LiveVrmAvatar
+                    mode={mode}
+                    audioLevel={safeLevel}
+                    blinking={blinking && mode !== 'thinking'}
+                  />
+                </Suspense>
+              )}
             </div>
             <span className="live-avatar-aria" aria-live="polite">
               {mode === 'speaking' && answer ? `Maxime te répond : ${answer}` : currentLabel}
@@ -256,6 +261,17 @@ export function LiveAvatarCall({
         </details>
         <footer className="live-call-footer"><CircleHelp size={14} /> La page n’utilise pas ta caméra et reste séparée de Discord.</footer>
       </div>
+      <button
+        type="button"
+        className="live-avatar-style-toggle"
+        aria-label={avatarStyle === 'vrm' ? 'Afficher le style illustration bleu' : 'Revenir au personnage 3D'}
+        aria-pressed={avatarStyle === 'illustration'}
+        onClick={() => setAvatarStyle((style) => style === 'vrm' ? 'illustration' : 'vrm')}
+        data-testid="button-avatar-style"
+      >
+        <span className="live-avatar-style-dot" aria-hidden="true" />
+        {avatarStyle === 'vrm' ? 'Style illustration' : 'Personnage 3D'}
+      </button>
     </main>
   );
 }
