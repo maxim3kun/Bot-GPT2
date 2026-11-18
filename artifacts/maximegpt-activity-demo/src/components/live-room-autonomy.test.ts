@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRoomAutonomy, type RoomActivity } from './live-room-autonomy.ts';
+import {
+  createRoomAutonomy,
+  createRoomRouteMotion,
+  ROOM_WALK_DURATION_SECONDS,
+  type RoomActivity,
+} from './live-room-autonomy.ts';
 
 test('chooses varied, bounded activities instead of repeating a fixed route', () => {
   const autonomy = createRoomAutonomy(() => 0.999);
@@ -59,4 +64,22 @@ test('does not move while reduced motion is enabled', () => {
   const autonomy = createRoomAutonomy(() => 0.5);
   const snapshot = autonomy.update(0.05, false, false, 0.37);
   assert.equal(snapshot.targetProgress, 0.37);
+});
+
+test('walks across the route in step with the walk animation and pauses cleanly', () => {
+  const route = createRoomRouteMotion();
+  const firstStep = route.update('walking-to-window', 0.05, 0);
+  assert.ok(firstStep > 0);
+  assert.ok(firstStep < 0.01);
+
+  let progress = firstStep;
+  for (let frame = 1; frame < Math.ceil(ROOM_WALK_DURATION_SECONDS / 0.05); frame += 1) {
+    progress = route.update('walking-to-window', 0.05, progress);
+  }
+  assert.ok(progress > 0.99);
+
+  const paused = route.update('attending', 0.05, progress);
+  assert.equal(paused, progress);
+  const firstReturnStep = route.update('walking-to-desk', 0.05, 0.4);
+  assert.ok(firstReturnStep < 0.4);
 });

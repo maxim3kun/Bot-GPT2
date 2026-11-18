@@ -13,7 +13,7 @@ export interface LiveBedroomScene {
 }
 
 export const LIVE_BEDROOM_DESK_X_RATIO = 1.38;
-export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.46;
+export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.82;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
   const h = Math.max(avatarHeight, 0.1);

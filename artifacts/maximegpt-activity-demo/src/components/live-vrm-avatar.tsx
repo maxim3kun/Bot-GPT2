@@ -25,7 +25,7 @@ import {
   LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
   type LiveBedroomScene,
 } from './live-bedroom-scene';
-import { createRoomAutonomy } from './live-room-autonomy';
+import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
 import walkAnimation from '../assets/quaternius-walk-loop.json';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
@@ -109,6 +109,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let smoothedVelocityX = 0;
     let cameraLookX = 0;
     const roomAutonomy = createRoomAutonomy();
+    const roomRouteMotion = createRoomRouteMotion();
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
     let blinkStarted = -1;
     let motionFactor = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1;
@@ -197,7 +198,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         modelRoot.position.x = deskPositionX;
         modelRoot.position.z = -height * 0.26;
 
-        camera.position.set(deskPositionX, height * 0.9, height * 1.15);
+        camera.position.set(deskPositionX, height * 0.9, height * 1.65);
         camera.lookAt(deskPositionX, height * 0.47, 0);
         previousRouteX = deskPositionX;
         cameraLookX = deskPositionX;
@@ -312,18 +313,22 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const walkPoseActive = Boolean(
           walkAction?.isRunning() && walkAction.getEffectiveWeight() > 0.025,
         );
-        const routeTargetX = motionFactor > 0
-          ? deskPositionX - windowTravel * activity.targetProgress
-          : modelRoot.position.x;
-        const travelProgress = motionFactor > 0 ? activity.targetProgress : positionProgress;
-        modelRoot.position.x = MathUtils.damp(modelRoot.position.x, routeTargetX, 2.7, delta);
-        const routeVelocityX = delta > 0 ? (routeTargetX - previousRouteX) / delta : 0;
-        previousRouteX = routeTargetX;
+        const routeProgress = roomRouteMotion.update(
+          moving ? activity.activity : 'attending',
+          moving ? delta : 0,
+          positionProgress,
+        );
+        if (moving) {
+          modelRoot.position.x = deskPositionX - windowTravel * routeProgress;
+        }
+        const travelProgress = moving ? routeProgress : positionProgress;
+        const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
+        previousRouteX = modelRoot.position.x;
         smoothedVelocityX = MathUtils.damp(smoothedVelocityX, routeVelocityX, 3.2, delta);
 
         // The camera trails the route slightly and looks just ahead, keeping Maxime framed
         // while the room moves through the composition instead of sliding the character away.
-        const cameraTargetX = deskPositionX - windowTravel * travelProgress * 0.74
+        const cameraTargetX = deskPositionX - windowTravel * travelProgress * 0.64
           + clamp(smoothedVelocityX * 0.045, -avatarHeight * 0.045, avatarHeight * 0.045);
         camera.position.x = MathUtils.damp(camera.position.x, cameraTargetX, 1.9, delta);
         const lookTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.025, -avatarHeight * 0.025, avatarHeight * 0.025);

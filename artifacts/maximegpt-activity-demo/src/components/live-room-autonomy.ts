@@ -13,8 +13,42 @@ export interface RoomActivitySnapshot {
 
 type ActivityPlan = 'work' | 'stretch' | 'window-break';
 
-const WALK_DURATION_SECONDS = 4.4;
+export const ROOM_WALK_DURATION_SECONDS = 3.4;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/**
+ * Advances the avatar over the same interval as its looping walk clip.
+ * Smooth acceleration and braking keep the feet from sliding against the floor.
+ */
+export function createRoomRouteMotion() {
+  let previousActivity: RoomActivity | undefined;
+  let startProgress = 0;
+  let targetProgress = 0;
+  let duration = ROOM_WALK_DURATION_SECONDS;
+  let elapsed = 0;
+
+  return {
+    update(activity: RoomActivity, deltaSeconds: number, currentProgress: number): number {
+      if (activity !== 'walking-to-window' && activity !== 'walking-to-desk') {
+        previousActivity = undefined;
+        return clamp(currentProgress, 0, 1);
+      }
+
+      if (activity !== previousActivity) {
+        previousActivity = activity;
+        startProgress = clamp(currentProgress, 0, 1);
+        targetProgress = activity === 'walking-to-window' ? 1 : 0;
+        duration = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * Math.abs(targetProgress - startProgress));
+        elapsed = 0;
+      }
+
+      elapsed = Math.min(duration, elapsed + clamp(deltaSeconds, 0, 0.05));
+      const t = elapsed / duration;
+      const eased = t * t * (3 - 2 * t);
+      return startProgress + (targetProgress - startProgress) * eased;
+    },
+  };
+}
 
 /**
  * Chooses from a small, local set of bedroom activities. It is intentionally
@@ -55,7 +89,7 @@ export function createRoomAutonomy(random: () => number = Math.random) {
 
     activity = 'walking-to-window';
     targetProgress = 1;
-    timeRemaining = WALK_DURATION_SECONDS;
+    timeRemaining = ROOM_WALK_DURATION_SECONDS;
   };
 
   const snapshot = (): RoomActivitySnapshot => ({ activity, targetProgress });
@@ -95,7 +129,7 @@ export function createRoomAutonomy(random: () => number = Math.random) {
         if (position > 0.04 || returnToDeskAfterInteraction) {
           activity = 'walking-to-desk';
           targetProgress = 0;
-          timeRemaining = Math.max(1.4, WALK_DURATION_SECONDS * position);
+          timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * position);
           returnToDeskAfterInteraction = false;
           return snapshot();
         }
@@ -112,7 +146,7 @@ export function createRoomAutonomy(random: () => number = Math.random) {
         returnToDeskAfterInteraction = false;
         activity = 'walking-to-desk';
         targetProgress = 0;
-        timeRemaining = Math.max(1.4, WALK_DURATION_SECONDS * position);
+        timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * position);
         return snapshot();
       }
 
@@ -125,7 +159,7 @@ export function createRoomAutonomy(random: () => number = Math.random) {
         } else if (activity === 'looking-out-window') {
           activity = 'walking-to-desk';
           targetProgress = 0;
-          timeRemaining = WALK_DURATION_SECONDS;
+          timeRemaining = ROOM_WALK_DURATION_SECONDS;
         } else {
           chooseNextPlan();
         }
