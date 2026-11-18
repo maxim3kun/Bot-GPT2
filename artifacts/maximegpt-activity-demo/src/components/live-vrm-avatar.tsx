@@ -78,7 +78,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     let bedroom: LiveBedroomScene | undefined;
     let avatarHeight = 1;
     let lastFrame = 0;
-    let elapsed = 9;
+    let elapsed = 0;
     let smoothedMouth = 0;
     let deskPositionX = 0;
     let bedroomAspect = 0;
