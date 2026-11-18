@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   AudioLines,
@@ -14,6 +14,10 @@ import {
 } from 'lucide-react';
 import { LiveAvatarModel } from './live-avatar-model';
 import './live-avatar-call.css';
+
+const LiveVrmAvatar = lazy(() =>
+  import('./live-vrm-avatar').then((module) => ({ default: module.LiveVrmAvatar })),
+);
 
 export type LiveVoiceStatus = 'ready' | 'listening' | 'thinking' | 'speaking' | 'error';
 
@@ -189,7 +193,13 @@ export function LiveAvatarCall({
               data-mode={mode}
               style={mouthStyle}
             >
-              <LiveAvatarModel mode={mode} audioLevel={safeLevel} blinking={blinking && mode !== 'thinking'} />
+              <Suspense fallback={<LiveAvatarModel mode={mode} audioLevel={safeLevel} blinking={blinking && mode !== 'thinking'} />}>
+                <LiveVrmAvatar
+                  mode={mode}
+                  audioLevel={safeLevel}
+                  blinking={blinking && mode !== 'thinking'}
+                />
+              </Suspense>
             </div>
             <span className="live-avatar-aria" aria-live="polite">
               {mode === 'speaking' && answer ? `Maxime te répond : ${answer}` : currentLabel}

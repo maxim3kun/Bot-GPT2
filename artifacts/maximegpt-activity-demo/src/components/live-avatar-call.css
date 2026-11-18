@@ -357,6 +357,68 @@
   transition: translate 60ms linear, filter 220ms ease;
 }
 
+.live-vrm-avatar,
+.live-vrm-canvas,
+.live-vrm-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.live-vrm-avatar {
+  isolation: isolate;
+}
+
+.live-vrm-canvas {
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 350ms ease;
+}
+
+.live-vrm-canvas--visible {
+  opacity: 1;
+}
+
+.live-vrm-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.live-vrm-fallback {
+  z-index: 1;
+  transition: opacity 250ms ease;
+}
+
+.live-vrm-fallback--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.live-vrm-notice {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  max-width: min(85%, 360px);
+  padding: 9px 13px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #81dce74a;
+  border-radius: 999px;
+  color: #d5f7fb;
+  background: #071a2bd9;
+  font-size: 11px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+
+.live-vrm-notice--error {
+  top: auto;
+  bottom: 62px;
+  border-color: #ff92924f;
+  color: #ffc3c5;
+  border-radius: 12px;
+}
+
 .live-avatar-video::after {
   position: absolute;
   z-index: 4;
