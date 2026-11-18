@@ -22,6 +22,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
+  LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
   LIVE_BEDROOM_DESK_STAND_Z_RATIO,
   createLiveBedroomScene,
   LIVE_BEDROOM_DESK_X_RATIO,
@@ -33,8 +34,10 @@ import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy'
 import {
   getRoomWalkPose,
   ROOM_WALK_CYCLE_SECONDS,
+  roomRoutePointAtProgress,
   routeProgressFromPosition,
   roomWalkTimeForProgress,
+  type RoomRoutePoint,
 } from './live-room-gait';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
@@ -109,9 +112,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let elapsed = 0;
     let smoothedMouth = 0;
     let deskPositionX = 0;
+    let roomRoutePoints: RoomRoutePoint[] = [];
     let bedroomAspect = 0;
     let previousRouteX = 0;
+    let previousRouteZ = 0;
     let smoothedVelocityX = 0;
+    let smoothedVelocityZ = 0;
     let cameraLookX = 0;
     let cameraLookZ = 0;
     let walkStartProgress = 0;
@@ -238,17 +244,29 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const bounds = new Box3().setFromObject(vrm.scene);
         const height = Math.max(0.1, bounds.max.y - bounds.min.y);
         avatarHeight = height;
-        deskPositionX = height * (LIVE_BEDROOM_DESK_X_RATIO - 0.48);
+        deskPositionX = height * (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO);
         vrm.scene.position.y -= bounds.min.y;
         // The room is sized from this measured height. Keep the model at that
         // same scale so the desk, chair and floor share one physical scale.
         modelRoot.scale.setScalar(1);
         modelRoot.position.x = deskPositionX;
         modelRoot.position.z = height * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
+        const deskPositionZ = height * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
+        roomRoutePoints = [
+          { x: deskPositionX, z: deskPositionZ },
+          { x: deskPositionX - height * 0.45, z: deskPositionZ },
+          {
+            x: deskPositionX - height * LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
+            z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
+          },
+        ];
 
         camera.position.set(deskPositionX, height * 0.9, height * 1.65);
         camera.lookAt(deskPositionX, height * 0.47, modelRoot.position.z);
         previousRouteX = deskPositionX;
+        previousRouteZ = modelRoot.position.z;
+        smoothedVelocityX = 0;
+        smoothedVelocityZ = 0;
         cameraLookX = deskPositionX;
         cameraLookZ = modelRoot.position.z;
         rebuildBedroom();

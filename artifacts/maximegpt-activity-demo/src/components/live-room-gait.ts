@@ -13,6 +13,11 @@ export interface RoomWalkPose {
   torsoTwist: number;
 }
 
+export interface RoomRoutePoint {
+  x: number;
+  z: number;
+}
+
 const TWO_PI = Math.PI * 2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -46,16 +51,73 @@ export function getRoomWalkPose(seconds: number): RoomWalkPose {
 export function routeProgressFromPosition(
   x: number,
   z: number,
-  startX: number,
-  startZ: number,
-  endX: number,
-  endZ: number,
+  points: readonly RoomRoutePoint[],
 ): number {
-  const dx = endX - startX;
-  const dz = endZ - startZ;
-  const lengthSquared = dx * dx + dz * dz;
-  if (lengthSquared <= 1e-8) return 0;
-  return clamp(((x - startX) * dx + (z - startZ) * dz) / lengthSquared, 0, 1);
+  if (points.length < 2) return 0;
+  let totalLength = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    totalLength += Math.hypot(current.x - previous.x, current.z - previous.z);
+  }
+  if (totalLength <= 1e-8) return 0;
+
+  let distanceBefore = 0;
+  let nearestDistanceSquared = Infinity;
+  let nearestProgress = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const dx = current.x - previous.x;
+    const dz = current.z - previous.z;
+    const segmentLength = Math.hypot(dx, dz);
+    const lengthSquared = segmentLength * segmentLength;
+    if (lengthSquared <= 1e-8) continue;
+
+    const projection = clamp(((x - previous.x) * dx + (z - previous.z) * dz) / lengthSquared, 0, 1);
+    const offsetX = x - (previous.x + dx * projection);
+    const offsetZ = z - (previous.z + dz * projection);
+    const distanceSquared = offsetX * offsetX + offsetZ * offsetZ;
+    if (distanceSquared < nearestDistanceSquared) {
+      nearestDistanceSquared = distanceSquared;
+      nearestProgress = (distanceBefore + segmentLength * projection) / totalLength;
+    }
+    distanceBefore += segmentLength;
+  }
+  return clamp(nearestProgress, 0, 1);
+}
+
+export function roomRoutePointAtProgress(
+  points: readonly RoomRoutePoint[],
+  progress: number,
+): RoomRoutePoint {
+  if (points.length === 0) return { x: 0, z: 0 };
+  if (points.length === 1) return points[0]!;
+
+  let totalLength = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    totalLength += Math.hypot(current.x - previous.x, current.z - previous.z);
+  }
+  if (totalLength <= 1e-8) return points[0]!;
+
+  let remaining = clamp(progress, 0, 1) * totalLength;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const segmentLength = Math.hypot(current.x - previous.x, current.z - previous.z);
+    if (segmentLength <= 1e-8) continue;
+    if (remaining <= segmentLength) {
+      const ratio = remaining / segmentLength;
+      return {
+        x: previous.x + (current.x - previous.x) * ratio,
+        z: previous.z + (current.z - previous.z) * ratio,
+      };
+    }
+    remaining -= segmentLength;
+  }
+  return points[points.length - 1]!;
 }
 
 export function roomWalkTimeForProgress(progress: number, duration: number): number {
