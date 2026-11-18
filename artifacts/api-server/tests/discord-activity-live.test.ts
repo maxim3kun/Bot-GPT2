@@ -10,9 +10,11 @@ import {
 import {
   clearActivityAvatarEventsForTests,
   getActivityAvatarEvent,
+  publishActivityAvatarMouthLevel,
   publishActivityAvatarMode,
   subscribeToActivityAvatar,
 } from "../src/discord/discord-activity-events.js";
+import { pcm16leToMouthLevels } from "../src/discord/voice-mouth-meter.js";
 
 const GUILD_A = "123456789012345678";
 const GUILD_B = "223456789012345678";
@@ -75,4 +77,31 @@ test("voice interruption sends a stop signal without any transcript", () => {
   publishActivityAvatarMode(GUILD_A, "listening", true);
   assert.deepEqual(received && Object.keys(received as object).sort(), ["mode", "stop", "updatedAt"]);
   assert.equal((received as { stop?: boolean }).stop, true);
+});
+
+test("voice mouth events carry only a bounded level and stay scoped to the guild", () => {
+  clearActivityAvatarEventsForTests();
+  const received: unknown[] = [];
+  subscribeToActivityAvatar(GUILD_A, (event) => received.push(event));
+  publishActivityAvatarMode(GUILD_A, "speaking");
+  publishActivityAvatarMouthLevel(GUILD_A, 1.4);
+  publishActivityAvatarMouthLevel(GUILD_B, 0.8);
+
+  assert.equal(received.length, 2);
+  assert.deepEqual(Object.keys(received[1] as object).sort(), ["mode", "mouthLevel", "updatedAt"]);
+  assert.equal((received[1] as { mouthLevel: number }).mouthLevel, 1);
+  assert.equal("audio" in (received[1] as object), false);
+  assert.equal("text" in (received[1] as object), false);
+});
+
+test("PCM mouth envelope reflects the actual voice amplitude and ignores silence", () => {
+  const pcm = Buffer.alloc(960 * 2);
+  for (let offset = 960; offset < pcm.length; offset += 2) {
+    pcm.writeInt16LE(16_384, offset);
+  }
+
+  const levels = pcm16leToMouthLevels(pcm);
+  assert.equal(levels.length, 2);
+  assert.equal(levels[0], 0);
+  assert.ok((levels[1] ?? 0) > 0.9);
 });

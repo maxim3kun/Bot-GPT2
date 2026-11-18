@@ -12,6 +12,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import { type Message, type TextChannel, PermissionFlagsBits } from "discord.js";
+import { spawn } from "node:child_process";
 import {
   pauseRadioForSpeech,
   radioStates,
@@ -34,7 +35,12 @@ import { isFeatureEnabled } from "../bootstrap/feature-flags.js";
 import { getGuildFeatures } from "../lib/features-store.js";
 import { checkCommandBlock, sendBlockedMessage } from "./command-suggest.js";
 import { getPrefix } from "./prefix-store.js";
-import { publishActivityAvatarMode } from "./discord-activity-events.js";
+import {
+  hasActivityAvatarListeners,
+  publishActivityAvatarMode,
+  publishActivityAvatarMouthLevel,
+} from "./discord-activity-events.js";
+import { pcm16leToMouthLevels } from "./voice-mouth-meter.js";
 
 // ── Google Translate TTS ──────────────────────────────────────────────────────
 
@@ -288,16 +294,115 @@ export async function sendVoiceChatResponse<T>(
   return message;
 }
 
-async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<boolean> {
+const ACTIVITY_MOUTH_FRAME_MS = 60;
+const MAX_MOUTH_PCM_BYTES = 12 * 1024 * 1024;
+
+async function decodeSpeechMouthLevels(guildId: string, audio: Buffer): Promise<number[]> {
+  if (!hasActivityAvatarListeners(guildId) || audio.length === 0) return [];
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn("ffmpeg", [
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", "pipe:0",
+        "-f", "s16le",
+        "-ac", "1",
+        "-ar", "8000",
+        "pipe:1",
+      ], { stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      resolve([]);
+      return;
+    }
+    const stdout = child.stdout;
+    const stdin = child.stdin;
+    if (!stdout || !stdin) {
+      child.kill("SIGKILL");
+      resolve([]);
+      return;
+    }
+
+    let settled = false;
+    let totalBytes = 0;
+    const chunks: Buffer[] = [];
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish([]);
+    }, 1_500);
+    const finish = (levels: number[]) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(levels);
+    };
+
+    stdout.on("data", (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_MOUTH_PCM_BYTES) {
+        child.kill("SIGKILL");
+        finish([]);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.once("error", () => finish([]));
+    child.once("close", (code) => {
+      if (code !== 0 || settled) {
+        finish([]);
+        return;
+      }
+      finish(pcm16leToMouthLevels(Buffer.concat(chunks), 8_000, ACTIVITY_MOUTH_FRAME_MS));
+    });
+    stdin.once("error", () => finish([]));
+    stdin.end(audio);
+  });
+}
+
+function startActivityMouthAnimation(guildId: string, levels: number[]): () => void {
+  if (!levels.length) return () => undefined;
+  let index = 0;
+  let active = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const step = () => {
+    if (!active) return;
+    const level = levels[index];
+    if (level === undefined) {
+      active = false;
+      publishActivityAvatarMouthLevel(guildId, 0);
+      return;
+    }
+    index += 1;
+    publishActivityAvatarMouthLevel(guildId, level);
+    timer = setTimeout(step, ACTIVITY_MOUTH_FRAME_MS);
+  };
+  step();
+  return () => {
+    if (!active) return;
+    active = false;
+    if (timer) clearTimeout(timer);
+    publishActivityAvatarMouthLevel(guildId, 0);
+  };
+}
+
+async function playAudioBufferInVoice(
+  guildId: string,
+  audio: Buffer,
+  mouthLevels: number[] = [],
+): Promise<boolean> {
   const state = guildStates.get(guildId);
   const connection = getVoiceConnection(guildId);
   if (!state || !state.active || !connection || !audio.length) return false;
 
-  const mixedWithRadio = await speakOverRadio(guildId, audio);
-  if (mixedWithRadio === true) return true;
-  if (mixedWithRadio === false) {
-    logger.warn({ guildId }, "Skipping voice reply because radio mixing failed before handoff; leaving music uninterrupted");
-    return false;
+  let stopMouthAnimation: () => void = () => undefined;
+  const beginMouthAnimation = () => {
+    stopMouthAnimation();
+    stopMouthAnimation = startActivityMouthAnimation(guildId, mouthLevels);
+  };
+  const mixedWithRadio = await speakOverRadio(guildId, audio, beginMouthAnimation);
+  if (mixedWithRadio !== null) {
+    stopMouthAnimation();
+    return mixedWithRadio;
   }
   const resumeRadio = pauseRadioForSpeech(guildId);
   try {
@@ -308,7 +413,9 @@ async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<b
       const cleanup = () => {
         clearTimeout(timer);
         state.player.off(AudioPlayerStatus.Idle, onIdle);
+        state.player.off(AudioPlayerStatus.Playing, onPlaying);
         state.player.off("error", onError);
+        stopMouthAnimation();
       };
       const finish = (success: boolean) => {
         if (settled) return;
@@ -318,11 +425,13 @@ async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<b
       };
       const onIdle = () => finish(true);
       const onError = () => finish(false);
+      const onPlaying = () => beginMouthAnimation();
       const timer = setTimeout(() => {
         state.player.stop();
         finish(false);
       }, 240_000);
       state.player.once(AudioPlayerStatus.Idle, onIdle);
+      state.player.once(AudioPlayerStatus.Playing, onPlaying);
       state.player.once("error", onError);
       state.player.play(resource);
     });
@@ -330,6 +439,7 @@ async function playAudioBufferInVoice(guildId: string, audio: Buffer): Promise<b
     logger.error({ error, guildId }, "TTS playback failed");
     return false;
   } finally {
+    stopMouthAnimation();
     resumeRadio?.();
   }
 }
@@ -854,8 +964,9 @@ export async function speakText(
     const selected = isVoiceId(voiceId) ? voiceId : await getBotVoice(guildId).catch(() => DEFAULT_VOICE);
     const audio = await speechAudio(spokenText, lang, selected);
     if (state.speechSequence !== speechSequence || !state.active) return false;
+    const mouthLevels = await decodeSpeechMouthLevels(guildId, audio);
     publishActivityAvatarMode(guildId, "speaking");
-    const played = await playAudioBufferInVoice(guildId, audio);
+    const played = await playAudioBufferInVoice(guildId, audio, mouthLevels);
     return played && state.speechSequence === speechSequence;
   } catch (err) {
     logger.error({ err, guildId }, "TTS error");

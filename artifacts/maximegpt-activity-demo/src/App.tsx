@@ -176,6 +176,7 @@ function Home() {
   const [chatError, setChatError] = useState('');
   const [localAvatarMode, setLocalAvatarMode] = useState<AvatarMode>('idle');
   const [remoteAvatarMode, setRemoteAvatarMode] = useState<AvatarMode>('idle');
+  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioNeedsClick, setAudioNeedsClick] = useState(false);
   const sdkRef = useRef<DiscordSDK | null>(null);
@@ -188,6 +189,7 @@ function Home() {
   const audioSourceRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const stopLocalSpeechRef = useRef<() => void>(() => undefined);
+  const remoteMouthResetTimerRef = useRef<number | null>(null);
   const chatLogEndRef = useRef<HTMLDivElement | null>(null);
 
   const updateToken = useCallback((nextToken: string) => {
@@ -319,7 +321,10 @@ function Home() {
             signal: controller.signal,
           });
           if (!response.ok || !response.body) {
-            if (response.status === 401) setRemoteAvatarMode('idle');
+            if (response.status === 401) {
+              setRemoteAvatarMode('idle');
+              setRemoteAudioLevel(0);
+            }
             await waitBeforeRetry();
             continue;
           }
@@ -336,11 +341,35 @@ function Home() {
               const line = event.split(/\r?\n/).find((part) => part.startsWith('data:'));
               if (!line) continue;
               try {
-                const parsed = JSON.parse(line.slice(5).trim()) as { mode?: AvatarMode; stop?: boolean };
+                const parsed = JSON.parse(line.slice(5).trim()) as {
+                  mode?: AvatarMode;
+                  stop?: boolean;
+                  mouthLevel?: number;
+                };
                 if (parsed.mode && ['idle', 'listening', 'thinking', 'speaking', 'paused'].includes(parsed.mode)) {
                   setRemoteAvatarMode(parsed.mode);
+                  if (parsed.mode !== 'speaking' || typeof parsed.mouthLevel !== 'number') {
+                    setRemoteAudioLevel(0);
+                  }
                 }
-                if (parsed.stop) stopLocalSpeechRef.current();
+                if (parsed.mode === 'speaking' && typeof parsed.mouthLevel === 'number' && Number.isFinite(parsed.mouthLevel)) {
+                  setRemoteAudioLevel(Math.min(1, Math.max(0, parsed.mouthLevel)));
+                  if (remoteMouthResetTimerRef.current !== null) {
+                    window.clearTimeout(remoteMouthResetTimerRef.current);
+                  }
+                  remoteMouthResetTimerRef.current = window.setTimeout(() => {
+                    remoteMouthResetTimerRef.current = null;
+                    setRemoteAudioLevel(0);
+                  }, 220);
+                }
+                if (parsed.stop) {
+                  setRemoteAudioLevel(0);
+                  if (remoteMouthResetTimerRef.current !== null) {
+                    window.clearTimeout(remoteMouthResetTimerRef.current);
+                    remoteMouthResetTimerRef.current = null;
+                  }
+                  stopLocalSpeechRef.current();
+                }
               } catch {
                 // Ignore malformed or partial server events; they carry no chat content.
               }
@@ -357,6 +386,10 @@ function Home() {
     return () => {
       disposed = true;
       controller.abort();
+      if (remoteMouthResetTimerRef.current !== null) {
+        window.clearTimeout(remoteMouthResetTimerRef.current);
+        remoteMouthResetTimerRef.current = null;
+      }
     };
   }, [view, token]);
 
@@ -674,7 +707,9 @@ function Home() {
             <div className="flex flex-col items-center justify-center gap-5 bg-[#302b3d] px-5 py-8 text-center text-white">
               <AvatarCharacter
                 mode={avatarMode}
-                audioLevel={localAvatarMode === 'speaking' ? audioLevel : undefined}
+                audioLevel={avatarMode === 'speaking'
+                  ? localAvatarMode === 'speaking' ? audioLevel : remoteAudioLevel
+                  : undefined}
               />
               <div>
                 <p className="text-sm font-semibold">MaximeGPT</p>

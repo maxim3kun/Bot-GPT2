@@ -1025,7 +1025,11 @@ function waitForFirstAudioChunk(stream: Readable, timeoutMs: number): Promise<bo
  * active station; false means the mix failed before handoff, so callers must
  * leave the current music untouched rather than interrupt it as a fallback.
  */
-export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promise<boolean | null> {
+export async function speakOverRadio(
+  guildId: string,
+  voiceAudio: Buffer,
+  onSpeechStart?: () => void,
+): Promise<boolean | null> {
   const state = radioStates.get(guildId);
   if (!state || !state.stationKey || state.paused || !state.activeResource || state.speechOverlayActive) return null;
   const stationKey = state.stationKey;
@@ -1079,6 +1083,7 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
       const cleanup = () => {
         if (timer) clearTimeout(timer);
         state.player.off(AudioPlayerStatus.Idle, onIdle);
+        state.player.off(AudioPlayerStatus.Playing, onPlaying);
         state.player.off("error", onPlayerError);
       };
       const finish = (result: boolean) => {
@@ -1090,6 +1095,13 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
       const onIdle = () => {
         if (state.activeResource === resource && state.player.state.status === AudioPlayerStatus.Idle) finish(true);
       };
+      const onPlaying = () => {
+        try {
+          onSpeechStart?.();
+        } catch {
+          // Avatar animation is optional and must never affect radio playback.
+        }
+      };
       const onPlayerError = () => finish(false);
       const onChildError = () => finish(false);
       const onChildClose = (code: number | null) => {
@@ -1097,6 +1109,7 @@ export async function speakOverRadio(guildId: string, voiceAudio: Buffer): Promi
       };
 
       state.player.once(AudioPlayerStatus.Idle, onIdle);
+      state.player.once(AudioPlayerStatus.Playing, onPlaying);
       state.player.once("error", onPlayerError);
       child?.once("error", onChildError);
       child?.once("close", onChildClose);
