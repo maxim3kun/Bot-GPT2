@@ -334,10 +334,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const positionProgress = routeProgressFromPosition(
           modelRoot.position.x,
           modelRoot.position.z,
-          deskPositionX,
-          deskPositionZ,
-          windowPositionX,
-          windowPositionZ,
+          roomRoutePoints,
         );
         const activity = roomAutonomy.update(
           delta,
@@ -363,8 +360,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         }
         wasMoving = moving;
         if (moving) {
-          modelRoot.position.x = deskPositionX + (windowPositionX - deskPositionX) * routeProgress;
-          modelRoot.position.z = deskPositionZ + (windowPositionZ - deskPositionZ) * routeProgress;
+          const routePosition = roomRoutePointAtProgress(roomRoutePoints, routeProgress);
+          modelRoot.position.x = routePosition.x;
+          modelRoot.position.z = routePosition.z;
         }
         const walkDistance = Math.abs(walkTargetProgress - walkStartProgress);
         const walkProgress = walkDistance > 1e-4
@@ -375,8 +373,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         const travelProgress = moving ? routeProgress : positionProgress;
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
+        const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
         previousRouteX = modelRoot.position.x;
+        previousRouteZ = modelRoot.position.z;
         smoothedVelocityX = MathUtils.damp(smoothedVelocityX, routeVelocityX, 3.2, delta);
+        smoothedVelocityZ = MathUtils.damp(smoothedVelocityZ, routeVelocityZ, 3.2, delta);
+        const cameraRoutePosition = roomRoutePointAtProgress(roomRoutePoints, travelProgress);
         if (bedroom) {
           bedroom.avatarShadow.position.x = modelRoot.position.x;
           bedroom.avatarShadow.position.z = modelRoot.position.z;
@@ -384,27 +386,26 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
 
         // Follow gently so the audience can see Maxime cross the room instead
         // of watching the room slide around a nearly stationary-looking avatar.
-        const follow = 0.22;
-        const cameraTargetX = deskPositionX - windowTravel * travelProgress * follow
+        const follow = 0.9;
+        const cameraTargetX = deskPositionX + (cameraRoutePosition.x - deskPositionX) * follow
           + clamp(smoothedVelocityX * 0.045, -avatarHeight * 0.045, avatarHeight * 0.045);
         const cameraTargetZ = avatarHeight * 1.65
-          + (windowPositionZ - deskPositionZ) * travelProgress * follow;
+          + (cameraRoutePosition.z - deskPositionZ) * follow;
         camera.position.x = MathUtils.damp(camera.position.x, cameraTargetX, 1.9, delta);
         camera.position.z = MathUtils.damp(camera.position.z, cameraTargetZ, 1.9, delta);
-        const lookTargetX = deskPositionX - windowTravel * travelProgress * follow
+        const lookTargetX = deskPositionX + (cameraRoutePosition.x - deskPositionX) * follow
           + clamp(smoothedVelocityX * 0.025, -avatarHeight * 0.025, avatarHeight * 0.025);
-        const lookTargetZ = deskPositionZ + (windowPositionZ - deskPositionZ) * travelProgress * follow;
+        const lookTargetZ = deskPositionZ + (cameraRoutePosition.z - deskPositionZ) * follow;
         cameraLookX = MathUtils.damp(cameraLookX, lookTargetX, 3.1, delta);
         cameraLookZ = MathUtils.damp(cameraLookZ, lookTargetZ, 3.1, delta);
         camera.lookAt(cameraLookX, avatarHeight * 0.47, cameraLookZ);
 
-        const routeHeading = Math.atan2(windowPositionX - deskPositionX, windowPositionZ - deskPositionZ);
-        const facingTarget = (walkingOut
-          ? routeHeading
-          : walkingBack
-            ? routeHeading + Math.PI
-            : atWindow
-              ? routeHeading
+        const routeHeading = Math.atan2(windowPositionX - modelRoot.position.x, windowPositionZ - modelRoot.position.z);
+        const movementHeading = Math.atan2(smoothedVelocityX, smoothedVelocityZ);
+        const facingTarget = (moving
+          ? movementHeading
+          : atWindow
+            ? routeHeading
             : thinking
               ? Math.PI * 0.12
               : 0) * motionFactor;
