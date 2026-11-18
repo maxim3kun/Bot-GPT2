@@ -24,6 +24,7 @@ import { VRM, VRMLoaderPlugin, VRMUtils, type VRMHumanBoneName } from '@pixiv/th
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
   createLiveBedroomScene,
+  LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO,
   LIVE_BEDROOM_DESK_X_RATIO,
   LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
   type LiveBedroomScene,
@@ -111,6 +112,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let previousRouteX = 0;
     let smoothedVelocityX = 0;
     let cameraLookX = 0;
+    let seatedPose = 0;
     const roomAutonomy = createRoomAutonomy();
     const roomRouteMotion = createRoomRouteMotion();
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
@@ -321,12 +323,22 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           motionFactor > 0,
           positionProgress,
         );
-        const working = activity.activity === 'working';
+        const working = activity.activity === 'working-seated';
         const stretching = activity.activity === 'stretching';
         const walkingOut = activity.activity === 'walking-to-window';
         const atWindow = activity.activity === 'looking-out-window';
         const walkingBack = activity.activity === 'walking-to-desk';
         const moving = motionFactor > 0 && (walkingOut || walkingBack);
+        const seatedTarget = activity.seated ? 1 : 0;
+        seatedPose = motionFactor > 0
+          ? MathUtils.damp(seatedPose, seatedTarget, 4.2, delta)
+          : seatedTarget;
+        modelRoot.position.y = MathUtils.damp(
+          modelRoot.position.y,
+          activity.seated ? avatarHeight * (LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO - 0.52) : 0,
+          motionFactor > 0 ? 4.2 : 1000,
+          delta,
+        );
         if (moving && walkAction && !walkAnimationActive) {
           walkAction.reset().fadeIn(0.22).play();
           walkAnimationActive = true;
@@ -382,13 +394,13 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         };
 
         setBonePose('hips', 0, Math.sin(elapsed * 0.52) * 0.008 * idleSway, 0);
-        setBonePose('leftUpperLeg', 0, 0, 0);
-        setBonePose('rightUpperLeg', 0, 0, 0);
-        setBonePose('leftLowerLeg', 0, 0, 0);
-        setBonePose('rightLowerLeg', 0, 0, 0);
-        setBonePose('leftFoot', 0, 0, 0);
-        setBonePose('rightFoot', 0, 0, 0);
-        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0), 0, 0);
+        setBonePose('leftUpperLeg', seatedPose * 1.12, 0, 0);
+        setBonePose('rightUpperLeg', seatedPose * 1.12, 0, 0);
+        setBonePose('leftLowerLeg', seatedPose * -0.98, 0, 0);
+        setBonePose('rightLowerLeg', seatedPose * -0.98, 0, 0);
+        setBonePose('leftFoot', seatedPose * -0.12, 0, 0);
+        setBonePose('rightFoot', seatedPose * -0.12, 0, 0);
+        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0) + seatedPose * -0.035, 0, 0);
         setBonePose('chest', Math.sin(elapsed * 1.1) * 0.008 * idleSway, 0, speaking ? Math.sin(elapsed * 1.35) * energy * 0.018 : 0);
         setBonePose(
           'head',

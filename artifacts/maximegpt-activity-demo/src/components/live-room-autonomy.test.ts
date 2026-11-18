@@ -20,7 +20,7 @@ test('chooses varied, bounded activities instead of repeating a fixed route', ()
     snapshot = autonomy.update(0.05, false, true, position);
     seen.add(snapshot.activity);
     if (
-      ['working', 'stretching', 'walking-to-window'].includes(snapshot.activity)
+      ['working-seated', 'stretching', 'walking-to-window'].includes(snapshot.activity)
       && snapshot.activity !== previousActivity
     ) {
       chosenActivities.push(snapshot.activity);
@@ -28,7 +28,7 @@ test('chooses varied, bounded activities instead of repeating a fixed route', ()
     previousActivity = snapshot.activity;
   }
 
-  assert.ok(seen.has('working'));
+  assert.ok(seen.has('working-seated'));
   assert.ok(seen.has('stretching'));
   assert.ok(seen.has('walking-to-window'));
   assert.ok(seen.has('looking-out-window'));
@@ -51,9 +51,9 @@ test('pauses movement for conversation and returns to the desk afterward', () =>
   assert.equal(snapshot.activity, 'walking-to-window');
 
   snapshot = autonomy.update(0.05, true, true, 0.4);
-  assert.deepEqual(snapshot, { activity: 'attending', targetProgress: 0.4 });
+  assert.deepEqual(snapshot, { activity: 'attending', targetProgress: 0.4, seated: false });
   snapshot = autonomy.update(0.05, true, true, 0.4);
-  assert.deepEqual(snapshot, { activity: 'attending', targetProgress: 0.4 });
+  assert.deepEqual(snapshot, { activity: 'attending', targetProgress: 0.4, seated: false });
 
   snapshot = autonomy.update(0.05, false, true, 0.4);
   assert.equal(snapshot.activity, 'walking-to-desk');
@@ -64,6 +64,42 @@ test('does not move while reduced motion is enabled', () => {
   const autonomy = createRoomAutonomy(() => 0.5);
   const snapshot = autonomy.update(0.05, false, false, 0.37);
   assert.equal(snapshot.targetProgress, 0.37);
+  assert.equal(snapshot.activity, 'working-seated');
+  assert.equal(snapshot.seated, true);
+});
+
+test('finishes sitting before work and stands before starting a walk', () => {
+  const autonomy = createRoomAutonomy(() => 0.999);
+  let snapshot = autonomy.update(0.05, false, true, 0);
+
+  assert.equal(snapshot.activity, 'sitting-down');
+  assert.equal(snapshot.seated, true);
+  for (let frame = 0; frame < 30 && snapshot.activity !== 'working-seated'; frame += 1) {
+    snapshot = autonomy.update(0.05, false, true, 0);
+  }
+  assert.equal(snapshot.activity, 'working-seated');
+
+  for (let frame = 0; frame < 400 && snapshot.activity !== 'standing-up'; frame += 1) {
+    snapshot = autonomy.update(0.05, false, true, 0);
+  }
+  assert.equal(snapshot.activity, 'standing-up');
+  assert.equal(snapshot.seated, false);
+  for (let frame = 0; frame < 30 && snapshot.activity === 'standing-up'; frame += 1) {
+    snapshot = autonomy.update(0.05, false, true, 0);
+  }
+  assert.equal(snapshot.activity, 'walking-to-window');
+});
+
+test('keeps a seated pose through a voice interruption at the desk', () => {
+  const autonomy = createRoomAutonomy(() => 0.5);
+  let snapshot = autonomy.update(0.05, false, true, 0);
+  snapshot = autonomy.update(0.05, true, true, 0);
+  assert.equal(snapshot.activity, 'attending');
+  assert.equal(snapshot.seated, true);
+
+  snapshot = autonomy.update(0.05, false, true, 0);
+  assert.equal(snapshot.activity, 'working-seated');
+  assert.equal(snapshot.seated, true);
 });
 
 test('walks across the route in step with the walk animation and pauses cleanly', () => {

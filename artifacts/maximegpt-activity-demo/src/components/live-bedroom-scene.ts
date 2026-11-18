@@ -14,6 +14,7 @@ export interface LiveBedroomScene {
 
 export const LIVE_BEDROOM_DESK_X_RATIO = 1.38;
 export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.82;
+export const LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO = 0.42;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
   const h = Math.max(avatarHeight, 0.1);
@@ -127,6 +128,25 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
     for (const z of [-0.11, 0.11]) {
       makeBox(`desk-leg-${x}-${z}`, [0.035 * h, 0.39 * h, 0.035 * h], [deskX + x * h, 0.2 * h, deskZ + z * h], darkWood);
     }
+  }
+  // A compact upholstered chair sits in front of the desk, with its back toward the room.
+  const chairX = deskX;
+  const chairZ = -0.22 * h;
+  const chairSeatY = LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO * h;
+  const chairFabric = 0x71807d;
+  makeBox('desk-chair-seat', [0.43 * h, 0.055 * h, 0.38 * h],
+    [chairX, chairSeatY, chairZ], chairFabric, 0.92);
+  makeBox('desk-chair-back', [0.4 * h, 0.22 * h, 0.07 * h],
+    [chairX, chairSeatY + 0.13 * h, chairZ - 0.17 * h], chairFabric, 0.92);
+  for (const x of [-0.17, 0.17]) {
+    for (const z of [-0.14, 0.14]) {
+      makeBox(`desk-chair-leg-${x}-${z}`, [0.035 * h, 0.4 * h, 0.035 * h],
+        [chairX + x * h, 0.205 * h, chairZ + z * h], darkWood);
+    }
+  }
+  for (const x of [-0.18, 0.18]) {
+    makeBox(`desk-chair-support-${x}`, [0.035 * h, 0.045 * h, 0.035 * h],
+      [chairX + x * h, chairSeatY + 0.045 * h, chairZ + 0.17 * h], darkWood);
   }
   makeBox('keyboard-base', [0.25 * h, 0.02 * h, 0.085 * h], [deskX, deskY + 0.04 * h, deskZ + 0.075 * h], 0x333a3b, 0.42);
   const keyColors = [0xb9b4a8, 0xc7c0b3, 0x9faaa7];
