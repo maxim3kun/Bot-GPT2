@@ -17,6 +17,7 @@ import {
   Scene,
   SRGBColorSpace,
   Texture,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -32,6 +33,11 @@ import {
   type LiveBedroomScene,
 } from './live-bedroom-scene';
 import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
+import {
+  createFootLockState,
+  solveGroundedLeg,
+  updateFootLock,
+} from './live-foot-ik';
 import {
   applyRetargetedWalkAnimation,
   getRoomWalkPose,
@@ -155,6 +161,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     };
     const baseRotations = new Map<BoneName, Euler>();
     const baseQuaternions = new Map<string, Quaternion>();
+    const footGroundHeights = new Map<string, number>();
+    const footRestWorldQuaternions = new Map<string, Quaternion>();
+    const leftFootLock = createFootLockState();
+    const rightFootLock = createFootLockState();
     const bones = new Map<BoneName, Object3D>();
     const camera = new PerspectiveCamera(40, 1, 0.05, 100);
     const scene = new Scene();
@@ -321,6 +331,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           bones.set(name, bone);
           baseRotations.set(name, bone.rotation.clone());
           baseQuaternions.set(name, bone.quaternion.clone());
+        }
+
+        vrm.scene.updateMatrixWorld(true);
+        for (const name of ['leftFoot', 'rightFoot'] as const) {
+          const foot = bones.get(name);
+          if (!foot) continue;
+          footGroundHeights.set(name, foot.getWorldPosition(new Vector3()).y);
+          footRestWorldQuaternions.set(name, foot.getWorldQuaternion(new Quaternion()));
         }
 
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
@@ -524,6 +542,47 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             0.2,
             WALK_ANIMATED_BONES,
           );
+          const leftStance = walkProgress < 0.5;
+          const rightStance = !leftStance;
+          const leftFoot = bones.get('leftFoot');
+          const rightFoot = bones.get('rightFoot');
+          const leftUpperLeg = bones.get('leftUpperLeg');
+          const leftLowerLeg = bones.get('leftLowerLeg');
+          const rightUpperLeg = bones.get('rightUpperLeg');
+          const rightLowerLeg = bones.get('rightLowerLeg');
+          const leftRestWorld = footRestWorldQuaternions.get('leftFoot');
+          const rightRestWorld = footRestWorldQuaternions.get('rightFoot');
+          const leftGroundHeight = footGroundHeights.get('leftFoot');
+          const rightGroundHeight = footGroundHeights.get('rightFoot');
+
+          if (leftFoot && leftGroundHeight !== undefined) {
+            updateFootLock(leftFootLock, leftStance, leftFoot, leftGroundHeight);
+            if (leftFootLock.planted && leftUpperLeg && leftLowerLeg && leftRestWorld) {
+              solveGroundedLeg({
+                upperLeg: leftUpperLeg,
+                lowerLeg: leftLowerLeg,
+                foot: leftFoot,
+                anchor: leftFootLock.anchor,
+                footRestWorldQuaternion: leftRestWorld,
+              });
+            }
+          }
+
+          if (rightFoot && rightGroundHeight !== undefined) {
+            updateFootLock(rightFootLock, rightStance, rightFoot, rightGroundHeight);
+            if (rightFootLock.planted && rightUpperLeg && rightLowerLeg && rightRestWorld) {
+              solveGroundedLeg({
+                upperLeg: rightUpperLeg,
+                lowerLeg: rightLowerLeg,
+                foot: rightFoot,
+                anchor: rightFootLock.anchor,
+                footRestWorldQuaternion: rightRestWorld,
+              });
+            }
+          }
+        } else {
+          leftFootLock.planted = false;
+          rightFootLock.planted = false;
         }
 
         const lookX = Math.sin(elapsed * (thinking || lookingAround ? 0.72 : 0.31))
