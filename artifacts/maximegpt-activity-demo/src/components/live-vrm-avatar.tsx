@@ -13,6 +13,7 @@ import {
   Object3D,
   PCFShadowMap,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   SRGBColorSpace,
   Texture,
@@ -32,6 +33,7 @@ import {
 } from './live-bedroom-scene';
 import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
 import {
+  applyRetargetedWalkAnimation,
   getRoomWalkPose,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
@@ -39,6 +41,7 @@ import {
   roomWalkTimeForProgress,
   type RoomRoutePoint,
 } from './live-room-gait';
+import walkAnimationData from '../assets/quaternius-walk-loop.json';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
 interface LiveVrmAvatarProps {
@@ -53,6 +56,10 @@ type BoneName =
   | 'hips'
   | 'chest'
   | 'spine'
+  | 'upperChest'
+  | 'neck'
+  | 'leftShoulder'
+  | 'rightShoulder'
   | 'leftUpperLeg'
   | 'rightUpperLeg'
   | 'leftLowerLeg'
@@ -67,6 +74,20 @@ type BoneName =
   | 'rightHand';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const WALK_ANIMATED_BONES = new Set([
+  'hips',
+  'spine',
+  'chest',
+  'upperChest',
+  'neck',
+  'head',
+  'leftUpperLeg',
+  'rightUpperLeg',
+  'leftLowerLeg',
+  'rightLowerLeg',
+  'leftFoot',
+  'rightFoot',
+]);
 
 export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }: LiveVrmAvatarProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -133,6 +154,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       motionFactor = motionPreference.matches ? 0 : 1;
     };
     const baseRotations = new Map<BoneName, Euler>();
+    const baseQuaternions = new Map<string, Quaternion>();
     const bones = new Map<BoneName, Object3D>();
     const camera = new PerspectiveCamera(40, 1, 0.05, 100);
     const scene = new Scene();
@@ -277,6 +299,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           'hips',
           'chest',
           'spine',
+          'upperChest',
+          'neck',
+          'leftShoulder',
+          'rightShoulder',
           'leftUpperLeg',
           'rightUpperLeg',
           'leftLowerLeg',
@@ -294,6 +320,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           if (!bone) continue;
           bones.set(name, bone);
           baseRotations.set(name, bone.rotation.clone());
+          baseQuaternions.set(name, bone.quaternion.clone());
         }
 
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
@@ -346,8 +373,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         const walkingOut = activity.activity === 'walking-to-window';
         const atWindow = activity.activity === 'looking-out-window';
+        const walkingToCenter = activity.activity === 'walking-to-room-center';
         const walkingBack = activity.activity === 'walking-to-desk';
-        const moving = motionFactor > 0 && (walkingOut || walkingBack);
+        const lookingAround = activity.activity === 'looking-around';
+        const moving = motionFactor > 0 && (walkingOut || walkingToCenter || walkingBack);
         modelRoot.position.y = 0;
         const routeProgress = roomRouteMotion.update(
           moving ? activity.activity : 'attending',
@@ -356,7 +385,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
-          walkTargetProgress = walkingOut ? 1 : 0;
+          walkTargetProgress = activity.targetProgress;
         }
         wasMoving = moving;
         if (moving) {
@@ -406,6 +435,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           ? movementHeading
           : atWindow
             ? routeHeading
+            : lookingAround
+              ? Math.sin(elapsed * 0.42) * 0.2
             : thinking
               ? Math.PI * 0.12
               : 0) * motionFactor;
@@ -447,8 +478,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         setBonePose(
           'head',
           (thinking ? 0.1 : 0)
-            + (listening ? Math.sin(elapsed * 1.8) * 0.022 * idleSway : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
-          Math.sin(elapsed * 0.39) * (listening ? 0.034 : 0.017) * idleSway,
+            + (listening
+              ? Math.sin(elapsed * 1.8) * 0.022 * idleSway
+              : lookingAround
+                ? Math.sin(elapsed * 0.9) * 0.035 * idleSway
+                : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
+          Math.sin(elapsed * (lookingAround ? 0.72 : 0.39))
+            * (listening ? 0.034 : lookingAround ? 0.085 : 0.017)
+            * idleSway,
           thinking ? -0.065 : speaking ? Math.sin(elapsed * 1.3) * (0.012 + energy * 0.035) * idleSway : Math.sin(elapsed * 0.51) * 0.012 * idleSway,
         );
         const speechGesture = speaking ? motionFactor * energy * (0.45 + 0.55 * Math.max(0, Math.sin(elapsed * 1.55))) : 0;
@@ -478,8 +515,20 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         setBonePose('leftHand', 0, 0, 0);
         setBonePose('rightHand', 0, 0, 0);
+        if (moving) {
+          applyRetargetedWalkAnimation(
+            walkAnimationData,
+            bones,
+            baseQuaternions,
+            roomWalkTimeForProgress(walkProgress, Math.max(0, walkAnimationData.duration - 1 / 60)),
+            0.2,
+            WALK_ANIMATED_BONES,
+          );
+        }
 
-        const lookX = Math.sin(elapsed * (thinking ? 0.72 : 0.31)) * (thinking ? 0.16 : 0.045) * idleSway;
+        const lookX = Math.sin(elapsed * (thinking || lookingAround ? 0.72 : 0.31))
+          * (thinking ? 0.16 : lookingAround ? 0.12 : 0.045)
+          * idleSway;
         const lookY = avatarHeight * (listening ? 0.79 : thinking ? 0.73 : 0.76) + Math.sin(elapsed * 0.47) * avatarHeight * 0.008 * idleSway;
         const gazeX = atWindow ? windowPositionX : modelRoot.position.x + lookX * avatarHeight;
         gazeTarget.position.set(

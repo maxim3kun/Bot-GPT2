@@ -29,7 +29,7 @@ export function createRoomAutonomy(random: () => number = Math.random) {
 
   let activity: RoomActivity = 'attending';
   let targetProgress = 0;
-  let timeRemaining = duration(2, 4);
+  let timeRemaining = 0;
   let centerNext: 'window' | 'desk' = 'window';
   let wasEngaged = false;
 

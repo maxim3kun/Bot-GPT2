@@ -1,3 +1,5 @@
+import { Quaternion } from 'three';
+
 export const ROOM_WALK_CYCLE_SECONDS = 1.9;
 
 export interface RoomWalkPose {
@@ -16,6 +18,17 @@ export interface RoomWalkPose {
 export interface RoomRoutePoint {
   x: number;
   z: number;
+}
+
+export interface RoomRotationTrack {
+  bone: string;
+  values: readonly number[];
+}
+
+export interface RoomWalkClip {
+  duration: number;
+  times: readonly number[];
+  tracks: readonly RoomRotationTrack[];
 }
 
 const TWO_PI = Math.PI * 2;
@@ -46,6 +59,65 @@ export function getRoomWalkPose(seconds: number): RoomWalkPose {
     bodyBob: (1 - Math.cos(phase * 2)) * 0.0012,
     torsoTwist: -stride * 0.014,
   };
+}
+
+/**
+ * Retarget a source walk by applying its rotation changes relative to its
+ * first pose. This preserves the VRM's own rest pose instead of copying the
+ * source rig's absolute arm and leg angles.
+ */
+export function applyRetargetedWalkAnimation(
+  clip: RoomWalkClip,
+  bones: ReadonlyMap<string, { quaternion: Quaternion }>,
+  baseQuaternions: ReadonlyMap<string, Quaternion>,
+  seconds: number,
+  intensity = 0.2,
+  allowedBones?: ReadonlySet<string>,
+): void {
+  if (clip.duration <= 0 || clip.times.length < 2) return;
+  const time = ((seconds % clip.duration) + clip.duration) % clip.duration;
+  let upperFrame = 1;
+  while (upperFrame < clip.times.length - 1 && clip.times[upperFrame]! <= time) {
+    upperFrame += 1;
+  }
+  const lowerFrame = upperFrame - 1;
+  const lowerTime = clip.times[lowerFrame] ?? 0;
+  const upperTime = clip.times[upperFrame] ?? clip.duration;
+  const frameBlend = upperTime > lowerTime
+    ? clamp((time - lowerTime) / (upperTime - lowerTime), 0, 1)
+    : 0;
+  const sourceFirstPose = new Quaternion();
+  const sourceCurrentPose = new Quaternion();
+  const sourceNextPose = new Quaternion();
+  const sourceDelta = new Quaternion();
+  const scaledDelta = new Quaternion();
+  const target = new Quaternion();
+
+  for (const track of clip.tracks) {
+    if (allowedBones && !allowedBones.has(track.bone)) continue;
+    const bone = bones.get(track.bone);
+    const base = baseQuaternions.get(track.bone);
+    if (!bone || !base || track.values.length < clip.times.length * 4) continue;
+
+    const readFrame = (frame: number, output: Quaternion) => {
+      const offset = frame * 4;
+      return output.set(
+        track.values[offset] ?? 0,
+        track.values[offset + 1] ?? 0,
+        track.values[offset + 2] ?? 0,
+        track.values[offset + 3] ?? 1,
+      ).normalize();
+    };
+
+    readFrame(0, sourceFirstPose);
+    readFrame(lowerFrame, sourceCurrentPose);
+    readFrame(upperFrame, sourceNextPose);
+    sourceCurrentPose.slerp(sourceNextPose, frameBlend);
+    sourceDelta.copy(sourceFirstPose).invert().multiply(sourceCurrentPose);
+    scaledDelta.identity().slerp(sourceDelta, clamp(intensity, 0, 1));
+    target.copy(base).multiply(scaledDelta).normalize();
+    bone.quaternion.copy(target);
+  }
 }
 
 export function routeProgressFromPosition(

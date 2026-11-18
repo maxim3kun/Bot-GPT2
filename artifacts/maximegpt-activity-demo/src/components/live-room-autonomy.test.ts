@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Quaternion } from 'three';
 import {
   createRoomAutonomy,
   createRoomRouteMotion,
+  ROOM_CENTER_PROGRESS,
   ROOM_WALK_DURATION_SECONDS,
   type RoomActivity,
 } from './live-room-autonomy.ts';
 import {
+  applyRetargetedWalkAnimation,
   getRoomWalkPose,
   roomRoutePointAtProgress,
   ROOM_WALK_CYCLE_SECONDS,
@@ -29,7 +32,14 @@ test('repeats only a simple desk-to-window route without unsupported poses', () 
 
   assert.deepEqual(
     [...seen].sort(),
-    ['attending', 'looking-out-window', 'walking-to-desk', 'walking-to-window'].sort(),
+    [
+      'attending',
+      'looking-around',
+      'looking-out-window',
+      'walking-to-desk',
+      'walking-to-room-center',
+      'walking-to-window',
+    ].sort(),
   );
 });
 
@@ -62,6 +72,10 @@ test('eases the route and pauses cleanly during an interaction', () => {
     progress = route.update('walking-to-window', 0.05, progress);
   }
   assert.ok(progress > 0.99);
+
+  const toCenter = route.update('walking-to-room-center', 0.05, progress);
+  assert.ok(toCenter < progress);
+  assert.ok(toCenter > ROOM_CENTER_PROGRESS);
 
   const paused = route.update('attending', 0.05, progress);
   assert.equal(paused, progress);
@@ -123,4 +137,33 @@ test('keeps the walk cycle subtle and alternates the feet and arms', () => {
   assert.ok(Math.abs(half.leftArmSwing + start.leftArmSwing) < 1e-10);
   assert.ok(Math.abs(quarter.leftArmSwing) <= 0.075);
   assert.ok(Math.abs(quarter.leftKnee) <= 0.2);
+});
+
+test('softens the source animation when retargeting it onto the VRM rest pose', () => {
+  const base = new Quaternion();
+  const bone = { quaternion: base.clone() };
+  const excludedArm = { quaternion: base.clone() };
+  const quarterTurn = new Quaternion().setFromAxisAngle({ x: 0, y: 0, z: 1 }, Math.PI / 2);
+  applyRetargetedWalkAnimation(
+    {
+      duration: 1,
+      times: [0, 1],
+      tracks: [{
+        bone: 'hips',
+        values: [0, 0, 0, 1, quarterTurn.x, quarterTurn.y, quarterTurn.z, quarterTurn.w],
+      }, {
+        bone: 'leftUpperArm',
+        values: [0, 0, 0, 1, quarterTurn.x, quarterTurn.y, quarterTurn.z, quarterTurn.w],
+      }],
+    },
+    new Map([['hips', bone], ['leftUpperArm', excludedArm]]),
+    new Map([['hips', base], ['leftUpperArm', base]]),
+    0.5,
+    0.34,
+    new Set(['hips']),
+  );
+
+  assert.ok(bone.quaternion.angleTo(base) > 0.25);
+  assert.ok(bone.quaternion.angleTo(base) < 0.3);
+  assert.equal(excludedArm.quaternion.angleTo(base), 0);
 });
