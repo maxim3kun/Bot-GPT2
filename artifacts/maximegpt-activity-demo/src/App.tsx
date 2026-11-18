@@ -20,6 +20,13 @@ type ViewState = 'checking' | 'authorizing' | 'ready' | 'preview' | 'error';
 type ApiErrorBody = { error?: string };
 type AiConsentStatus = 'accepted' | 'declined' | 'unknown';
 type CompanionMessage = { role: 'user' | 'assistant'; content: string };
+type ActivitySetupStage =
+  | 'discord-context'
+  | 'configuration'
+  | 'discord-authorization'
+  | 'server-token-exchange'
+  | 'discord-authentication'
+  | 'private-data';
 
 interface ActivityAuthResponse {
   activityToken: string;
@@ -143,6 +150,27 @@ function messageForError(error: unknown): string {
   return messages[code] ?? 'Une erreur est survenue. Aucun contenu privé n’a été partagé.';
 }
 
+function messageForSetupError(error: unknown, stage: ActivitySetupStage): string {
+  const genericMessage = 'Une erreur est survenue. Aucun contenu privé n’a été partagé.';
+  const mappedMessage = messageForError(error);
+  if (mappedMessage !== genericMessage) return mappedMessage;
+
+  switch (stage) {
+    case 'discord-context':
+      return 'Discord n’a pas transmis le contexte de cette Activity. Ferme-la puis relance-la depuis un serveur.';
+    case 'configuration':
+      return 'Le serveur n’a pas terminé la vérification de l’Activity. Aucun espace privé n’a été ouvert.';
+    case 'discord-authorization':
+      return 'Discord a interrompu l’autorisation avant d’envoyer un code au serveur. Ferme puis relance l’Activity; si cela recommence, vérifie que tu l’ouvres avec la bonne application Discord.';
+    case 'server-token-exchange':
+      return 'Le serveur n’a pas pu valider le code reçu de Discord. Vérifie que les identifiants OAuth du serveur correspondent à l’application qui lance l’Activity.';
+    case 'discord-authentication':
+      return 'Discord n’a pas confirmé ton identité après l’autorisation. Relance l’Activity; aucune histoire privée n’a été affichée.';
+    case 'private-data':
+      return 'Ton identité Discord a été vérifiée, mais le chargement de l’espace privé a échoué. Les données restent protégées.';
+  }
+}
+
 function messageForConfig(config: ActivityConfig): string {
   if (!config.checks.discordOAuth) {
     return 'L’API doit recevoir l’identifiant et le secret OAuth de l’application Discord. Le secret reste uniquement sur le serveur.';
@@ -201,6 +229,7 @@ function Home() {
     let mounted = true;
     const clientId = activityClientId();
     const start = async () => {
+      let stage: ActivitySetupStage = 'discord-context';
       if (!clientId) {
         setView('error');
         setMessage('Il manque l’identifiant public de l’application Discord dans la configuration de la page.');
@@ -234,6 +263,7 @@ function Home() {
       }
       try {
         setView('authorizing');
+        stage = 'configuration';
         const config = await apiRequest<ActivityConfig>(`/api/activity/config?clientId=${encodeURIComponent(clientId)}`);
         if (!config.ready) {
           setView('error');
@@ -242,6 +272,7 @@ function Home() {
         }
         const verifier = makeVerifier();
         const challenge = await makeChallenge(verifier);
+        stage = 'discord-authorization';
         const authorization = await sdk.commands.authorize({
           client_id: clientId,
           response_type: 'code',
@@ -250,10 +281,12 @@ function Home() {
           code_challenge: challenge,
           code_challenge_method: 'S256',
         });
+        stage = 'server-token-exchange';
         const login = await apiRequest<ActivityAuthResponse>('/api/activity/auth', {
           method: 'POST',
           body: { code: authorization.code, codeVerifier: verifier, guildId, clientId },
         });
+        stage = 'discord-authentication';
         const discordUser = await sdk.commands.authenticate({
           access_token: login.discordAccessToken,
         });
@@ -265,6 +298,7 @@ function Home() {
         updateToken(login.activityToken);
         setDisplayName(login.displayName || discordUser.user.username);
         setSessionId(login.sessionId);
+        stage = 'private-data';
         const [personal, aiConsentState] = await Promise.all([
           apiRequest<{ story: StoryState }>('/api/activity/me', { token: login.activityToken }),
           apiRequest<{ status: AiConsentStatus }>('/api/activity/ai-consent', { token: login.activityToken }),
@@ -278,7 +312,7 @@ function Home() {
       } catch (error) {
         if (!mounted) return;
         setView('error');
-        setMessage(messageForError(error));
+        setMessage(messageForSetupError(error, stage));
       }
     };
     void start();
@@ -683,7 +717,7 @@ function Home() {
           </div>
           <h1 className="mt-6 font-serif text-4xl tracking-tight">Connexion bloquée</h1>
           <p className="mt-4 leading-7 text-[#60576a]">{message}</p>
-          <p className="mt-5 text-sm leading-6 text-[#756d7b]">Pour protéger les histoires, l’Activity refuse de continuer si Discord, MongoDB ou le chiffrement n’est pas vérifié.</p>
+          <p className="mt-5 text-sm leading-6 text-[#756d7b]">Aucune histoire privée n’est chargée avant la validation de ton identité et des contrôles de sécurité.</p>
           <button onClick={closeActivity} className="mt-8 rounded-xl bg-[#302b3d] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#463e54]">
             Fermer
           </button>
