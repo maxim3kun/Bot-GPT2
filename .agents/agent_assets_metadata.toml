@@ -49,3 +49,17 @@ mtime_ms = 1794479655199
 storage_uri = "gcs://replit-rams-assets-kira/rams/assets/repl:611b98a4-0f73-43fc-a0eb-c610e829c804/732cbc7d-1fb2-469a-8c7c-16db60291ccc/069092c7-9127-4e93-ba91-a39bfead2a9c"
 storage_version_token = "1794479694303383"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "MnBXdKOsXxwAnE_BznkAn"
+uri = "file://attached_assets/generated_images/maxime-full-body-crop.jpg"
+type = "image"
+title = "Maxime — vue en pied"
+description = "Illustration préparée du personnage de Maxime, avec sa tenue futuriste cyan et noire."
+logical_id = "58f1809f-ef47-4d75-a187-d8a2ded6cc55"
+content_hash = "sha256:077354fb04aae275e89373cf67e0e9ae9c92b6b35718dea96ac21ea763f7a562"
+size = 69104
+mtime_ms = 1794935502782
+storage_uri = "gcs://replit-rams-assets-kira/rams/assets/repl:611b98a4-0f73-43fc-a0eb-c610e829c804/58f1809f-ef47-4d75-a187-d8a2ded6cc55/de54cfcc-dd0d-4069-a263-dff4a7138027"
+storage_version_token = "1794981300495163"
+content_type = "image/jpeg"
