@@ -123,9 +123,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
     const rebuildBedroom = () => {
       if (!vrm || !avatarHeight) return;
-      const cameraDistance = Math.hypot(camera.position.y - avatarHeight * 0.47, camera.position.z);
-      const visibleWorldWidth = 2 * cameraDistance * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect;
-      const nextBedroom = createLiveBedroomScene(avatarHeight, deskPositionX - visibleWorldWidth * 0.385);
+      const nextBedroom = createLiveBedroomScene(avatarHeight, deskPositionX - avatarHeight * 0.46);
       if (bedroom) {
         scene.remove(bedroom.group);
         bedroom.dispose();
@@ -254,9 +252,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
             : walkingBack
               ? 1 - smoothStep((promenadeTime - 12) / 4)
               : 0;
-        const cameraDistance = Math.hypot(camera.position.y - avatarHeight * 0.47, camera.position.z);
-        const visibleWorldWidth = 2 * cameraDistance * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect;
-        const windowTravel = visibleWorldWidth * 0.385;
+        const windowTravel = avatarHeight * 0.46;
         const moving = motionFactor > 0 && (walkingOut || walkingBack);
         const walkBlend = MathUtils.damp(
           Number(modelRoot.userData.walkBlend ?? 0),
@@ -274,22 +270,31 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
         // The camera trails the route slightly and looks just ahead, keeping Maxime framed
         // while the room moves through the composition instead of sliding the character away.
-        const cameraTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.13, -avatarHeight * 0.18, avatarHeight * 0.18);
-        camera.position.x = MathUtils.damp(camera.position.x, cameraTargetX, 2.4, delta);
-        const lookTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.055, -avatarHeight * 0.08, avatarHeight * 0.08);
+        const cameraTargetX = deskPositionX - windowTravel * travelProgress * 0.74
+          + clamp(smoothedVelocityX * 0.045, -avatarHeight * 0.045, avatarHeight * 0.045);
+        camera.position.x = MathUtils.damp(camera.position.x, cameraTargetX, 1.9, delta);
+        const lookTargetX = modelRoot.position.x + clamp(smoothedVelocityX * 0.025, -avatarHeight * 0.025, avatarHeight * 0.025);
         cameraLookX = MathUtils.damp(cameraLookX, lookTargetX, 3.1, delta);
         camera.lookAt(cameraLookX, avatarHeight * 0.47, 0);
 
-        const facingTarget = walkingOut
-          ? -Math.PI / 2
+        const walkDistanceProgress = walkingOut
+          ? smoothStep((promenadeTime - 4) / 4)
           : atWindow
-            ? -Math.PI / 2 + Math.PI * smoothStep((promenadeTime - 10.2) / 1.8)
+            ? 1
             : walkingBack
-              ? Math.PI / 2 * (1 - smoothStep((promenadeTime - 14.4) / 1.6))
+              ? 1 + smoothStep((promenadeTime - 12) / 4)
               : 0;
+        const profileTurn = Math.PI * 0.22;
+        const facingTarget = (walkingOut
+          ? -profileTurn
+          : atWindow
+            ? -profileTurn + profileTurn * 2 * smoothStep((promenadeTime - 10.2) / 1.8)
+            : walkingBack
+              ? profileTurn * (1 - smoothStep((promenadeTime - 14.4) / 1.6))
+              : 0) * motionFactor;
         const facingDelta = Math.atan2(Math.sin(facingTarget - modelRoot.rotation.y), Math.cos(facingTarget - modelRoot.rotation.y));
-        modelRoot.rotation.y += facingDelta * (1 - Math.exp(-2.1 * delta));
-        const gaitPhase = elapsed * 5.1 + Math.sin(elapsed * 0.42) * 0.12;
+        modelRoot.rotation.y += facingDelta * (1 - Math.exp(-1.25 * delta));
+        const gaitPhase = 0.18 + walkDistanceProgress * Math.PI * 2 * 1.45;
         const leftStep = Math.sin(gaitPhase) * walkBlend;
         const rightStep = Math.sin(gaitPhase + Math.PI) * walkBlend;
 
@@ -304,14 +309,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           );
         };
 
-        setBonePose('hips', Math.abs(Math.sin(gaitPhase * 2)) * walkBlend * 0.025, Math.sin(elapsed * 0.52) * 0.008 * idleSway, Math.sin(gaitPhase) * walkBlend * 0.025);
-        setBonePose('leftUpperLeg', leftStep * 0.34, 0, 0);
-        setBonePose('rightUpperLeg', rightStep * 0.34, 0, 0);
-        setBonePose('leftLowerLeg', Math.max(0, -leftStep) * 0.46, 0, 0);
-        setBonePose('rightLowerLeg', Math.max(0, -rightStep) * 0.46, 0, 0);
-        setBonePose('leftFoot', Math.max(0, leftStep) * -0.18, 0, 0);
-        setBonePose('rightFoot', Math.max(0, rightStep) * -0.18, 0, 0);
-        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0), 0, Math.sin(gaitPhase) * walkBlend * 0.018);
+        setBonePose('hips', Math.abs(Math.sin(gaitPhase * 2)) * walkBlend * 0.009, Math.sin(elapsed * 0.52) * 0.008 * idleSway, Math.sin(gaitPhase) * walkBlend * 0.008);
+        setBonePose('leftUpperLeg', leftStep * 0.14, 0, 0);
+        setBonePose('rightUpperLeg', rightStep * 0.14, 0, 0);
+        setBonePose('leftLowerLeg', Math.max(0, -leftStep) * 0.16, 0, 0);
+        setBonePose('rightLowerLeg', Math.max(0, -rightStep) * 0.16, 0, 0);
+        setBonePose('leftFoot', Math.max(0, leftStep) * -0.07, 0, 0);
+        setBonePose('rightFoot', Math.max(0, rightStep) * -0.07, 0, 0);
+        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0), 0, Math.sin(gaitPhase) * walkBlend * 0.007);
         setBonePose('chest', Math.sin(elapsed * 1.1) * 0.008 * idleSway, 0, speaking ? Math.sin(elapsed * 1.35) * energy * 0.018 : 0);
         setBonePose(
           'head',
@@ -322,8 +327,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const typingPhase = elapsed * 10.5;
         const typePulse = thinking ? motionFactor : 0;
         const speechGesture = speaking ? motionFactor * energy * (0.45 + 0.55 * Math.max(0, Math.sin(elapsed * 1.55))) : 0;
-        setBonePose('leftUpperArm', (thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11 : Math.sin(elapsed * 0.66) * 0.012 * idleSway) + leftStep * 0.14, thinking ? -1.2 : speaking ? -0.25 : 0, thinking ? 0.66 : speaking ? 1.02 + speechGesture * 0.14 : 1.18);
-        setBonePose('rightUpperArm', (thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08 : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway) + rightStep * 0.14, thinking ? 1.2 : speaking ? 0.18 : 0, thinking ? -0.66 : -1.18);
+        setBonePose('leftUpperArm', (thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11 : Math.sin(elapsed * 0.66) * 0.012 * idleSway) + rightStep * 0.045, thinking ? -1.2 : speaking ? -0.25 : 0, thinking ? 0.66 : speaking ? 1.02 + speechGesture * 0.14 : 1.18);
+        setBonePose('rightUpperArm', (thinking ? -0.08 : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08 : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway) + leftStep * 0.045, thinking ? 1.2 : speaking ? 0.18 : 0, thinking ? -0.66 : -1.18);
         setBonePose('leftLowerArm', thinking ? -0.1 + Math.sin(typingPhase) * 0.06 * typePulse : speaking ? -0.28 : -0.04, 0, thinking ? Math.sin(typingPhase) * 0.035 * typePulse : 0.035);
         setBonePose('rightLowerArm', thinking ? -0.1 + Math.sin(typingPhase + 1.5) * 0.06 * typePulse : speaking ? -0.08 : -0.04, 0, thinking ? Math.sin(typingPhase + 1.5) * 0.035 * typePulse : -0.035);
         setBonePose('leftHand', 0, 0, thinking ? Math.sin(typingPhase) * 0.045 * typePulse : 0);
