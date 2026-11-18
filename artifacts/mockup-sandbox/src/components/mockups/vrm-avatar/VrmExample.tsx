@@ -8,6 +8,7 @@ import {
   Group,
   Mesh,
   MeshStandardMaterial,
+  MathUtils,
   Object3D,
   PerspectiveCamera,
   Scene,
@@ -107,11 +108,22 @@ export function VrmExample() {
     const gazePoint = new Vector3();
     let keyboard: Group | null = null;
     const typingKeys: Mesh[] = [];
-    const setBoneRotation = (bone: Object3D | null, x = 0, y = 0, z = 0) => {
+    const setBoneRotation = (
+      bone: Object3D | null,
+      delta: number,
+      x = 0,
+      y = 0,
+      z = 0,
+    ) => {
       if (!bone) return;
       const base = baseRotations.get(bone);
       if (!base) return;
-      bone.rotation.set(base.x + x, base.y + y, base.z + z);
+      const smoothing = 11;
+      bone.rotation.set(
+        MathUtils.damp(bone.rotation.x, base.x + x, smoothing, delta),
+        MathUtils.damp(bone.rotation.y, base.y + y, smoothing, delta),
+        MathUtils.damp(bone.rotation.z, base.z + z, smoothing, delta),
+      );
     };
     const scene = new Scene();
     const camera = new PerspectiveCamera(30, 1, 0.1, 100);
@@ -391,17 +403,17 @@ export function VrmExample() {
         }
 
         vrm.scene.position.y = modelBaseY + rootLift;
-        setBoneRotation(head, headX, headY, headZ);
-        setBoneRotation(spine, spineX, 0, spineZ);
-        setBoneRotation(hips, 0, hipsY, hipsZ);
-        setBoneRotation(leftUpperArm, leftArmX, leftArmY, leftArmZ);
-        setBoneRotation(rightUpperArm, rightArmX, rightArmY, rightArmZ);
-        setBoneRotation(leftLowerArm, leftForearmX, 0, leftForearmZ);
-        setBoneRotation(rightLowerArm, rightForearmX, 0, rightForearmZ);
-        setBoneRotation(leftUpperLeg, leftLegX);
-        setBoneRotation(rightUpperLeg, rightLegX);
-        setBoneRotation(leftLowerLeg, leftKneeX);
-        setBoneRotation(rightLowerLeg, rightKneeX);
+        setBoneRotation(head, delta, headX, headY, headZ);
+        setBoneRotation(spine, delta, spineX, 0, spineZ);
+        setBoneRotation(hips, delta, 0, hipsY, hipsZ);
+        setBoneRotation(leftUpperArm, delta, leftArmX, leftArmY, leftArmZ);
+        setBoneRotation(rightUpperArm, delta, rightArmX, rightArmY, rightArmZ);
+        setBoneRotation(leftLowerArm, delta, leftForearmX, 0, leftForearmZ);
+        setBoneRotation(rightLowerArm, delta, rightForearmX, 0, rightForearmZ);
+        setBoneRotation(leftUpperLeg, delta, leftLegX);
+        setBoneRotation(rightUpperLeg, delta, rightLegX);
+        setBoneRotation(leftLowerLeg, delta, leftKneeX);
+        setBoneRotation(rightLowerLeg, delta, rightKneeX);
         const expressions = vrm.expressionManager;
         if (expressions) {
           const now = performance.now();
@@ -508,9 +520,9 @@ export function VrmExample() {
           )}
           {error && <p className="vrm-demo__error">{error}</p>}
           <div className="vrm-demo__floor" aria-hidden="true" />
-          <span className="vrm-demo__gaze-hint">Déplace le pointeur : elle le suit du regard</span>
         </div>
         <div className="vrm-demo__controls">
+          <span className="vrm-demo__gaze-hint">Déplace le pointeur : elle le suit du regard</span>
           {[
             { id: 'conversation', title: 'Conversation' },
             { id: 'movement', title: 'Mouvements' },

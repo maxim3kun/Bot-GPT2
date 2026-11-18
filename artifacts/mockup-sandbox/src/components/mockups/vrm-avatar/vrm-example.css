@@ -152,10 +152,7 @@
 }
 
 .vrm-demo__gaze-hint {
-  position: absolute;
-  z-index: 2;
-  bottom: 17px;
-  left: 50%;
+  justify-self: center;
   padding: 8px 12px;
   border: 1px solid rgb(157 181 222 / 15%);
   border-radius: 999px;
@@ -163,7 +160,6 @@
   background: rgb(11 16 31 / 62%);
   font-size: 11px;
   pointer-events: none;
-  transform: translateX(-50%);
   backdrop-filter: blur(10px);
 }
 
@@ -323,7 +319,6 @@
   }
 
   .vrm-demo__gaze-hint {
-    bottom: 11px;
     width: max-content;
     max-width: calc(100% - 20px);
     font-size: 10px;
