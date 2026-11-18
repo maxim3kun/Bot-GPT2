@@ -6,6 +6,8 @@ import {
   Box3,
   DirectionalLight,
   Euler,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   LoopRepeat,
   MeshStandardMaterial,
   MathUtils,
@@ -14,6 +16,7 @@ import {
   QuaternionKeyframeTrack,
   Scene,
   SRGBColorSpace,
+  Texture,
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -85,7 +88,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     try {
       renderer = new WebGLRenderer({
         alpha: true,
-        antialias: !lowPowerDevice,
+        antialias: true,
         powerPreference: 'high-performance',
       });
     } catch {
@@ -187,6 +190,28 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         }
 
         VRMUtils.rotateVRM0(vrm);
+        const textureAnisotropy = Math.min(
+          renderer.capabilities.getMaxAnisotropy(),
+          lowPowerDevice ? 2 : isPhone ? 4 : 8,
+        );
+        const avatarTextures = new Set<Texture>();
+        vrm.scene.traverse((object) => {
+          if (!('material' in object)) return;
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          for (const material of materials) {
+            for (const value of Object.values(material)) {
+              if (value instanceof Texture) avatarTextures.add(value);
+            }
+          }
+        });
+        for (const texture of avatarTextures) {
+          texture.anisotropy = textureAnisotropy;
+          if (texture.minFilter === LinearFilter) {
+            texture.minFilter = LinearMipmapLinearFilter;
+            texture.generateMipmaps = true;
+          }
+          texture.needsUpdate = true;
+        }
         modelRoot.add(vrm.scene);
         vrm.scene.updateMatrixWorld(true);
         const bounds = new Box3().setFromObject(vrm.scene);
