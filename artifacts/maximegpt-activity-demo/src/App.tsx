@@ -277,7 +277,6 @@ function Home() {
           client_id: clientId,
           response_type: 'code',
           scope: ['identify', 'guilds'],
-          prompt: 'none',
           code_challenge: challenge,
           code_challenge_method: 'S256',
         });

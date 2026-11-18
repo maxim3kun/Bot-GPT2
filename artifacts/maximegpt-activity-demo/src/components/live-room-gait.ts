@@ -1,71 +1,46 @@
-import { Quaternion, type Object3D } from 'three';
+export const ROOM_WALK_CYCLE_SECONDS = 1.9;
 
-export interface RoomWalkTrack {
-  bone: string;
-  values: number[];
+export interface RoomWalkPose {
+  leftHip: number;
+  rightHip: number;
+  leftKnee: number;
+  rightKnee: number;
+  leftFoot: number;
+  rightFoot: number;
+  leftArmSwing: number;
+  rightArmSwing: number;
+  bodyBob: number;
+  torsoTwist: number;
 }
 
-export interface RoomWalkAnimation {
-  duration: number;
-  times: number[];
-  tracks: RoomWalkTrack[];
-}
-
+const TWO_PI = Math.PI * 2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const startQuaternion = new Quaternion();
-const endQuaternion = new Quaternion();
 
 /**
- * Applies the retargeted walk clip in the VRM's normalized local bone space.
- * Its phase is driven by route progress so the feet and the room displacement
- * advance together instead of playing as an unrelated loop.
+ * A deliberately restrained walk cycle for this specific VRM.
+ * Phase is driven by route distance, not wall-clock time, so the steps stay
+ * coupled to the character's movement through the room.
  */
-export function applyRoomWalkAnimation(
-  animation: RoomWalkAnimation,
-  bones: ReadonlyMap<string, Object3D>,
-  restPose: ReadonlyMap<string, Quaternion>,
-  timeSeconds: number,
-  weight = 1,
-): void {
-  if (animation.duration <= 0 || animation.times.length < 2 || !animation.tracks.length) return;
+export function getRoomWalkPose(seconds: number): RoomWalkPose {
+  const cycle = ((seconds % ROOM_WALK_CYCLE_SECONDS) + ROOM_WALK_CYCLE_SECONDS)
+    % ROOM_WALK_CYCLE_SECONDS;
+  const phase = TWO_PI * cycle / ROOM_WALK_CYCLE_SECONDS;
+  const stride = Math.sin(phase);
+  const leftLift = Math.max(0, -Math.cos(phase));
+  const rightLift = Math.max(0, Math.cos(phase));
 
-  const time = ((timeSeconds % animation.duration) + animation.duration) % animation.duration;
-  let upper = 1;
-  while (upper < animation.times.length - 1 && animation.times[upper]! < time) upper += 1;
-  const lower = upper - 1;
-  const lowerTime = animation.times[lower]!;
-  const upperTime = animation.times[upper]!;
-  const interpolation = upperTime > lowerTime
-    ? clamp((time - lowerTime) / (upperTime - lowerTime), 0, 1)
-    : 0;
-  const amount = clamp(weight, 0, 1);
-
-  for (const track of animation.tracks) {
-    const bone = bones.get(track.bone);
-    const base = restPose.get(track.bone);
-    const lowerOffset = lower * 4;
-    const upperOffset = upper * 4;
-    if (!bone || !base || track.values.length < upperOffset + 4) continue;
-
-    startQuaternion
-      .set(
-        track.values[lowerOffset]!,
-        track.values[lowerOffset + 1]!,
-        track.values[lowerOffset + 2]!,
-        track.values[lowerOffset + 3]!,
-      )
-      .normalize();
-    endQuaternion
-      .set(
-        track.values[upperOffset]!,
-        track.values[upperOffset + 1]!,
-        track.values[upperOffset + 2]!,
-        track.values[upperOffset + 3]!,
-      )
-      .normalize();
-    startQuaternion.slerp(endQuaternion, interpolation);
-    bone.quaternion.slerpQuaternions(base, startQuaternion, amount);
-  }
+  return {
+    leftHip: stride * 0.16,
+    rightHip: -stride * 0.16,
+    leftKnee: leftLift * 0.2,
+    rightKnee: rightLift * 0.2,
+    leftFoot: -leftLift * 0.075,
+    rightFoot: -rightLift * 0.075,
+    leftArmSwing: -stride * 0.075,
+    rightArmSwing: stride * 0.075,
+    bodyBob: (1 - Math.cos(phase * 2)) * 0.0012,
+    torsoTwist: -stride * 0.014,
+  };
 }
 
 export function routeProgressFromPosition(
