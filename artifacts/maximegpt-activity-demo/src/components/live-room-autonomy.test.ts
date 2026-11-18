@@ -135,7 +135,7 @@ test('routes around the desk and chair without entering their clearance zones', 
   assert.deepEqual(roomRoutePointAtProgress(route, 1), route.at(-1));
 });
 
-test('keeps the walk cycle subtle and alternates the feet and arms', () => {
+test('keeps the walk cycle balanced and alternates the feet and arms', () => {
   const start = getRoomWalkPose(0);
   const quarter = getRoomWalkPose(ROOM_WALK_CYCLE_SECONDS / 4);
   const half = getRoomWalkPose(ROOM_WALK_CYCLE_SECONDS / 2);
@@ -145,7 +145,7 @@ test('keeps the walk cycle subtle and alternates the feet and arms', () => {
   assert.ok(Math.abs(quarter.leftArmSwing + quarter.rightArmSwing) < 1e-10);
   assert.ok(Math.abs(half.leftHip + start.leftHip) < 1e-10);
   assert.ok(Math.abs(half.leftArmSwing + start.leftArmSwing) < 1e-10);
-  assert.ok(Math.abs(quarter.leftArmSwing) <= 0.075);
+  assert.ok(Math.abs(quarter.leftArmSwing) <= 0.14);
   assert.ok(Math.abs(quarter.leftKnee) <= 0.2);
 });
 

@@ -76,10 +76,10 @@ export function getRoomWalkPose(seconds: number): RoomWalkPose {
     rightKnee: rightLift * 0.2,
     leftFoot: -leftLift * 0.075,
     rightFoot: -rightLift * 0.075,
-    leftArmSwing: -stride * 0.075,
-    rightArmSwing: stride * 0.075,
-    bodyBob: (1 - Math.cos(phase * 2)) * 0.0012,
-    torsoTwist: -stride * 0.014,
+    leftArmSwing: -stride * 0.14,
+    rightArmSwing: stride * 0.14,
+    bodyBob: (1 - Math.cos(phase * 2)) * 0.004,
+    torsoTwist: -stride * 0.024,
   };
 }
 

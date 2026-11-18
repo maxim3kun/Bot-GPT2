@@ -34,21 +34,22 @@ import {
 } from './live-bedroom-scene';
 import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
 import {
+  captureFootStart,
   createFootLockState,
+  getSwingFootTarget,
   solveGroundedLeg,
   updateFootLock,
 } from './live-foot-ik';
 import {
-  applyRetargetedWalkAnimation,
   getRoomWalkPose,
   roomRouteLength,
   roomWalkCyclesForDistance,
+  ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
   routeProgressFromPosition,
   type RoomRoutePoint,
 } from './live-room-gait';
-import walkAnimationData from '../assets/quaternius-walk-loop.json';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
 interface LiveVrmAvatarProps {
@@ -81,20 +82,6 @@ type BoneName =
   | 'rightHand';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const WALK_ANIMATED_BONES = new Set([
-  'hips',
-  'spine',
-  'chest',
-  'upperChest',
-  'neck',
-  'head',
-  'leftUpperLeg',
-  'rightUpperLeg',
-  'leftLowerLeg',
-  'rightLowerLeg',
-  'leftFoot',
-  'rightFoot',
-]);
 
 export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }: LiveVrmAvatarProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -161,9 +148,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       motionFactor = motionPreference.matches ? 0 : 1;
     };
     const baseRotations = new Map<BoneName, Euler>();
-    const baseQuaternions = new Map<string, Quaternion>();
     const footGroundHeights = new Map<string, number>();
-    const footRestWorldQuaternions = new Map<string, Quaternion>();
+    const footRestRootQuaternions = new Map<string, Quaternion>();
     const leftFootLock = createFootLockState();
     const rightFootLock = createFootLockState();
     const bones = new Map<BoneName, Object3D>();
@@ -332,15 +318,18 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           if (!bone) continue;
           bones.set(name, bone);
           baseRotations.set(name, bone.rotation.clone());
-          baseQuaternions.set(name, bone.quaternion.clone());
         }
 
         vrm.scene.updateMatrixWorld(true);
+        const inverseRootRotation = modelRoot.getWorldQuaternion(new Quaternion()).invert();
         for (const name of ['leftFoot', 'rightFoot'] as const) {
           const foot = bones.get(name);
           if (!foot) continue;
           footGroundHeights.set(name, foot.getWorldPosition(new Vector3()).y);
-          footRestWorldQuaternions.set(name, foot.getWorldQuaternion(new Quaternion()));
+          footRestRootQuaternions.set(
+            name,
+            inverseRootRotation.clone().multiply(foot.getWorldQuaternion(new Quaternion())),
+          );
         }
 
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
@@ -405,6 +394,16 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
+          const leftFoot = bones.get('leftFoot');
+          const rightFoot = bones.get('rightFoot');
+          const leftGroundHeight = footGroundHeights.get('leftFoot');
+          const rightGroundHeight = footGroundHeights.get('rightFoot');
+          if (leftFoot && leftGroundHeight !== undefined) {
+            captureFootStart(leftFootLock, leftFoot, leftGroundHeight);
+          }
+          if (rightFoot && rightGroundHeight !== undefined) {
+            captureFootStart(rightFootLock, rightFoot, rightGroundHeight);
+          }
         }
         wasMoving = moving;
         if (moving) {
@@ -417,6 +416,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const walkPose = getRoomWalkPose(
           walkCycles * ROOM_WALK_CYCLE_SECONDS,
         );
+        modelRoot.position.y = moving ? walkPose.bodyBob * avatarHeight : 0;
         const travelProgress = moving ? routeProgress : positionProgress;
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
@@ -533,14 +533,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         setBonePose('leftHand', 0, 0, 0);
         setBonePose('rightHand', 0, 0, 0);
         if (moving) {
-          applyRetargetedWalkAnimation(
-            walkAnimationData,
-            bones,
-            baseQuaternions,
-            walkCycles * walkAnimationData.duration,
-            0.2,
-            WALK_ANIMATED_BONES,
-          );
           const gaitPhase = walkCycles % 1;
           const leftStance = gaitPhase < 0.5;
           const rightStance = !leftStance;
@@ -550,33 +542,73 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           const leftLowerLeg = bones.get('leftLowerLeg');
           const rightUpperLeg = bones.get('rightUpperLeg');
           const rightLowerLeg = bones.get('rightLowerLeg');
-          const leftRestWorld = footRestWorldQuaternions.get('leftFoot');
-          const rightRestWorld = footRestWorldQuaternions.get('rightFoot');
+          const leftRestRoot = footRestRootQuaternions.get('leftFoot');
+          const rightRestRoot = footRestRootQuaternions.get('rightFoot');
           const leftGroundHeight = footGroundHeights.get('leftFoot');
           const rightGroundHeight = footGroundHeights.get('rightFoot');
+          const gaitForward = new Vector3(
+            Math.sin(movementHeading),
+            0,
+            Math.cos(movementHeading),
+          );
+          // A foot advances half of the full same-foot gait cycle on each swing.
+          const swingLength = avatarHeight * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO * 0.5;
+          const footLift = avatarHeight * 0.085;
+          modelRoot.updateWorldMatrix(true, false);
+          const rootRotation = modelRoot.getWorldQuaternion(new Quaternion());
 
           if (leftFoot && leftGroundHeight !== undefined) {
             updateFootLock(leftFootLock, leftStance, leftFoot, leftGroundHeight);
-            if (leftFootLock.planted && leftUpperLeg && leftLowerLeg && leftRestWorld) {
+            const swingProgress = gaitPhase >= 0.5 ? (gaitPhase - 0.5) * 2 : 0;
+            const target = leftStance
+              ? leftFootLock.anchor
+              : getSwingFootTarget(
+                leftFootLock.anchor,
+                gaitForward,
+                swingLength,
+                swingProgress,
+                leftGroundHeight,
+                footLift,
+              );
+            const footRotation = leftStance
+              ? leftFootLock.anchorQuaternion
+              : rootRotation.clone().multiply(leftRestRoot ?? new Quaternion());
+            if (leftUpperLeg && leftLowerLeg) {
               solveGroundedLeg({
                 upperLeg: leftUpperLeg,
                 lowerLeg: leftLowerLeg,
                 foot: leftFoot,
-                anchor: leftFootLock.anchor,
-                footRestWorldQuaternion: leftRestWorld,
+                anchor: target,
+                footRestWorldQuaternion: footRotation,
+                kneePoleDirection: gaitForward,
               });
             }
           }
 
           if (rightFoot && rightGroundHeight !== undefined) {
             updateFootLock(rightFootLock, rightStance, rightFoot, rightGroundHeight);
-            if (rightFootLock.planted && rightUpperLeg && rightLowerLeg && rightRestWorld) {
+            const swingProgress = gaitPhase < 0.5 ? gaitPhase * 2 : 0;
+            const target = rightStance
+              ? rightFootLock.anchor
+              : getSwingFootTarget(
+                rightFootLock.anchor,
+                gaitForward,
+                swingLength,
+                swingProgress,
+                rightGroundHeight,
+                footLift,
+              );
+            const footRotation = rightStance
+              ? rightFootLock.anchorQuaternion
+              : rootRotation.clone().multiply(rightRestRoot ?? new Quaternion());
+            if (rightUpperLeg && rightLowerLeg) {
               solveGroundedLeg({
                 upperLeg: rightUpperLeg,
                 lowerLeg: rightLowerLeg,
                 foot: rightFoot,
-                anchor: rightFootLock.anchor,
-                footRestWorldQuaternion: rightRestWorld,
+                anchor: target,
+                footRestWorldQuaternion: footRotation,
+                kneePoleDirection: gaitForward,
               });
             }
           }

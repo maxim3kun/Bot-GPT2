@@ -3,6 +3,7 @@ import { Object3D, Quaternion, Vector3 } from 'three';
 export interface FootLockState {
   planted: boolean;
   anchor: Vector3;
+  anchorQuaternion: Quaternion;
 }
 
 export interface LegIkChain {
@@ -11,13 +12,40 @@ export interface LegIkChain {
   foot: Object3D;
   anchor: Vector3;
   footRestWorldQuaternion: Quaternion;
+  kneePoleDirection?: Vector3;
 }
 
 const EPSILON = 1e-5;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function createFootLockState(): FootLockState {
-  return { planted: false, anchor: new Vector3() };
+  return { planted: false, anchor: new Vector3(), anchorQuaternion: new Quaternion() };
+}
+
+export function captureFootStart(state: FootLockState, foot: Object3D, groundAnkleHeight: number): void {
+  foot.updateWorldMatrix(true, false);
+  foot.getWorldPosition(state.anchor);
+  foot.getWorldQuaternion(state.anchorQuaternion);
+  state.anchor.y = groundAnkleHeight;
+  state.planted = false;
+}
+
+export function getSwingFootTarget(
+  start: Vector3,
+  forward: Vector3,
+  strideLength: number,
+  progress: number,
+  groundAnkleHeight: number,
+  liftHeight: number,
+): Vector3 {
+  const t = clamp(progress, 0, 1);
+  const eased = t * t * (3 - 2 * t);
+  const direction = forward.clone();
+  direction.y = 0;
+  if (direction.lengthSq() > EPSILON) direction.normalize();
+  return start.clone()
+    .addScaledVector(direction, Math.max(0, strideLength) * eased)
+    .setY(groundAnkleHeight + Math.sin(Math.PI * t) * Math.max(0, liftHeight));
 }
 
 /** Capture a foot's world position at heel contact and keep its ankle at floor height. */
@@ -35,6 +63,7 @@ export function updateFootLock(
   if (!state.planted) {
     foot.updateWorldMatrix(true, false);
     foot.getWorldPosition(state.anchor);
+    foot.getWorldQuaternion(state.anchorQuaternion);
     state.anchor.y = groundAnkleHeight;
     state.planted = true;
   }
@@ -56,7 +85,14 @@ function rotateBoneToMatchVector(bone: Object3D, current: Vector3, target: Vecto
  * used as the pole so the knee keeps bending in the same forward-facing plane.
  */
 export function solveGroundedLeg(chain: LegIkChain): boolean {
-  const { upperLeg, lowerLeg, foot, anchor, footRestWorldQuaternion } = chain;
+  const {
+    upperLeg,
+    lowerLeg,
+    foot,
+    anchor,
+    footRestWorldQuaternion,
+    kneePoleDirection,
+  } = chain;
   upperLeg.updateWorldMatrix(true, true);
 
   const hipPosition = upperLeg.getWorldPosition(new Vector3());
@@ -74,7 +110,7 @@ export function solveGroundedLeg(chain: LegIkChain): boolean {
   const distance = clamp(rawDistance, minReach, maxReach);
   const direction = hipToTarget.normalize();
 
-  const pole = kneePosition.clone().sub(hipPosition);
+  const pole = kneePoleDirection?.clone() ?? kneePosition.clone().sub(hipPosition);
   pole.addScaledVector(direction, -pole.dot(direction));
   if (pole.lengthSq() < EPSILON) {
     pole.set(0, 0, 1).addScaledVector(direction, -direction.z);

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { Object3D, Quaternion, Vector3 } from 'three';
 import {
   createFootLockState,
+  getSwingFootTarget,
   solveGroundedLeg,
   updateFootLock,
 } from './live-foot-ik.ts';
@@ -35,11 +36,13 @@ test('locks a planted ankle in world space while the body moves', () => {
     ...leg,
     anchor: state.anchor,
     footRestWorldQuaternion: leg.foot.getWorldQuaternion(new Quaternion()),
+    kneePoleDirection: new Vector3(0, 0, 1),
   });
   leg.root.updateMatrixWorld(true);
 
   assert.equal(solved, true);
   assert.ok(leg.foot.getWorldPosition(new Vector3()).distanceTo(anchor) < 0.02);
+  assert.ok(leg.lowerLeg.getWorldPosition(new Vector3()).z > leg.upperLeg.getWorldPosition(new Vector3()).z);
 });
 
 test('releases and captures a new anchor at the next stance', () => {
@@ -59,4 +62,18 @@ test('releases and captures a new anchor at the next stance', () => {
   assert.equal(state.planted, true);
   assert.ok(state.anchor.x > firstAnchor.x);
   assert.equal(state.anchor.y, 0.2);
+});
+
+test('swing-foot path starts and lands on the floor with a modest lift', () => {
+  const start = new Vector3(1, 0, 2);
+  const forward = new Vector3(-1, 0, 0);
+  const stride = 0.7;
+  const startTarget = getSwingFootTarget(start, forward, stride, 0, 0.1, 0.15);
+  const apex = getSwingFootTarget(start, forward, stride, 0.5, 0.1, 0.15);
+  const landing = getSwingFootTarget(start, forward, stride, 1, 0.1, 0.15);
+
+  assert.deepEqual(startTarget.toArray(), [1, 0.1, 2]);
+  assert.ok(Math.abs(apex.y - 0.25) < 1e-8);
+  assert.ok(Math.abs(landing.x - 0.3) < 1e-8);
+  assert.ok(Math.abs(landing.y - 0.1) < 1e-8);
 });
