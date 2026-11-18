@@ -14,6 +14,7 @@ import {
   Object3D,
   PCFShadowMap,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   SRGBColorSpace,
   Texture,
@@ -23,14 +24,21 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
+  LIVE_BEDROOM_CHAIR_Z_RATIO,
   createLiveBedroomScene,
   LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO,
   LIVE_BEDROOM_DESK_X_RATIO,
+  LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
   LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
   type LiveBedroomScene,
 } from './live-bedroom-scene';
 import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
-import { getRoomWalkPose } from './live-room-gait';
+import {
+  applyRoomWalkAnimation,
+  routeProgressFromPosition,
+  roomWalkTimeForProgress,
+} from './live-room-gait';
+import walkAnimationData from '../assets/quaternius-walk-loop.json';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
 interface LiveVrmAvatarProps {
@@ -45,6 +53,10 @@ type BoneName =
   | 'hips'
   | 'chest'
   | 'spine'
+  | 'upperChest'
+  | 'neck'
+  | 'leftShoulder'
+  | 'rightShoulder'
   | 'leftUpperLeg'
   | 'rightUpperLeg'
   | 'leftLowerLeg'
@@ -108,9 +120,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let previousRouteX = 0;
     let smoothedVelocityX = 0;
     let cameraLookX = 0;
+    let cameraLookZ = 0;
     let seatedPose = 0;
     let seatedRootY = 0;
-    let walkStartedAt = 0;
+    let walkStartProgress = 0;
+    let walkTargetProgress = 1;
+    let walkBlend = 0;
     let wasMoving = false;
     const roomAutonomy = createRoomAutonomy();
     const roomRouteMotion = createRoomRouteMotion();
@@ -122,6 +137,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       motionFactor = motionPreference.matches ? 0 : 1;
     };
     const baseRotations = new Map<BoneName, Euler>();
+    const baseQuaternions = new Map<BoneName, Quaternion>();
     const bones = new Map<BoneName, Object3D>();
     const camera = new PerspectiveCamera(40, 1, 0.05, 100);
     const scene = new Scene();

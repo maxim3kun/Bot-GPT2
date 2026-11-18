@@ -25,6 +25,8 @@ export interface LiveBedroomScene {
 
 export const LIVE_BEDROOM_DESK_X_RATIO = 1.38;
 export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.82;
+export const LIVE_BEDROOM_CHAIR_Z_RATIO = -0.26;
+export const LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO = -0.72;
 export const LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO = 0.42;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
@@ -349,7 +351,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   }
   // Smaller upholstered chair set back from the avatar so its silhouette remains clear.
   const chairX = deskX - 0.48 * h;
-  const chairZ = -0.52 * h;
+  const chairZ = LIVE_BEDROOM_CHAIR_Z_RATIO * h;
   const chairSeatY = LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO * h;
   const chairFabric = 0x71807d;
   makeRoundedBox('desk-chair-seat', [0.27 * h, 0.05 * h, 0.25 * h],

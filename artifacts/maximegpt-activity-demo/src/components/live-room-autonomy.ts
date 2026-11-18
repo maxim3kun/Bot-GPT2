@@ -16,7 +16,7 @@ export interface RoomActivitySnapshot {
 
 type ActivityPlan = 'work' | 'stretch' | 'window-break';
 
-export const ROOM_WALK_DURATION_SECONDS = 3.4;
+export const ROOM_WALK_DURATION_SECONDS = 1.9;
 export const ROOM_SIT_TRANSITION_SECONDS = 1.05;
 export const ROOM_STAND_TRANSITION_SECONDS = 0.9;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));

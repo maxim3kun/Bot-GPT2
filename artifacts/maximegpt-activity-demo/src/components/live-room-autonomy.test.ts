@@ -6,7 +6,13 @@ import {
   ROOM_WALK_DURATION_SECONDS,
   type RoomActivity,
 } from './live-room-autonomy.ts';
-import { getRoomWalkPose, ROOM_WALK_CYCLE_SECONDS } from './live-room-gait.ts';
+import {
+  applyRoomWalkAnimation,
+  roomWalkTimeForProgress,
+  routeProgressFromPosition,
+  type RoomWalkAnimation,
+} from './live-room-gait.ts';
+import { Object3D, Quaternion } from 'three';
 
 test('chooses varied, bounded activities instead of repeating a fixed route', () => {
   const autonomy = createRoomAutonomy(() => 0.999);
@@ -126,14 +132,46 @@ test('walks across the route in step with the walk animation and pauses cleanly'
   assert.ok(firstReturnStep < 0.4);
 });
 
-test('keeps the arms relaxed and makes the left and right steps alternate', () => {
-  const start = getRoomWalkPose(0);
-  const halfCycle = getRoomWalkPose(ROOM_WALK_CYCLE_SECONDS / 2);
-  assert.ok(Math.abs(start.leftHip + start.rightHip) < 1e-10);
-  assert.ok(Math.abs(start.leftArmSwing + start.rightArmSwing) < 1e-10);
-  assert.ok(Math.abs(start.leftArmSwing) < 1e-10);
-  assert.ok(Math.abs(halfCycle.leftHip + start.leftHip) < 1e-10);
-  assert.ok(Math.abs(halfCycle.leftArmSwing + start.leftArmSwing) < 1e-10);
-  assert.ok(Math.abs(start.leftArmSwing) <= 0.12);
-  assert.ok(Math.abs(halfCycle.rightArmSwing) <= 0.12);
+test('walk phase follows route distance and wraps the retargeted clip', () => {
+  assert.equal(roomWalkTimeForProgress(0.5, 1.6), 0.8);
+  assert.equal(routeProgressFromPosition(5, 5, 0, 0, 10, 10), 0.5);
+  assert.equal(routeProgressFromPosition(10, 10, 0, 0, 10, 10), 1);
+
+  const animation: RoomWalkAnimation = {
+    duration: 1,
+    times: [0, 1],
+    tracks: [{
+      bone: 'hips',
+      values: [0, 0, 0, 1, 0, Math.SQRT1_2, 0, Math.SQRT1_2],
+    }],
+  };
+  const bone = new Object3D();
+  const bones = new Map([['hips', bone]]);
+  const rest = new Map([['hips', new Quaternion()]]);
+
+  applyRoomWalkAnimation(animation, bones, rest, 0.5);
+  const halfway = new Quaternion().setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 4);
+  assert.ok(bone.quaternion.angleTo(halfway) < 1e-6);
+
+  applyRoomWalkAnimation(animation, bones, rest, 1);
+  assert.ok(bone.quaternion.angleTo(new Quaternion()) < 1e-6);
+});
+
+test('blends the retargeted walk clip from the VRM rest pose', () => {
+  const animation: RoomWalkAnimation = {
+    duration: 1,
+    times: [0, 1],
+    tracks: [{
+      bone: 'hips',
+      values: [0, 0, 0, 1, 0, Math.SQRT1_2, 0, Math.SQRT1_2],
+    }],
+  };
+  const bone = new Object3D();
+  const bones = new Map([['hips', bone]]);
+  const restRotation = new Quaternion().setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 2);
+  const rest = new Map([['hips', restRotation]]);
+
+  applyRoomWalkAnimation(animation, bones, rest, 0, 0.5);
+  const expected = new Quaternion().setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 4);
+  assert.ok(bone.quaternion.angleTo(expected) < 1e-6);
 });
