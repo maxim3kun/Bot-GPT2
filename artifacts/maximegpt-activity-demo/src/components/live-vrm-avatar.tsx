@@ -1,26 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
-  AnimationClip,
-  AnimationMixer,
   Box3,
   DirectionalLight,
   Euler,
+  HemisphereLight,
   LinearFilter,
   LinearMipmapLinearFilter,
-  LoopRepeat,
+  Mesh,
   MeshStandardMaterial,
   MathUtils,
   Object3D,
+  PCFShadowMap,
   PerspectiveCamera,
-  QuaternionKeyframeTrack,
   Scene,
   SRGBColorSpace,
   Texture,
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils, type VRMHumanBoneName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
   createLiveBedroomScene,
@@ -30,7 +30,7 @@ import {
   type LiveBedroomScene,
 } from './live-bedroom-scene';
 import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
-import walkAnimation from '../assets/quaternius-walk-loop.json';
+import { getRoomWalkPose } from './live-room-gait';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 
 interface LiveVrmAvatarProps {
@@ -59,7 +59,6 @@ type BoneName =
   | 'rightHand';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const animatedWalkBones = new Set(walkAnimation.tracks.map((track) => track.bone));
 
 export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }: LiveVrmAvatarProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -99,9 +98,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
 
     let disposed = false;
     let vrm: VRM | undefined;
-    let walkMixer: AnimationMixer | undefined;
-    let walkAction: ReturnType<AnimationMixer['clipAction']> | undefined;
-    let walkAnimationActive = false;
     let bedroom: LiveBedroomScene | undefined;
     let avatarHeight = 1;
     let lastFrame = 0;
@@ -113,6 +109,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let smoothedVelocityX = 0;
     let cameraLookX = 0;
     let seatedPose = 0;
+    let seatedRootY = 0;
+    let walkStartedAt = 0;
+    let wasMoving = false;
     const roomAutonomy = createRoomAutonomy();
     const roomRouteMotion = createRoomRouteMotion();
     let nextBlink = performance.now() + 1800 + Math.random() * 1600;
@@ -124,14 +123,18 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     };
     const baseRotations = new Map<BoneName, Euler>();
     const bones = new Map<BoneName, Object3D>();
-    const camera = new PerspectiveCamera(43, 1, 0.05, 100);
+    const camera = new PerspectiveCamera(40, 1, 0.05, 100);
     const scene = new Scene();
     scene.background = null;
     const modelRoot = new Object3D();
     const gazeTarget = new Object3D();
 
     renderer.outputColorSpace = SRGBColorSpace;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1.45 : isPhone ? 1.8 : 2));
+    renderer.toneMapping = ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = !lowPowerDevice;
+    renderer.shadowMap.type = PCFShadowMap;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1.55 : isPhone ? 2.4 : 2.2));
     renderer.setClearColor(0xf1f0eb, 0);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
@@ -139,12 +142,21 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     scene.add(gazeTarget);
     motionPreference.addEventListener('change', updateMotionPreference);
 
-    const ambient = new AmbientLight(0xe7e5dc, 1.75);
-    const keyLight = new DirectionalLight(0xffe2bd, 2.25);
+    const ambient = new AmbientLight(0xe7e5dc, 0.95);
+    const hemisphere = new HemisphereLight(0xfff5e8, 0x8b7966, 1.05);
+    const keyLight = new DirectionalLight(0xffe5c7, 2.65);
     keyLight.position.set(-3, 5, 4);
-    const fillLight = new DirectionalLight(0xa4c7d3, 0.65);
+    keyLight.castShadow = !lowPowerDevice;
+    keyLight.shadow.mapSize.set(isPhone ? 768 : 1024, isPhone ? 768 : 1024);
+    keyLight.shadow.camera.left = -4.5;
+    keyLight.shadow.camera.right = 4.5;
+    keyLight.shadow.camera.top = 4;
+    keyLight.shadow.camera.bottom = -3.5;
+    keyLight.shadow.bias = -0.0004;
+    keyLight.shadow.normalBias = 0.025;
+    const fillLight = new DirectionalLight(0xb8d5e0, 0.85);
     fillLight.position.set(3, 2, -3);
-    scene.add(ambient, keyLight, fillLight);
+    scene.add(ambient, hemisphere, keyLight, fillLight);
 
     const rebuildBedroom = () => {
       if (!vrm || !avatarHeight) return;
@@ -214,14 +226,19 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           }
           texture.needsUpdate = true;
         }
+        vrm.scene.traverse((object) => {
+          if (!(object instanceof Mesh)) return;
+          object.castShadow = !lowPowerDevice;
+          object.receiveShadow = !lowPowerDevice;
+        });
         modelRoot.add(vrm.scene);
         vrm.scene.updateMatrixWorld(true);
         const bounds = new Box3().setFromObject(vrm.scene);
         const height = Math.max(0.1, bounds.max.y - bounds.min.y);
         avatarHeight = height;
-        deskPositionX = height * LIVE_BEDROOM_DESK_X_RATIO;
+        deskPositionX = height * (LIVE_BEDROOM_DESK_X_RATIO - 0.48);
         vrm.scene.position.y -= bounds.min.y;
-        modelRoot.scale.setScalar(0.78);
+        modelRoot.scale.setScalar(0.84);
         modelRoot.position.x = deskPositionX;
         modelRoot.position.z = -height * 0.26;
 
@@ -255,32 +272,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           bones.set(name, bone);
           baseRotations.set(name, bone.rotation.clone());
         }
-
-        const walkTracks = walkAnimation.tracks.flatMap(({ bone, values }) => {
-          const normalizedBone = humanoid?.getNormalizedBoneNode(bone as VRMHumanBoneName);
-          if (!normalizedBone) return [];
-
-          // Match the quaternion convention used by three-vrm's VRM 0 retargeting.
-          const compatibleValues = vrm?.meta.metaVersion === '0'
-            ? values.map((value, index) => (index % 4 === 0 || index % 4 === 2 ? -value : value))
-            : values;
-          return [
-            new QuaternionKeyframeTrack(
-              `${normalizedBone.name}.quaternion`,
-              walkAnimation.times,
-              compatibleValues,
-            ),
-          ];
-        });
-        if (walkTracks.length === 0) {
-          setError('Le cycle de marche ne correspond pas aux os du modèle VRM.');
-          return;
-        }
-        walkMixer = new AnimationMixer(vrm.scene);
-        walkAction = walkMixer.clipAction(
-          new AnimationClip('Quaternius Walk Loop', walkAnimation.duration, walkTracks),
-        );
-        walkAction.setLoop(LoopRepeat, Infinity);
 
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
         setError('');
@@ -329,27 +320,20 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const atWindow = activity.activity === 'looking-out-window';
         const walkingBack = activity.activity === 'walking-to-desk';
         const moving = motionFactor > 0 && (walkingOut || walkingBack);
+        if (moving && !wasMoving) walkStartedAt = elapsed;
+        wasMoving = moving;
+        const walkPose = getRoomWalkPose(elapsed - walkStartedAt);
         const seatedTarget = activity.seated ? 1 : 0;
         seatedPose = motionFactor > 0
           ? MathUtils.damp(seatedPose, seatedTarget, 4.2, delta)
           : seatedTarget;
-        modelRoot.position.y = MathUtils.damp(
-          modelRoot.position.y,
+        seatedRootY = MathUtils.damp(
+          seatedRootY,
           activity.seated ? avatarHeight * (LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO - 0.52) : 0,
           motionFactor > 0 ? 4.2 : 1000,
           delta,
         );
-        if (moving && walkAction && !walkAnimationActive) {
-          walkAction.reset().fadeIn(0.22).play();
-          walkAnimationActive = true;
-        } else if (!moving && walkAction && walkAnimationActive) {
-          walkAction.fadeOut(0.24);
-          walkAnimationActive = false;
-        }
-        walkMixer?.update(delta);
-        const walkPoseActive = Boolean(
-          walkAction?.isRunning() && walkAction.getEffectiveWeight() > 0.025,
-        );
+        modelRoot.position.y = seatedRootY + (moving ? walkPose.bodyBob * avatarHeight : 0);
         const routeProgress = roomRouteMotion.update(
           moving ? activity.activity : 'attending',
           moving ? delta : 0,
@@ -362,6 +346,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         previousRouteX = modelRoot.position.x;
         smoothedVelocityX = MathUtils.damp(smoothedVelocityX, routeVelocityX, 3.2, delta);
+        if (bedroom) {
+          bedroom.avatarShadow.position.x = modelRoot.position.x;
+          bedroom.avatarShadow.position.z = modelRoot.position.z;
+        }
 
         // The camera trails the route slightly and looks just ahead, keeping Maxime framed
         // while the room moves through the composition instead of sliding the character away.
@@ -377,12 +365,13 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           ? -profileTurn
           : walkingBack
             ? profileTurn
-            : 0) * motionFactor;
+            : (working || thinking) && seatedPose > 0.5
+              ? Math.PI * 0.12
+              : 0) * motionFactor;
         const facingDelta = Math.atan2(Math.sin(facingTarget - modelRoot.rotation.y), Math.cos(facingTarget - modelRoot.rotation.y));
         modelRoot.rotation.y += facingDelta * (1 - Math.exp(-1.25 * delta));
 
         const setBonePose = (name: BoneName, x: number, y: number, z: number) => {
-          if (walkPoseActive && animatedWalkBones.has(name)) return;
           const bone = bones.get(name);
           const base = baseRotations.get(name);
           if (!bone || !base) return;
@@ -393,18 +382,28 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           );
         };
 
-        setBonePose('hips', 0, Math.sin(elapsed * 0.52) * 0.008 * idleSway, 0);
-        setBonePose('leftUpperLeg', seatedPose * 1.12, 0, 0);
-        setBonePose('rightUpperLeg', seatedPose * 1.12, 0, 0);
-        setBonePose('leftLowerLeg', seatedPose * -0.98, 0, 0);
-        setBonePose('rightLowerLeg', seatedPose * -0.98, 0, 0);
-        setBonePose('leftFoot', seatedPose * -0.12, 0, 0);
-        setBonePose('rightFoot', seatedPose * -0.12, 0, 0);
-        setBonePose('spine', breath + (thinking ? 0.018 : speaking ? energy * 0.018 : 0) + seatedPose * -0.035, 0, 0);
+        setBonePose('hips', 0, Math.sin(elapsed * 0.52) * 0.008 * idleSway + (moving ? walkPose.torsoTwist : 0), 0);
+        setBonePose('leftUpperLeg', seatedPose * 1.12 + (moving ? walkPose.leftHip : 0), 0, 0);
+        setBonePose('rightUpperLeg', seatedPose * 1.12 + (moving ? walkPose.rightHip : 0), 0, 0);
+        setBonePose('leftLowerLeg', seatedPose * -0.98 + (moving ? walkPose.leftKnee : 0), 0, 0);
+        setBonePose('rightLowerLeg', seatedPose * -0.98 + (moving ? walkPose.rightKnee : 0), 0, 0);
+        setBonePose('leftFoot', seatedPose * -0.12 + (moving ? walkPose.leftFoot : 0), 0, 0);
+        setBonePose('rightFoot', seatedPose * -0.12 + (moving ? walkPose.rightFoot : 0), 0, 0);
+        setBonePose(
+          'spine',
+          breath
+            + (thinking ? 0.018 : speaking ? energy * 0.018 : 0)
+            + seatedPose * -0.035
+            + ((thinking || working) && seatedPose > 0.5 ? 0.055 : 0)
+            + (moving ? 0.025 : 0),
+          0,
+          0,
+        );
         setBonePose('chest', Math.sin(elapsed * 1.1) * 0.008 * idleSway, 0, speaking ? Math.sin(elapsed * 1.35) * energy * 0.018 : 0);
         setBonePose(
           'head',
-          (thinking ? 0.1 : 0) + (listening ? Math.sin(elapsed * 1.8) * 0.022 * idleSway : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
+          (thinking ? 0.1 : working && seatedPose > 0.5 ? 0.045 : 0)
+            + (listening ? Math.sin(elapsed * 1.8) * 0.022 * idleSway : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
           Math.sin(elapsed * 0.39) * (listening ? 0.034 : 0.017) * idleSway,
           thinking ? -0.065 : speaking ? Math.sin(elapsed * 1.3) * (0.012 + energy * 0.035) * idleSway : Math.sin(elapsed * 0.51) * 0.012 * idleSway,
         );
@@ -415,25 +414,25 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const stretchAmount = stretching ? 0.7 + Math.sin(elapsed * 1.15) * 0.05 : 0;
         setBonePose(
           'leftUpperArm',
-          stretching ? -0.12 : typing ? -0.08 : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11 : Math.sin(elapsed * 0.66) * 0.012 * idleSway,
-          stretching ? -0.12 : typing ? -1.2 : speaking ? -0.25 : 0,
-          stretching ? stretchAmount : typing ? 0.66 : speaking ? 1.02 + speechGesture * 0.14 : 1.18,
+          stretching ? -0.12 : moving ? walkPose.leftArmSwing : typing ? -0.72 : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11 : Math.sin(elapsed * 0.66) * 0.012 * idleSway,
+          stretching ? -0.12 : typing ? -0.22 : speaking ? -0.25 : 0,
+          stretching ? stretchAmount : typing ? 0.44 : speaking ? 1.02 + speechGesture * 0.14 : 1.18,
         );
         setBonePose(
           'rightUpperArm',
-          stretching ? -0.12 : typing ? -0.08 : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08 : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway,
-          stretching ? 0.12 : typing ? 1.2 : speaking ? 0.18 : 0,
-          stretching ? -stretchAmount : typing ? -0.66 : -1.18,
+          stretching ? -0.12 : moving ? walkPose.rightArmSwing : typing ? -0.72 : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08 : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway,
+          stretching ? 0.12 : typing ? 0.22 : speaking ? 0.18 : 0,
+          stretching ? -stretchAmount : typing ? -0.44 : -1.18,
         );
         setBonePose(
           'leftLowerArm',
-          stretching ? -0.28 : typing ? -0.1 + Math.sin(typingPhase) * 0.06 * typePulse : speaking ? -0.28 : -0.04,
+          stretching ? -0.28 : typing ? -0.55 + Math.sin(typingPhase) * 0.08 * typePulse : speaking ? -0.28 : moving ? 0.08 : -0.04,
           0,
           stretching ? 0.08 : typing ? Math.sin(typingPhase) * 0.035 * typePulse : 0.035,
         );
         setBonePose(
           'rightLowerArm',
-          stretching ? -0.28 : typing ? -0.1 + Math.sin(typingPhase + 1.5) * 0.06 * typePulse : speaking ? -0.08 : -0.04,
+          stretching ? -0.28 : typing ? -0.55 + Math.sin(typingPhase + 1.5) * 0.08 * typePulse : speaking ? -0.08 : moving ? 0.08 : -0.04,
           0,
           stretching ? -0.08 : typing ? Math.sin(typingPhase + 1.5) * 0.035 * typePulse : -0.035,
         );
@@ -494,7 +493,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       resizeObserver.disconnect();
       motionPreference.removeEventListener('change', updateMotionPreference);
       renderer.setAnimationLoop(null);
-      walkMixer?.stopAllAction();
       renderer.dispose();
       bedroom?.dispose();
       if (vrm) VRMUtils.deepDispose(vrm.scene);

@@ -66,11 +66,11 @@ export function createRoomAutonomy(random: () => number = Math.random) {
   };
   const duration = (min: number, max: number) => min + unit() * (max - min);
 
-  let activity: RoomActivity = 'sitting-down';
-  let targetProgress = 0;
-  let timeRemaining = ROOM_SIT_TRANSITION_SECONDS;
-  let seated = true;
-  let lastPlan: ActivityPlan = 'work';
+  let activity: RoomActivity = 'walking-to-window';
+  let targetProgress = 1;
+  let timeRemaining = ROOM_WALK_DURATION_SECONDS;
+  let seated = false;
+  let lastPlan: ActivityPlan = 'window-break';
   let wasEngaged = false;
   let returnToDeskAfterInteraction = false;
   let activityAfterStanding: 'stretching' | 'walking-to-window' | undefined;
