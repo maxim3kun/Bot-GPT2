@@ -224,13 +224,12 @@
   min-height: 430px;
   margin-top: 12px;
   overflow: hidden;
-  border: 1px solid #79ddeb25;
+  border: 1px solid #c9c1b540;
   border-radius: 24px;
   background:
-    radial-gradient(ellipse at 18% 29%, #d59b6933 0%, transparent 24%),
-    radial-gradient(ellipse at 76% 74%, #454c6840 0%, transparent 38%),
-    linear-gradient(145deg, #393340 0%, #282836 46%, #1a2230 100%);
-  box-shadow: inset 0 1px #fff2e312, 0 24px 72px #020b1478;
+    radial-gradient(ellipse at 13% 28%, #fffaf0 0%, transparent 35%),
+    linear-gradient(145deg, #f5f2ec 0%, #efebe4 56%, #e7e2da 100%);
+  box-shadow: inset 0 1px #ffffffcc, 0 24px 72px #020b1478;
 }
 
 .live-call-stage::before {
@@ -240,8 +239,8 @@
   content: "";
   pointer-events: none;
   background:
-    linear-gradient(90deg, #120f1a20, transparent 18% 82%, #10152270),
-    linear-gradient(0deg, #15151f74, transparent 22% 75%, #17152225);
+    linear-gradient(90deg, #8a76680a, transparent 18% 82%, #71645c10),
+    linear-gradient(0deg, #59483b16, transparent 22% 75%, #ffffff2e);
 }
 
 .live-call-stage::after {
@@ -251,8 +250,8 @@
   content: "";
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 48% 38%, transparent 34%, #0d111c2e 100%),
-    linear-gradient(0deg, #0e121d24, transparent 32%);
+    radial-gradient(ellipse at 48% 38%, transparent 55%, #74635612 100%),
+    linear-gradient(0deg, #6d584314, transparent 34%);
 }
 
 .live-call-stage-top {
@@ -271,7 +270,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #a6c0cb;
+  color: #596168;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9px;
   letter-spacing: 0.11em;
@@ -321,40 +320,18 @@
 
 .live-bedroom-backdrop {
   position: absolute;
-  z-index: 0;
+  z-index: 2;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse at 19% 33%, #e2a7763c 0%, transparent 29%),
-    linear-gradient(180deg, #48414d 0%, #393743 58%, #302a34 82%, #221e29 100%);
-}
-
-.live-bedroom-backdrop::before {
-  position: absolute;
-  inset: 0;
-  content: "";
-  opacity: 0.25;
-  background:
-    linear-gradient(90deg, transparent 0 73%, #17172226 73.2% 73.5%, transparent 73.7%),
-    repeating-linear-gradient(90deg, transparent 0 74px, #ead7c90a 75px 76px);
-}
-
-.live-bedroom-backdrop::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 20%;
-  content: "";
-  background: linear-gradient(180deg, transparent, #211c27d9);
+  background: transparent;
 }
 
 .live-bedroom-window {
   position: absolute;
   top: 17%;
-  left: 8%;
-  width: 29%;
+  left: 2%;
+  width: 19%;
   height: 35%;
   overflow: hidden;
   border: 7px solid #897276;
@@ -403,7 +380,7 @@
   position: absolute;
   z-index: 1;
   top: 14%;
-  width: 6%;
+  width: 4%;
   height: 42%;
   border-radius: 45% 45% 12% 12%;
   background: linear-gradient(90deg, #674f5d, #92717a 48%, #604d5c);
@@ -411,20 +388,20 @@
 }
 
 .live-bedroom-curtain--left {
-  left: 6%;
+  left: 0;
   transform: rotate(2deg);
 }
 
 .live-bedroom-curtain--right {
-  left: 34%;
+  left: 19%;
   transform: rotate(-2deg);
 }
 
 .live-bedroom-shelf {
   position: absolute;
   top: 23%;
-  right: 5%;
-  width: 21%;
+  right: 2%;
+  width: 16%;
   height: 37%;
   border-top: 7px solid #987668;
   border-bottom: 7px solid #725b56;
@@ -453,8 +430,8 @@
 .live-bedroom-lamp {
   position: absolute;
   bottom: 31%;
-  left: 9%;
-  width: 9%;
+  left: 4%;
+  width: 7%;
   height: 19%;
   border-bottom: 5px solid #886e66;
   background: linear-gradient(90deg, transparent 44%, #b19077 45% 53%, transparent 54%);
@@ -471,6 +448,7 @@
   border-radius: 55% 55% 12% 12%;
   background: #d8ad7b;
   box-shadow: 0 0 26px #f1b87673;
+  animation: live-lamp-glow 4.8s ease-in-out infinite;
 }
 
 .live-bedroom-lamp i {
@@ -482,26 +460,9 @@
   background: #b18e77;
 }
 
-.live-bedroom-wall-light {
-  position: absolute;
-  top: 14%;
-  right: 34%;
-  width: 12%;
-  height: 2px;
-  background: #c39b7b4d;
-  box-shadow: 0 0 16px 4px #e2a7761c;
-}
-
-.live-bedroom-floor {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 17%;
-  border-top: 2px solid #9b7b7040;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 27%, #d3b19d0b 27.2% 27.6%, transparent 27.8% 52%),
-    linear-gradient(180deg, #55474a, #322c37);
+@keyframes live-lamp-glow {
+  0%, 100% { opacity: 0.86; filter: brightness(0.95); }
+  50% { opacity: 1; filter: brightness(1.12); }
 }
 
 .live-avatar-aura {
@@ -521,7 +482,7 @@
   width: 100%;
   height: 100%;
   overflow: visible;
-  background: transparent;
+  background: #f3f0e9;
   transform-origin: center 82%;
   translate: 0 var(--avatar-bob, 0px);
   animation: live-avatar-idle 5.4s ease-in-out infinite;

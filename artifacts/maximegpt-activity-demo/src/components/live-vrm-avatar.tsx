@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   AmbientLight,
   Box3,
+  Color,
   DirectionalLight,
   Euler,
   MeshStandardMaterial,
@@ -10,7 +11,6 @@ import {
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
-  Vector3,
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -86,12 +86,13 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     const bones = new Map<BoneName, Object3D>();
     const camera = new PerspectiveCamera(29, 1, 0.05, 100);
     const scene = new Scene();
+    scene.background = new Color(0xf3f0e9);
     const modelRoot = new Object3D();
     const gazeTarget = new Object3D();
 
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
-    renderer.setClearColor(0x000000, 0);
+    renderer.setClearColor(0xf3f0e9, 1);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
     scene.add(modelRoot);
