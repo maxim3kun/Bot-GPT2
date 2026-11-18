@@ -12,6 +12,9 @@ export interface LiveBedroomScene {
   dispose: () => void;
 }
 
+export const LIVE_BEDROOM_DESK_X_RATIO = 1.38;
+export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.46;
+
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
   const h = Math.max(avatarHeight, 0.1);
   const group = new Group();
@@ -61,7 +64,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   const trim = 0xd8d3c9;
   const wood = 0x876d59;
   const darkWood = 0x59483e;
-  const deskX = 1.38 * h;
+  const deskX = LIVE_BEDROOM_DESK_X_RATIO * h;
   const deskY = 0.48 * h;
   // Furniture is kept well behind the avatar plane (z = -0.26h), never in front of it.
   const deskZ = -0.66 * h;
