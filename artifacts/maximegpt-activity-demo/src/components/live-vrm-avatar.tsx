@@ -134,7 +134,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     renderer.toneMappingExposure = 1.08;
     renderer.shadowMap.enabled = !lowPowerDevice;
     renderer.shadowMap.type = PCFShadowMap;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1.55 : isPhone ? 2.4 : 2.2));
+    const maxPixelRatio = isPhone ? (lowPowerDevice ? 2 : 2.65) : 2.2;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxPixelRatio));
     renderer.setClearColor(0xf1f0eb, 0);
     renderer.domElement.setAttribute('aria-hidden', 'true');
     host.appendChild(renderer.domElement);
@@ -204,10 +205,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         }
 
         VRMUtils.rotateVRM0(vrm);
-        const textureAnisotropy = Math.min(
-          renderer.capabilities.getMaxAnisotropy(),
-          lowPowerDevice ? 2 : isPhone ? 4 : 8,
-        );
+        const textureAnisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
         const avatarTextures = new Set<Texture>();
         vrm.scene.traverse((object) => {
           if (!('material' in object)) return;
@@ -220,10 +218,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         });
         for (const texture of avatarTextures) {
           texture.anisotropy = textureAnisotropy;
-          if (texture.minFilter === LinearFilter) {
-            texture.minFilter = LinearMipmapLinearFilter;
-            texture.generateMipmaps = true;
-          }
+          texture.minFilter = LinearMipmapLinearFilter;
+          texture.magFilter = LinearFilter;
+          texture.generateMipmaps = true;
           texture.needsUpdate = true;
         }
         vrm.scene.traverse((object) => {
