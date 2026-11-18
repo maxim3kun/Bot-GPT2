@@ -31,8 +31,30 @@ export interface RoomWalkClip {
   tracks: readonly RoomRotationTrack[];
 }
 
+export const ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO = 0.64;
+
 const TWO_PI = Math.PI * 2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+export function roomRouteLength(points: readonly RoomRoutePoint[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    length += Math.hypot(current.x - previous.x, current.z - previous.z);
+  }
+  return length;
+}
+
+/**
+ * Convert real movement distance into repeated gait cycles. The cycle is
+ * distance-driven so a short route does not stretch one step across the room.
+ */
+export function roomWalkCyclesForDistance(distance: number, avatarHeight: number): number {
+  const strideLength = Math.max(avatarHeight, 0) * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO;
+  if (!Number.isFinite(distance) || !Number.isFinite(strideLength) || strideLength <= 1e-8) return 0;
+  return Math.max(0, distance) / strideLength;
+}
 
 /**
  * A deliberately restrained walk cycle for this specific VRM.

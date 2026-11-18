@@ -41,10 +41,11 @@ import {
 import {
   applyRetargetedWalkAnimation,
   getRoomWalkPose,
+  roomRouteLength,
+  roomWalkCyclesForDistance,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
   routeProgressFromPosition,
-  roomWalkTimeForProgress,
   type RoomRoutePoint,
 } from './live-room-gait';
 import walkAnimationData from '../assets/quaternius-walk-loop.json';
@@ -140,6 +141,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let smoothedMouth = 0;
     let deskPositionX = 0;
     let roomRoutePoints: RoomRoutePoint[] = [];
+    let roomRouteLengthValue = 0;
     let bedroomAspect = 0;
     let previousRouteX = 0;
     let previousRouteZ = 0;
@@ -148,7 +150,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let cameraLookX = 0;
     let cameraLookZ = 0;
     let walkStartProgress = 0;
-    let walkTargetProgress = 1;
     let wasMoving = false;
     const roomAutonomy = createRoomAutonomy();
     const roomRouteMotion = createRoomRouteMotion();
@@ -292,6 +293,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
           },
         ];
+        roomRouteLengthValue = roomRouteLength(roomRoutePoints);
 
         camera.position.set(deskPositionX, height * 0.9, height * 1.65);
         camera.lookAt(deskPositionX, height * 0.47, modelRoot.position.z);
@@ -403,7 +405,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
-          walkTargetProgress = activity.targetProgress;
         }
         wasMoving = moving;
         if (moving) {
@@ -411,12 +412,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           modelRoot.position.x = routePosition.x;
           modelRoot.position.z = routePosition.z;
         }
-        const walkDistance = Math.abs(walkTargetProgress - walkStartProgress);
-        const walkProgress = walkDistance > 1e-4
-          ? clamp(Math.abs(routeProgress - walkStartProgress) / walkDistance, 0, 1)
-          : 0;
+        const walkedDistance = Math.abs(routeProgress - walkStartProgress) * roomRouteLengthValue;
+        const walkCycles = roomWalkCyclesForDistance(walkedDistance, avatarHeight);
         const walkPose = getRoomWalkPose(
-          roomWalkTimeForProgress(walkProgress, ROOM_WALK_CYCLE_SECONDS),
+          walkCycles * ROOM_WALK_CYCLE_SECONDS,
         );
         const travelProgress = moving ? routeProgress : positionProgress;
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
@@ -538,11 +537,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             walkAnimationData,
             bones,
             baseQuaternions,
-            roomWalkTimeForProgress(walkProgress, Math.max(0, walkAnimationData.duration - 1 / 60)),
+            walkCycles * walkAnimationData.duration,
             0.2,
             WALK_ANIMATED_BONES,
           );
-          const leftStance = walkProgress < 0.5;
+          const gaitPhase = walkCycles % 1;
+          const leftStance = gaitPhase < 0.5;
           const rightStance = !leftStance;
           const leftFoot = bones.get('leftFoot');
           const rightFoot = bones.get('rightFoot');

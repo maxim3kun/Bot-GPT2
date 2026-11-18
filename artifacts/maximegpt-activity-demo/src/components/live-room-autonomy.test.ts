@@ -11,7 +11,9 @@ import {
 import {
   applyRetargetedWalkAnimation,
   getRoomWalkPose,
+  roomRouteLength,
   roomRoutePointAtProgress,
+  roomWalkCyclesForDistance,
   ROOM_WALK_CYCLE_SECONDS,
   roomWalkTimeForProgress,
   routeProgressFromPosition,
@@ -88,8 +90,16 @@ test('calculates progress along the diagonal desk-to-window path', () => {
   assert.equal(routeProgressFromPosition(5, 0, route), 0.25);
   assert.equal(routeProgressFromPosition(10, 10, route), 1);
   assert.deepEqual(roomRoutePointAtProgress(route, 0.5), { x: 10, z: 0 });
+  assert.equal(roomRouteLength(route), 20);
   assert.equal(routeProgressFromPosition(4, 4, [{ x: 2, z: 2 }, { x: 2, z: 2 }]), 0);
   assert.equal(roomWalkTimeForProgress(0.5, 1.6), 0.8);
+});
+
+test('repeats footfalls according to distance instead of stretching one step across the route', () => {
+  assert.equal(roomWalkCyclesForDistance(0, 1.7), 0);
+  assert.ok(Math.abs(roomWalkCyclesForDistance(1.7 * 0.64, 1.7) - 1) < 1e-8);
+  assert.ok(roomWalkCyclesForDistance(1.7 * 1.2, 1.7) > 1.8);
+  assert.equal(roomWalkCyclesForDistance(1, 0), 0);
 });
 
 test('routes around the desk and chair without entering their clearance zones', () => {
