@@ -125,6 +125,17 @@ test('finishes each walk on a complete stride instead of snapping mid-step', () 
   assert.ok(roomWalkStrideLengthForSegment(shortWalk, height) < height * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO);
 });
 
+test('advances each foot by the full distance travelled during its gait cycle', () => {
+  const height = 1.7;
+  const segmentDistance = height * 0.82;
+  const strideLength = roomWalkStrideLengthForSegment(segmentDistance, height);
+  const swingLength = strideLength;
+  const cycles = roomWalkCyclesForSegmentDistance(segmentDistance, segmentDistance, height);
+
+  assert.equal(cycles, 2);
+  assert.ok(Math.abs(swingLength * cycles - segmentDistance) < 1e-8);
+});
+
 test('keeps the straight desk-to-window walk lane clear of the desk and chair', () => {
   const route = [
     { x: 0.8, z: -0.12 },

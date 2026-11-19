@@ -575,8 +575,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           const leftGroundHeight = footGroundHeights.get('leftFoot');
           const rightGroundHeight = footGroundHeights.get('rightFoot');
           const gaitForward = new Vector3(routeTangent.x, 0, routeTangent.z);
-          // A foot advances half of the full same-foot gait cycle on each swing.
-          const swingLength = roomWalkStrideLengthForSegment(walkSegmentDistance, avatarHeight) * 0.5;
+          // Each foot swings once per complete cycle, so its landing advances
+          // by the same distance as the root travels during that full cycle.
+          const swingLength = roomWalkStrideLengthForSegment(walkSegmentDistance, avatarHeight);
           const footLift = avatarHeight * 0.04;
           modelRoot.updateWorldMatrix(true, false);
           const rootRotation = modelRoot.getWorldQuaternion(new Quaternion());
