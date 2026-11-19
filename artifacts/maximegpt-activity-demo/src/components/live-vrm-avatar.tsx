@@ -44,7 +44,8 @@ import {
   getRoomWalkPose,
   roomRouteLength,
   roomWalkCyclesForDistance,
-  ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO,
+  roomWalkCyclesForSegmentDistance,
+  roomWalkStrideLengthForSegment,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
   roomRouteTangentAtProgress,
@@ -138,6 +139,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let cameraLookX = 0;
     let cameraLookZ = 0;
     let walkStartProgress = 0;
+    let walkSegmentDistance = 0;
     let wasMoving = false;
     const roomAutonomy = createRoomAutonomy();
     const roomRouteMotion = createRoomRouteMotion();
@@ -394,6 +396,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
+          walkSegmentDistance = Math.abs(activity.targetProgress - positionProgress) * roomRouteLengthValue;
           const leftFoot = bones.get('leftFoot');
           const rightFoot = bones.get('rightFoot');
           const leftGroundHeight = footGroundHeights.get('leftFoot');
@@ -413,7 +416,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           modelRoot.position.z = routePosition.z;
         }
         const walkedDistance = Math.abs(routeProgress - walkStartProgress) * roomRouteLengthValue;
-        const walkCycles = roomWalkCyclesForDistance(walkedDistance, avatarHeight);
+        const walkCycles = moving
+          ? roomWalkCyclesForSegmentDistance(walkedDistance, walkSegmentDistance, avatarHeight)
+          : roomWalkCyclesForDistance(walkedDistance, avatarHeight);
         const walkPose = getRoomWalkPose(
           walkCycles * ROOM_WALK_CYCLE_SECONDS,
         );
@@ -438,7 +443,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
 
         // Follow gently so the audience can see Maxime cross the room instead
         // of watching the room slide around a nearly stationary-looking avatar.
-        const follow = 0.9;
+        // Keep enough of the room fixed in view to make the walk read as
+        // actual travel, while still gently following Maxime across the frame.
+        const follow = 0.48;
         const cameraTargetX = deskPositionX + (cameraRoutePosition.x - deskPositionX) * follow
           + clamp(smoothedVelocityX * 0.045, -avatarHeight * 0.045, avatarHeight * 0.045);
         const cameraTargetZ = avatarHeight * 1.65
@@ -479,7 +486,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           'hips',
           0,
           Math.sin(elapsed * 0.52) * 0.008 * idleSway + (moving ? walkPose.torsoTwist : 0),
-          0,
+          moving ? walkPose.pelvisSway : 0,
         );
         if (moving) {
           // IK must start from the same rig pose every frame. Reusing last
@@ -510,7 +517,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             + (thinking ? 0.018 : speaking ? energy * 0.018 : 0)
             + (moving ? 0.008 : 0),
           0,
-          0,
+          moving ? -walkPose.pelvisSway * 0.3 : 0,
         );
         setBonePose('chest', Math.sin(elapsed * 1.1) * 0.008 * idleSway, 0, speaking ? Math.sin(elapsed * 1.35) * energy * 0.018 : 0);
         setBonePose(
@@ -569,8 +576,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           const rightGroundHeight = footGroundHeights.get('rightFoot');
           const gaitForward = new Vector3(routeTangent.x, 0, routeTangent.z);
           // A foot advances half of the full same-foot gait cycle on each swing.
-          const swingLength = avatarHeight * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO * 0.5;
-          const footLift = avatarHeight * 0.05;
+          const swingLength = roomWalkStrideLengthForSegment(walkSegmentDistance, avatarHeight) * 0.5;
+          const footLift = avatarHeight * 0.04;
           modelRoot.updateWorldMatrix(true, false);
           const rootRotation = modelRoot.getWorldQuaternion(new Quaternion());
 
@@ -608,6 +615,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             const footRotation = leftStance
               ? leftFootLock.anchorQuaternion
               : rootRotation.clone().multiply(leftRestRoot ?? new Quaternion());
+            if (!leftStance) {
+              footRotation.multiply(
+                new Quaternion().setFromAxisAngle(
+                  new Vector3(1, 0, 0),
+                  Math.sin(Math.PI * swingProgress) * 0.12,
+                ),
+              );
+            }
             if (leftUpperLeg && leftLowerLeg) {
               solveGroundedLeg({
                 upperLeg: leftUpperLeg,
@@ -654,6 +669,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             const footRotation = rightStance
               ? rightFootLock.anchorQuaternion
               : rootRotation.clone().multiply(rightRestRoot ?? new Quaternion());
+            if (!rightStance) {
+              footRotation.multiply(
+                new Quaternion().setFromAxisAngle(
+                  new Vector3(1, 0, 0),
+                  Math.sin(Math.PI * swingProgress) * 0.12,
+                ),
+              );
+            }
             if (rightUpperLeg && rightLowerLeg) {
               solveGroundedLeg({
                 upperLeg: rightUpperLeg,

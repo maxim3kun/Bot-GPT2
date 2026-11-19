@@ -15,6 +15,8 @@ import {
   roomRoutePointAtProgress,
   roomRouteTangentAtProgress,
   roomWalkCyclesForDistance,
+  roomWalkCyclesForSegmentDistance,
+  roomWalkStrideLengthForSegment,
   ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO,
   ROOM_WALK_CYCLE_SECONDS,
   roomWalkTimeForProgress,
@@ -108,6 +110,21 @@ test('repeats footfalls according to distance instead of stretching one step acr
   assert.equal(roomWalkCyclesForDistance(1, 0), 0);
 });
 
+test('finishes each walk on a complete stride instead of snapping mid-step', () => {
+  const height = 1.7;
+  const shortWalk = height * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO * 0.78;
+  const longWalk = height * 0.82;
+  const shortStride = roomWalkStrideLengthForSegment(shortWalk, height);
+  const longStride = roomWalkStrideLengthForSegment(longWalk, height);
+
+  assert.equal(Math.round(shortWalk / shortStride), 1);
+  assert.equal(Math.round(longWalk / longStride), 2);
+  assert.ok(Math.abs(roomWalkCyclesForSegmentDistance(shortWalk, shortWalk, height) - 1) < 1e-8);
+  assert.ok(Math.abs(roomWalkCyclesForSegmentDistance(longWalk, longWalk, height) - 2) < 1e-8);
+  assert.ok(Math.abs(roomWalkCyclesForSegmentDistance(longWalk / 2, longWalk, height) - 1) < 1e-8);
+  assert.ok(roomWalkStrideLengthForSegment(shortWalk, height) < height * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO);
+});
+
 test('keeps the straight desk-to-window walk lane clear of the desk and chair', () => {
   const route = [
     { x: 0.8, z: -0.12 },
@@ -147,8 +164,10 @@ test('keeps the walk cycle balanced and alternates the feet and arms', () => {
   assert.ok(Math.abs(quarter.leftArmSwing + quarter.rightArmSwing) < 1e-10);
   assert.ok(Math.abs(half.leftHip + start.leftHip) < 1e-10);
   assert.ok(Math.abs(half.leftArmSwing + start.leftArmSwing) < 1e-10);
-  assert.ok(Math.abs(quarter.leftArmSwing) <= 0.14);
+  assert.ok(Math.abs(quarter.leftArmSwing) <= 0.19);
   assert.ok(Math.abs(quarter.leftKnee) <= 0.2);
+  assert.equal(start.pelvisSway, 0);
+  assert.ok(Math.abs(quarter.pelvisSway) <= 0.022);
 });
 
 test('softens the source animation when retargeting it onto the VRM rest pose', () => {

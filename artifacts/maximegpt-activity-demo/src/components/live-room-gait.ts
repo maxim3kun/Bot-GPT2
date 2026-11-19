@@ -11,6 +11,7 @@ export interface RoomWalkPose {
   rightFoot: number;
   leftArmSwing: number;
   rightArmSwing: number;
+  pelvisSway: number;
   bodyBob: number;
   torsoTwist: number;
 }
@@ -57,6 +58,41 @@ export function roomWalkCyclesForDistance(distance: number, avatarHeight: number
 }
 
 /**
+ * Choose a stride length for a particular walk so the avatar reaches a stable
+ * step phase at the destination instead of stopping halfway through a stride.
+ */
+export function roomWalkStrideLengthForSegment(distance: number, avatarHeight: number): number {
+  const safeHeight = Math.max(0, avatarHeight);
+  const safeDistance = Math.max(0, distance);
+  const nominalStrideLength = safeHeight * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO;
+  if (
+    !Number.isFinite(safeDistance)
+    || !Number.isFinite(nominalStrideLength)
+    || nominalStrideLength <= 1e-8
+  ) {
+    return 0;
+  }
+  if (safeDistance <= 1e-8) return nominalStrideLength;
+
+  const completeCycles = Math.max(1, Math.round(safeDistance / nominalStrideLength));
+  return safeDistance / completeCycles;
+}
+
+export function roomWalkCyclesForSegmentDistance(
+  distance: number,
+  segmentDistance: number,
+  avatarHeight: number,
+): number {
+  if (!Number.isFinite(distance) || !Number.isFinite(segmentDistance) || segmentDistance <= 1e-8) {
+    return roomWalkCyclesForDistance(distance, avatarHeight);
+  }
+  const nominalStrideLength = Math.max(0, avatarHeight) * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO;
+  if (nominalStrideLength <= 1e-8) return 0;
+  const completeCycles = Math.max(1, Math.round(segmentDistance / nominalStrideLength));
+  return clamp(distance / segmentDistance, 0, 1) * completeCycles;
+}
+
+/**
  * A deliberately restrained walk cycle for this specific VRM.
  * Phase is driven by route distance, not wall-clock time, so the steps stay
  * coupled to the character's movement through the room.
@@ -76,10 +112,11 @@ export function getRoomWalkPose(seconds: number): RoomWalkPose {
     rightKnee: rightLift * 0.2,
     leftFoot: -leftLift * 0.075,
     rightFoot: -rightLift * 0.075,
-    leftArmSwing: -stride * 0.14,
-    rightArmSwing: stride * 0.14,
-    bodyBob: (1 - Math.cos(phase * 2)) * 0.004,
-    torsoTwist: -stride * 0.024,
+    leftArmSwing: -stride * 0.19,
+    rightArmSwing: stride * 0.19,
+    pelvisSway: Math.sin(phase * 2) * 0.022,
+    bodyBob: (1 - Math.cos(phase * 2)) * 0.003,
+    torsoTwist: -stride * 0.032,
   };
 }
 
