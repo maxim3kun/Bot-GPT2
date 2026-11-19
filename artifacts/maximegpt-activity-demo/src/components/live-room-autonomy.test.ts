@@ -9,7 +9,19 @@ import {
   type RoomActivity,
 } from './live-room-autonomy.ts';
 import {
+  LIVE_BEDROOM_CHAIR_Z_RATIO,
+  LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
+  LIVE_BEDROOM_DESK_STAND_Z_RATIO,
+  LIVE_BEDROOM_DESK_X_RATIO,
+  LIVE_BEDROOM_FLOOR_TOP_RATIO,
+  LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
+  LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO,
+  LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
+  LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO,
+} from './live-bedroom-scene.ts';
+import {
   applyRetargetedWalkAnimation,
+  getRoomWalkFootPhase,
   getRoomWalkPose,
   roomRouteLength,
   roomRoutePointAtProgress,
@@ -137,12 +149,18 @@ test('advances each foot by the full distance travelled during its gait cycle', 
 });
 
 test('keeps the straight desk-to-window walk lane clear of the desk and chair', () => {
+  const deskPositionX = LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO;
   const route = [
-    { x: 0.8, z: -0.12 },
-    { x: -0.02, z: -0.72 },
+    { x: deskPositionX, z: LIVE_BEDROOM_DESK_STAND_Z_RATIO },
+    {
+      x: deskPositionX - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
+      z: LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
+    },
   ];
-  const desk = { left: 0.99, right: 1.77, front: -0.35, back: -0.69 };
-  const chair = { x: 0.9, z: -0.52, radiusX: 0.135, radiusZ: 0.125 };
+  const deskX = LIVE_BEDROOM_DESK_X_RATIO;
+  const deskZ = -0.52;
+  const desk = { left: deskX - 0.39, right: deskX + 0.39, front: deskZ + 0.17, back: deskZ - 0.17 };
+  const chair = { x: deskX - 0.48, z: LIVE_BEDROOM_CHAIR_Z_RATIO, radiusX: 0.135, radiusZ: 0.125 };
   const avatarClearance = 0.15;
 
   for (let step = 0; step <= 40; step += 1) {
@@ -155,14 +173,55 @@ test('keeps the straight desk-to-window walk lane clear of the desk and chair', 
     const chairDistanceX = Math.max(0, Math.abs(x - chair.x) - chair.radiusX);
     const chairDistanceZ = Math.max(0, Math.abs(z - chair.z) - chair.radiusZ);
     const insideChairClearance = Math.hypot(chairDistanceX, chairDistanceZ) < avatarClearance;
+    const avatarFrontZ = z - LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO;
+    const entersWindowPlane = avatarFrontZ <= LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO;
     assert.equal(insideDeskClearance, false);
     assert.equal(insideChairClearance, false);
+    assert.equal(entersWindowPlane, false);
   }
 
-  assert.ok(routeProgressFromPosition(0.35, -0.47, route) > 0.39);
+  assert.ok(
+    LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO - LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO >= 0.35,
+  );
+  assert.ok(routeProgressFromPosition(0.35, -0.3, route) > 0.39);
   const destination = roomRoutePointAtProgress(route, 1);
   assert.ok(Math.abs(destination.x - route.at(-1)!.x) < 1e-8);
   assert.ok(Math.abs(destination.z - route.at(-1)!.z) < 1e-8);
+});
+
+test('places the rug flush with the floor and leaves a safe stand-off from the window', () => {
+  const floorTop = LIVE_BEDROOM_FLOOR_TOP_RATIO;
+  const rugThickness = 0.018;
+  const rugCenter = floorTop - rugThickness / 2;
+  const rugTop = rugCenter + rugThickness / 2;
+
+  assert.ok(Math.abs(rugTop - floorTop) < 1e-10);
+  assert.ok(
+    LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO - LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO
+      >= LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO,
+  );
+});
+
+test('alternates realistic stance and swing phases with brief double support', () => {
+  const start = getRoomWalkFootPhase(0);
+  const leftSwing = getRoomWalkFootPhase(0.3);
+  const doubleSupport = getRoomWalkFootPhase(0.56);
+  const rightSwing = getRoomWalkFootPhase(0.8);
+
+  assert.deepEqual(start, {
+    leftStance: true,
+    rightStance: true,
+    leftSwingProgress: 0,
+    rightSwingProgress: 0,
+  });
+  assert.equal(leftSwing.leftStance, false);
+  assert.equal(leftSwing.rightStance, true);
+  assert.ok(leftSwing.leftSwingProgress > 0 && leftSwing.leftSwingProgress < 1);
+  assert.equal(doubleSupport.leftStance, true);
+  assert.equal(doubleSupport.rightStance, true);
+  assert.equal(rightSwing.leftStance, true);
+  assert.equal(rightSwing.rightStance, false);
+  assert.ok(rightSwing.rightSwingProgress > 0 && rightSwing.rightSwingProgress < 1);
 });
 
 test('keeps the walk cycle balanced and alternates the feet and arms', () => {
@@ -176,7 +235,7 @@ test('keeps the walk cycle balanced and alternates the feet and arms', () => {
   assert.ok(Math.abs(half.leftHip + start.leftHip) < 1e-10);
   assert.ok(Math.abs(half.leftArmSwing + start.leftArmSwing) < 1e-10);
   assert.ok(Math.abs(quarter.leftArmSwing) <= 0.19);
-  assert.ok(Math.abs(quarter.leftKnee) <= 0.2);
+  assert.ok(Math.abs(quarter.leftKnee) <= 0.32);
   assert.equal(start.pelvisSway, 0);
   assert.ok(Math.abs(quarter.pelvisSway) <= 0.022);
 });

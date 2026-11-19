@@ -16,6 +16,13 @@ export interface RoomWalkPose {
   torsoTwist: number;
 }
 
+export interface RoomWalkFootPhase {
+  leftStance: boolean;
+  rightStance: boolean;
+  leftSwingProgress: number;
+  rightSwingProgress: number;
+}
+
 export interface RoomRoutePoint {
   x: number;
   z: number;
@@ -35,7 +42,29 @@ export interface RoomWalkClip {
 export const ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO = 0.42;
 
 const TWO_PI = Math.PI * 2;
+const LEFT_SWING_START = 0.12;
+const LEFT_SWING_END = 0.5;
+const RIGHT_SWING_START = 0.62;
+const RIGHT_SWING_END = 1;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+function swingProgress(phase: number, start: number, end: number): number {
+  return phase >= start && phase < end
+    ? clamp((phase - start) / (end - start), 0, 1)
+    : 0;
+}
+
+export function getRoomWalkFootPhase(cycles: number): RoomWalkFootPhase {
+  const phase = ((cycles % 1) + 1) % 1;
+  const leftSwingProgress = swingProgress(phase, LEFT_SWING_START, LEFT_SWING_END);
+  const rightSwingProgress = swingProgress(phase, RIGHT_SWING_START, RIGHT_SWING_END);
+  return {
+    leftStance: leftSwingProgress === 0,
+    rightStance: rightSwingProgress === 0,
+    leftSwingProgress,
+    rightSwingProgress,
+  };
+}
 
 export function roomRouteLength(points: readonly RoomRoutePoint[]): number {
   let length = 0;
@@ -102,21 +131,24 @@ export function getRoomWalkPose(seconds: number): RoomWalkPose {
     % ROOM_WALK_CYCLE_SECONDS;
   const phase = TWO_PI * cycle / ROOM_WALK_CYCLE_SECONDS;
   const stride = Math.sin(phase);
-  const leftLift = Math.max(0, -Math.cos(phase));
-  const rightLift = Math.max(0, Math.cos(phase));
+  const gaitPhase = cycle / ROOM_WALK_CYCLE_SECONDS;
+  const leftSwing = swingProgress(gaitPhase, LEFT_SWING_START, LEFT_SWING_END);
+  const rightSwing = swingProgress(gaitPhase, RIGHT_SWING_START, RIGHT_SWING_END);
+  const leftLift = Math.sin(Math.PI * leftSwing);
+  const rightLift = Math.sin(Math.PI * rightSwing);
 
   return {
-    leftHip: stride * 0.16,
-    rightHip: -stride * 0.16,
-    leftKnee: leftLift * 0.2,
-    rightKnee: rightLift * 0.2,
-    leftFoot: -leftLift * 0.075,
-    rightFoot: -rightLift * 0.075,
-    leftArmSwing: -stride * 0.19,
-    rightArmSwing: stride * 0.19,
-    pelvisSway: Math.sin(phase * 2) * 0.022,
-    bodyBob: (1 - Math.cos(phase * 2)) * 0.003,
-    torsoTwist: -stride * 0.032,
+    leftHip: stride * 0.13,
+    rightHip: -stride * 0.13,
+    leftKnee: leftLift * 0.32,
+    rightKnee: rightLift * 0.32,
+    leftFoot: -leftLift * 0.055,
+    rightFoot: -rightLift * 0.055,
+    leftArmSwing: -stride * 0.14,
+    rightArmSwing: stride * 0.14,
+    pelvisSway: Math.sin(phase * 2) * 0.016,
+    bodyBob: (1 - Math.cos(phase * 2)) * 0.007,
+    torsoTwist: -stride * 0.024,
   };
 }
 

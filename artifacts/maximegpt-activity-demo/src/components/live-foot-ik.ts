@@ -30,6 +30,16 @@ export function captureFootStart(state: FootLockState, foot: Object3D, groundAnk
   state.planted = false;
 }
 
+/** Lock a foot already on the floor before the first animated gait phase. */
+export function capturePlantedFootStart(
+  state: FootLockState,
+  foot: Object3D,
+  groundAnkleHeight: number,
+): void {
+  captureFootStart(state, foot, groundAnkleHeight);
+  state.planted = true;
+}
+
 export function getSwingFootTarget(
   start: Vector3,
   forward: Vector3,

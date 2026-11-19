@@ -28,7 +28,13 @@ export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.82;
 export const LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO = 0.58;
 export const LIVE_BEDROOM_DESK_STAND_Z_RATIO = -0.12;
 export const LIVE_BEDROOM_CHAIR_Z_RATIO = -0.52;
-export const LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO = -0.72;
+export const LIVE_BEDROOM_FLOOR_TOP_RATIO = -0.01;
+export const LIVE_BEDROOM_WINDOW_WALL_Z_RATIO = -0.92;
+export const LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO = LIVE_BEDROOM_WINDOW_WALL_Z_RATIO + 0.12;
+export const LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO = 0.2;
+export const LIVE_BEDROOM_WINDOW_STANDOFF_RATIO = 0.35;
+export const LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO =
+  LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO + LIVE_BEDROOM_WINDOW_STANDOFF_RATIO;
 export const LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO = 0.42;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
@@ -250,7 +256,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
 
   const roomW = 4.8 * h;
   const roomD = 2.8 * h;
-  const wallZ = -0.92 * h;
+  const wallZ = LIVE_BEDROOM_WINDOW_WALL_Z_RATIO * h;
   const wallH = 2.55 * h;
   const wallT = 0.09 * h;
   const winW = 0.88 * h;
@@ -451,8 +457,13 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   makeRoundedBox('bed-headboard', [1.08 * h, 0.48 * h, 0.07 * h], [bedX, 0.39 * h, bedZ - 0.33 * h], 0x89796d, 0.82, 0.035 * h, fabricTexture);
 
   // Textured rug under the route and a soft contact shadow that follows Maxime.
-  makeRoundedBox('bedroom-rug', [1.12 * h, 0.018 * h, 0.82 * h],
-    [(walkStartX + windowX) / 2, 0.005 * h, (walkStartZ + LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO * h) / 2],
+  const rugThickness = 0.018 * h;
+  makeRoundedBox('bedroom-rug', [1.12 * h, rugThickness, 0.82 * h],
+    [
+      (walkStartX + windowX) / 2,
+      LIVE_BEDROOM_FLOOR_TOP_RATIO * h - rugThickness / 2,
+      (walkStartZ + LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO * h) / 2,
+    ],
     0xffffff, 0.99, 0.018 * h, rugTexture);
   const shadowCanvas = document.createElement('canvas');
   shadowCanvas.width = 256;

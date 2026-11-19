@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Object3D, Quaternion, Vector3 } from 'three';
 import {
+  capturePlantedFootStart,
   createFootLockState,
   getSwingFootTarget,
   solveGroundedLeg,
@@ -43,6 +44,20 @@ test('locks a planted ankle in world space while the body moves', () => {
   assert.equal(solved, true);
   assert.ok(leg.foot.getWorldPosition(new Vector3()).distanceTo(anchor) < 0.02);
   assert.ok(leg.lowerLeg.getWorldPosition(new Vector3()).z > leg.upperLeg.getWorldPosition(new Vector3()).z);
+});
+
+test('starts both feet planted without snapping either foot to a future step', () => {
+  const leg = createTestLeg();
+  const state = createFootLockState();
+  const initialFoot = leg.foot.getWorldPosition(new Vector3());
+  const predictedNextStep = initialFoot.clone().add(new Vector3(0.65, 0, 0));
+
+  capturePlantedFootStart(state, leg.foot, initialFoot.y);
+  updateFootLock(state, true, leg.foot, initialFoot.y, predictedNextStep);
+
+  assert.equal(state.planted, true);
+  assert.ok(state.anchor.distanceTo(initialFoot) < 1e-8);
+  assert.ok(state.anchor.distanceTo(predictedNextStep) > 0.6);
 });
 
 test('re-solves each moving frame from a stable rig pose without foot drift', () => {
