@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  AnimationMixer,
   Box3,
   DirectionalLight,
   Euler,
   HemisphereLight,
   LinearFilter,
   LinearMipmapLinearFilter,
+  LoopRepeat,
   Mesh,
   MathUtils,
   Object3D,
@@ -22,6 +24,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import type { AnimationAction } from 'three';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
   LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
@@ -43,6 +46,7 @@ import {
   updateFootLock,
 } from './live-foot-ik';
 import {
+  applyRetargetedWalkAnimation,
   getRoomWalkFootPhase,
   getRoomWalkPose,
   roomRouteLength,
@@ -54,8 +58,12 @@ import {
   roomRouteTangentAtProgress,
   routeProgressFromPosition,
   type RoomRoutePoint,
+  type RoomWalkClip,
 } from './live-room-gait';
+import { retargetJointRotation } from './live-motion-retarget';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
+import motionPackUrl from '../assets/animations/cc0-humanoid-motions.glb?url';
+import walkClipData from '../assets/quaternius-walk-loop.json';
 
 interface LiveVrmAvatarProps {
   mode: LiveAvatarModelMode;
@@ -85,6 +93,38 @@ type BoneName =
   | 'rightLowerArm'
   | 'leftHand'
   | 'rightHand';
+
+type MotionName = 'idle';
+
+interface MotionSource {
+  mixer: AnimationMixer;
+  action: AnimationAction;
+  bones: Map<BoneName, Object3D>;
+  restRotations: Map<BoneName, Quaternion>;
+}
+
+const MOTION_BONE_SOURCES: readonly [BoneName, string][] = [
+  ['hips', 'mixamorigHips'],
+  ['spine', 'mixamorigSpine'],
+  ['chest', 'mixamorigSpine1'],
+  ['upperChest', 'mixamorigSpine2'],
+  ['neck', 'mixamorigNeck'],
+  ['head', 'mixamorigHead'],
+  ['leftShoulder', 'mixamorigLeftShoulder'],
+  ['rightShoulder', 'mixamorigRightShoulder'],
+  ['leftUpperLeg', 'mixamorigLeftUpLeg'],
+  ['rightUpperLeg', 'mixamorigRightUpLeg'],
+  ['leftLowerLeg', 'mixamorigLeftLeg'],
+  ['rightLowerLeg', 'mixamorigRightLeg'],
+  ['leftFoot', 'mixamorigLeftFoot'],
+  ['rightFoot', 'mixamorigRightFoot'],
+  ['leftUpperArm', 'mixamorigLeftArm'],
+  ['rightUpperArm', 'mixamorigRightArm'],
+  ['leftLowerArm', 'mixamorigLeftForeArm'],
+  ['rightLowerArm', 'mixamorigRightForeArm'],
+  ['leftHand', 'mixamorigLeftHand'],
+  ['rightHand', 'mixamorigRightHand'],
+];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -127,6 +167,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
     let disposed = false;
     let vrm: VRM | undefined;
     let bedroom: LiveBedroomScene | undefined;
+    let motionPackScene: Object3D | undefined;
+    const motionSources = new Map<MotionName, MotionSource>();
+    let motionBlend = 0;
     let avatarHeight = 1;
     let lastFrame = 0;
     let elapsed = 0;
@@ -155,11 +198,18 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       motionFactor = motionPreference.matches ? 0 : 1;
     };
     const baseRotations = new Map<BoneName, Euler>();
+    const baseQuaternions = new Map<BoneName, Quaternion>();
+    const motionRestQuaternions = new Map<BoneName, Quaternion>();
     const footGroundHeights = new Map<string, number>();
     const footRestRootQuaternions = new Map<string, Quaternion>();
     const leftFootLock = createFootLockState();
     const rightFootLock = createFootLockState();
     const bones = new Map<BoneName, Object3D>();
+    const idleRetargetedPoses = new Map<BoneName, Quaternion>();
+    const walkRetargetedPoses = new Map<BoneName, Quaternion>();
+    const idleRetargetRotation = new Quaternion();
+    const walkRetargetRotation = new Quaternion();
+    const sourceRetargetDelta = new Quaternion();
     const camera = new PerspectiveCamera(40, 1, 0.05, 100);
     const scene = new Scene();
     scene.background = null;
@@ -326,6 +376,15 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           if (!bone) continue;
           bones.set(name, bone);
           baseRotations.set(name, bone.rotation.clone());
+          baseQuaternions.set(name, bone.quaternion.clone());
+          const motionRest = bone.rotation.clone();
+          if (name === 'leftUpperArm') motionRest.z += 1.18;
+          if (name === 'rightUpperArm') motionRest.z -= 1.18;
+          if (name === 'leftLowerArm') motionRest.z -= 0.04;
+          if (name === 'rightLowerArm') motionRest.z += 0.04;
+          motionRestQuaternions.set(name, new Quaternion().setFromEuler(motionRest));
+          idleRetargetedPoses.set(name, new Quaternion());
+          walkRetargetedPoses.set(name, new Quaternion());
         }
 
         vrm.scene.updateMatrixWorld(true);
@@ -343,6 +402,65 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         vrm.lookAt && (vrm.lookAt.target = gazeTarget);
         setError('');
         setLoaded(true);
+
+        const motionLoader = new GLTFLoader();
+        motionLoader.load(
+          motionPackUrl,
+          (motionGltf) => {
+            if (disposed) {
+              VRMUtils.deepDispose(motionGltf.scene);
+              return;
+            }
+            motionPackScene = motionGltf.scene;
+            const diagnosticSourceNames: string[] = [];
+            motionGltf.scene.traverse((object) => {
+              if (object.name.startsWith('mixamorig')) diagnosticSourceNames.push(object.name);
+            });
+            const createMotionSource = (name: MotionName): MotionSource | undefined => {
+              const clip = motionGltf.animations.find((candidate) => candidate.name.toLowerCase() === name);
+              if (!clip) return undefined;
+              const sourceRoot = motionGltf.scene.clone(true);
+              const mixer = new AnimationMixer(sourceRoot);
+              const action = mixer.clipAction(clip, sourceRoot);
+              action.setLoop(LoopRepeat, Infinity);
+              action.play();
+              mixer.update(0);
+              const sourceObjects = new Map<string, Object3D>();
+              sourceRoot.traverse((object) => {
+                if (object.name) sourceObjects.set(object.name, object);
+              });
+              const sourceBones = new Map<BoneName, Object3D>();
+              const sourceRestRotations = new Map<BoneName, Quaternion>();
+              for (const [boneName, sourceName] of MOTION_BONE_SOURCES) {
+                const sourceBone = sourceObjects.get(sourceName);
+                if (!sourceBone || !bones.has(boneName) || !baseQuaternions.has(boneName)) continue;
+                sourceBones.set(boneName, sourceBone);
+                sourceRestRotations.set(boneName, sourceBone.quaternion.clone());
+              }
+              return {
+                mixer,
+                action,
+                bones: sourceBones,
+                restRotations: sourceRestRotations,
+              };
+            };
+            const idle = createMotionSource('idle');
+            if (idle && idle.bones.size >= 12) {
+              motionSources.set('idle', idle);
+            } else {
+              if (idle) idle.mixer.stopAllAction();
+              console.warn('Le pack de repos n’a pas fourni les os attendus; le mouvement de secours reste actif.', {
+                clips: motionGltf.animations.map((clip) => clip.name),
+                idleBones: idle?.bones.size ?? 0,
+                sourceBoneNames: diagnosticSourceNames.join(', '),
+              });
+            }
+          },
+          undefined,
+          (motionError) => {
+            if (!disposed) console.warn('Les animations libres n’ont pas pu être chargées.', motionError);
+          },
+        );
       },
       (progress) => {
         if (!disposed && progress.total > 0) {
@@ -403,15 +521,17 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
           walkSegmentDistance = Math.abs(activity.targetProgress - positionProgress) * roomRouteLengthValue;
-          const leftFoot = bones.get('leftFoot');
-          const rightFoot = bones.get('rightFoot');
-          const leftGroundHeight = footGroundHeights.get('leftFoot');
-          const rightGroundHeight = footGroundHeights.get('rightFoot');
-          if (leftFoot && leftGroundHeight !== undefined) {
-            capturePlantedFootStart(leftFootLock, leftFoot, leftGroundHeight);
-          }
-          if (rightFoot && rightGroundHeight !== undefined) {
-            capturePlantedFootStart(rightFootLock, rightFoot, rightGroundHeight);
+          if (walkClipData.tracks.length === 0) {
+            const leftFoot = bones.get('leftFoot');
+            const rightFoot = bones.get('rightFoot');
+            const leftGroundHeight = footGroundHeights.get('leftFoot');
+            const rightGroundHeight = footGroundHeights.get('rightFoot');
+            if (leftFoot && leftGroundHeight !== undefined) {
+              capturePlantedFootStart(leftFootLock, leftFoot, leftGroundHeight);
+            }
+            if (rightFoot && rightGroundHeight !== undefined) {
+              capturePlantedFootStart(rightFootLock, rightFoot, rightGroundHeight);
+            }
           }
         }
         wasMoving = moving;
@@ -433,7 +553,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const windowTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress);
         const movementHeading = Math.atan2(routeTangent.x, routeTangent.z);
         const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
-        modelRoot.position.y = roomFloorY + (moving ? walkPose.bodyBob * avatarHeight : 0);
+        modelRoot.position.y = roomFloorY + (moving && walkClipData.tracks.length === 0 ? walkPose.bodyBob * avatarHeight : 0);
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
         previousRouteX = modelRoot.position.x;
@@ -493,7 +613,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           Math.sin(elapsed * 0.52) * 0.008 * idleSway + (moving ? walkPose.torsoTwist : 0),
           moving ? walkPose.pelvisSway : 0,
         );
-        if (moving) {
+        if (moving && walkClipData.tracks.length === 0) {
           // IK must start from the same rig pose every frame. Reusing last
           // frame's solved rotations makes the feet drift and the knees twist.
           for (const name of [
@@ -565,7 +685,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         setBonePose('leftHand', 0, 0, 0);
         setBonePose('rightHand', 0, 0, 0);
-        if (moving) {
+        if (moving && walkClipData.tracks.length === 0) {
           const footPhase = getRoomWalkFootPhase(walkCycles);
           const { leftStance, rightStance } = footPhase;
           const leftFoot = bones.get('leftFoot');
@@ -735,6 +855,37 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           setExpression('happy', speaking ? 0.08 + energy * 0.12 : 0);
         }
 
+        const idleMotion = motionSources.get('idle');
+        if (idleMotion) {
+          idleMotion.mixer.update(delta * motionFactor);
+          motionBlend = MathUtils.damp(motionBlend, moving ? 1 : 0, 6, delta);
+          for (const [boneName] of MOTION_BONE_SOURCES) {
+            const targetBone = bones.get(boneName);
+            const targetRest = motionRestQuaternions.get(boneName);
+            const idleBone = idleMotion.bones.get(boneName);
+            const idleRest = idleMotion.restRotations.get(boneName);
+            if (!targetBone || !targetRest || !idleBone || !idleRest) continue;
+            retargetJointRotation(idleRest, idleBone.quaternion, targetRest, idleRetargetRotation, sourceRetargetDelta);
+            idleRetargetedPoses.get(boneName)?.copy(idleRetargetRotation);
+            targetBone.quaternion.copy(targetRest);
+          }
+          applyRetargetedWalkAnimation(
+            walkClipData as RoomWalkClip,
+            bones,
+            motionRestQuaternions,
+            walkCycles * walkClipData.duration,
+            1,
+          );
+          for (const [boneName] of MOTION_BONE_SOURCES) {
+            const targetBone = bones.get(boneName);
+            const idlePose = idleRetargetedPoses.get(boneName);
+            const walkPose = walkRetargetedPoses.get(boneName);
+            if (!targetBone || !idlePose || !walkPose) continue;
+            walkPose.copy(targetBone.quaternion);
+            targetBone.quaternion.copy(idlePose).slerp(walkPose, motionBlend);
+          }
+        }
+
         vrm.update(delta);
       }
 
@@ -748,6 +899,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       renderer.setAnimationLoop(null);
       renderer.dispose();
       bedroom?.dispose();
+      for (const motion of motionSources.values()) motion.mixer.stopAllAction();
+      if (motionPackScene) VRMUtils.deepDispose(motionPackScene);
       if (vrm) VRMUtils.deepDispose(vrm.scene);
       scene.clear();
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement);
