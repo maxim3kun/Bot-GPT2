@@ -45,6 +45,32 @@ test('locks a planted ankle in world space while the body moves', () => {
   assert.ok(leg.lowerLeg.getWorldPosition(new Vector3()).z > leg.upperLeg.getWorldPosition(new Vector3()).z);
 });
 
+test('re-solves each moving frame from a stable rig pose without foot drift', () => {
+  const leg = createTestLeg();
+  const state = createFootLockState();
+  leg.root.updateMatrixWorld(true);
+  const ground = leg.foot.getWorldPosition(new Vector3()).y;
+  updateFootLock(state, true, leg.foot, ground);
+  const planted = state.anchor.clone();
+  const baseRotations = [leg.upperLeg, leg.lowerLeg, leg.foot].map((bone) => bone.quaternion.clone());
+
+  for (let frame = 1; frame <= 8; frame += 1) {
+    leg.upperLeg.quaternion.copy(baseRotations[0]!);
+    leg.lowerLeg.quaternion.copy(baseRotations[1]!);
+    leg.foot.quaternion.copy(baseRotations[2]!);
+    leg.root.position.x = frame * 0.02;
+    leg.root.updateMatrixWorld(true);
+    solveGroundedLeg({
+      ...leg,
+      anchor: state.anchor,
+      footRestWorldQuaternion: baseRotations[2]!,
+      kneePoleDirection: new Vector3(1, 0, 0),
+    });
+    leg.root.updateMatrixWorld(true);
+    assert.ok(leg.foot.getWorldPosition(new Vector3()).distanceTo(planted) < 0.02);
+  }
+});
+
 test('releases and captures a new anchor at the next stance', () => {
   const leg = createTestLeg();
   const state = createFootLockState();
@@ -62,6 +88,20 @@ test('releases and captures a new anchor at the next stance', () => {
   assert.equal(state.planted, true);
   assert.ok(state.anchor.x > firstAnchor.x);
   assert.equal(state.anchor.y, 0.2);
+});
+
+test('locks the predicted touchdown instead of recapturing the reset leg pose', () => {
+  const leg = createTestLeg();
+  const state = createFootLockState();
+  const start = leg.foot.getWorldPosition(new Vector3());
+  const landing = start.clone().add(new Vector3(0.3, 0, 0));
+  const landingRotation = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.4);
+
+  updateFootLock(state, false, leg.foot, 0.2);
+  updateFootLock(state, true, leg.foot, 0.2, landing, landingRotation);
+
+  assert.ok(state.anchor.distanceTo(landing) < 1e-8);
+  assert.ok(state.anchorQuaternion.angleTo(landingRotation) < 1e-8);
 });
 
 test('swing-foot path starts and lands on the floor with a modest lift', () => {

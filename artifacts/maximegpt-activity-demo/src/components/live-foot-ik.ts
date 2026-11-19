@@ -54,6 +54,8 @@ export function updateFootLock(
   stance: boolean,
   foot: Object3D,
   groundAnkleHeight: number,
+  landingTarget?: Vector3,
+  landingQuaternion?: Quaternion,
 ): FootLockState {
   if (!stance) {
     state.planted = false;
@@ -61,9 +63,18 @@ export function updateFootLock(
   }
 
   if (!state.planted) {
-    foot.updateWorldMatrix(true, false);
-    foot.getWorldPosition(state.anchor);
-    foot.getWorldQuaternion(state.anchorQuaternion);
+    if (landingTarget) {
+      state.anchor.copy(landingTarget);
+      if (landingQuaternion) state.anchorQuaternion.copy(landingQuaternion);
+      else {
+        foot.updateWorldMatrix(true, false);
+        foot.getWorldQuaternion(state.anchorQuaternion);
+      }
+    } else {
+      foot.updateWorldMatrix(true, false);
+      foot.getWorldPosition(state.anchor);
+      foot.getWorldQuaternion(state.anchorQuaternion);
+    }
     state.anchor.y = groundAnkleHeight;
     state.planted = true;
   }

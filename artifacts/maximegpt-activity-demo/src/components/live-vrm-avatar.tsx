@@ -47,6 +47,7 @@ import {
   ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
+  roomRouteTangentAtProgress,
   routeProgressFromPosition,
   type RoomRoutePoint,
 } from './live-room-gait';
@@ -273,7 +274,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const deskPositionZ = height * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
         roomRoutePoints = [
           { x: deskPositionX, z: deskPositionZ },
-          { x: deskPositionX - height * 0.45, z: deskPositionZ },
           {
             x: deskPositionX - height * LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
             z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
@@ -400,6 +400,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           const rightGroundHeight = footGroundHeights.get('rightFoot');
           if (leftFoot && leftGroundHeight !== undefined) {
             captureFootStart(leftFootLock, leftFoot, leftGroundHeight);
+            leftFootLock.planted = true;
           }
           if (rightFoot && rightGroundHeight !== undefined) {
             captureFootStart(rightFootLock, rightFoot, rightGroundHeight);
@@ -416,8 +417,13 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const walkPose = getRoomWalkPose(
           walkCycles * ROOM_WALK_CYCLE_SECONDS,
         );
-        modelRoot.position.y = moving ? walkPose.bodyBob * avatarHeight : 0;
         const travelProgress = moving ? routeProgress : positionProgress;
+        const routeDirection: 1 | -1 = moving && activity.targetProgress < positionProgress ? -1 : 1;
+        const routeTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress, routeDirection);
+        const windowTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress);
+        const movementHeading = Math.atan2(routeTangent.x, routeTangent.z);
+        const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
+        modelRoot.position.y = moving ? walkPose.bodyBob * avatarHeight : 0;
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
         previousRouteX = modelRoot.position.x;
@@ -446,8 +452,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         cameraLookZ = MathUtils.damp(cameraLookZ, lookTargetZ, 3.1, delta);
         camera.lookAt(cameraLookX, avatarHeight * 0.47, cameraLookZ);
 
-        const routeHeading = Math.atan2(windowPositionX - modelRoot.position.x, windowPositionZ - modelRoot.position.z);
-        const movementHeading = Math.atan2(smoothedVelocityX, smoothedVelocityZ);
         const facingTarget = (moving
           ? movementHeading
           : atWindow
@@ -458,7 +462,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
               ? Math.PI * 0.12
               : 0) * motionFactor;
         const facingDelta = Math.atan2(Math.sin(facingTarget - modelRoot.rotation.y), Math.cos(facingTarget - modelRoot.rotation.y));
-        modelRoot.rotation.y += facingDelta * (1 - Math.exp(-1.25 * delta));
+        modelRoot.rotation.y += facingDelta * (1 - Math.exp(-4.5 * delta));
 
         const setBonePose = (name: BoneName, x: number, y: number, z: number) => {
           const bone = bones.get(name);
@@ -477,12 +481,29 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           Math.sin(elapsed * 0.52) * 0.008 * idleSway + (moving ? walkPose.torsoTwist : 0),
           0,
         );
-        setBonePose('leftUpperLeg', moving ? walkPose.leftHip : 0, 0, 0);
-        setBonePose('rightUpperLeg', moving ? walkPose.rightHip : 0, 0, 0);
-        setBonePose('leftLowerLeg', moving ? walkPose.leftKnee : 0, 0, 0);
-        setBonePose('rightLowerLeg', moving ? walkPose.rightKnee : 0, 0, 0);
-        setBonePose('leftFoot', moving ? walkPose.leftFoot : 0, 0, 0);
-        setBonePose('rightFoot', moving ? walkPose.rightFoot : 0, 0, 0);
+        if (moving) {
+          // IK must start from the same rig pose every frame. Reusing last
+          // frame's solved rotations makes the feet drift and the knees twist.
+          for (const name of [
+            'leftUpperLeg',
+            'rightUpperLeg',
+            'leftLowerLeg',
+            'rightLowerLeg',
+            'leftFoot',
+            'rightFoot',
+          ] as const) {
+            const bone = bones.get(name);
+            const base = baseRotations.get(name);
+            if (bone && base) bone.rotation.copy(base);
+          }
+        } else {
+          setBonePose('leftUpperLeg', 0, 0, 0);
+          setBonePose('rightUpperLeg', 0, 0, 0);
+          setBonePose('leftLowerLeg', 0, 0, 0);
+          setBonePose('rightLowerLeg', 0, 0, 0);
+          setBonePose('leftFoot', 0, 0, 0);
+          setBonePose('rightFoot', 0, 0, 0);
+        }
         setBonePose(
           'spine',
           breath
@@ -546,19 +567,33 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           const rightRestRoot = footRestRootQuaternions.get('rightFoot');
           const leftGroundHeight = footGroundHeights.get('leftFoot');
           const rightGroundHeight = footGroundHeights.get('rightFoot');
-          const gaitForward = new Vector3(
-            Math.sin(movementHeading),
-            0,
-            Math.cos(movementHeading),
-          );
+          const gaitForward = new Vector3(routeTangent.x, 0, routeTangent.z);
           // A foot advances half of the full same-foot gait cycle on each swing.
           const swingLength = avatarHeight * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO * 0.5;
-          const footLift = avatarHeight * 0.085;
+          const footLift = avatarHeight * 0.05;
           modelRoot.updateWorldMatrix(true, false);
           const rootRotation = modelRoot.getWorldQuaternion(new Quaternion());
 
           if (leftFoot && leftGroundHeight !== undefined) {
-            updateFootLock(leftFootLock, leftStance, leftFoot, leftGroundHeight);
+            const leftRestRotation = rootRotation.clone().multiply(leftRestRoot ?? new Quaternion());
+            const leftLandingTarget = leftStance && !leftFootLock.planted
+              ? getSwingFootTarget(
+                leftFootLock.anchor,
+                gaitForward,
+                swingLength,
+                1,
+                leftGroundHeight,
+                footLift,
+              )
+              : undefined;
+            updateFootLock(
+              leftFootLock,
+              leftStance,
+              leftFoot,
+              leftGroundHeight,
+              leftLandingTarget,
+              leftLandingTarget ? leftRestRotation : undefined,
+            );
             const swingProgress = gaitPhase >= 0.5 ? (gaitPhase - 0.5) * 2 : 0;
             const target = leftStance
               ? leftFootLock.anchor
@@ -586,7 +621,25 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           }
 
           if (rightFoot && rightGroundHeight !== undefined) {
-            updateFootLock(rightFootLock, rightStance, rightFoot, rightGroundHeight);
+            const rightRestRotation = rootRotation.clone().multiply(rightRestRoot ?? new Quaternion());
+            const rightLandingTarget = rightStance && !rightFootLock.planted
+              ? getSwingFootTarget(
+                rightFootLock.anchor,
+                gaitForward,
+                swingLength,
+                1,
+                rightGroundHeight,
+                footLift,
+              )
+              : undefined;
+            updateFootLock(
+              rightFootLock,
+              rightStance,
+              rightFoot,
+              rightGroundHeight,
+              rightLandingTarget,
+              rightLandingTarget ? rightRestRotation : undefined,
+            );
             const swingProgress = gaitPhase < 0.5 ? gaitPhase * 2 : 0;
             const target = rightStance
               ? rightFootLock.anchor

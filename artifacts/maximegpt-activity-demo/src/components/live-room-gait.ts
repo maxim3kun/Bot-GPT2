@@ -31,7 +31,7 @@ export interface RoomWalkClip {
   tracks: readonly RoomRotationTrack[];
 }
 
-export const ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO = 0.64;
+export const ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO = 0.42;
 
 const TWO_PI = Math.PI * 2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -212,6 +212,41 @@ export function roomRoutePointAtProgress(
     remaining -= segmentLength;
   }
   return points[points.length - 1]!;
+}
+
+/** Direction of travel on the same distance-based route used by the avatar root. */
+export function roomRouteTangentAtProgress(
+  points: readonly RoomRoutePoint[],
+  progress: number,
+  direction: 1 | -1 = 1,
+): RoomRoutePoint {
+  if (points.length < 2) return { x: 0, z: 1 };
+
+  let totalLength = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    totalLength += Math.hypot(current.x - previous.x, current.z - previous.z);
+  }
+  if (totalLength <= 1e-8) return { x: 0, z: 1 };
+
+  let remaining = clamp(progress, 0, 1) * totalLength;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const dx = current.x - previous.x;
+    const dz = current.z - previous.z;
+    const segmentLength = Math.hypot(dx, dz);
+    if (segmentLength <= 1e-8) continue;
+    if (remaining <= segmentLength || index === points.length - 1) {
+      return {
+        x: dx === 0 ? 0 : (dx / segmentLength) * direction,
+        z: dz === 0 ? 0 : (dz / segmentLength) * direction,
+      };
+    }
+    remaining -= segmentLength;
+  }
+  return { x: 0, z: 1 };
 }
 
 export function roomWalkTimeForProgress(progress: number, duration: number): number {

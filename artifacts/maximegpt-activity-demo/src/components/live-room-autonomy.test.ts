@@ -13,7 +13,9 @@ import {
   getRoomWalkPose,
   roomRouteLength,
   roomRoutePointAtProgress,
+  roomRouteTangentAtProgress,
   roomWalkCyclesForDistance,
+  ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO,
   ROOM_WALK_CYCLE_SECONDS,
   roomWalkTimeForProgress,
   routeProgressFromPosition,
@@ -91,48 +93,48 @@ test('calculates progress along the diagonal desk-to-window path', () => {
   assert.equal(routeProgressFromPosition(10, 10, route), 1);
   assert.deepEqual(roomRoutePointAtProgress(route, 0.5), { x: 10, z: 0 });
   assert.equal(roomRouteLength(route), 20);
+  assert.deepEqual(roomRouteTangentAtProgress(route, 0.25), { x: 1, z: 0 });
+  assert.deepEqual(roomRouteTangentAtProgress(route, 0.75), { x: 0, z: 1 });
+  assert.deepEqual(roomRouteTangentAtProgress(route, 0.75, -1), { x: 0, z: -1 });
+  assert.deepEqual(roomRouteTangentAtProgress([], 0.5), { x: 0, z: 1 });
   assert.equal(routeProgressFromPosition(4, 4, [{ x: 2, z: 2 }, { x: 2, z: 2 }]), 0);
   assert.equal(roomWalkTimeForProgress(0.5, 1.6), 0.8);
 });
 
 test('repeats footfalls according to distance instead of stretching one step across the route', () => {
   assert.equal(roomWalkCyclesForDistance(0, 1.7), 0);
-  assert.ok(Math.abs(roomWalkCyclesForDistance(1.7 * 0.64, 1.7) - 1) < 1e-8);
+  assert.ok(Math.abs(roomWalkCyclesForDistance(1.7 * ROOM_WALK_CYCLE_STRIDE_HEIGHT_RATIO, 1.7) - 1) < 1e-8);
   assert.ok(roomWalkCyclesForDistance(1.7 * 1.2, 1.7) > 1.8);
   assert.equal(roomWalkCyclesForDistance(1, 0), 0);
 });
 
-test('routes around the desk and chair without entering their clearance zones', () => {
+test('keeps the straight desk-to-window walk lane clear of the desk and chair', () => {
   const route = [
     { x: 0.8, z: -0.12 },
-    { x: 0.35, z: -0.12 },
-    { x: 0, z: -0.72 },
+    { x: -0.02, z: -0.72 },
   ];
   const desk = { left: 0.99, right: 1.77, front: -0.35, back: -0.69 };
   const chair = { x: 0.9, z: -0.52, radiusX: 0.135, radiusZ: 0.125 };
   const avatarClearance = 0.15;
 
-  for (let segment = 1; segment < route.length; segment += 1) {
-    const from = route[segment - 1]!;
-    const to = route[segment]!;
-    for (let step = 0; step <= 20; step += 1) {
-      const t = step / 20;
-      const x = from.x + (to.x - from.x) * t;
-      const z = from.z + (to.z - from.z) * t;
-      const insideDeskClearance = x >= desk.left - avatarClearance
-        && x <= desk.right + avatarClearance
-        && z >= desk.back - avatarClearance
-        && z <= desk.front + avatarClearance;
-      const chairDistanceX = Math.max(0, Math.abs(x - chair.x) - chair.radiusX);
-      const chairDistanceZ = Math.max(0, Math.abs(z - chair.z) - chair.radiusZ);
-      const insideChairClearance = Math.hypot(chairDistanceX, chairDistanceZ) < avatarClearance;
-      assert.equal(insideDeskClearance, false);
-      assert.equal(insideChairClearance, false);
-    }
+  for (let step = 0; step <= 40; step += 1) {
+    const t = step / 40;
+    const { x, z } = roomRoutePointAtProgress(route, t);
+    const insideDeskClearance = x >= desk.left - avatarClearance
+      && x <= desk.right + avatarClearance
+      && z >= desk.back - avatarClearance
+      && z <= desk.front + avatarClearance;
+    const chairDistanceX = Math.max(0, Math.abs(x - chair.x) - chair.radiusX);
+    const chairDistanceZ = Math.max(0, Math.abs(z - chair.z) - chair.radiusZ);
+    const insideChairClearance = Math.hypot(chairDistanceX, chairDistanceZ) < avatarClearance;
+    assert.equal(insideDeskClearance, false);
+    assert.equal(insideChairClearance, false);
   }
 
-  assert.ok(routeProgressFromPosition(0.35, -0.12, route) > 0.39);
-  assert.deepEqual(roomRoutePointAtProgress(route, 1), route.at(-1));
+  assert.ok(routeProgressFromPosition(0.35, -0.47, route) > 0.39);
+  const destination = roomRoutePointAtProgress(route, 1);
+  assert.ok(Math.abs(destination.x - route.at(-1)!.x) < 1e-8);
+  assert.ok(Math.abs(destination.z - route.at(-1)!.z) < 1e-8);
 });
 
 test('keeps the walk cycle balanced and alternates the feet and arms', () => {

@@ -263,6 +263,8 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   const trim = 0xd8d3c9;
   const darkWood = 0x59483e;
   const deskX = LIVE_BEDROOM_DESK_X_RATIO * h;
+  const walkStartX = (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO) * h;
+  const walkStartZ = LIVE_BEDROOM_DESK_STAND_Z_RATIO * h;
   const deskY = 0.48 * h;
   // Keep the desk beside and slightly behind the avatar so it never hides the body.
   const deskZ = -0.52 * h;
@@ -450,7 +452,8 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
 
   // Textured rug under the route and a soft contact shadow that follows Maxime.
   makeRoundedBox('bedroom-rug', [1.12 * h, 0.018 * h, 0.82 * h],
-    [windowX + 0.38 * h, 0.005 * h, -0.36 * h], 0xffffff, 0.99, 0.018 * h, rugTexture);
+    [(walkStartX + windowX) / 2, 0.005 * h, (walkStartZ + LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO * h) / 2],
+    0xffffff, 0.99, 0.018 * h, rugTexture);
   const shadowCanvas = document.createElement('canvas');
   shadowCanvas.width = 256;
   shadowCanvas.height = 128;
@@ -476,7 +479,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   const avatarShadow = new Mesh(new PlaneGeometry(0.78 * h, 0.34 * h), shadowMaterial);
   avatarShadow.name = 'avatar-contact-shadow';
   avatarShadow.rotation.x = -Math.PI / 2;
-  avatarShadow.position.set(deskX - 0.48 * h, 0.003 * h, -0.26 * h);
+  avatarShadow.position.set(walkStartX, 0.003 * h, walkStartZ);
   avatarShadow.renderOrder = 1;
   group.add(avatarShadow);
 
