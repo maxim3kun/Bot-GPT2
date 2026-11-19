@@ -36,6 +36,7 @@ export const LIVE_BEDROOM_WINDOW_STANDOFF_RATIO = 0.35;
 export const LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO =
   LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO + LIVE_BEDROOM_WINDOW_STANDOFF_RATIO;
 export const LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO = 0.42;
+export const LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO = 0.002;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
   const h = Math.max(avatarHeight, 0.1);
@@ -119,18 +120,21 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
     }
   }, [1, 1]);
   const rugTexture = createTexture((context, size) => {
-    context.fillStyle = '#d2c4ae';
+    context.fillStyle = '#c9c0b2';
     context.fillRect(0, 0, size, size);
-    context.strokeStyle = '#a89173';
-    context.lineWidth = 2;
-    for (let y = -size; y < size * 2; y += 36) {
+    context.strokeStyle = '#8177661a';
+    context.lineWidth = 1;
+    for (let y = 0; y < size; y += 5) {
       context.beginPath();
-      context.moveTo(0, y);
-      context.lineTo(size, y + size);
+      context.moveTo(0, y + 0.5);
+      context.lineTo(size, y + 0.5);
       context.stroke();
+    }
+    context.strokeStyle = '#f4eee333';
+    for (let x = 0; x < size; x += 5) {
       context.beginPath();
-      context.moveTo(size, y);
-      context.lineTo(0, y + size);
+      context.moveTo(x + 0.5, 0);
+      context.lineTo(x + 0.5, size);
       context.stroke();
     }
   }, [2, 1.5]);
@@ -458,10 +462,11 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
 
   // Textured rug under the route and a soft contact shadow that follows Maxime.
   const rugThickness = 0.018 * h;
-  makeRoundedBox('bedroom-rug', [1.12 * h, rugThickness, 0.82 * h],
+  const rugSurfaceOffset = LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO * h;
+  makeRoundedBox('bedroom-rug', [0.96 * h, rugThickness, 0.64 * h],
     [
       (walkStartX + windowX) / 2,
-      LIVE_BEDROOM_FLOOR_TOP_RATIO * h - rugThickness / 2,
+      LIVE_BEDROOM_FLOOR_TOP_RATIO * h - rugThickness / 2 + rugSurfaceOffset,
       (walkStartZ + LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO * h) / 2,
     ],
     0xffffff, 0.99, 0.018 * h, rugTexture);

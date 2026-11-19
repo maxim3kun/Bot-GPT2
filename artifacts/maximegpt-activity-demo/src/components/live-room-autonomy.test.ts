@@ -14,6 +14,7 @@ import {
   LIVE_BEDROOM_DESK_STAND_Z_RATIO,
   LIVE_BEDROOM_DESK_X_RATIO,
   LIVE_BEDROOM_FLOOR_TOP_RATIO,
+  LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO,
   LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
   LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO,
   LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
@@ -189,13 +190,14 @@ test('keeps the straight desk-to-window walk lane clear of the desk and chair', 
   assert.ok(Math.abs(destination.z - route.at(-1)!.z) < 1e-8);
 });
 
-test('places the rug flush with the floor and leaves a safe stand-off from the window', () => {
+test('keeps the rug visibly above the floor to prevent flicker', () => {
   const floorTop = LIVE_BEDROOM_FLOOR_TOP_RATIO;
   const rugThickness = 0.018;
-  const rugCenter = floorTop - rugThickness / 2;
+  const rugCenter = floorTop - rugThickness / 2 + LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO;
   const rugTop = rugCenter + rugThickness / 2;
 
-  assert.ok(Math.abs(rugTop - floorTop) < 1e-10);
+  assert.ok(rugTop > floorTop);
+  assert.ok(Math.abs(rugTop - floorTop - LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO) < 1e-10);
   assert.ok(
     LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO - LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO
       >= LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO,

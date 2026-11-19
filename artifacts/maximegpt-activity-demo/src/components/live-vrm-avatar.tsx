@@ -96,6 +96,23 @@ type BoneName =
 
 type MotionName = 'idle';
 
+const WALK_ANIMATED_BONES = new Set<BoneName>([
+  'hips',
+  'spine',
+  'chest',
+  'upperChest',
+  'neck',
+  'head',
+  'leftShoulder',
+  'rightShoulder',
+  'leftUpperArm',
+  'rightUpperArm',
+  'leftLowerArm',
+  'rightLowerArm',
+  'leftHand',
+  'rightHand',
+]);
+
 interface MotionSource {
   mixer: AnimationMixer;
   action: AnimationAction;
@@ -521,17 +538,15 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
           walkSegmentDistance = Math.abs(activity.targetProgress - positionProgress) * roomRouteLengthValue;
-          if (walkClipData.tracks.length === 0) {
-            const leftFoot = bones.get('leftFoot');
-            const rightFoot = bones.get('rightFoot');
-            const leftGroundHeight = footGroundHeights.get('leftFoot');
-            const rightGroundHeight = footGroundHeights.get('rightFoot');
-            if (leftFoot && leftGroundHeight !== undefined) {
-              capturePlantedFootStart(leftFootLock, leftFoot, leftGroundHeight);
-            }
-            if (rightFoot && rightGroundHeight !== undefined) {
-              capturePlantedFootStart(rightFootLock, rightFoot, rightGroundHeight);
-            }
+          const leftFoot = bones.get('leftFoot');
+          const rightFoot = bones.get('rightFoot');
+          const leftGroundHeight = footGroundHeights.get('leftFoot');
+          const rightGroundHeight = footGroundHeights.get('rightFoot');
+          if (leftFoot && leftGroundHeight !== undefined) {
+            capturePlantedFootStart(leftFootLock, leftFoot, leftGroundHeight);
+          }
+          if (rightFoot && rightGroundHeight !== undefined) {
+            capturePlantedFootStart(rightFootLock, rightFoot, rightGroundHeight);
           }
         }
         wasMoving = moving;
@@ -613,7 +628,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           Math.sin(elapsed * 0.52) * 0.008 * idleSway + (moving ? walkPose.torsoTwist : 0),
           moving ? walkPose.pelvisSway : 0,
         );
-        if (moving && walkClipData.tracks.length === 0) {
+        if (moving) {
           // IK must start from the same rig pose every frame. Reusing last
           // frame's solved rotations makes the feet drift and the knees twist.
           for (const name of [
@@ -685,7 +700,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         setBonePose('leftHand', 0, 0, 0);
         setBonePose('rightHand', 0, 0, 0);
-        if (moving && walkClipData.tracks.length === 0) {
+        if (moving) {
           const footPhase = getRoomWalkFootPhase(walkCycles);
           const { leftStance, rightStance } = footPhase;
           const leftFoot = bones.get('leftFoot');
@@ -874,9 +889,11 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
             bones,
             motionRestQuaternions,
             walkCycles * walkClipData.duration,
-            1,
+            0.58,
+            WALK_ANIMATED_BONES,
           );
           for (const [boneName] of MOTION_BONE_SOURCES) {
+            if (!WALK_ANIMATED_BONES.has(boneName)) continue;
             const targetBone = bones.get(boneName);
             const idlePose = idleRetargetedPoses.get(boneName);
             const walkPose = walkRetargetedPoses.get(boneName);
