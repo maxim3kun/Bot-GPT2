@@ -11,6 +11,8 @@ When retargeting Mixamo-style GLB clips, match the bone names after Three.js has
 
 For Maxime's live room, the user values clear, non-pixelated rendering and shoes that stay on the floor, but considers generic robotic walking unacceptable. Prioritize foot contact and coordination with the room over adding more motion; prevent coplanar floor props such as rugs from flickering.
 
-**Why:** The user wants Alicia Solid to remain available for personas and wants those characters to perform full-body actions, including jumping. They explicitly said they do not have access to a computer.
+The user confirmed that applying the grounded leg correction after the idle pose made the walk much better, though not fully finished.
+
+**Why:** The user wants Alicia Solid to remain available for personas and wants those characters to perform full-body actions, including jumping. They explicitly said they do not have access to a computer. They also confirmed the corrected leg-animation ordering improved Maxime's walk.
 
 **How to apply:** Keep persona and Maxime avatar choices separate. Prefer workflows that can be completed from a phone. Test and tune motion on the chosen VRM rig, preserve the user's accepted visual quality, and be clear when a movement is only a simulated pose rather than a complete animation. During retargeting, verify runtime bone names and preserve the VRM's visible neutral pose.
