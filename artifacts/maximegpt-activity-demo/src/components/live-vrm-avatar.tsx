@@ -112,6 +112,14 @@ const WALK_ANIMATED_BONES = new Set<BoneName>([
   'leftHand',
   'rightHand',
 ]);
+const PROCEDURAL_LEG_BONES = new Set<BoneName>([
+  'leftUpperLeg',
+  'rightUpperLeg',
+  'leftLowerLeg',
+  'rightLowerLeg',
+  'leftFoot',
+  'rightFoot',
+]);
 
 interface MotionSource {
   mixer: AnimationMixer;
@@ -875,6 +883,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           idleMotion.mixer.update(delta * motionFactor);
           motionBlend = MathUtils.damp(motionBlend, moving ? 1 : 0, 6, delta);
           for (const [boneName] of MOTION_BONE_SOURCES) {
+            // The grounded leg solver runs before retargeting. Do not let the
+            // idle clip reset its result after it has placed the feet.
+            if (moving && PROCEDURAL_LEG_BONES.has(boneName)) continue;
             const targetBone = bones.get(boneName);
             const targetRest = motionRestQuaternions.get(boneName);
             const idleBone = idleMotion.bones.get(boneName);
