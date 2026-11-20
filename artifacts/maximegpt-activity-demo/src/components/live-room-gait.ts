@@ -335,6 +335,28 @@ export function roomRouteTangentAtProgress(
   return { x: 0, z: 1 };
 }
 
+/**
+ * Smooth the heading across sampled curve segments so the avatar does not
+ * make tiny steering corrections at every point on the path.
+ */
+export function roomRouteHeadingAtProgress(
+  points: readonly RoomRoutePoint[],
+  progress: number,
+  direction: 1 | -1 = 1,
+  sampleWindow = 0.018,
+): RoomRoutePoint {
+  if (points.length < 2) return { x: 0, z: 1 };
+  const safeProgress = clamp(progress, 0, 1);
+  const window = clamp(sampleWindow, 0.001, 0.08);
+  const from = roomRoutePointAtProgress(points, Math.max(0, safeProgress - window));
+  const to = roomRoutePointAtProgress(points, Math.min(1, safeProgress + window));
+  const dx = (to.x - from.x) * direction;
+  const dz = (to.z - from.z) * direction;
+  const length = Math.hypot(dx, dz);
+  if (length <= 1e-8) return roomRouteTangentAtProgress(points, safeProgress, direction);
+  return { x: dx / length, z: dz / length };
+}
+
 export function roomWalkTimeForProgress(progress: number, duration: number): number {
   return clamp(progress, 0, 1) * Math.max(0, duration);
 }

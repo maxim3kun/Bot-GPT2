@@ -51,12 +51,12 @@ import {
   getRoomWalkFootPhase,
   getRoomWalkPose,
   roomRouteLength,
+  roomRouteHeadingAtProgress,
   roomWalkCyclesForDistance,
   roomWalkCyclesForSegmentDistance,
   roomWalkStrideLengthForSegment,
   ROOM_WALK_CYCLE_SECONDS,
   roomRoutePointAtProgress,
-  roomRouteTangentAtProgress,
   routeProgressFromPosition,
   type RoomRoutePoint,
   type RoomWalkClip,
@@ -520,6 +520,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const atWindow = activity.activity === 'looking-out-window';
         const walkingBack = activity.activity === 'walking-to-desk';
         const playingAtDesk = activity.activity === 'playing-at-desk';
+        const checkingPlant = activity.activity === 'checking-plant';
         const moving = motionFactor > 0 && (walkingOut || walkingBack);
         modelRoot.position.y = roomFloorY;
         const routeProgress = roomRouteMotion.update(
@@ -556,8 +557,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         );
         const travelProgress = moving ? routeProgress : positionProgress;
         const routeDirection: 1 | -1 = moving && activity.targetProgress < positionProgress ? -1 : 1;
-        const routeTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress, routeDirection);
-        const windowTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress);
+        const routeTangent = roomRouteHeadingAtProgress(roomRoutePoints, travelProgress, routeDirection);
+        const windowTangent = roomRouteHeadingAtProgress(roomRoutePoints, travelProgress);
         const movementHeading = Math.atan2(routeTangent.x, routeTangent.z);
         const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
         const monitorPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO + 0.23);
@@ -581,6 +582,15 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
               ? Math.max(0, Math.sin(elapsed * 8 + index * 1.17)) * avatarHeight * 0.004
               : 0;
             key.position.y = restY - press;
+          });
+          bedroom.plantLeaves.forEach((leaf, index) => {
+            const restX = Number(leaf.userData.restRotationX);
+            const restZ = Number(leaf.userData.restRotationZ);
+            if (!Number.isFinite(restX) || !Number.isFinite(restZ)) return;
+            const reach = checkingPlant ? 1 : 0;
+            const breeze = Math.sin(elapsed * (checkingPlant ? 2.2 : 0.72) + index * 1.3);
+            leaf.rotation.x = restX + breeze * avatarHeight * (0.008 + reach * 0.018);
+            leaf.rotation.z = restZ + breeze * avatarHeight * (0.012 + reach * 0.035);
           });
         }
 
@@ -609,7 +619,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           ? movementHeading
           : atWindow
             ? routeHeading
-            : playingAtDesk
+            : playingAtDesk || checkingPlant
               ? deskHeading * 0.35
             : thinking
               ? Math.PI * 0.12
@@ -673,6 +683,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
               ? Math.sin(elapsed * 1.8) * 0.022 * idleSway
               : atWindow
                 ? Math.sin(elapsed * 0.9) * 0.035 * idleSway
+                : checkingPlant
+                  ? 0.09 + Math.sin(elapsed * 0.9) * 0.018 * idleSway
                 : Math.sin(elapsed * 0.73) * 0.012 * idleSway),
           Math.sin(elapsed * (atWindow ? 0.72 : 0.39))
             * (listening ? 0.034 : atWindow ? 0.085 : 0.017)
@@ -685,28 +697,30 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           moving ? walkPose.leftArmSwing
             : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11
               : playingAtDesk ? -0.38 + Math.sin(elapsed * 7.8) * 0.012
-                : Math.sin(elapsed * 0.66) * 0.012 * idleSway,
+            : checkingPlant ? -0.22 + Math.sin(elapsed * 1.1) * 0.015
+              : Math.sin(elapsed * 0.66) * 0.012 * idleSway,
           speaking ? -0.25 : 0,
-          speaking ? 1.02 + speechGesture * 0.14 : playingAtDesk ? 0.82 : 1.18,
+          speaking ? 1.02 + speechGesture * 0.14 : playingAtDesk ? 0.82 : checkingPlant ? 0.94 : 1.18,
         );
         setBonePose(
           'rightUpperArm',
           moving ? walkPose.rightArmSwing
             : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08
               : playingAtDesk ? -0.38 + Math.sin(elapsed * 7.8 + 1.4) * 0.012
-                : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway,
+            : checkingPlant ? -0.18 + Math.sin(elapsed * 0.95 + 1) * 0.012
+              : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway,
           speaking ? 0.18 : 0,
-          playingAtDesk ? -0.82 : -1.18,
+          playingAtDesk ? -0.82 : checkingPlant ? -1.0 : -1.18,
         );
         setBonePose(
           'leftLowerArm',
-          speaking ? -0.28 : moving ? 0.04 : playingAtDesk ? -0.25 : -0.04,
+          speaking ? -0.28 : moving ? 0.04 : playingAtDesk ? -0.25 : checkingPlant ? -0.38 : -0.04,
           0,
           0.035,
         );
         setBonePose(
           'rightLowerArm',
-          speaking ? -0.08 : moving ? 0.04 : playingAtDesk ? -0.25 : -0.04,
+          speaking ? -0.08 : moving ? 0.04 : playingAtDesk ? -0.25 : checkingPlant ? -0.3 : -0.04,
           0,
           -0.035,
         );
@@ -848,12 +862,14 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const lookX = Math.sin(elapsed * (thinking || atWindow ? 0.72 : 0.31))
           * (thinking ? 0.16 : playingAtDesk ? 0.025 : 0.045)
           * idleSway;
-        const lookY = avatarHeight * (playingAtDesk ? 0.68 : listening ? 0.79 : thinking ? 0.73 : 0.76)
+        const lookY = avatarHeight * (playingAtDesk ? 0.68 : checkingPlant ? 0.62 : listening ? 0.79 : thinking ? 0.73 : 0.76)
           + Math.sin(elapsed * 0.47) * avatarHeight * 0.008 * idleSway;
         const gazeX = atWindow
           ? windowPositionX
           : playingAtDesk
             ? monitorPositionX
+            : checkingPlant
+              ? avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO - 0.2)
             : modelRoot.position.x + lookX * avatarHeight;
         gazeTarget.position.set(
           gazeX,
@@ -862,6 +878,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
             ? windowGlassZ - avatarHeight * 0.22
             : playingAtDesk
               ? monitorPositionZ
+              : checkingPlant
+                ? avatarHeight * -0.52
               : avatarHeight * 2.6,
         );
 

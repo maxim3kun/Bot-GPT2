@@ -25,6 +25,7 @@ import {
   getRoomWalkFootPhase,
   getRoomWalkPose,
   roomRouteLength,
+  roomRouteHeadingAtProgress,
   roomRoutePointAtProgress,
   roomRouteTangentAtProgress,
   roomWalkCyclesForDistance,
@@ -57,6 +58,7 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
       'looking-out-window',
       'walking-to-desk',
       'walking-to-window',
+      'checking-plant',
       'playing-at-desk',
     ].sort(),
   );
@@ -115,6 +117,17 @@ test('calculates progress along the diagonal desk-to-window path', () => {
   assert.deepEqual(roomRouteTangentAtProgress([], 0.5), { x: 0, z: 1 });
   assert.equal(routeProgressFromPosition(4, 4, [{ x: 2, z: 2 }, { x: 2, z: 2 }]), 0);
   assert.equal(roomWalkTimeForProgress(0.5, 1.6), 0.8);
+});
+
+test('smooths steering through sampled route corners without changing travel direction', () => {
+  const route = [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 1, z: 1 }];
+  const cornerHeading = roomRouteHeadingAtProgress(route, 0.5);
+  const reverseHeading = roomRouteHeadingAtProgress(route, 0.5, -1);
+
+  assert.ok(cornerHeading.x > 0.65 && cornerHeading.z > 0.65);
+  assert.ok(Math.abs(Math.hypot(cornerHeading.x, cornerHeading.z) - 1) < 1e-8);
+  assert.ok(Math.abs(reverseHeading.x + cornerHeading.x) < 1e-8);
+  assert.ok(Math.abs(reverseHeading.z + cornerHeading.z) < 1e-8);
 });
 
 test('repeats footfalls according to distance instead of stretching one step across the route', () => {

@@ -19,6 +19,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export interface LiveBedroomScene {
   group: Group;
   keyboardKeys: Mesh[];
+  plantLeaves: Mesh[];
   monitorMaterial: MeshBasicMaterial;
   avatarShadow: Mesh;
   dispose: () => void;
@@ -43,6 +44,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   const h = Math.max(avatarHeight, 0.1);
   const group = new Group();
   const keyboardKeys: Mesh[] = [];
+  const plantLeaves: Mesh[] = [];
   const materials = new Set<MeshStandardMaterial | MeshBasicMaterial>();
   const textures = new Set<Texture>();
   const materialCache = new Map<string, MeshStandardMaterial>();
@@ -433,6 +435,9 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
     );
     sprout.rotation.z = Math.cos(angle) * 0.35;
     sprout.rotation.x = Math.sin(angle) * 0.3;
+    sprout.userData.restRotationX = sprout.rotation.x;
+    sprout.userData.restRotationZ = sprout.rotation.z;
+    plantLeaves.push(sprout);
   }
 
   // Bookshelf and objects on the far wall, outside the walking corridor.
@@ -503,6 +508,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   return {
     group,
     keyboardKeys,
+    plantLeaves,
     monitorMaterial: monitorGlow,
     avatarShadow,
     dispose: () => {

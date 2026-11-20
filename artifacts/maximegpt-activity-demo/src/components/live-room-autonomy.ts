@@ -2,6 +2,7 @@ export type RoomActivity =
   | 'walking-to-window'
   | 'looking-out-window'
   | 'walking-to-desk'
+  | 'checking-plant'
   | 'playing-at-desk'
   | 'attending';
 
@@ -11,7 +12,9 @@ export interface RoomActivitySnapshot {
   seated: false;
 }
 
-export const ROOM_WALK_DURATION_SECONDS = 4.2;
+// A relaxed human stroll: the previous 4.2s traversal made each stride look
+// underpowered and disconnected from the distance crossed.
+export const ROOM_WALK_DURATION_SECONDS = 2.8;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /**
@@ -78,9 +81,9 @@ export function createRoomAutonomy(random: () => number = Math.random) {
           targetProgress = 1;
           timeRemaining = duration(5, 9);
         } else {
-          activity = 'playing-at-desk';
+          activity = 'checking-plant';
           targetProgress = 0;
-          timeRemaining = duration(8, 14);
+          timeRemaining = duration(4, 7);
         }
         return snapshot();
       }
@@ -88,9 +91,13 @@ export function createRoomAutonomy(random: () => number = Math.random) {
       timeRemaining -= delta;
       if (timeRemaining > 0) return snapshot();
 
-      activity = activity === 'looking-out-window'
-        ? 'walking-to-desk'
-        : 'walking-to-window';
+      if (activity === 'looking-out-window') {
+        activity = 'walking-to-desk';
+      } else if (activity === 'checking-plant') {
+        activity = 'playing-at-desk';
+      } else {
+        activity = unit() < 0.62 ? 'walking-to-window' : 'checking-plant';
+      }
       targetProgress = activity === 'walking-to-window' ? 1 : 0;
       timeRemaining = 0;
 
