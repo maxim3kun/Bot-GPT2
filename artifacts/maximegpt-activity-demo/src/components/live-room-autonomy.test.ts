@@ -4,7 +4,6 @@ import { Quaternion } from 'three';
 import {
   createRoomAutonomy,
   createRoomRouteMotion,
-  ROOM_CENTER_PROGRESS,
   ROOM_WALK_DURATION_SECONDS,
   type RoomActivity,
 } from './live-room-autonomy.ts';
@@ -21,6 +20,7 @@ import {
   LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO,
 } from './live-bedroom-scene.ts';
 import {
+  createQuadraticRoomRoute,
   applyRetargetedWalkAnimation,
   getRoomWalkFootPhase,
   getRoomWalkPose,
@@ -36,14 +36,16 @@ import {
   routeProgressFromPosition,
 } from './live-room-gait.ts';
 
-test('repeats only a simple desk-to-window route without unsupported poses', () => {
-  const autonomy = createRoomAutonomy(() => 0.999);
+test('repeats desk play, a continuous walk, the window, and a continuous return', () => {
+  const autonomy = createRoomAutonomy(() => 0);
   const seen = new Set<RoomActivity>();
   let position = 0;
   let snapshot = autonomy.update(0.05, false, true, position);
 
   for (let frame = 0; frame < 1_200; frame += 1) {
-    position = snapshot.targetProgress;
+    if (snapshot.activity.startsWith('walking-')) {
+      position = snapshot.targetProgress;
+    }
     snapshot = autonomy.update(0.05, false, true, position);
     seen.add(snapshot.activity);
     assert.equal(snapshot.seated, false);
@@ -56,27 +58,29 @@ test('repeats only a simple desk-to-window route without unsupported poses', () 
       'looking-around',
       'looking-out-window',
       'walking-to-desk',
-      'walking-to-room-center',
       'walking-to-window',
+      'playing-at-desk',
     ].sort(),
   );
 });
 
-test('pauses for conversation and returns to the desk afterward', () => {
-  const autonomy = createRoomAutonomy(() => 0.5);
-  const paused = autonomy.update(0.05, true, true, 0.4);
-  assert.deepEqual(paused, { activity: 'attending', targetProgress: 0.4, seated: false });
+test('preserves the current route while the page is hidden, then resumes it in place', () => {
+  const autonomy = createRoomAutonomy(() => 0);
+  const walk = autonomy.update(7.05, false, true, 0);
+  assert.equal(walk.activity, 'walking-to-window');
+  const hidden = autonomy.update(0.05, true, true, 0.42);
+  assert.deepEqual(hidden, { activity: 'attending', targetProgress: 0.42, seated: false });
 
-  const resumed = autonomy.update(0.05, false, true, 0.4);
-  assert.equal(resumed.activity, 'walking-to-desk');
-  assert.equal(resumed.targetProgress, 0);
+  const resumed = autonomy.update(0.05, false, true, 0.42);
+  assert.equal(resumed.activity, 'walking-to-window');
+  assert.equal(resumed.targetProgress, 1);
 });
 
 test('respects reduced-motion settings and holds the current position', () => {
   const autonomy = createRoomAutonomy(() => 0.5);
   const snapshot = autonomy.update(0.05, false, false, 0.37);
-  assert.equal(snapshot.targetProgress, 0.37);
-  assert.equal(snapshot.activity, 'attending');
+  assert.equal(snapshot.targetProgress, 0);
+  assert.equal(snapshot.activity, 'playing-at-desk');
   assert.equal(snapshot.seated, false);
 });
 
@@ -91,10 +95,6 @@ test('eases the route and pauses cleanly during an interaction', () => {
     progress = route.update('walking-to-window', 0.05, progress);
   }
   assert.ok(progress > 0.99);
-
-  const toCenter = route.update('walking-to-room-center', 0.05, progress);
-  assert.ok(toCenter < progress);
-  assert.ok(toCenter > ROOM_CENTER_PROGRESS);
 
   const paused = route.update('attending', 0.05, progress);
   assert.equal(paused, progress);
@@ -149,19 +149,25 @@ test('advances each foot by the full distance travelled during its gait cycle', 
   assert.ok(Math.abs(swingLength * cycles - segmentDistance) < 1e-8);
 });
 
-test('keeps the straight desk-to-window walk lane clear of the desk and chair', () => {
+test('keeps the curved room stroll clear of the desk, chair, bed, and window', () => {
   const deskPositionX = LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO;
-  const route = [
+  const windowX = LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO;
+  const route = createQuadraticRoomRoute(
     { x: deskPositionX, z: LIVE_BEDROOM_DESK_STAND_Z_RATIO },
-    {
-      x: deskPositionX - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
-      z: LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
-    },
-  ];
+    { x: (deskPositionX + windowX) / 2, z: 0.82 },
+    { x: windowX, z: LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO },
+    40,
+  );
   const deskX = LIVE_BEDROOM_DESK_X_RATIO;
   const deskZ = -0.52;
   const desk = { left: deskX - 0.39, right: deskX + 0.39, front: deskZ + 0.17, back: deskZ - 0.17 };
   const chair = { x: deskX - 0.48, z: LIVE_BEDROOM_CHAIR_Z_RATIO, radiusX: 0.135, radiusZ: 0.125 };
+  const bed = {
+    left: windowX - 0.82 - 1.02 / 2,
+    right: windowX - 0.82 + 1.02 / 2,
+    back: -0.61 - 0.62 / 2,
+    front: -0.61 + 0.62 / 2,
+  };
   const avatarClearance = 0.15;
 
   for (let step = 0; step <= 40; step += 1) {
@@ -174,10 +180,15 @@ test('keeps the straight desk-to-window walk lane clear of the desk and chair', 
     const chairDistanceX = Math.max(0, Math.abs(x - chair.x) - chair.radiusX);
     const chairDistanceZ = Math.max(0, Math.abs(z - chair.z) - chair.radiusZ);
     const insideChairClearance = Math.hypot(chairDistanceX, chairDistanceZ) < avatarClearance;
+    const insideBedClearance = x >= bed.left - avatarClearance
+      && x <= bed.right + avatarClearance
+      && z >= bed.back - avatarClearance
+      && z <= bed.front + avatarClearance;
     const avatarFrontZ = z - LIVE_BEDROOM_WINDOW_BODY_CLEARANCE_RATIO;
     const entersWindowPlane = avatarFrontZ <= LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO;
     assert.equal(insideDeskClearance, false);
     assert.equal(insideChairClearance, false);
+    assert.equal(insideBedClearance, false);
     assert.equal(entersWindowPlane, false);
   }
 

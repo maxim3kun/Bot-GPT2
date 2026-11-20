@@ -1,9 +1,8 @@
 export type RoomActivity =
   | 'walking-to-window'
   | 'looking-out-window'
-  | 'walking-to-room-center'
-  | 'looking-around'
   | 'walking-to-desk'
+  | 'playing-at-desk'
   | 'attending';
 
 export interface RoomActivitySnapshot {
@@ -12,13 +11,12 @@ export interface RoomActivitySnapshot {
   seated: false;
 }
 
-export const ROOM_WALK_DURATION_SECONDS = 1.9;
-export const ROOM_CENTER_PROGRESS = 0.39;
+export const ROOM_WALK_DURATION_SECONDS = 4.2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /**
- * Chooses among safe stops on the room route. It selects destinations only;
- * the route controller handles the actual movement between them.
+ * Runs a small bedroom routine. Walking only ends at an intentional activity
+ * (desk or window); talking does not interrupt the routine.
  */
 export function createRoomAutonomy(random: () => number = Math.random) {
   const unit = () => {
@@ -27,13 +25,16 @@ export function createRoomAutonomy(random: () => number = Math.random) {
   };
   const duration = (min: number, max: number) => min + unit() * (max - min);
 
-  let activity: RoomActivity = 'attending';
+  let activity: RoomActivity = 'playing-at-desk';
   let targetProgress = 0;
-  let timeRemaining = 0;
-  let centerNext: 'window' | 'desk' = 'window';
+  let timeRemaining = duration(7, 12);
   let wasEngaged = false;
+  let resumeActivity: RoomActivity = activity;
+  let resumeTimeRemaining = timeRemaining;
 
   const snapshot = (): RoomActivitySnapshot => ({ activity, targetProgress, seated: false });
+  const isWalking = (candidate: RoomActivity) =>
+    candidate === 'walking-to-window' || candidate === 'walking-to-desk';
 
   return {
     update(
@@ -46,6 +47,10 @@ export function createRoomAutonomy(random: () => number = Math.random) {
       const position = Number.isFinite(currentProgress) ? clamp(currentProgress, 0, 1) : 0;
 
       if (engaged) {
+        if (!wasEngaged) {
+          resumeActivity = activity;
+          resumeTimeRemaining = timeRemaining;
+        }
         wasEngaged = true;
         activity = 'attending';
         targetProgress = position;
@@ -54,60 +59,40 @@ export function createRoomAutonomy(random: () => number = Math.random) {
 
       if (wasEngaged) {
         wasEngaged = false;
-        if (position > 0.04) {
-          activity = 'walking-to-desk';
-          targetProgress = 0;
-          timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * position);
-        } else {
-          activity = 'attending';
-          targetProgress = 0;
-          timeRemaining = duration(6, 10);
-        }
+        activity = resumeActivity;
+        targetProgress = resumeActivity === 'walking-to-window'
+          ? 1
+          : resumeActivity === 'walking-to-desk'
+            ? 0
+            : position;
+        timeRemaining = resumeTimeRemaining;
         return snapshot();
       }
 
-      if (!motionEnabled) {
-        activity = 'attending';
-        targetProgress = position;
+      if (!motionEnabled) return snapshot();
+
+      if (isWalking(activity)) {
+        if (Math.abs(position - targetProgress) > 0.001) return snapshot();
+        if (activity === 'walking-to-window') {
+          activity = 'looking-out-window';
+          targetProgress = 1;
+          timeRemaining = duration(5, 9);
+        } else {
+          activity = 'playing-at-desk';
+          targetProgress = 0;
+          timeRemaining = duration(8, 14);
+        }
         return snapshot();
       }
 
       timeRemaining -= delta;
       if (timeRemaining > 0) return snapshot();
 
-      if (activity === 'walking-to-room-center') {
-        activity = 'looking-around';
-        targetProgress = ROOM_CENTER_PROGRESS;
-        timeRemaining = duration(2, 4);
-      } else if (activity === 'looking-around') {
-        if (centerNext === 'window') {
-          activity = 'walking-to-window';
-          targetProgress = 1;
-          timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * (1 - position));
-        } else {
-          activity = 'walking-to-desk';
-          targetProgress = 0;
-          timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * position);
-        }
-      } else if (activity === 'walking-to-window') {
-        activity = 'looking-out-window';
-        targetProgress = 1;
-        timeRemaining = duration(4, 7);
-      } else if (activity === 'looking-out-window') {
-        activity = 'walking-to-room-center';
-        targetProgress = ROOM_CENTER_PROGRESS;
-        centerNext = 'desk';
-        timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * Math.abs(position - ROOM_CENTER_PROGRESS));
-      } else if (activity === 'walking-to-desk') {
-        activity = 'attending';
-        targetProgress = 0;
-        timeRemaining = duration(6, 10);
-      } else {
-        activity = 'walking-to-room-center';
-        targetProgress = ROOM_CENTER_PROGRESS;
-        centerNext = 'window';
-        timeRemaining = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * Math.abs(position - ROOM_CENTER_PROGRESS));
-      }
+      activity = activity === 'looking-out-window'
+        ? 'walking-to-desk'
+        : 'walking-to-window';
+      targetProgress = activity === 'walking-to-window' ? 1 : 0;
+      timeRemaining = 0;
 
       return snapshot();
     },
@@ -125,7 +110,6 @@ export function createRoomRouteMotion() {
     update(activity: RoomActivity, deltaSeconds: number, currentProgress: number): number {
       if (
         activity !== 'walking-to-window'
-        && activity !== 'walking-to-room-center'
         && activity !== 'walking-to-desk'
       ) {
         previousActivity = undefined;
@@ -135,11 +119,7 @@ export function createRoomRouteMotion() {
       if (activity !== previousActivity) {
         previousActivity = activity;
         startProgress = clamp(currentProgress, 0, 1);
-        targetProgress = activity === 'walking-to-window'
-          ? 1
-          : activity === 'walking-to-room-center'
-            ? ROOM_CENTER_PROGRESS
-            : 0;
+        targetProgress = activity === 'walking-to-window' ? 1 : 0;
         duration = Math.max(1.4, ROOM_WALK_DURATION_SECONDS * Math.abs(targetProgress - startProgress));
         elapsed = 0;
       }

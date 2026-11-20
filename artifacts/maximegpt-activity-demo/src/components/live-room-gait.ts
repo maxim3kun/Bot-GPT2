@@ -28,6 +28,23 @@ export interface RoomRoutePoint {
   z: number;
 }
 
+export function createQuadraticRoomRoute(
+  start: RoomRoutePoint,
+  control: RoomRoutePoint,
+  end: RoomRoutePoint,
+  segments = 28,
+): RoomRoutePoint[] {
+  const safeSegments = Math.max(2, Math.floor(segments));
+  return Array.from({ length: safeSegments + 1 }, (_, index) => {
+    const t = index / safeSegments;
+    const inverse = 1 - t;
+    return {
+      x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
+      z: inverse * inverse * start.z + 2 * inverse * t * control.z + t * t * end.z,
+    };
+  });
+}
+
 export interface RoomRotationTrack {
   bone: string;
   values: readonly number[];

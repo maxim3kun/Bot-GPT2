@@ -47,6 +47,7 @@ import {
 } from './live-foot-ik';
 import {
   applyRetargetedWalkAnimation,
+  createQuadraticRoomRoute,
   getRoomWalkFootPhase,
   getRoomWalkPose,
   roomRouteLength,
@@ -69,7 +70,6 @@ interface LiveVrmAvatarProps {
   mode: LiveAvatarModelMode;
   audioLevel: number;
   blinking: boolean;
-  interactionActive: boolean;
 }
 
 type BoneName =
@@ -144,12 +144,11 @@ const MOTION_BONE_SOURCES: readonly [BoneName, string][] = [
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }: LiveVrmAvatarProps) {
+export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef(mode);
   const audioLevelRef = useRef(audioLevel);
   const blinkingRef = useRef(blinking);
-  const interactionActiveRef = useRef(interactionActive);
   const [loaded, setLoaded] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState('');
@@ -157,7 +156,6 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
   modeRef.current = mode;
   audioLevelRef.current = Number.isFinite(audioLevel) ? clamp(audioLevel, 0, 1) : 0;
   blinkingRef.current = blinking;
-  interactionActiveRef.current = interactionActive;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -266,7 +264,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
       if (!vrm || !avatarHeight) return;
       const nextBedroom = createLiveBedroomScene(
         avatarHeight,
-        deskPositionX - avatarHeight * LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
+        avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO),
       );
       if (bedroom) {
         scene.remove(bedroom.group);
@@ -346,13 +344,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         modelRoot.position.y = roomFloorY;
         modelRoot.position.z = height * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
         const deskPositionZ = height * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
-        roomRoutePoints = [
+        const windowX = height * (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO);
+        roomRoutePoints = createQuadraticRoomRoute(
           { x: deskPositionX, z: deskPositionZ },
-          {
-            x: deskPositionX - height * LIVE_BEDROOM_WINDOW_DISTANCE_RATIO,
-            z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO,
-          },
-        ];
+          { x: (deskPositionX + windowX) / 2, z: height * 0.82 },
+          { x: windowX, z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO },
+        );
         roomRouteLengthValue = roomRouteLength(roomRoutePoints);
 
         camera.position.set(deskPositionX, height * 0.9, height * 1.65);
@@ -505,9 +502,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const energy = speaking ? clamp((audioLevelRef.current - 0.015) * 3.4, 0, 1) : 0;
         const breath = Math.sin(elapsed * 1.18) * 0.009 * motionFactor;
         const idleSway = motionFactor;
-        const windowTravel = avatarHeight * LIVE_BEDROOM_WINDOW_DISTANCE_RATIO;
+        const windowPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO);
+        const windowTravel = deskPositionX - windowPositionX;
         const deskPositionZ = avatarHeight * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
-        const windowPositionX = deskPositionX - windowTravel;
         const windowGlassZ = avatarHeight * LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO;
         const positionProgress = routeProgressFromPosition(
           modelRoot.position.x,
@@ -516,18 +513,15 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         );
         const activity = roomAutonomy.update(
           delta,
-          interactionActiveRef.current
-            || currentMode !== 'ready'
-            || document.visibilityState !== 'visible',
+          document.visibilityState !== 'visible',
           motionFactor > 0,
           positionProgress,
         );
         const walkingOut = activity.activity === 'walking-to-window';
         const atWindow = activity.activity === 'looking-out-window';
-        const walkingToCenter = activity.activity === 'walking-to-room-center';
         const walkingBack = activity.activity === 'walking-to-desk';
-        const lookingAround = activity.activity === 'looking-around';
-        const moving = motionFactor > 0 && (walkingOut || walkingToCenter || walkingBack);
+        const playingAtDesk = activity.activity === 'playing-at-desk';
+        const moving = motionFactor > 0 && (walkingOut || walkingBack);
         modelRoot.position.y = roomFloorY;
         const routeProgress = roomRouteMotion.update(
           moving ? activity.activity : 'attending',
@@ -567,6 +561,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         const windowTangent = roomRouteTangentAtProgress(roomRoutePoints, travelProgress);
         const movementHeading = Math.atan2(routeTangent.x, routeTangent.z);
         const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
+        const monitorPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO + 0.23);
+        const monitorPositionZ = avatarHeight * (-0.52 - 0.12);
         modelRoot.position.y = roomFloorY + (moving && walkClipData.tracks.length === 0 ? walkPose.bodyBob * avatarHeight : 0);
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
@@ -602,8 +598,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           ? movementHeading
           : atWindow
             ? routeHeading
-            : lookingAround
-              ? Math.sin(elapsed * 0.42) * 0.2
+            : playingAtDesk
+              ? Math.atan2(monitorPositionX - modelRoot.position.x, monitorPositionZ - modelRoot.position.z)
             : thinking
               ? Math.PI * 0.12
               : 0) * motionFactor;
@@ -833,7 +829,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
         }
 
         const lookX = Math.sin(elapsed * (thinking || lookingAround ? 0.72 : 0.31))
-          * (thinking ? 0.16 : lookingAround ? 0.12 : 0.045)
+          * (thinking ? 0.16 : playingAtDesk ? 0.025 : 0.045)
           * idleSway;
         const lookY = avatarHeight * (listening ? 0.79 : thinking ? 0.73 : 0.76) + Math.sin(elapsed * 0.47) * avatarHeight * 0.008 * idleSway;
         const gazeX = atWindow ? windowPositionX : modelRoot.position.x + lookX * avatarHeight;

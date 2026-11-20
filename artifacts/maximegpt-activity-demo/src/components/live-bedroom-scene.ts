@@ -19,13 +19,14 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export interface LiveBedroomScene {
   group: Group;
   keyboardKeys: Mesh[];
+  monitorMaterial: MeshBasicMaterial;
   avatarShadow: Mesh;
   dispose: () => void;
 }
 
 export const LIVE_BEDROOM_DESK_X_RATIO = 1.38;
 export const LIVE_BEDROOM_WINDOW_DISTANCE_RATIO = 0.82;
-export const LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO = 0.58;
+export const LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO = 0.16;
 export const LIVE_BEDROOM_DESK_STAND_Z_RATIO = -0.12;
 export const LIVE_BEDROOM_CHAIR_Z_RATIO = -0.52;
 export const LIVE_BEDROOM_FLOOR_TOP_RATIO = -0.01;
@@ -502,6 +503,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   return {
     group,
     keyboardKeys,
+    monitorMaterial: monitorGlow,
     avatarShadow,
     dispose: () => {
       group.traverse((object) => {
