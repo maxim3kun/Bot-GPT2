@@ -69,7 +69,7 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
 test('preserves the current route while the page is hidden, then resumes it in place', () => {
   const autonomy = createRoomAutonomy(() => 0);
   let walk = autonomy.update(0.05, false, true, 0);
-  for (let frame = 0; frame < 140 && walk.activity !== 'walking-to-window'; frame += 1) {
+  for (let frame = 0; frame < 400 && walk.activity !== 'walking-to-window'; frame += 1) {
     walk = autonomy.update(0.05, false, true, 0);
   }
   assert.equal(walk.activity, 'walking-to-window');

@@ -146,7 +146,7 @@ export function createRoomRouteMotion() {
       // Quintic minimum-jerk easing has zero velocity and acceleration at
       // both ends, reducing the visible lurch when a walk starts or stops.
       const eased = t * t * t * (t * (t * 6 - 15) + 10);
-      return startProgress + (targetProgress - startProgress) * eased;
+      return clamp(startProgress + (targetProgress - startProgress) * eased, 0, 1);
     },
   };
 }
