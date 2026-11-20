@@ -61,6 +61,7 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
       'walking-to-window',
       'checking-plant',
       'playing-at-desk',
+      'stretching',
     ].sort(),
   );
 });

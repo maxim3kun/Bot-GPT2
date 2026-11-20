@@ -20,7 +20,7 @@ export interface LiveBedroomScene {
   group: Group;
   keyboardKeys: Mesh[];
   plantLeaves: Mesh[];
-  monitorMaterial: MeshBasicMaterial;
+  updateMonitor: (elapsedSeconds: number, gameIsActive: boolean) => void;
   avatarShadow: Mesh;
   dispose: () => void;
 }
@@ -409,12 +409,86 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   makeRoundedBox('desk-monitor-base', [0.18 * h, 0.02 * h, 0.09 * h], [monitorX, deskY + 0.045 * h, deskZ - 0.1 * h], darkWood, 0.7, 0.01 * h);
   makeRoundedBox('desk-monitor-stand', [0.025 * h, 0.11 * h, 0.025 * h], [monitorX, deskY + 0.105 * h, deskZ - 0.11 * h], 0x555958, 0.55, 0.009 * h);
   makeRoundedBox('desk-monitor', [0.28 * h, 0.18 * h, 0.035 * h], [monitorX, deskY + 0.21 * h, deskZ - 0.12 * h], 0x242b31, 0.3, 0.018 * h);
-  const monitorGlow = new MeshBasicMaterial({ color: 0x9dbbc2 });
+  const monitorCanvas = document.createElement('canvas');
+  monitorCanvas.width = 512;
+  monitorCanvas.height = 288;
+  const monitorContext = monitorCanvas.getContext('2d');
+  const monitorTexture = new CanvasTexture(monitorCanvas);
+  monitorTexture.colorSpace = SRGBColorSpace;
+  monitorTexture.anisotropy = 4;
+  textures.add(monitorTexture);
+  const monitorGlow = new MeshBasicMaterial({ color: 0xffffff, map: monitorTexture, toneMapped: false });
   materials.add(monitorGlow);
   const monitorScreen = new Mesh(new PlaneGeometry(0.25 * h, 0.15 * h), monitorGlow);
   monitorScreen.name = 'monitor-screen';
   monitorScreen.position.set(monitorX, deskY + 0.21 * h, deskZ - 0.098 * h);
   group.add(monitorScreen);
+  let previousMonitorMode = false;
+  let lastMonitorFrame = -Infinity;
+  const updateMonitor = (elapsedSeconds: number, gameIsActive: boolean) => {
+    if (!monitorContext || !Number.isFinite(elapsedSeconds)) return;
+    if (gameIsActive === previousMonitorMode && elapsedSeconds - lastMonitorFrame < 1 / 12) return;
+    previousMonitorMode = gameIsActive;
+    lastMonitorFrame = elapsedSeconds;
+    const context = monitorContext;
+    context.fillStyle = gameIsActive ? '#101522' : '#263641';
+    context.fillRect(0, 0, monitorCanvas.width, monitorCanvas.height);
+    context.fillStyle = '#22c8c2';
+    context.fillRect(20, 20, 42, 7);
+    context.fillStyle = '#c8d5d7';
+    context.font = 'bold 18px system-ui, sans-serif';
+    context.fillText(gameIsActive ? 'PIXEL DASH' : 'MAXIME · BUREAU', 20, 52);
+    context.fillStyle = '#82959b';
+    context.font = '12px system-ui, sans-serif';
+    context.fillText(gameIsActive ? `SCORE  ${Math.floor(elapsedSeconds * 17) % 999}` : 'Prêt quand tu veux.', 20, 72);
+
+    if (gameIsActive) {
+      const fieldTop = 91;
+      context.fillStyle = '#172437';
+      context.fillRect(20, fieldTop, 472, 174);
+      context.strokeStyle = '#2f5364';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(20, fieldTop + 135);
+      context.lineTo(492, fieldTop + 135);
+      context.stroke();
+      for (let star = 0; star < 14; star += 1) {
+        const x = (star * 79 + 35 + elapsedSeconds * (12 + star % 4)) % 460;
+        const y = fieldTop + 18 + (star * 31) % 102;
+        context.fillStyle = star % 3 === 0 ? '#f5c875' : '#9ebdca';
+        context.fillRect(26 + x, y, 3, 3);
+      }
+      const playerX = 238 + Math.sin(elapsedSeconds * 1.3) * 82;
+      const playerY = fieldTop + 140;
+      context.fillStyle = '#24c9c4';
+      context.beginPath();
+      context.moveTo(playerX, playerY - 15);
+      context.lineTo(playerX - 12, playerY + 9);
+      context.lineTo(playerX + 12, playerY + 9);
+      context.closePath();
+      context.fill();
+      const obstacleX = 256 + Math.sin(elapsedSeconds * 0.85 + 1.1) * 150;
+      context.fillStyle = '#f18b73';
+      context.fillRect(obstacleX - 7, fieldTop + 25, 14, 14);
+    } else {
+      context.fillStyle = '#8b9fa4';
+      context.fillRect(20, 91, 472, 174);
+      context.fillStyle = '#38535e';
+      context.fillRect(36, 108, 440, 140);
+      context.fillStyle = '#d9e3df';
+      context.font = '16px system-ui, sans-serif';
+      context.fillText('Espace personnel', 55, 145);
+      context.fillStyle = '#85d9d0';
+      context.beginPath();
+      context.arc(63, 181, 8, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#c5d3d2';
+      context.font = '12px system-ui, sans-serif';
+      context.fillText('Activité en pause', 80, 185);
+    }
+    monitorTexture.needsUpdate = true;
+  };
+  updateMonitor(0, false);
 
   // Desk objects add visible material contrast without crowding the working surface.
   makeRoundedBox('lamp-base', [0.12 * h, 0.025 * h, 0.1 * h], [deskX - 0.29 * h, deskY + 0.045 * h, deskZ], darkWood, 0.52, 0.012 * h);
@@ -509,7 +583,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
     group,
     keyboardKeys,
     plantLeaves,
-    monitorMaterial: monitorGlow,
+    updateMonitor,
     avatarShadow,
     dispose: () => {
       group.traverse((object) => {

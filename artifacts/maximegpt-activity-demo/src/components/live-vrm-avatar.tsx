@@ -522,6 +522,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const walkingBack = activity.activity === 'walking-to-desk';
         const playingAtDesk = activity.activity === 'playing-at-desk';
         const checkingPlant = activity.activity === 'checking-plant';
+        const stretching = activity.activity === 'stretching';
         const moving = motionFactor > 0 && (walkingOut || walkingBack);
         modelRoot.position.y = roomFloorY;
         const routeProgress = roomRouteMotion.update(
@@ -575,7 +576,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         if (bedroom) {
           bedroom.avatarShadow.position.x = modelRoot.position.x;
           bedroom.avatarShadow.position.z = modelRoot.position.z;
-          bedroom.monitorMaterial.color.setHex(playingAtDesk ? 0x9fcfff : 0x9dbbc2);
+          bedroom.updateMonitor(elapsed, playingAtDesk);
           bedroom.keyboardKeys.forEach((key, index) => {
             const restY = Number(key.userData.restY);
             if (!Number.isFinite(restY)) return;
@@ -672,7 +673,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           'spine',
           breath
             + (thinking ? 0.018 : speaking ? energy * 0.018 : 0)
-            + (moving ? 0.008 : 0),
+            + (moving ? 0.008 : stretching ? Math.sin(elapsed * 1.25) * 0.018 : 0),
           0,
           moving ? -walkPose.pelvisSway * 0.3 : 0,
         );
@@ -696,32 +697,34 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         setBonePose(
           'leftUpperArm',
           moving ? walkPose.leftArmSwing
+            : stretching ? -0.12 + Math.sin(elapsed * 1.15) * 0.035
             : speaking ? Math.sin(elapsed * 1.4) * speechGesture * 0.11
               : playingAtDesk ? -0.38 + Math.sin(elapsed * 7.8) * 0.012
             : checkingPlant ? -0.22 + Math.sin(elapsed * 1.1) * 0.015
               : Math.sin(elapsed * 0.66) * 0.012 * idleSway,
           speaking ? -0.25 : 0,
-          speaking ? 1.02 + speechGesture * 0.14 : playingAtDesk ? 0.82 : checkingPlant ? 0.94 : 1.18,
+          speaking ? 1.02 + speechGesture * 0.14 : stretching ? 2.24 + Math.sin(elapsed * 1.15) * 0.08 : playingAtDesk ? 0.82 : checkingPlant ? 0.94 : 1.18,
         );
         setBonePose(
           'rightUpperArm',
           moving ? walkPose.rightArmSwing
+            : stretching ? -0.12 - Math.sin(elapsed * 1.15) * 0.035
             : speaking ? Math.sin(elapsed * 1.5 + 1) * speechGesture * 0.08
               : playingAtDesk ? -0.38 + Math.sin(elapsed * 7.8 + 1.4) * 0.012
             : checkingPlant ? -0.18 + Math.sin(elapsed * 0.95 + 1) * 0.012
               : Math.sin(elapsed * 0.68 + 1) * 0.012 * idleSway,
           speaking ? 0.18 : 0,
-          playingAtDesk ? -0.82 : checkingPlant ? -1.0 : -1.18,
+          stretching ? -2.24 - Math.sin(elapsed * 1.15) * 0.08 : playingAtDesk ? -0.82 : checkingPlant ? -1.0 : -1.18,
         );
         setBonePose(
           'leftLowerArm',
-          speaking ? -0.28 : moving ? 0.04 : playingAtDesk ? -0.25 : checkingPlant ? -0.38 : -0.04,
+          speaking ? -0.28 : moving ? 0.04 : stretching ? -0.48 : playingAtDesk ? -0.25 : checkingPlant ? -0.38 : -0.04,
           0,
           0.035,
         );
         setBonePose(
           'rightLowerArm',
-          speaking ? -0.08 : moving ? 0.04 : playingAtDesk ? -0.25 : checkingPlant ? -0.3 : -0.04,
+          speaking ? -0.08 : moving ? 0.04 : stretching ? -0.48 : playingAtDesk ? -0.25 : checkingPlant ? -0.3 : -0.04,
           0,
           -0.035,
         );

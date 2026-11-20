@@ -4,6 +4,7 @@ export type RoomActivity =
   | 'walking-to-desk'
   | 'checking-plant'
   | 'playing-at-desk'
+  | 'stretching'
   | 'attending';
 
 export interface RoomActivitySnapshot {
@@ -12,9 +13,8 @@ export interface RoomActivitySnapshot {
   seated: false;
 }
 
-// A relaxed human stroll: the previous 4.2s traversal made each stride look
-// underpowered and disconnected from the distance crossed.
-export const ROOM_WALK_DURATION_SECONDS = 2.8;
+// Slightly longer traversals leave room for the feet to settle naturally.
+export const ROOM_WALK_DURATION_SECONDS = 3.2;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /**
@@ -80,10 +80,14 @@ export function createRoomAutonomy(random: () => number = Math.random) {
           activity = 'looking-out-window';
           targetProgress = 1;
           timeRemaining = duration(5, 9);
-        } else {
+        } else if (activity === 'walking-to-desk') {
           activity = 'checking-plant';
           targetProgress = 0;
           timeRemaining = duration(4, 7);
+        } else {
+          activity = 'playing-at-desk';
+          targetProgress = 0;
+          timeRemaining = duration(7, 12);
         }
         return snapshot();
       }
@@ -95,11 +99,17 @@ export function createRoomAutonomy(random: () => number = Math.random) {
         activity = 'walking-to-desk';
       } else if (activity === 'checking-plant') {
         activity = 'playing-at-desk';
+      } else if (activity === 'stretching') {
+        activity = 'walking-to-window';
+      } else if (unit() < 0.4) {
+        activity = 'stretching';
       } else {
-        activity = unit() < 0.62 ? 'walking-to-window' : 'checking-plant';
+        activity = 'walking-to-window';
       }
       targetProgress = activity === 'walking-to-window' ? 1 : 0;
-      timeRemaining = 0;
+      if (activity === 'stretching') timeRemaining = duration(3.5, 5.5);
+      else if (activity === 'playing-at-desk') timeRemaining = duration(7, 12);
+      else timeRemaining = 0;
 
       return snapshot();
     },
@@ -133,7 +143,9 @@ export function createRoomRouteMotion() {
 
       elapsed = Math.min(duration, elapsed + clamp(deltaSeconds, 0, 0.05));
       const t = elapsed / duration;
-      const eased = t * t * (3 - 2 * t);
+      // Quintic minimum-jerk easing has zero velocity and acceleration at
+      // both ends, reducing the visible lurch when a walk starts or stops.
+      const eased = t * t * t * (t * (t * 6 - 15) + 10);
       return startProgress + (targetProgress - startProgress) * eased;
     },
   };
