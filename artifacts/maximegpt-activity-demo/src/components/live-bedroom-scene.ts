@@ -39,6 +39,12 @@ export const LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO =
   LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO + LIVE_BEDROOM_WINDOW_STANDOFF_RATIO;
 export const LIVE_BEDROOM_CHAIR_SEAT_HEIGHT_RATIO = 0.42;
 export const LIVE_BEDROOM_RUG_SURFACE_OFFSET_RATIO = 0.002;
+export const LIVE_BEDROOM_BED_X_RATIO =
+  LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO - 0.82;
+export const LIVE_BEDROOM_BED_Z_RATIO = -0.61;
+export const LIVE_BEDROOM_BED_SURFACE_Y_RATIO = 0.36;
+export const LIVE_BEDROOM_BED_APPROACH_X_RATIO = LIVE_BEDROOM_BED_X_RATIO + 0.5;
+export const LIVE_BEDROOM_BED_APPROACH_Z_RATIO = LIVE_BEDROOM_BED_Z_RATIO + 0.48;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
   const h = Math.max(avatarHeight, 0.1);
@@ -532,8 +538,8 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   }
 
   // A low bed anchors the room as a bedroom; it sits to the side and behind the walk lane.
-  const bedX = windowX - 0.82 * h;
-  const bedZ = -0.61 * h;
+  const bedX = LIVE_BEDROOM_BED_X_RATIO * h;
+  const bedZ = LIVE_BEDROOM_BED_Z_RATIO * h;
   makeRoundedBox('bed-frame', [1.02 * h, 0.18 * h, 0.62 * h], [bedX, 0.13 * h, bedZ], 0x76675f, 0.82, 0.035 * h);
   makeRoundedBox('bed-mattress', [1.0 * h, 0.15 * h, 0.6 * h], [bedX, 0.25 * h, bedZ], 0xf0ede6, 0.98, 0.05 * h, fabricTexture);
   makeRoundedBox('bed-cover', [0.67 * h, 0.045 * h, 0.57 * h], [bedX + 0.16 * h, 0.34 * h, bedZ + 0.015 * h], 0x829293, 0.96, 0.028 * h, fabricTexture);
