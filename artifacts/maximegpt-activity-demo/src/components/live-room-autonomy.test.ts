@@ -8,6 +8,10 @@ import {
   type RoomActivity,
 } from './live-room-autonomy.ts';
 import {
+  LIVE_BEDROOM_BED_APPROACH_X_RATIO,
+  LIVE_BEDROOM_BED_APPROACH_Z_RATIO,
+  LIVE_BEDROOM_BED_X_RATIO,
+  LIVE_BEDROOM_BED_Z_RATIO,
   LIVE_BEDROOM_CHAIR_Z_RATIO,
   LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
   LIVE_BEDROOM_DESK_STAND_Z_RATIO,
@@ -39,7 +43,7 @@ import {
 } from './live-room-gait.ts';
 
 test('repeats desk play, a continuous walk, the window, and a continuous return', () => {
-  const autonomy = createRoomAutonomy(() => 0);
+  const autonomy = createRoomAutonomy(() => 0, () => new Date(2026, 10, 21, 12));
   const seen = new Set<RoomActivity>();
   let position = 0;
   let snapshot = autonomy.update(0.05, false, true, position);
@@ -67,7 +71,7 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
 });
 
 test('preserves the current route while the page is hidden, then resumes it in place', () => {
-  const autonomy = createRoomAutonomy(() => 0);
+  const autonomy = createRoomAutonomy(() => 0, () => new Date(2026, 10, 21, 12));
   let walk = autonomy.update(0.05, false, true, 0);
   for (let frame = 0; frame < 400 && walk.activity !== 'walking-to-window'; frame += 1) {
     walk = autonomy.update(0.05, false, true, 0);
@@ -82,11 +86,28 @@ test('preserves the current route while the page is hidden, then resumes it in p
 });
 
 test('respects reduced-motion settings and holds the current position', () => {
-  const autonomy = createRoomAutonomy(() => 0.5);
+  const autonomy = createRoomAutonomy(() => 0.5, () => new Date(2026, 10, 21, 12));
   const snapshot = autonomy.update(0.05, false, false, 0.37);
   assert.equal(snapshot.targetProgress, 0);
   assert.equal(snapshot.activity, 'playing-at-desk');
   assert.equal(snapshot.seated, false);
+});
+
+test('chooses bed at 00:40 and wakes at the local morning time', () => {
+  const localTime = new Date(2026, 10, 21, 0, 40);
+  const autonomy = createRoomAutonomy(() => 0, () => new Date(localTime));
+  assert.deepEqual(autonomy.current(), { activity: 'walking-to-bed', targetProgress: 1, seated: false });
+
+  let state = autonomy.update(0.05, false, true, 1);
+  assert.equal(state.activity, 'falling-asleep');
+  for (let frame = 0; frame < 60 && state.activity !== 'sleeping'; frame += 1) {
+    state = autonomy.update(0.05, false, true, 1);
+  }
+  assert.equal(state.activity, 'sleeping');
+
+  localTime.setHours(7, 0, 0, 0);
+  state = autonomy.update(0.05, false, true, 1);
+  assert.equal(state.activity, 'waking-up');
 });
 
 test('eases each walk and holds position while the page is hidden', () => {
@@ -241,6 +262,31 @@ test('keeps the curved room stroll clear of the desk, chair, bed, and window', (
   const destination = roomRoutePointAtProgress(route, 1);
   assert.ok(Math.abs(destination.x - route.at(-1)!.x) < 1e-8);
   assert.ok(Math.abs(destination.z - route.at(-1)!.z) < 1e-8);
+});
+
+test('routes Maxime to the bedside without crossing the bed or desk chair', () => {
+  const height = 1.7;
+  const deskX = (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO) * height;
+  const deskZ = LIVE_BEDROOM_DESK_STAND_Z_RATIO * height;
+  const bedX = LIVE_BEDROOM_BED_X_RATIO * height;
+  const bedZ = LIVE_BEDROOM_BED_Z_RATIO * height;
+  const approachX = LIVE_BEDROOM_BED_APPROACH_X_RATIO * height;
+  const approachZ = LIVE_BEDROOM_BED_APPROACH_Z_RATIO * height;
+  const route = createQuadraticRoomRoute(
+    { x: deskX, z: deskZ },
+    { x: (deskX + approachX) / 2, z: height * 0.12 },
+    { x: approachX, z: approachZ },
+    36,
+  );
+  const chairX = LIVE_BEDROOM_DESK_X_RATIO * height - 0.48 * height;
+
+  assert.equal(route.length, 37);
+  for (const point of route) {
+    assert.ok(Math.hypot(point.x - chairX, point.z - LIVE_BEDROOM_CHAIR_Z_RATIO * height) > 0.23);
+    assert.ok(point.z > bedZ + 0.31 * height || point.x < bedX - 0.51 * height || point.x > bedX + 0.51 * height);
+  }
+  assert.ok(Math.abs(route[0]!.x - deskX) < 1e-8);
+  assert.ok(Math.abs(route.at(-1)!.x - approachX) < 1e-8);
 });
 
 test('keeps the rug visibly above the floor to prevent flicker', () => {

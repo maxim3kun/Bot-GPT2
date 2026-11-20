@@ -27,6 +27,11 @@ import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import type { AnimationAction } from 'three';
 import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
+  LIVE_BEDROOM_BED_APPROACH_X_RATIO,
+  LIVE_BEDROOM_BED_APPROACH_Z_RATIO,
+  LIVE_BEDROOM_BED_SURFACE_Y_RATIO,
+  LIVE_BEDROOM_BED_X_RATIO,
+  LIVE_BEDROOM_BED_Z_RATIO,
   LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
   LIVE_BEDROOM_DESK_STAND_Z_RATIO,
   LIVE_BEDROOM_FLOOR_TOP_RATIO,
@@ -37,7 +42,11 @@ import {
   LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO,
   type LiveBedroomScene,
 } from './live-bedroom-scene';
-import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy';
+import {
+  createRoomAutonomy,
+  createRoomRouteMotion,
+  type RoomActivity,
+} from './live-room-autonomy';
 import {
   capturePlantedFootStart,
   createFootLockState,
@@ -113,6 +122,19 @@ const WALK_ANIMATED_BONES = new Set<BoneName>([
   'leftHand',
   'rightHand',
 ]);
+
+function usesBedRoute(activity: RoomActivity): boolean {
+  return activity === 'walking-to-bed'
+    || activity === 'walking-from-bed'
+    || activity === 'falling-asleep'
+    || activity === 'sleeping'
+    || activity === 'waking-up';
+}
+
+function isBedPose(activity: RoomActivity): boolean {
+  return activity === 'falling-asleep' || activity === 'sleeping' || activity === 'waking-up';
+}
+
 interface MotionSource {
   mixer: AnimationMixer;
   action: AnimationAction;
@@ -192,7 +214,9 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
     let deskPositionX = 0;
     let roomFloorY = 0;
     let roomRoutePoints: RoomRoutePoint[] = [];
+    let bedRoutePoints: RoomRoutePoint[] = [];
     let roomRouteLengthValue = 0;
+    let bedRouteLengthValue = 0;
     let bedroomAspect = 0;
     let previousRouteX = 0;
     let previousRouteZ = 0;
@@ -352,6 +376,15 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           { x: windowX, z: height * LIVE_BEDROOM_WINDOW_APPROACH_Z_RATIO },
         );
         roomRouteLengthValue = roomRouteLength(roomRoutePoints);
+        const bedApproachX = height * LIVE_BEDROOM_BED_APPROACH_X_RATIO;
+        const bedApproachZ = height * LIVE_BEDROOM_BED_APPROACH_Z_RATIO;
+        bedRoutePoints = createQuadraticRoomRoute(
+          { x: deskPositionX, z: deskPositionZ },
+          { x: (deskPositionX + bedApproachX) / 2, z: height * 0.12 },
+          { x: bedApproachX, z: bedApproachZ },
+          36,
+        );
+        bedRouteLengthValue = roomRouteLength(bedRoutePoints);
 
         camera.position.set(deskPositionX, height * 0.9, height * 1.65);
         camera.lookAt(deskPositionX, height * 0.47, modelRoot.position.z);
@@ -506,24 +539,40 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const windowPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO);
         const deskPositionZ = avatarHeight * LIVE_BEDROOM_DESK_STAND_Z_RATIO;
         const windowGlassZ = avatarHeight * LIVE_BEDROOM_WINDOW_GLASS_Z_RATIO;
-        const positionProgress = routeProgressFromPosition(
+        const previousActivity = roomAutonomy.current().activity;
+        const previousRoutePoints = usesBedRoute(previousActivity) ? bedRoutePoints : roomRoutePoints;
+        const currentPositionProgress = isBedPose(previousActivity)
+          ? 1
+          : routeProgressFromPosition(
           modelRoot.position.x,
           modelRoot.position.z,
-          roomRoutePoints,
+          previousRoutePoints,
         );
         const activity = roomAutonomy.update(
           delta,
           document.visibilityState !== 'visible',
           motionFactor > 0,
-          positionProgress,
+          currentPositionProgress,
         );
+        const bedRouteActive = usesBedRoute(activity.activity);
+        const activeRoutePoints = bedRouteActive ? bedRoutePoints : roomRoutePoints;
+        const activeRouteLength = bedRouteActive ? bedRouteLengthValue : roomRouteLengthValue;
+        const positionProgress = isBedPose(activity.activity)
+          ? 1
+          : routeProgressFromPosition(modelRoot.position.x, modelRoot.position.z, activeRoutePoints);
         const walkingOut = activity.activity === 'walking-to-window';
         const atWindow = activity.activity === 'looking-out-window';
         const walkingBack = activity.activity === 'walking-to-desk';
+        const walkingToBed = activity.activity === 'walking-to-bed';
+        const walkingFromBed = activity.activity === 'walking-from-bed';
         const playingAtDesk = activity.activity === 'playing-at-desk';
         const checkingPlant = activity.activity === 'checking-plant';
         const stretching = activity.activity === 'stretching';
-        const moving = motionFactor > 0 && (walkingOut || walkingBack);
+        const fallingAsleep = activity.activity === 'falling-asleep';
+        const sleeping = activity.activity === 'sleeping';
+        const wakingUp = activity.activity === 'waking-up';
+        const bedPose = fallingAsleep || sleeping || wakingUp;
+        const moving = motionFactor > 0 && (walkingOut || walkingBack || walkingToBed || walkingFromBed);
         modelRoot.position.y = roomFloorY;
         const routeProgress = roomRouteMotion.update(
           moving ? activity.activity : 'attending',
@@ -532,7 +581,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         );
         if (moving && !wasMoving) {
           walkStartProgress = positionProgress;
-          walkSegmentDistance = Math.abs(activity.targetProgress - positionProgress) * roomRouteLengthValue;
+          walkSegmentDistance = Math.abs(activity.targetProgress - positionProgress) * activeRouteLength;
           const leftFoot = bones.get('leftFoot');
           const rightFoot = bones.get('rightFoot');
           const leftGroundHeight = footGroundHeights.get('leftFoot');
@@ -546,11 +595,26 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         }
         wasMoving = moving;
         if (moving) {
-          const routePosition = roomRoutePointAtProgress(roomRoutePoints, routeProgress);
+          const routePosition = roomRoutePointAtProgress(activeRoutePoints, routeProgress);
           modelRoot.position.x = routePosition.x;
           modelRoot.position.z = routePosition.z;
         }
-        const walkedDistance = Math.abs(routeProgress - walkStartProgress) * roomRouteLengthValue;
+        if (bedPose) {
+          const sleepRootX = avatarHeight * (LIVE_BEDROOM_BED_X_RATIO - 0.48);
+          const sleepRootY = avatarHeight * LIVE_BEDROOM_BED_SURFACE_Y_RATIO;
+          const sleepRootZ = avatarHeight * LIVE_BEDROOM_BED_Z_RATIO;
+          const standX = avatarHeight * LIVE_BEDROOM_BED_APPROACH_X_RATIO;
+          const standZ = avatarHeight * LIVE_BEDROOM_BED_APPROACH_Z_RATIO;
+          const targetSleepPose = fallingAsleep || sleeping;
+          const poseDamping = 1.8;
+          modelRoot.position.x = MathUtils.damp(modelRoot.position.x, targetSleepPose ? sleepRootX : standX, poseDamping, delta);
+          modelRoot.position.y = MathUtils.damp(modelRoot.position.y, targetSleepPose ? sleepRootY : roomFloorY, poseDamping, delta);
+          modelRoot.position.z = MathUtils.damp(modelRoot.position.z, targetSleepPose ? sleepRootZ : standZ, poseDamping, delta);
+          modelRoot.rotation.z = MathUtils.damp(modelRoot.rotation.z, targetSleepPose ? -Math.PI / 2 : 0, poseDamping, delta);
+        } else {
+          modelRoot.rotation.z = MathUtils.damp(modelRoot.rotation.z, 0, 5, delta);
+        }
+        const walkedDistance = Math.abs(routeProgress - walkStartProgress) * activeRouteLength;
         const walkCycles = moving
           ? roomWalkCyclesForSegmentDistance(walkedDistance, walkSegmentDistance, avatarHeight)
           : roomWalkCyclesForDistance(walkedDistance, avatarHeight);
@@ -559,8 +623,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         );
         const travelProgress = moving ? routeProgress : positionProgress;
         const routeDirection: 1 | -1 = moving && activity.targetProgress < positionProgress ? -1 : 1;
-        const routeTangent = roomRouteHeadingAtProgress(roomRoutePoints, travelProgress, routeDirection);
-        const windowTangent = roomRouteHeadingAtProgress(roomRoutePoints, travelProgress);
+        const routeTangent = roomRouteHeadingAtProgress(activeRoutePoints, travelProgress, routeDirection);
+        const windowTangent = roomRouteHeadingAtProgress(activeRoutePoints, travelProgress);
         const movementHeading = Math.atan2(routeTangent.x, routeTangent.z);
         const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
         const monitorPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO + 0.23);
@@ -572,10 +636,16 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         previousRouteZ = modelRoot.position.z;
         smoothedVelocityX = MathUtils.damp(smoothedVelocityX, routeVelocityX, 3.2, delta);
         smoothedVelocityZ = MathUtils.damp(smoothedVelocityZ, routeVelocityZ, 3.2, delta);
-        const cameraRoutePosition = roomRoutePointAtProgress(roomRoutePoints, travelProgress);
+        const cameraRoutePosition = bedPose
+          ? {
+            x: avatarHeight * LIVE_BEDROOM_BED_X_RATIO,
+            z: avatarHeight * LIVE_BEDROOM_BED_Z_RATIO,
+          }
+          : roomRoutePointAtProgress(activeRoutePoints, travelProgress);
         if (bedroom) {
-          bedroom.avatarShadow.position.x = modelRoot.position.x;
-          bedroom.avatarShadow.position.z = modelRoot.position.z;
+        bedroom.avatarShadow.position.x = modelRoot.position.x;
+        bedroom.avatarShadow.position.z = modelRoot.position.z;
+        bedroom.avatarShadow.visible = !bedPose;
           bedroom.updateMonitor(elapsed, playingAtDesk);
           bedroom.keyboardKeys.forEach((key, index) => {
             const restY = Number(key.userData.restY);
@@ -600,7 +670,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         // of watching the room slide around a nearly stationary-looking avatar.
         // Keep enough of the room fixed in view to make the walk read as
         // actual travel, while still gently following Maxime across the frame.
-        const follow = 0.48;
+        const follow = bedPose ? 0.78 : 0.48;
         const cameraTargetX = deskPositionX + (cameraRoutePosition.x - deskPositionX) * follow
           + clamp(smoothedVelocityX * 0.045, -avatarHeight * 0.045, avatarHeight * 0.045);
         const cameraTargetZ = avatarHeight * 1.65 + (cameraRoutePosition.z - deskPositionZ) * follow;
@@ -611,7 +681,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const lookTargetZ = deskPositionZ + (cameraRoutePosition.z - deskPositionZ) * follow;
         cameraLookX = MathUtils.damp(cameraLookX, lookTargetX, 3.1, delta);
         cameraLookZ = MathUtils.damp(cameraLookZ, lookTargetZ, 3.1, delta);
-        camera.lookAt(cameraLookX, avatarHeight * 0.47, cameraLookZ);
+        camera.lookAt(cameraLookX, avatarHeight * (bedPose ? 0.38 : 0.47), cameraLookZ);
 
         const deskHeading = Math.atan2(
           monitorPositionX - modelRoot.position.x,
@@ -662,12 +732,12 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
             if (bone && base) bone.rotation.copy(base);
           }
         } else {
-          setBonePose('leftUpperLeg', 0, 0, 0);
-          setBonePose('rightUpperLeg', 0, 0, 0);
-          setBonePose('leftLowerLeg', 0, 0, 0);
-          setBonePose('rightLowerLeg', 0, 0, 0);
-          setBonePose('leftFoot', 0, 0, 0);
-          setBonePose('rightFoot', 0, 0, 0);
+          setBonePose('leftUpperLeg', sleeping ? 0.12 : 0, 0, 0);
+          setBonePose('rightUpperLeg', sleeping ? 0.12 : 0, 0, 0);
+          setBonePose('leftLowerLeg', sleeping ? -0.32 : 0, 0, 0);
+          setBonePose('rightLowerLeg', sleeping ? -0.32 : 0, 0, 0);
+          setBonePose('leftFoot', sleeping ? 0.12 : 0, 0, 0);
+          setBonePose('rightFoot', sleeping ? 0.12 : 0, 0, 0);
         }
         setBonePose(
           'spine',
@@ -897,8 +967,8 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           const automaticBlink = blinkElapsed < 170
             ? Math.sin((blinkElapsed / 170) * Math.PI)
             : 0;
-          const blink = Math.max(automaticBlink, blinkingRef.current ? 1 : 0);
-          const targetMouth = speaking ? clamp((audioLevelRef.current - 0.014) * 3.1, 0, 0.92) : 0;
+          const blink = sleeping ? 1 : Math.max(automaticBlink, blinkingRef.current ? 1 : 0);
+          const targetMouth = !sleeping && speaking ? clamp((audioLevelRef.current - 0.014) * 3.1, 0, 0.92) : 0;
           smoothedMouth = MathUtils.damp(smoothedMouth, targetMouth, 15, delta);
           const setExpression = (name: string, value: number) => {
             if (expressions.getExpression(name)) expressions.setValue(name, value);

@@ -78,6 +78,9 @@ export function createRoomAutonomy(
 
   const snapshot = (): RoomActivitySnapshot => ({ activity, targetProgress, seated: false });
   return {
+    current(): RoomActivitySnapshot {
+      return snapshot();
+    },
     update(
       deltaSeconds: number,
       pageHidden: boolean,
