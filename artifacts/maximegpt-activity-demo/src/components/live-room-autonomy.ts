@@ -39,14 +39,14 @@ export function createRoomAutonomy(random: () => number = Math.random) {
   return {
     update(
       deltaSeconds: number,
-      engaged: boolean,
+      pageHidden: boolean,
       motionEnabled: boolean,
       currentProgress: number,
     ): RoomActivitySnapshot {
       const delta = Number.isFinite(deltaSeconds) ? clamp(deltaSeconds, 0, 0.05) : 0;
       const position = Number.isFinite(currentProgress) ? clamp(currentProgress, 0, 1) : 0;
 
-      if (engaged) {
+      if (pageHidden) {
         if (!wasEngaged) {
           resumeActivity = activity;
           resumeTimeRemaining = timeRemaining;

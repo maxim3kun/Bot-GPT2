@@ -201,7 +201,6 @@ export function LiveAvatarCall({
                     mode={mode}
                     audioLevel={safeLevel}
                     blinking={blinking && mode !== 'thinking'}
-                    interactionActive={starting || recording || listeningMode}
                   />
                 </Suspense>
               )}

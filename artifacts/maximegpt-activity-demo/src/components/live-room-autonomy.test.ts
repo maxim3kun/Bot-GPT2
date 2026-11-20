@@ -54,8 +54,6 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
   assert.deepEqual(
     [...seen].sort(),
     [
-      'attending',
-      'looking-around',
       'looking-out-window',
       'walking-to-desk',
       'walking-to-window',
@@ -66,7 +64,10 @@ test('repeats desk play, a continuous walk, the window, and a continuous return'
 
 test('preserves the current route while the page is hidden, then resumes it in place', () => {
   const autonomy = createRoomAutonomy(() => 0);
-  const walk = autonomy.update(7.05, false, true, 0);
+  let walk = autonomy.update(0.05, false, true, 0);
+  for (let frame = 0; frame < 140 && walk.activity !== 'walking-to-window'; frame += 1) {
+    walk = autonomy.update(0.05, false, true, 0);
+  }
   assert.equal(walk.activity, 'walking-to-window');
   const hidden = autonomy.update(0.05, true, true, 0.42);
   assert.deepEqual(hidden, { activity: 'attending', targetProgress: 0.42, seated: false });
@@ -84,7 +85,7 @@ test('respects reduced-motion settings and holds the current position', () => {
   assert.equal(snapshot.seated, false);
 });
 
-test('eases the route and pauses cleanly during an interaction', () => {
+test('eases each walk and holds position while the page is hidden', () => {
   const route = createRoomRouteMotion();
   const firstStep = route.update('walking-to-window', 0.05, 0);
   assert.ok(firstStep > 0);
