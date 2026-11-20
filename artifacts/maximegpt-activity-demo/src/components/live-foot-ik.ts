@@ -58,6 +58,21 @@ export function getSwingFootTarget(
     .setY(groundAnkleHeight + Math.sin(Math.PI * t) * Math.max(0, liftHeight));
 }
 
+/** Move a foot between planted points while keeping the ankle over the floor. */
+export function getSwingFootTargetToLanding(
+  start: Vector3,
+  landing: Vector3,
+  progress: number,
+  groundAnkleHeight: number,
+  liftHeight: number,
+): Vector3 {
+  const t = clamp(progress, 0, 1);
+  const eased = t * t * (3 - 2 * t);
+  return start.clone()
+    .lerp(landing, eased)
+    .setY(groundAnkleHeight + Math.sin(Math.PI * t) * Math.max(0, liftHeight));
+}
+
 /** Capture a foot's world position at heel contact and keep its ankle at floor height. */
 export function updateFootLock(
   state: FootLockState,

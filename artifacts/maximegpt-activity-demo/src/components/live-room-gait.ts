@@ -63,6 +63,7 @@ const LEFT_SWING_START = 0.12;
 const LEFT_SWING_END = 0.5;
 const RIGHT_SWING_START = 0.62;
 const RIGHT_SWING_END = 1;
+export const ROOM_WALK_SWING_FRACTION = LEFT_SWING_END - LEFT_SWING_START;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 function swingProgress(phase: number, start: number, end: number): number {
@@ -355,6 +356,43 @@ export function roomRouteHeadingAtProgress(
   const length = Math.hypot(dx, dz);
   if (length <= 1e-8) return roomRouteTangentAtProgress(points, safeProgress, direction);
   return { x: dx / length, z: dz / length };
+}
+
+/**
+ * Predict a foot's touchdown on the route and preserve its anatomical side.
+ * Landing from the route centerline prevents an old world-space foot anchor
+ * from carrying one leg across the other when the character turns.
+ */
+export function roomFootLandingPoint(
+  points: readonly RoomRoutePoint[],
+  progress: number,
+  direction: 1 | -1,
+  strideLength: number,
+  swingProgress: number,
+  side: 'left' | 'right',
+  halfStanceWidth: number,
+): RoomRoutePoint {
+  const routeLength = roomRouteLength(points);
+  if (routeLength <= 1e-8) return points[0] ?? { x: 0, z: 0 };
+
+  const remainingSwingDistance = Math.max(0, strideLength)
+    * ROOM_WALK_SWING_FRACTION
+    * (1 - clamp(swingProgress, 0, 1));
+  const landingProgress = clamp(
+    progress + direction * remainingSwingDistance / routeLength,
+    0,
+    1,
+  );
+  const landing = roomRoutePointAtProgress(points, landingProgress);
+  const forward = roomRouteHeadingAtProgress(points, landingProgress, direction);
+  const sideSign = side === 'left' ? 1 : -1;
+  const sideOffset = Math.max(0, halfStanceWidth) * sideSign;
+
+  // For a character facing +Z, anatomical left is +X.
+  return {
+    x: landing.x + forward.z * sideOffset,
+    z: landing.z - forward.x * sideOffset,
+  };
 }
 
 export function roomWalkTimeForProgress(progress: number, duration: number): number {

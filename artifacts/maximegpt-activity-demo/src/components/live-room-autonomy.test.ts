@@ -24,6 +24,7 @@ import {
   applyRetargetedWalkAnimation,
   getRoomWalkFootPhase,
   getRoomWalkPose,
+  roomFootLandingPoint,
   roomRouteLength,
   roomRouteHeadingAtProgress,
   roomRoutePointAtProgress,
@@ -128,6 +129,32 @@ test('smooths steering through sampled route corners without changing travel dir
   assert.ok(Math.abs(Math.hypot(cornerHeading.x, cornerHeading.z) - 1) < 1e-8);
   assert.ok(Math.abs(reverseHeading.x + cornerHeading.x) < 1e-8);
   assert.ok(Math.abs(reverseHeading.z + cornerHeading.z) < 1e-8);
+});
+
+test('keeps left and right foot landings on opposite sides through a turn', () => {
+  const route = createQuadraticRoomRoute(
+    { x: 0, z: 0 },
+    { x: 0.8, z: 1.2 },
+    { x: 1.5, z: 2 },
+  );
+  const progress = 0.42;
+  const strideLength = 0.7;
+  const halfWidth = 0.075;
+  const left = roomFootLandingPoint(route, progress, 1, strideLength, 0.3, 'left', halfWidth);
+  const right = roomFootLandingPoint(route, progress, 1, strideLength, 0.3, 'right', halfWidth);
+  const landingProgress = Math.min(
+    1,
+    progress + (strideLength * 0.38 * 0.7) / roomRouteLength(route),
+  );
+  const landingCenter = roomRoutePointAtProgress(route, landingProgress);
+  const heading = roomRouteHeadingAtProgress(route, landingProgress);
+  const leftOffset = (left.x - landingCenter.x) * heading.z - (left.z - landingCenter.z) * heading.x;
+  const rightOffset = (right.x - landingCenter.x) * heading.z - (right.z - landingCenter.z) * heading.x;
+
+  assert.ok(leftOffset > 0);
+  assert.ok(rightOffset < 0);
+  assert.ok(Math.abs(leftOffset - halfWidth) < 1e-6);
+  assert.ok(Math.abs(rightOffset + halfWidth) < 1e-6);
 });
 
 test('repeats footfalls according to distance instead of stretching one step across the route', () => {

@@ -41,7 +41,7 @@ import { createRoomAutonomy, createRoomRouteMotion } from './live-room-autonomy'
 import {
   capturePlantedFootStart,
   createFootLockState,
-  getSwingFootTarget,
+  getSwingFootTargetToLanding,
   solveGroundedLeg,
   updateFootLock,
 } from './live-foot-ik';
@@ -50,6 +50,7 @@ import {
   createQuadraticRoomRoute,
   getRoomWalkFootPhase,
   getRoomWalkPose,
+  roomFootLandingPoint,
   roomRouteLength,
   roomRouteHeadingAtProgress,
   roomWalkCyclesForDistance,
@@ -744,36 +745,36 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           // by the same distance as the root travels during that full cycle.
           const swingLength = roomWalkStrideLengthForSegment(walkSegmentDistance, avatarHeight);
           const footLift = avatarHeight * 0.04;
+          const footHalfStanceWidth = avatarHeight * 0.045;
           modelRoot.updateWorldMatrix(true, false);
           const rootRotation = modelRoot.getWorldQuaternion(new Quaternion());
 
           if (leftFoot && leftGroundHeight !== undefined) {
             const leftRestRotation = rootRotation.clone().multiply(leftRestRoot ?? new Quaternion());
-            const leftLandingTarget = leftStance && !leftFootLock.planted
-              ? getSwingFootTarget(
-                leftFootLock.anchor,
-                gaitForward,
-                swingLength,
-                1,
-                leftGroundHeight,
-                footLift,
-              )
-              : undefined;
+            const leftLandingPoint = roomFootLandingPoint(
+              roomRoutePoints,
+              routeProgress,
+              routeDirection,
+              swingLength,
+              leftStance ? 1 : footPhase.leftSwingProgress,
+              'left',
+              footHalfStanceWidth,
+            );
+            const leftLandingTarget = new Vector3(leftLandingPoint.x, leftGroundHeight, leftLandingPoint.z);
             updateFootLock(
               leftFootLock,
               leftStance,
               leftFoot,
               leftGroundHeight,
-              leftLandingTarget,
-              leftLandingTarget ? leftRestRotation : undefined,
+              leftStance && !leftFootLock.planted ? leftLandingTarget : undefined,
+              leftStance && !leftFootLock.planted ? leftRestRotation : undefined,
             );
             const swingProgress = footPhase.leftSwingProgress;
             const target = leftStance
               ? leftFootLock.anchor
-              : getSwingFootTarget(
+              : getSwingFootTargetToLanding(
                 leftFootLock.anchor,
-                gaitForward,
-                swingLength,
+                leftLandingTarget,
                 swingProgress,
                 leftGroundHeight,
                 footLift,
@@ -803,31 +804,30 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
 
           if (rightFoot && rightGroundHeight !== undefined) {
             const rightRestRotation = rootRotation.clone().multiply(rightRestRoot ?? new Quaternion());
-            const rightLandingTarget = rightStance && !rightFootLock.planted
-              ? getSwingFootTarget(
-                rightFootLock.anchor,
-                gaitForward,
-                swingLength,
-                1,
-                rightGroundHeight,
-                footLift,
-              )
-              : undefined;
+            const rightLandingPoint = roomFootLandingPoint(
+              roomRoutePoints,
+              routeProgress,
+              routeDirection,
+              swingLength,
+              rightStance ? 1 : footPhase.rightSwingProgress,
+              'right',
+              footHalfStanceWidth,
+            );
+            const rightLandingTarget = new Vector3(rightLandingPoint.x, rightGroundHeight, rightLandingPoint.z);
             updateFootLock(
               rightFootLock,
               rightStance,
               rightFoot,
               rightGroundHeight,
-              rightLandingTarget,
-              rightLandingTarget ? rightRestRotation : undefined,
+              rightStance && !rightFootLock.planted ? rightLandingTarget : undefined,
+              rightStance && !rightFootLock.planted ? rightRestRotation : undefined,
             );
             const swingProgress = footPhase.rightSwingProgress;
             const target = rightStance
               ? rightFootLock.anchor
-              : getSwingFootTarget(
+              : getSwingFootTargetToLanding(
                 rightFootLock.anchor,
-                gaitForward,
-                swingLength,
+                rightLandingTarget,
                 swingProgress,
                 rightGroundHeight,
                 footLift,

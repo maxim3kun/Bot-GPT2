@@ -5,6 +5,7 @@ import {
   capturePlantedFootStart,
   createFootLockState,
   getSwingFootTarget,
+  getSwingFootTargetToLanding,
   solveGroundedLeg,
   updateFootLock,
 } from './live-foot-ik.ts';
@@ -131,4 +132,17 @@ test('swing-foot path starts and lands on the floor with a modest lift', () => {
   assert.ok(Math.abs(apex.y - 0.25) < 1e-8);
   assert.ok(Math.abs(landing.x - 0.3) < 1e-8);
   assert.ok(Math.abs(landing.y - 0.1) < 1e-8);
+});
+
+test('swing-foot path reaches its own side-specific landing point', () => {
+  const start = new Vector3(0.12, 0, 0);
+  const landing = new Vector3(0.08, 0, 0.45);
+  const first = getSwingFootTargetToLanding(start, landing, 0, 0, 0.08);
+  const middle = getSwingFootTargetToLanding(start, landing, 0.5, 0, 0.08);
+  const touchdown = getSwingFootTargetToLanding(start, landing, 1, 0, 0.08);
+
+  assert.deepEqual(first.toArray(), [0.12, 0, 0]);
+  assert.ok(middle.z > start.z && middle.z < landing.z);
+  assert.ok(middle.y > 0);
+  assert.ok(touchdown.distanceTo(landing) < 1e-8);
 });
