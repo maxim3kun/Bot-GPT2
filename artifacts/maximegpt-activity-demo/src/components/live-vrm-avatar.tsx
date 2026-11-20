@@ -60,7 +60,7 @@ import {
   type RoomRoutePoint,
   type RoomWalkClip,
 } from './live-room-gait';
-import { retargetJointRotation } from './live-motion-retarget';
+import { retargetJointRotation, shouldRetargetIdleBone } from './live-motion-retarget';
 import avatarUrl from '../../../../attached_assets/avatar_1794982764789.vrm?url';
 import motionPackUrl from '../assets/animations/cc0-humanoid-motions.glb?url';
 import walkClipData from '../assets/quaternius-walk-loop.json';
@@ -112,15 +112,6 @@ const WALK_ANIMATED_BONES = new Set<BoneName>([
   'leftHand',
   'rightHand',
 ]);
-const PROCEDURAL_LEG_BONES = new Set<BoneName>([
-  'leftUpperLeg',
-  'rightUpperLeg',
-  'leftLowerLeg',
-  'rightLowerLeg',
-  'leftFoot',
-  'rightFoot',
-]);
-
 interface MotionSource {
   mixer: AnimationMixer;
   action: AnimationAction;
@@ -885,7 +876,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking, interactionActive }:
           for (const [boneName] of MOTION_BONE_SOURCES) {
             // The grounded leg solver runs before retargeting. Do not let the
             // idle clip reset its result after it has placed the feet.
-            if (moving && PROCEDURAL_LEG_BONES.has(boneName)) continue;
+            if (!shouldRetargetIdleBone(boneName, moving)) continue;
             const targetBone = bones.get(boneName);
             const targetRest = motionRestQuaternions.get(boneName);
             const idleBone = idleMotion.bones.get(boneName);
