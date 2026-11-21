@@ -362,13 +362,19 @@ test("Japan area browsing exposes only prefectures with GTFS routes and lists on
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     undefined, mobility);
   const territory = "mobility:JP" as const;
-  const regions = await browser.coveredRegions(territory, "bus");
-  assert.deepEqual(regions, ["Tokyo"]);
-  const region = await browser.region("Tokyo", territory);
-  assert.ok(region?.boundary);
-  const networks = await browser.regionNetworks(region!, "bus");
-  assert.equal(networks.length, 1);
-  const listing = await browser.regionLines(networks[0]!, "bus", "", region!);
-  assert.deepEqual(listing.lines.map(line => line.label), ["101"]);
-  assert.equal(listing.unavailable, 0);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = fetcher;
+  try {
+    const regions = await browser.coveredRegions(territory, "bus");
+    assert.deepEqual(regions, ["Tokyo"]);
+    const region = await browser.region("Tokyo", territory);
+    assert.ok(region?.boundary);
+    const networks = await browser.regionNetworks(region!, "bus");
+    assert.equal(networks.length, 1);
+    const listing = await browser.regionLines(networks[0]!, "bus", "", region!);
+    assert.deepEqual(listing.lines.map(line => line.label), ["101"]);
+    assert.equal(listing.unavailable, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
