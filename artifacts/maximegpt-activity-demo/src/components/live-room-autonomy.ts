@@ -72,6 +72,7 @@ export function createRoomAutonomy(
   let activity: RoomActivity = isSleepTime(now()) ? 'walking-to-bed' : 'playing-at-desk';
   let targetProgress = targetProgressForActivity(activity);
   let timeRemaining = activity === 'playing-at-desk' ? duration(7, 12) : 0;
+  let nightRoutineActive = isSleepTime(now());
   let wasEngaged = false;
   let resumeActivity: RoomActivity = activity;
   let resumeTimeRemaining = timeRemaining;
@@ -117,12 +118,14 @@ export function createRoomAutonomy(
       if (!motionEnabled) return snapshot();
 
       if (activity === 'sleeping' && !isSleepTime(localTime)) {
+        nightRoutineActive = false;
         activity = 'waking-up';
         targetProgress = 1;
         timeRemaining = duration(2, 3);
         return snapshot();
       }
-      if (isSleepTime(localTime) && !isBedRoutine(activity) && !isWalking(activity)) {
+      if (isSleepTime(localTime)) nightRoutineActive = true;
+      if (nightRoutineActive && !isBedRoutine(activity) && !isWalking(activity)) {
         activity = 'walking-to-bed';
         targetProgress = 1;
         timeRemaining = 0;
@@ -132,13 +135,25 @@ export function createRoomAutonomy(
       if (isWalking(activity)) {
         if (Math.abs(position - targetProgress) > 0.001) return snapshot();
         if (activity === 'walking-to-window') {
-          activity = 'looking-out-window';
-          targetProgress = 1;
-          timeRemaining = duration(5, 9);
+          if (nightRoutineActive) {
+            activity = 'walking-to-bed';
+            targetProgress = 1;
+            timeRemaining = 0;
+          } else {
+            activity = 'looking-out-window';
+            targetProgress = 1;
+            timeRemaining = duration(5, 9);
+          }
         } else if (activity === 'walking-to-desk') {
-          activity = 'checking-plant';
-          targetProgress = 0;
-          timeRemaining = duration(4, 7);
+          if (nightRoutineActive) {
+            activity = 'walking-to-bed';
+            targetProgress = 1;
+            timeRemaining = 0;
+          } else {
+            activity = 'checking-plant';
+            targetProgress = 0;
+            timeRemaining = duration(4, 7);
+          }
         } else if (activity === 'walking-to-bed') {
           activity = 'falling-asleep';
           targetProgress = 1;
@@ -159,7 +174,7 @@ export function createRoomAutonomy(
       if (timeRemaining > 0) return snapshot();
 
       if (activity === 'looking-out-window') {
-        activity = 'walking-to-desk';
+        activity = nightRoutineActive ? 'walking-to-bed' : 'walking-to-desk';
       } else if (activity === 'checking-plant') {
         activity = 'playing-at-desk';
       } else if (activity === 'falling-asleep') {

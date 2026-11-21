@@ -110,6 +110,29 @@ test('chooses bed at 00:40 and wakes at the local morning time', () => {
   assert.equal(state.activity, 'waking-up');
 });
 
+test('finishes the current stroll at bedtime and heads straight to bed', () => {
+  const localTime = new Date(2026, 10, 21, 22, 59);
+  const autonomy = createRoomAutonomy(() => 0.9, () => new Date(localTime));
+  let state = autonomy.current();
+  for (let frame = 0; frame < 260 && state.activity === 'playing-at-desk'; frame += 1) {
+    state = autonomy.update(0.05, false, true, 0);
+  }
+  assert.equal(state.activity, 'walking-to-window');
+
+  localTime.setHours(23, 0, 0, 0);
+  state = autonomy.update(0.05, false, true, 0);
+  assert.equal(state.activity, 'walking-to-window');
+  state = autonomy.update(0.05, false, true, 1);
+  assert.equal(state.activity, 'walking-to-bed');
+
+  state = autonomy.update(0.05, false, true, 1);
+  assert.equal(state.activity, 'falling-asleep');
+  for (let frame = 0; frame < 60 && state.activity !== 'sleeping'; frame += 1) {
+    state = autonomy.update(0.05, false, true, 1);
+  }
+  assert.equal(state.activity, 'sleeping');
+});
+
 test('eases each walk and holds position while the page is hidden', () => {
   const route = createRoomRouteMotion();
   const firstStep = route.update('walking-to-window', 0.05, 0);

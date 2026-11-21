@@ -20,6 +20,7 @@ export interface LiveBedroomScene {
   group: Group;
   keyboardKeys: Mesh[];
   plantLeaves: Mesh[];
+  sleepCover: Mesh;
   updateMonitor: (elapsedSeconds: number, gameIsActive: boolean) => void;
   avatarShadow: Mesh;
   dispose: () => void;
@@ -43,7 +44,7 @@ export const LIVE_BEDROOM_BED_X_RATIO =
   LIVE_BEDROOM_DESK_X_RATIO - LIVE_BEDROOM_WINDOW_DISTANCE_RATIO - 0.82;
 export const LIVE_BEDROOM_BED_Z_RATIO = -0.61;
 export const LIVE_BEDROOM_BED_SURFACE_Y_RATIO = 0.36;
-export const LIVE_BEDROOM_BED_APPROACH_X_RATIO = LIVE_BEDROOM_BED_X_RATIO + 0.5;
+export const LIVE_BEDROOM_BED_APPROACH_X_RATIO = LIVE_BEDROOM_BED_X_RATIO + 0.66;
 export const LIVE_BEDROOM_BED_APPROACH_Z_RATIO = LIVE_BEDROOM_BED_Z_RATIO + 0.48;
 
 export function createLiveBedroomScene(avatarHeight: number, windowX: number): LiveBedroomScene {
@@ -540,9 +541,19 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
   // A low bed anchors the room as a bedroom; it sits to the side and behind the walk lane.
   const bedX = LIVE_BEDROOM_BED_X_RATIO * h;
   const bedZ = LIVE_BEDROOM_BED_Z_RATIO * h;
-  makeRoundedBox('bed-frame', [1.02 * h, 0.18 * h, 0.62 * h], [bedX, 0.13 * h, bedZ], 0x76675f, 0.82, 0.035 * h);
-  makeRoundedBox('bed-mattress', [1.0 * h, 0.15 * h, 0.6 * h], [bedX, 0.25 * h, bedZ], 0xf0ede6, 0.98, 0.05 * h, fabricTexture);
+  makeRoundedBox('bed-frame', [1.32 * h, 0.18 * h, 0.62 * h], [bedX, 0.13 * h, bedZ], 0x76675f, 0.82, 0.035 * h);
+  makeRoundedBox('bed-mattress', [1.3 * h, 0.15 * h, 0.6 * h], [bedX, 0.25 * h, bedZ], 0xf0ede6, 0.98, 0.05 * h, fabricTexture);
   makeRoundedBox('bed-cover', [0.67 * h, 0.045 * h, 0.57 * h], [bedX + 0.16 * h, 0.34 * h, bedZ + 0.015 * h], 0x829293, 0.96, 0.028 * h, fabricTexture);
+  const sleepCover = makeRoundedBox(
+    'sleep-duvet',
+    [0.96 * h, 0.09 * h, 0.57 * h],
+    [bedX + 0.1 * h, 0.4 * h, bedZ],
+    0x829293,
+    0.96,
+    0.035 * h,
+    fabricTexture,
+  );
+  sleepCover.visible = false;
   makeRoundedBox('bed-pillow', [0.31 * h, 0.08 * h, 0.22 * h], [bedX - 0.3 * h, 0.36 * h, bedZ + 0.11 * h], 0xede8de, 0.98, 0.035 * h, fabricTexture);
   makeRoundedBox('bed-headboard', [1.08 * h, 0.48 * h, 0.07 * h], [bedX, 0.39 * h, bedZ - 0.33 * h], 0x89796d, 0.82, 0.035 * h, fabricTexture);
 
@@ -589,6 +600,7 @@ export function createLiveBedroomScene(avatarHeight: number, windowX: number): L
     group,
     keyboardKeys,
     plantLeaves,
+    sleepCover,
     updateMonitor,
     avatarShadow,
     dispose: () => {
