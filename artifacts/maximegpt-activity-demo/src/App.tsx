@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { AvatarCharacter, type AvatarMode } from '@/components/avatar-character';
 import { Link, Route, Switch } from 'wouter';
-import LiveVoice from '@/pages/LiveVoice';
 
 type ViewState = 'checking' | 'authorizing' | 'ready' | 'preview' | 'error';
 type ApiErrorBody = { error?: string };
@@ -1027,14 +1026,28 @@ function NotFound() {
   );
 }
 
+function PublicSiteRedirect() {
+  useEffect(() => {
+    window.location.replace('https://www.maximegpt.com/');
+  }, []);
+
+  return (
+    <main className="activity-background grain flex min-h-[100dvh] items-center justify-center px-5 text-[#302b3d]">
+      <a className="font-semibold underline" href="https://www.maximegpt.com/">
+        Retour au site MaximeGPT
+      </a>
+    </main>
+  );
+}
+
 export default function App() {
   return (
     <Switch>
-      <Route path="/live" component={LiveVoice} />
+      <Route path="/live" component={PublicSiteRedirect} />
       <Route path="/activity/:clientId" component={Home} />
       <Route path="/activity/" component={Home} />
       <Route path="/activity" component={Home} />
-      <Route path="/" component={Home} />
+      <Route path="/" component={PublicSiteRedirect} />
       <Route component={NotFound} />
     </Switch>
   );
