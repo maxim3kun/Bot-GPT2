@@ -83,6 +83,12 @@
     "notifyGuildId": "1512769130082603161",
     "bullying": true,
     "lastRemindedDate": "2026-06-28",
-    "lastRemindedHour": 15
+    "lastRemindedHour": 15,
+    "reminderScheduleWeek": "2026-11-16",
+    "reminderSchedule": [
+      "2026-11-21T21:55:00.000Z",
+      "2026-11-22T08:40:00.000Z"
+    ],
+    "reminderAttemptedSlots": []
   }
 }
