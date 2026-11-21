@@ -29,6 +29,7 @@ import type { LiveAvatarModelMode } from './live-avatar-model';
 import {
   LIVE_BEDROOM_BED_APPROACH_X_RATIO,
   LIVE_BEDROOM_BED_APPROACH_Z_RATIO,
+  LIVE_BEDROOM_BED_SLEEP_ROOT_X_RATIO,
   LIVE_BEDROOM_BED_SURFACE_Y_RATIO,
   LIVE_BEDROOM_BED_X_RATIO,
   LIVE_BEDROOM_BED_Z_RATIO,
@@ -107,7 +108,6 @@ type BoneName =
 type MotionName = 'idle';
 
 const WALK_ANIMATED_BONES = new Set<BoneName>([
-  'hips',
   'spine',
   'chest',
   'upperChest',
@@ -634,7 +634,7 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
           modelRoot.position.z = routePosition.z;
         }
         if (bedPose) {
-          const sleepRootX = avatarHeight * (LIVE_BEDROOM_BED_X_RATIO + 0.62);
+          const sleepRootX = avatarHeight * LIVE_BEDROOM_BED_SLEEP_ROOT_X_RATIO;
           const sleepRootY = avatarHeight * LIVE_BEDROOM_BED_SURFACE_Y_RATIO;
           const sleepRootZ = avatarHeight * LIVE_BEDROOM_BED_Z_RATIO;
           const standX = avatarHeight * LIVE_BEDROOM_BED_APPROACH_X_RATIO;
@@ -663,7 +663,10 @@ export function LiveVrmAvatar({ mode, audioLevel, blinking }: LiveVrmAvatarProps
         const routeHeading = Math.atan2(windowTangent.x, windowTangent.z);
         const monitorPositionX = avatarHeight * (LIVE_BEDROOM_DESK_X_RATIO + 0.23);
         const monitorPositionZ = avatarHeight * (-0.52 - 0.12);
-        modelRoot.position.y = roomFloorY + (moving && walkClipData.tracks.length === 0 ? walkPose.bodyBob * avatarHeight : 0);
+        if (!bedPose) {
+          modelRoot.position.y = roomFloorY
+            + (moving && walkClipData.tracks.length === 0 ? walkPose.bodyBob * avatarHeight : 0);
+        }
         const routeVelocityX = delta > 0 ? (modelRoot.position.x - previousRouteX) / delta : 0;
         const routeVelocityZ = delta > 0 ? (modelRoot.position.z - previousRouteZ) / delta : 0;
         previousRouteX = modelRoot.position.x;

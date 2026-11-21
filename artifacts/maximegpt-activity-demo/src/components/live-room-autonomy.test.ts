@@ -11,7 +11,9 @@ import {
   LIVE_BEDROOM_BED_APPROACH_X_RATIO,
   LIVE_BEDROOM_BED_APPROACH_Z_RATIO,
   LIVE_BEDROOM_BED_X_RATIO,
+  LIVE_BEDROOM_BED_SLEEP_ROOT_X_RATIO,
   LIVE_BEDROOM_BED_Z_RATIO,
+  LIVE_BEDROOM_BED_SURFACE_Y_RATIO,
   LIVE_BEDROOM_CHAIR_Z_RATIO,
   LIVE_BEDROOM_DESK_STAND_X_OFFSET_RATIO,
   LIVE_BEDROOM_DESK_STAND_Z_RATIO,
@@ -196,10 +198,26 @@ test('keeps left and right foot landings on opposite sides through a turn', () =
   const leftOffset = (left.x - landingCenter.x) * heading.z - (left.z - landingCenter.z) * heading.x;
   const rightOffset = (right.x - landingCenter.x) * heading.z - (right.z - landingCenter.z) * heading.x;
 
-  assert.ok(leftOffset > 0);
-  assert.ok(rightOffset < 0);
-  assert.ok(Math.abs(leftOffset - halfWidth) < 1e-6);
-  assert.ok(Math.abs(rightOffset + halfWidth) < 1e-6);
+  assert.ok(leftOffset < 0);
+  assert.ok(rightOffset > 0);
+  assert.ok(Math.abs(leftOffset + halfWidth) < 1e-6);
+  assert.ok(Math.abs(rightOffset - halfWidth) < 1e-6);
+});
+
+test('places the lying avatar on top of the mattress and inside its length', () => {
+  const height = 1.7;
+  const bedCenterX = LIVE_BEDROOM_BED_X_RATIO * height;
+  const rootX = LIVE_BEDROOM_BED_SLEEP_ROOT_X_RATIO * height;
+  const mattressLeft = bedCenterX - 0.65 * height;
+  const mattressRight = bedCenterX + 0.65 * height;
+  const lyingAvatarLeft = rootX - height;
+  const lyingAvatarRight = rootX;
+  const mattressTop = LIVE_BEDROOM_BED_SURFACE_Y_RATIO * height;
+
+  assert.ok(lyingAvatarLeft >= mattressLeft);
+  assert.ok(lyingAvatarRight <= mattressRight);
+  assert.ok(Math.abs(mattressTop - 0.325 * height) < 1e-8);
+  assert.ok(mattressTop > LIVE_BEDROOM_FLOOR_TOP_RATIO * height);
 });
 
 test('repeats footfalls according to distance instead of stretching one step across the route', () => {

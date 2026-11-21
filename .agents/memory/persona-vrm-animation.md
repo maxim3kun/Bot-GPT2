@@ -20,3 +20,9 @@ The user wants Maxime's room routine to respond to local time, including choosin
 **Why:** The user wants Alicia Solid to remain available for personas and wants those characters to perform full-body actions, including jumping. They explicitly said they do not have access to a computer. They also confirmed the corrected leg-animation ordering improved Maxime's walk and asked for Maxime to have ongoing autonomy while conversational.
 
 **How to apply:** Keep persona and Maxime avatar choices separate. Prefer workflows that can be completed from a phone. Test and tune motion on the chosen VRM rig, preserve the user's accepted visual quality, and be clear when a movement is only a simulated pose rather than a complete animation. Let conversational states overlay the room routine; pause it only when the activity is not visible. Use local time for bedtime, keep the computer display unchanged outside computer use, and ensure each bedtime cycle reaches the bed once, stays covered while asleep, then leaves once after morning wake-up. During retargeting, verify runtime bone names and preserve the VRM's visible neutral pose.
+
+The user is frustrated by repeated gait regressions and wants the full walk/bed behavior corrected as a coherent system, not by many rounds of speculative tweaks. Do not call a gait natural based only on unit tests; explicitly distinguish code-level checks from visual verification on the actual VRM.
+
+**Why:** The user has repeatedly reported crossed legs, unnatural steps, and the avatar intersecting the bed after earlier fixes.
+
+**How to apply:** Check anatomical left/right targets, root and foot coordinates, route and obstacle clearance, and mattress height together. Verify a real walk and sleep pose in the running scene whenever possible; if the preview cannot reach a specific state, state that limitation plainly.

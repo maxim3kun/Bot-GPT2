@@ -385,10 +385,11 @@ export function roomFootLandingPoint(
   );
   const landing = roomRoutePointAtProgress(points, landingProgress);
   const forward = roomRouteHeadingAtProgress(points, landingProgress, direction);
-  const sideSign = side === 'left' ? 1 : -1;
+  const sideSign = side === 'left' ? -1 : 1;
   const sideOffset = Math.max(0, halfStanceWidth) * sideSign;
 
-  // For a character facing +Z, anatomical left is +X.
+  // With Three.js world-up +Y and forward +Z, anatomical left is -X.
+  // Keep foot targets on their own side or the IK solver makes the legs cross.
   return {
     x: landing.x + forward.z * sideOffset,
     z: landing.z - forward.x * sideOffset,
