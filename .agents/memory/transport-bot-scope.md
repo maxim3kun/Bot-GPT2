@@ -123,6 +123,12 @@ Do not infer a transfer or walking duration from equal stop names, destinations,
 
 **How to apply:** Keep routing limitations visible, preserve the selected municipality identity, and label each leg's timetable/realtime status independently. A known but incomplete live update must not silently confirm a connection from unchanged scheduled times.
 
+Walking directions from the IGN pedestrian profile do not prove that a route is step-free or accessible to wheelchair users. A positive accessibility claim requires a separate public source that establishes it; otherwise say access is unverified.
+
+**Why:** The official Géoplateforme documentation describes pedestrian routing and its speed model, but does not provide accessibility evidence for each route segment.
+
+**How to apply:** Keep the accessibility warning on walking cards and comparisons. Do not infer accessibility from the pedestrian profile, route distance, or other routing characteristics.
+
 Dense GTFS feeds can have far more theoretical trip-pair combinations than useful arrival choices. Build arrival options from deduplicated official stop/route evidence, and restrict timed itinerary evaluation to trips with service in the requested time window rather than materializing the full Cartesian product.
 
 **Why:** A live Beauvais train lookup exceeded the transfer-work budget while generating choices and again after an arrival was selected, even though a valid one-change itinerary existed.

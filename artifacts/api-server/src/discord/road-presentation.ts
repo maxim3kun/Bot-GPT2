@@ -1,6 +1,11 @@
 import type { ItineraryPage, ItineraryView } from "./transport-itinerary-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
+export function walkingAccessibilityNote(fr: boolean) {
+  return fr
+    ? "Accessibilité non vérifiée : l’IGN ne confirme ni l’absence d’escaliers ni l’accessibilité PMR."
+    : "Accessibility not verified: IGN does not confirm that the route is stair-free or wheelchair-accessible.";
+}
 export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
   const road = view.journey.road!;
   const km = (meters: number) => `${(meters / 1000).toLocaleString(fr ? "fr-FR" : "en-GB", { maximumFractionDigits: 1 })} km`;
@@ -14,8 +19,7 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
   const summary = `${km(road.distanceMeters)} · **${Math.ceil((view.journey.arrival - view.journey.departure) / 60)} min**\n${
     fr ? "Départ prévu" : "Planned departure"} ${clock(view.journey.departure)} → ${fr ? "Arrivée estimée" : "Estimated arrival"} ${clock(view.journey.arrival)}`;
   const note = road.mode === "walk"
-    ? (fr ? "Durée estimée par l’IGN sur son réseau piéton. Ce calcul ne confirme pas l’accessibilité PMR."
-      : "IGN estimate on its pedestrian network. This does not confirm step-free accessibility.")
+    ? `${fr ? "Durée estimée par l’IGN sur son réseau piéton." : "IGN estimate on its pedestrian network."} ${walkingAccessibilityNote(fr)}`
     : (fr ? "Durée estimée IGN, sans trafic en temps réel. Vérifie la signalisation et les conditions sur place."
       : "IGN estimated duration, no live traffic. Check road signs and local conditions. Instructions are supplied in French.");
   const footer = `IGN / Géoplateforme · Europe/Paris${road.resourceVersion ? ` · ${road.resourceVersion}` : ""} · ${

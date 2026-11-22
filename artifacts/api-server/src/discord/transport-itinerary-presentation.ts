@@ -2,7 +2,7 @@ import type { APIEmbed } from "discord.js";
 import { addDays, localDate } from "./gtfs-realtime.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 import type { OfficialPlace, VerifiedJourney, JourneyComparison } from "./transport-planner-types.js";
-import { roadPages } from "./road-presentation.js";
+import { roadPages, walkingAccessibilityNote } from "./road-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
 import { BIKE_SOURCE, OSM_ATTRIBUTION } from "./osm-bike-planner.js";
 
@@ -63,7 +63,8 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
     const quality = route
       ? route.source === "openstreetmap" ? t("Réseau vélo OpenStreetMap · estimation sans trafic en temps réel, France métropolitaine",
         "OpenStreetMap cycling network · no live-traffic data, metropolitan France")
-      : entry.mode === "walk" ? t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate") : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
+      : entry.mode === "walk" ? `${t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate")} · ${walkingAccessibilityNote(fr)}`
+        : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
       : `${reliability(entry.journey, fr)} · ${entry.journey.legs.filter(leg => leg.kind === "transit").length} ${t("étape(s)", "leg(s)")}${entry.journey.warning ? ` · ${t("perturbation signalée", "disruption reported")}` : ""}`;
     return { name: labels[entry.mode], value: `**${duration(entry.journey)}${distance}**\n${quality}${recommendation}`, inline: false };
   });

@@ -100,7 +100,11 @@ test("a walking request uses the official pedestrian profile and gets a walking 
   assert.equal(result.itinerary?.journey.road?.mode,"walk");
   const json=JSON.stringify(itineraryPages(result.itinerary!,true));
   assert.match(json,/Itinéraire à pied/); assert.match(json,/réseau piéton/);
+  assert.match(json,/Accessibilité non vérifiée/); assert.match(json,/absence d’escaliers/); assert.match(json,/accessibilité PMR/);
+  assert.doesNotMatch(json,/itinéraire accessible/i);
   assert.doesNotMatch(json,/sans trafic en temps réel/);
+  const english=JSON.stringify(itineraryPages(result.itinerary!,false));
+  assert.match(english,/Accessibility not verified/); assert.match(english,/stair-free/); assert.match(english,/wheelchair-accessible/);
 });
 test("comparison calculates each supported mode separately and labels missing transit honestly", async () => {
   const s=setup(), result=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
@@ -111,10 +115,32 @@ test("comparison calculates each supported mode separately and labels missing tr
   const { comparisonPage }=await import("../src/discord/transport-itinerary-presentation.js");
   const content=comparisonPage(result.comparison! ,true).content;
   assert.match(content,/À pied/);assert.match(content,/En voiture/);assert.match(content,/À vélo/);assert.match(content,/Transports en commun/);
+  assert.match(content,/Accessibilité non vérifiée/);assert.match(content,/absence d’escaliers/);
   assert.match(content,/Réseau vélo OpenStreetMap/);assert.match(content,/France métropolitaine/);
   assert.match(content,/Géoplateforme/);assert.match(content,/OpenStreetMap contributors/);assert.match(content,/Île-de-France Mobilités/);
   const english=comparisonPage(result.comparison!,false).content;
   assert.match(english,/By bike/);assert.match(english,/metropolitan France/);assert.match(english,/OpenStreetMap bike router/);
+  assert.match(english,/Accessibility not verified/);assert.match(english,/wheelchair-accessible/);
+});
+
+test("IGN pedestrian routes cannot prove accessibility and unavailable routing stays unavailable", async () => {
+  const unsupportedClaim = parseRoad({
+    ...body("pedestrian"),
+    accessibility: "verified",
+    wheelchairAccessible: true,
+  }, from, to, NOW / 1000, "departure", "walk");
+  assert.equal("accessibility" in unsupportedClaim.road!, false);
+  assert.equal("wheelchairAccessible" in unsupportedClaim.road!, false);
+
+  const s=setup();
+  s.road.journeys=async (_from,_to,_at,_rep,_fresh,mode) => {
+    if (mode === "walk") throw new PlannerError("unavailable");
+    return [parseRoad(body(),from,to,NOW/1000,"departure")];
+  };
+  const comparison=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
+  const walking=comparison.comparison!.entries.find(entry=>entry.mode==="walk")!;
+  assert.equal(walking.journey,undefined);
+  assert.match(walking.unavailable!,/calculateur officiel est momentanément indisponible/);
 });
 test("comparison ranks only journeys actually returned by their official planners", async () => {
   const s=setup();
