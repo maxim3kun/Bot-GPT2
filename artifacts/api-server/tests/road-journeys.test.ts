@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { IgnRoadPlanner, parseRoad, roadPlaces, ROAD_SOURCE } from "../src/discord/ign-road-planner.js";
 import { RoadHttp } from "../src/discord/road-http.js";
 import { TransportConversation } from "../src/discord/transport-conversation.js";
+import { BIKE_SOURCE, OSM_ATTRIBUTION, OpenStreetMapBikePlanner, parseBikeRoute } from "../src/discord/osm-bike-planner.js";
 import { createTransportDialogue, handleJourneyCommand, travelScope } from "../src/discord/transport-dialogue.js";
 import { itineraryPages } from "../src/discord/transport-itinerary-presentation.js";
 import { parseAiCommandTool, buildAiCommandTools } from "../src/discord/ai-command-tools.js";
@@ -16,16 +17,32 @@ const to: OfficialPlace = { id: "ign:80021", ids: ["ign:80021"], name: "Amiens",
 const body = (profile = "car") => ({ resource: "bdtopo-osrm", profile, crs: "EPSG:4326", distanceUnit: "meter", timeUnit: "second",
   start: "2.08,49.43", end: "2.29,49.89", duration: 3600, distance: 65000, resourceVersion: "2026-11-11",
   portions: [{ steps: [{ distance: 65000, duration: 3600, instruction: { type: "continue", modifier: "straight" }, attributes: { name: "D1001" } }] }] });
+const bikeBody = (options: { mode?: string; code?: string } = {}) => ({
+  code: options.code ?? "Ok",
+  routes: [{ distance: 1200, duration: 420, legs: [{ distance: 1200, duration: 420, steps: [
+    { distance: 500, duration: 180, mode: options.mode ?? "cycling", name: "Rue cyclable", maneuver: { type: "turn", modifier: "right" } },
+    { distance: 700, duration: 240, mode: "cycling", name: "Piste verte", maneuver: { type: "continue" } },
+  ] }] }],
+  waypoints: [{ location: [from.longitude, from.latitude] }, { location: [to.longitude, to.latitude] }],
+});
 const geo = (city = "Beauvais", code = "60057", coordinates = [2.08,49.43], type = "municipality") => ({
   type: "Feature", geometry: { type: "Point", coordinates }, properties: { id: code, citycode: code, city, name: city,
     label: city, type, depcode: code.slice(0,2), postcode: "60000", context: code.slice(0,2) } });
 function setup() {
-  const calls: string[] = [];
+  const calls: string[] = [], bikeCalls: string[][] = [];
   const road: ItineraryProvider = { places: async q => { calls.push(q); return /amiens/i.test(q) ? [to] : [from]; },
     journeys: async (a,b,at,rep,_fresh,mode) => [parseRoad(body(mode === "walk" ? "pedestrian" : "car"),a,b,at,rep,mode)], stations: async () => { throw Error("not a road function"); } };
   const transit: ItineraryProvider = { places: async () => { throw Error("must not call PRIM"); }, journeys: async () => { throw Error("must not call PRIM"); },
     stations: async () => ({ line: "8", count: 38 }) };
-  return { service: new TransportConversation(transit, () => NOW, road), road, transit, calls };
+  const bike = { journeys: async (bikeFrom: OfficialPlace, bikeTo: OfficialPlace, at: number, represents: "arrival" | "departure") => {
+    bikeCalls.push([bikeFrom.id, bikeTo.id]);
+    const route = parseBikeRoute(bikeBody(), from, to)!;
+    const duration = Math.ceil(route.durationSeconds), departure = represents === "arrival" ? at - duration : at;
+    return [{ departure, arrival: departure + duration, legs: [], warning: false,
+      road: { mode: "bike" as const, source: "openstreetmap" as const, distanceMeters: route.distanceMeters,
+        steps: route.steps } }];
+  } };
+  return { service: new TransportConversation(transit, () => NOW, road, bike), road, transit, bike, calls, bikeCalls };
 }
 test("car grammar keeps A/B in order and strips the mode, not an address comma", () => {
   for (const q of ["Comment aller de Beauvais à Amiens en voiture ?", "Trajet voiture Beauvais -> Amiens"]) {
@@ -41,6 +58,12 @@ test("walking and comparison requests keep endpoints and choose the correct mode
   assert.equal(compare.mode, "compare"); assert.equal(compare.origin, "Beauvais"); assert.equal(compare.destination, "Amiens");
   const arrow = travelTurn("Trajet à pied Beauvais -> Amiens");
   assert.equal(arrow.mode,"walk");assert.equal(arrow.origin,"Beauvais");assert.equal(arrow.destination,"Amiens");
+  const cycling = travelTurn("Trajet à vélo Beauvais -> Amiens");
+  assert.equal(cycling.origin,"Beauvais");assert.equal(cycling.destination,"Amiens");assert.equal(cycling.unsupportedMode,true);
+  const bikeCompare = travelTurn("Compare le trajet vélo de Beauvais à Amiens");
+  assert.equal(bikeCompare.mode,"compare");assert.equal(bikeCompare.origin,"Beauvais");assert.equal(bikeCompare.destination,"Amiens");
+  const bikeOrCar = travelTurn("Trajet à vélo ou en voiture Beauvais -> Amiens");
+  assert.equal(bikeOrCar.mode,"compare");assert.equal(bikeOrCar.origin,"Beauvais");assert.equal(bikeOrCar.destination,"Amiens");
   const compareArrow=travelTurn("Trajet comparer Beauvais -> Amiens");
   assert.equal(compareArrow.mode,"compare");assert.equal(compareArrow.origin,"Beauvais");assert.equal(compareArrow.destination,"Amiens");
   const best = travelTurn("Quel est le meilleur moyen pour aller de 10 rue A, Beauvais à 15 rue B, Amiens ?");
@@ -59,6 +82,10 @@ test("typed road tools reject URLs, identities, unknown modes and unknown fields
   assert.equal(intent.kind,"action"); if(intent.kind==="action")assert.equal(intent.action.name,"plan_journey");
   const compare=selectAiCommand("Compare les trajets à pied et en voiture de Beauvais à Amiens",{});
   assert.equal(compare.kind,"action"); if(compare.kind==="action")assert.equal(compare.action.name,"plan_journey");
+  const cycleCompare=selectAiCommand("Compare le trajet vélo de Beauvais à Amiens",{});
+  assert.equal(cycleCompare.kind,"action"); if(cycleCompare.kind==="action")assert.equal(cycleCompare.action.name,"plan_journey");
+  const bikeOnly=selectAiCommand("Combien de temps à vélo de Beauvais à Amiens ?",{});
+  assert.equal(bikeOnly.kind,"clarify");
 });
 test("a generic journey clarifies mode without using a provider, then uses the road provider", async () => {
   const s=setup(); const first=await s.service.reply("s","Quel trajet de Beauvais à Amiens ?","fr");
@@ -78,18 +105,24 @@ test("comparison calculates each supported mode separately and labels missing tr
   const s=setup(), result=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
   assert.equal(result.comparison?.entries.find(e=>e.mode==="walk")?.journey?.road?.mode,"walk");
   assert.equal(result.comparison?.entries.find(e=>e.mode==="car")?.journey?.road?.mode,"car");
+  assert.equal(result.comparison?.entries.find(e=>e.mode==="bike")?.journey?.road?.mode,"bike");
   assert.match(result.comparison?.entries.find(e=>e.mode==="transit")?.unavailable ?? "",/indisponible/);
   const { comparisonPage }=await import("../src/discord/transport-itinerary-presentation.js");
   const content=comparisonPage(result.comparison! ,true).content;
-  assert.match(content,/À pied/);assert.match(content,/En voiture/);assert.match(content,/Transports en commun/);
-  assert.match(content,/Géoplateforme/);assert.match(content,/Île-de-France Mobilités/);
+  assert.match(content,/À pied/);assert.match(content,/En voiture/);assert.match(content,/À vélo/);assert.match(content,/Transports en commun/);
+  assert.match(content,/Réseau vélo OpenStreetMap/);assert.match(content,/France métropolitaine/);
+  assert.match(content,/Géoplateforme/);assert.match(content,/OpenStreetMap contributors/);assert.match(content,/Île-de-France Mobilités/);
+  const english=comparisonPage(result.comparison!,false).content;
+  assert.match(english,/By bike/);assert.match(english,/metropolitan France/);assert.match(english,/OpenStreetMap bike router/);
 });
 test("comparison ranks only journeys actually returned by their official planners", async () => {
   const s=setup();
+  s.bike.journeys=async()=>[];
   s.transit.places=async query=>[{id:`id:${query}`,ids:[`id:${query}`],name:query,label:query,longitude:2.1,latitude:49.4}];
   s.transit.journeys=async(from,to,at)=>[{departure:at,arrival:at+600,legs:[{kind:"transit",from:from.label,to:to.label,departure:at,arrival:at+600,line:"Train",direction:to.label}],warning:false}];
   const result=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
   assert.equal(result.comparison?.entries.filter(entry=>entry.journey).length,3);
+  assert.match(result.comparison?.entries.find(entry=>entry.mode==="bike")?.unavailable ?? "",/aucun itinéraire vélo/);
   assert.equal(result.comparison?.recommended,"transit");
 });
 test("comparison is delivered as a compact card with source links, including without embeds", async () => {
@@ -98,7 +131,16 @@ test("comparison is delivered as a compact card with source links, including wit
   assert.match(d.cards[0]!.last.content!,/Comparaison des trajets/);
   const urls=d.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url));
   assert.ok(urls.some(url=>url===ROAD_SOURCE));
+  assert.ok(urls.some(url=>url===BIKE_SOURCE));
   assert.ok(urls.some(url=>url?.includes("prim.iledefrance-mobilites.fr")));
+});
+test("a standalone bike route is declined, while comparisons can request cycling", async () => {
+  const s=setup();
+  const standalone=await s.service.reply("solo","Trajet à vélo Beauvais -> Amiens","fr");
+  assert.match(standalone!.content!,/pas encore calculer le vélo seul/);
+  assert.equal(s.calls.length,0);
+  const comparison=await s.service.reply("compare","Compare le trajet vélo de Beauvais à Amiens","fr");
+  assert.equal(comparison!.comparison?.entries.find(entry=>entry.mode==="bike")?.journey?.road?.source,"openstreetmap");
 });
 test("road presentation and source never claim PRIM or live traffic", async () => {
   const s=setup(),result=(await s.service.reply("s","Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
@@ -158,6 +200,23 @@ test("IGN requests select the documented pedestrian or car profile and validates
   assert.equal(requests[0]!.searchParams.get("profile"),"pedestrian");
   assert.equal(requests[1]!.searchParams.get("profile"),"car");
   assert.equal(walking[0]!.road?.mode,"walk");assert.equal(driving[0]!.road?.mode,"car");
+});
+test("cycling routes use the public bike endpoint and accept only a cycling-profile response", async () => {
+  const requests: URL[]=[];
+  const planner=new OpenStreetMapBikePlanner(async input=>{
+    requests.push(new URL(String(input)));
+    return Response.json(bikeBody());
+  },()=>NOW,0);
+  const journey=(await planner.journeys(from,to,NOW/1000,"departure"))[0]!;
+  assert.equal(requests[0]!.hostname,"routing.openstreetmap.de");
+  assert.match(requests[0]!.pathname,/routed-bike/);
+  assert.equal(journey.road?.mode,"bike");
+  assert.equal(journey.road?.source,"openstreetmap");
+  assert.equal(journey.arrival-journey.departure,420);
+  assert.equal(parseBikeRoute({code:"NoRoute",routes:[],waypoints:[]},from,to),null);
+  assert.throws(()=>parseBikeRoute(bikeBody({mode:"driving"}),from,to),PlannerError);
+  assert.throws(()=>parseBikeRoute({...bikeBody(),waypoints:[{location:[-1,45]},{location:[to.longitude,to.latitude]}]},from,to),PlannerError);
+  assert.equal(OSM_ATTRIBUTION,"https://www.openstreetmap.org/copyright");
 });
 test("quota, malformed/oversized JSON, redirect failures and missing route are honest errors", async () => {
   for(const fetcher of [
@@ -221,7 +280,25 @@ test("homonymous choices stay scoped and reversing keeps the selected coordinate
   };
   const choose=await s.service.reply("s","Quel trajet de Breteuil à Amiens en voiture ?","fr");
   assert.match(choose!.content!,/27 Eure.*\n.*60 Oise/s);assert.equal(pairs.length,0);
+  assert.equal(s.bikeCalls.length,0);
   assert.equal(await s.service.reply("another persona","2","fr",true),null);
   await s.service.reply("s","2","fr",true);assert.deepEqual(pairs[0],[bre60.id,to.id]);
   await s.service.reply("s","Inverse le trajet","fr",true);assert.deepEqual(pairs[1],[to.id,bre60.id]);
+});
+
+test("an ambiguous cycling comparison waits for the selected official place", async () => {
+  const s=setup(), bre27={...from,id:"ign:27112",name:"Breteuil",label:"Breteuil · 27 Eure",longitude:.9,latitude:48.8},
+    bre60={...from,id:"ign:60104",name:"Breteuil",label:"Breteuil · 60 Oise",longitude:2.28,latitude:49.63};
+  s.road.places=async q=>q==="Breteuil"?[bre27,bre60]:[to];
+  s.road.journeys=async(a,b,at,represents,_fresh,mode)=>[
+    parseRoad({...body(mode==="walk"?"pedestrian":"car",),start:`${a.longitude},${a.latitude}`,end:`${b.longitude},${b.latitude}`},a,b,at,represents,mode),
+  ];
+  s.bike.journeys=async(a,b,at)=>{s.bikeCalls.push([a.id,b.id]);return[
+    {departure:at,arrival:at+600,legs:[],warning:false,
+      road:{mode:"bike",source:"openstreetmap",distanceMeters:1000,steps:[]}},
+  ];};
+  const prompt=await s.service.reply("s","Compare le trajet vélo de Breteuil à Amiens","fr");
+  assert.match(prompt!.content!,/27 Eure.*\n.*60 Oise/s);assert.equal(s.bikeCalls.length,0);
+  await s.service.reply("s","2","fr",true);
+  assert.deepEqual(s.bikeCalls,[[bre60.id,to.id]]);
 });

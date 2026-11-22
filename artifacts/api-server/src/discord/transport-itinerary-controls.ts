@@ -6,6 +6,7 @@ import {
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
 import { comparisonPage, itineraryPages, itinerarySource } from "./transport-itinerary-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
+import { BIKE_SOURCE } from "./osm-bike-planner.js";
 import { ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
 import type { JourneyComparison } from "./transport-planner-types.js";
 
@@ -31,6 +32,7 @@ export class ItineraryControls {
     const page = comparisonPage(comparison, fr);
     const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("IGN").setURL(ROAD_SOURCE),
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Vélo OSM").setURL(BIKE_SOURCE),
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(t("Transports", "Transit")).setURL(ITINERARY_SOURCE),
     )];
     const embedded = canEmbed(message);

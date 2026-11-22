@@ -128,7 +128,10 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
       ...(parsed.line ? { line: parsed.line } : {}), ...(territory ?? parsed.territory ? { territory: territory ?? parsed.territory } : {}) });
   }
   const travel = travelTurn(body);
-  if (travel.request && travel.mode && !travel.unsupportedMode)
+  if (travel.request && travel.unsupportedMode && travel.mode !== "compare")
+    return clarify("Le vélo est disponible seulement dans une comparaison vérifiée en France métropolitaine. Demande une comparaison des modes; je ne vais pas inventer un trajet vélo.",
+      "Cycling is available only in a verified comparison within metropolitan France. Ask for a mode comparison; I won't invent a bike route.");
+  if (travel.request && travel.mode && (!travel.unsupportedMode || travel.mode === "compare"))
     return action({ name: "plan_journey", mode: travel.mode, ...(travel.origin ? { origin: travel.origin } : {}),
       ...(travel.destination ? { destination: travel.destination } : {}) });
   if (/^(?:affiche[r]?|montre[r]?|ouvre|show)\s+(?:l |la |le )?(?:aide|help)$/.test(n)) return action({ name: "show_help" });

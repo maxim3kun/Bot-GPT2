@@ -1,8 +1,9 @@
 import { IdfmPlanner } from "./idfm-planner.js";
 import { display, placeKey } from "./idfm-itinerary.js";
 import { isTravelTimeReply, requestedTravelTime, travelTurn, type TravelTime } from "./transport-intent.js";
-import { PlannerError, type ItineraryProvider, type OfficialPlace, type JourneyRequest, type JourneyComparison, type ComparedJourney, type VerifiedJourney } from "./transport-planner-types.js";
+import { PlannerError, type BikeJourneyProvider, type ItineraryProvider, type OfficialPlace, type JourneyRequest, type JourneyComparison, type ComparedJourney, type VerifiedJourney } from "./transport-planner-types.js";
 import { IgnRoadPlanner } from "./ign-road-planner.js";
+import { OpenStreetMapBikePlanner } from "./osm-bike-planner.js";
 import { formatItinerary, ITINERARY_SOURCE, type ItineraryView } from "./transport-itinerary-presentation.js";
 export { formatItinerary } from "./transport-itinerary-presentation.js";
 
@@ -33,7 +34,8 @@ function exactPlaces(query: string, places: OfficialPlace[]) {
 export class TransportConversation {
   private sessions = new Map<string, Session>();
   constructor(private provider: ItineraryProvider = new IdfmPlanner(), private now = Date.now,
-    private road: ItineraryProvider = new IgnRoadPlanner(fetch, now)) {}
+    private road: ItineraryProvider = new IgnRoadPlanner(fetch, now),
+    private bike: BikeJourneyProvider = new OpenStreetMapBikePlanner(fetch, now)) {}
   clear(scope: string) { this.sessions.delete(scope); }
   verifiedWeatherDestination(scope: string) {
     const state = this.get(scope), value = state?.weatherDestination;
@@ -126,9 +128,9 @@ export class TransportConversation {
     if (this.sessions.size >= 1000 && !this.sessions.has(scope)) this.sessions.delete(this.sessions.keys().next().value!);
     this.sessions.set(scope, state);
     const answer = (content: string): TravelReply => ({ content: this.get(scope) === state ? content : null });
-    if (turn.unsupportedMode) { this.clear(scope); return { content: t(
-      "Je peux vérifier un trajet à pied, en voiture ou en transports collectifs, mais pas encore à vélo.",
-      "I can verify walking, driving and public transit routes, but not cycling yet.") }; }
+    if (turn.unsupportedMode && turn.mode !== "compare") { this.clear(scope); return { content: t(
+      "Je peux inclure un trajet vélo vérifié dans une comparaison en France métropolitaine, mais pas encore calculer le vélo seul. Je peux aussi vérifier un trajet à pied, en voiture ou en transports collectifs.",
+      "I can include a verified cycling route in comparisons within metropolitan France, but I cannot calculate a standalone bike trip yet. I can also verify walking, driving or public transit.") }; }
     if (state.mode === "transit" && (turn.outside || state.kind === "journey" && travelTurn(`${state.origin ?? ""} ${state.destination ?? ""}`).outside)) return answer(t(
       "Le calculateur d’itinéraires connecté couvre l’Île-de-France, pas ce territoire. Utilise les commandes de transport pour ses horaires disponibles; je ne vais pas inventer de correspondances.",
       "The connected route planner covers Île-de-France, not that region. Transport commands can show available schedules; I won't invent transfers."));
@@ -150,16 +152,16 @@ export class TransportConversation {
       if (!state.origin) return answer(t(`D’où pars-tu pour aller à **${display(state.destination)}** ? Indique la commune, l’arrêt ou l’adresse.`,
         `Where are you leaving from to reach **${display(state.destination)}**? Give a town, stop or address.`));
       if (!state.destination) return answer(t(`Où souhaites-tu aller depuis **${display(state.origin)}** ?`, `Where are you going from **${display(state.origin)}**?`));
-      if (!state.mode) return answer(t("Tu veux le calcul à pied, en voiture ou en transports collectifs ? Je peux aussi comparer les modes disponibles.",
-        "Would you like to walk, drive, or use public transit? I can also compare the available modes."));
+      if (!state.mode) return answer(t("Tu veux le calcul à pied, en voiture ou en transports collectifs ? Je peux aussi comparer les modes disponibles, avec le vélo en France métropolitaine.",
+        "Would you like to walk, drive, or use public transit? I can also compare available modes, including cycling within metropolitan France."));
       const foreignOrUnclear = [state.origin, state.destination].some(query => {
         const key = placeKey(query);
         return /^(?:quebec|canada|montreal|toronto|londres|london)$/.test(key) ||
           /\b(?:quebec|canada)$/.test(key) && !/\b(?:rue|avenue|boulevard|chemin|route)\b/.test(key);
       });
       if (state.mode !== "transit" && foreignOrUnclear)
-        return answer(t("Les calculs à pied et en voiture couvrent la France métropolitaine, pas le Canada ou l’étranger. Pour une commune française homonyme, précise le département. Les horaires Québec restent disponibles via la commande transport.",
-          "Walking and driving cover metropolitan France, not Canada or other countries. For a similarly named French town, specify the department. Québec timetables remain available through the transport command."));
+        return answer(t("Les trajets à pied, en voiture et à vélo sont calculés uniquement en France métropolitaine, pas au Canada ou à l’étranger. Pour une commune française homonyme, précise le département. Les horaires Québec restent disponibles via la commande transport.",
+          "Walking, driving and cycling routes are calculated only within metropolitan France, not Canada or other countries. For a similarly named French town, specify the department. Québec timetables remain available through the transport command."));
       if (state.choice) return answer(this.choose(state.choice, fr));
       for (const side of ["origin", "destination"] as const) {
         const resolved = side === "origin" ? "resolvedOrigin" : "resolvedDestination";
@@ -232,7 +234,9 @@ export class TransportConversation {
       transit = { mode: "transit", origin, destination, unavailable: this.failure(error, fr, "transit") };
     }
     if (this.get(scope) !== state) return { content: null };
-    const entries: ComparedJourney[] = [walking, driving, transit];
+    const biking = await this.compareBike(origin, destination, requested.at, requested.represents, fresh, fr);
+    if (this.get(scope) !== state) return { content: null };
+    const entries: ComparedJourney[] = [walking, driving, biking, transit];
     const available = entries.filter((entry): entry is ComparedJourney & { journey: VerifiedJourney } => !!entry.journey);
     const recommended = available.filter(entry => !entry.journey!.warning)
       .sort((a, b) => (a.journey!.arrival - a.journey!.departure) - (b.journey!.arrival - b.journey!.departure))[0]?.mode;
@@ -242,6 +246,19 @@ export class TransportConversation {
       content: `${t("Comparaison vérifiée", "Verified comparison")}${durations ? ` — ${durations}` : ""}`,
       comparison,
     };
+  }
+  private async compareBike(origin: OfficialPlace, destination: OfficialPlace, at: number,
+    represents: "arrival" | "departure", fresh: boolean, fr: boolean): Promise<ComparedJourney> {
+    try {
+      const [journey] = await this.bike.journeys(origin, destination, at, represents, fresh);
+      return journey
+        ? { mode: "bike", origin, destination, journey }
+        : { mode: "bike", origin, destination, unavailable: fr
+          ? "aucun itinéraire vélo renvoyé par la source OpenStreetMap"
+          : "no cycling route returned by the OpenStreetMap source" };
+    } catch (error) {
+      return { mode: "bike", origin, destination, unavailable: this.failure(error, fr, "bike") };
+    }
   }
   private async compareTransit(state: Session, at: number, represents: "arrival" | "departure", fresh: boolean, fr: boolean) {
     const origin = state.resolvedOrigin!, destination = state.resolvedDestination!;
@@ -266,7 +283,7 @@ export class TransportConversation {
       return unavailable(this.failure(error, fr, "transit"));
     }
   }
-  private failure(error: unknown, fr: boolean, mode?: "car" | "walk" | "transit" | "compare") {
+  private failure(error: unknown, fr: boolean, mode?: "car" | "walk" | "bike" | "transit" | "compare") {
     const code = error instanceof PlannerError ? error.code : "unavailable";
     const reasons: Record<string, [string, string]> = {
       not_configured: ["L’accès au calculateur officiel n’est pas configuré.", "Official planner access is not configured."],
@@ -277,7 +294,17 @@ export class TransportConversation {
       busy: ["Trop de calculs sont en cours. Réessaie dans un instant.", "Too many route calculations are running. Try shortly."],
       unavailable: ["Le calculateur officiel est momentanément indisponible.", "The official planner is temporarily unavailable."],
     };
-    const reason = (mode === "car" || mode === "walk") && code === "date" ? (fr ? `La source IGN ne peut pas calculer ce parcours ${mode === "walk" ? "à pied" : "en voiture"} ou l’heure de départ estimée est passée.` : `IGN could not calculate this ${mode} route or its estimated departure is in the past.`)
+    const bikeReasons: Record<string, [string, string]> = {
+      not_configured: ["Le routeur vélo public n’est pas configuré.", "The public bike router is not configured."],
+      access: ["L’accès au routeur vélo public est refusé.", "Access to the public bike router was denied."],
+      quota: ["Le routeur vélo public limite temporairement les requêtes. Réessaie plus tard.", "The public bike router is temporarily rate-limiting requests. Try later."],
+      date: ["Le routeur vélo ne fournit pas d’horaires dépendant de la date.", "The bike router does not provide date-dependent schedules."],
+      invalid: ["La réponse du routeur vélo est incomplète ou incohérente; je ne peux pas confirmer ce trajet.", "The bike router response is incomplete or contradictory; I cannot confirm this route."],
+      busy: ["Le routeur vélo est occupé. Réessaie dans un instant.", "The bike router is busy. Try shortly."],
+      unavailable: ["Le routeur vélo OpenStreetMap est momentanément indisponible.", "The OpenStreetMap bike router is temporarily unavailable."],
+    };
+    const reason = mode === "bike" ? bikeReasons[code]![fr ? 0 : 1]
+      : (mode === "car" || mode === "walk") && code === "date" ? (fr ? `La source IGN ne peut pas calculer ce parcours ${mode === "walk" ? "à pied" : "en voiture"} ou l’heure de départ estimée est passée.` : `IGN could not calculate this ${mode} route or its estimated departure is in the past.`)
       : reasons[code]![fr ? 0 : 1];
     return `${reason} ${fr ? "Je ne vais pas inventer un résultat." : "I won't invent a result."}`;
   }

@@ -4,9 +4,11 @@ import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
 import type { OfficialPlace, VerifiedJourney, JourneyComparison } from "./transport-planner-types.js";
 import { roadPages } from "./road-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
+import { BIKE_SOURCE, OSM_ATTRIBUTION } from "./osm-bike-planner.js";
 
 export const ITINERARY_SOURCE = "https://prim.iledefrance-mobilites.fr/fr/apis/idfm-navitia-general-v2";
-export const itinerarySource = (journey: VerifiedJourney) => journey.road ? ROAD_SOURCE : ITINERARY_SOURCE;
+export const itinerarySource = (journey: VerifiedJourney) => journey.road
+  ? journey.road.source === "openstreetmap" ? BIKE_SOURCE : ROAD_SOURCE : ITINERARY_SOURCE;
 export interface ItineraryView {
   journey: VerifiedJourney;
   origin: OfficialPlace;
@@ -29,6 +31,7 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
   const labels = {
     walk: t("À pied", "On foot"),
     car: t("En voiture", "By car"),
+    bike: t("À vélo", "By bike"),
     transit: t("Transports en commun", "Public transit"),
   } as const;
   const elapsed = (journey: VerifiedJourney) => {
@@ -47,7 +50,9 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
     const route = entry.journey.road;
     const distance = route ? ` · ${(route.distanceMeters / 1000).toLocaleString(fr ? "fr-FR" : "en-GB", { maximumFractionDigits: 1 })} km` : "";
     const quality = route
-      ? entry.mode === "walk" ? t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate") : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
+      ? route.source === "openstreetmap" ? t("Réseau vélo OpenStreetMap · estimation sans trafic en temps réel, France métropolitaine",
+        "OpenStreetMap cycling network · no live-traffic data, metropolitan France")
+      : entry.mode === "walk" ? t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate") : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
       : `${reliability(entry.journey, fr)} · ${entry.journey.legs.filter(leg => leg.kind === "transit").length} ${t("étape(s)", "leg(s)")}${entry.journey.warning ? ` · ${t("perturbation signalée", "disruption reported")}` : ""}`;
     return { name: labels[entry.mode], value: `**${duration(entry.journey)}${distance}**\n${quality}${recommendation}`, inline: false };
   });
@@ -55,9 +60,10 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
   const origin = comparison.entries[0]?.origin.label ?? "";
   const destination = comparison.entries[0]?.destination.label ?? "";
   const description = `**${t("Départ", "From")}** ${origin}\n**${t("Arrivée", "To")}** ${destination}`;
-  const footer = t("Les durées proviennent des calculateurs officiels disponibles; elles ne sont pas toutes du temps réel.", "Durations come from the available official planners; they are not all real-time.");
+  const footer = t("Les durées proviennent des sources de calcul disponibles; elles ne sont pas toutes du temps réel. Le vélo est calculé en France métropolitaine uniquement, et seulement si le routeur OpenStreetMap renvoie un trajet.",
+    "Durations come from available routing sources; they are not all real-time. Cycling is calculated only in metropolitan France, and only when the OpenStreetMap router returns a route.");
   const content = [`**${title}**`, description, ...entries.map(item => `**${item.name}**\n${item.value}`), footer,
-    `[IGN / Géoplateforme](${ROAD_SOURCE}) · [Île-de-France Mobilités](${ITINERARY_SOURCE})`].join("\n\n");
+    `[IGN / Géoplateforme](${ROAD_SOURCE}) · [OpenStreetMap bike router](${BIKE_SOURCE}) · [© OpenStreetMap contributors](${OSM_ATTRIBUTION}) · [Île-de-France Mobilités](${ITINERARY_SOURCE})`].join("\n\n");
   return {
     embed: { color: TRANSPORT_CARD_COLOR, title, description, fields: entries, footer: { text: footer } },
     content,

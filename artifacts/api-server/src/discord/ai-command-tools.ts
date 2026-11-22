@@ -99,7 +99,7 @@ export function buildAiCommandTools(stationKeys: string[]) {
     tool("get_weather","Get a verified forecast on explicit request. Destination means only the requester's verified journey in this channel/persona. Never supply coordinates, URLs, user IDs or invented weather.",{
       place:{type:"string",maxLength:140},territory:{enum:["fr","qc"]},when:{type:"string",maxLength:80},atDestination:{type:"boolean"},
     }),
-    tool("plan_journey", "Calculate a verified walking or driving route in metropolitan France, public transit where its official planner covers it, or compare available modes. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
+    tool("plan_journey", "Calculate a verified walking or driving route in metropolitan France, public transit where its official planner covers it, or compare available modes including a public OpenStreetMap cycling route when available in metropolitan France. Cycling is comparison-only. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
       mode: { enum: ["walk", "car", "transit", "compare", null] }, origin: { type: "string", maxLength: 140 },
       destination: { type: "string", maxLength: 140 }, time: { type: "string", maxLength: 80 },
     }, ["mode"]),

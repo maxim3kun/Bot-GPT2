@@ -26,15 +26,16 @@ export interface VerifiedJourney {
   legs: VerifiedLeg[];
   warning: boolean;
   road?: {
-    mode: "car" | "walk";
+    mode: "car" | "walk" | "bike";
+    source?: "ign" | "openstreetmap";
     distanceMeters: number;
     steps: Array<{ instruction: string; distanceMeters: number }>;
-    resourceVersion: string;
+    resourceVersion?: string;
   };
 }
 export type JourneyMode = "car" | "walk" | "transit" | "compare";
 export interface ComparedJourney {
-  mode: "car" | "walk" | "transit";
+  mode: "car" | "walk" | "bike" | "transit";
   origin: OfficialPlace;
   destination: OfficialPlace;
   journey?: VerifiedJourney;
@@ -42,7 +43,7 @@ export interface ComparedJourney {
 }
 export interface JourneyComparison {
   entries: ComparedJourney[];
-  recommended?: "car" | "walk" | "transit";
+  recommended?: "car" | "walk" | "bike" | "transit";
 }
 export interface JourneyRequest {
   mode: JourneyMode | null;
@@ -55,4 +56,8 @@ export interface ItineraryProvider {
   journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure",
     fresh?: boolean, mode?: "car" | "walk"): Promise<VerifiedJourney[]>;
   stations(line: string, fresh?: boolean): Promise<{ line: string; count: number }>;
+}
+export interface BikeJourneyProvider {
+  journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure",
+    fresh?: boolean): Promise<VerifiedJourney[]>;
 }
