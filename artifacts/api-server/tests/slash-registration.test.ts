@@ -23,6 +23,7 @@ test("crypto command offers private simulation actions and a fixed asset list", 
   const strategy = crypto.options?.find(option => option.name === "strategie");
   assert.deepEqual(strategy?.options?.[0]?.choices?.map(choice => choice.value), ["btc", "eth", "sol"]);
   assert.equal(strategy?.options?.[1]?.name, "frais_pct");
+  assert.equal(strategy?.options?.[2]?.name, "glissement_pct");
 });
 
 test("bulk overwrite preserves the existing Activity Entry Point", () => {

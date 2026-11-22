@@ -386,6 +386,17 @@ export const SLASH_COMMANDS = [
             .setMinValue(0)
             .setMaxValue(5)
             .setRequired(false),
+        )
+        .addNumberOption(opt =>
+          opt.setName("glissement_pct")
+            .setDescription("Assumed price slippage per side in percent; default 0.15")
+            .setDescriptionLocalizations({
+              fr: "Glissement de prix supposé par côté en pourcentage; défaut 0,15",
+              "es-ES": "Deslizamiento de precio supuesto por lado en porcentaje; predeterminado 0,15",
+            })
+            .setMinValue(0)
+            .setMaxValue(5)
+            .setRequired(false),
         ),
     )
     .toJSON(),

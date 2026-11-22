@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCrossoverBacktestEmbed,
   createBinanceHourlyCandleProvider,
   parseBinanceHourlyCandles,
   runSmaCrossoverBacktest,
@@ -71,6 +72,7 @@ test("moving-average crossover waits for completed candles and fills on the next
   const result = runSmaCrossoverBacktest("btc", candles, {
     initialEur: 10,
     feeRate: 0,
+    slippageRate: 0,
     fastWindow: 2,
     slowWindow: 3,
   });
@@ -84,6 +86,48 @@ test("moving-average crossover waits for completed candles and fills on the next
   assert.ok(result.maxDrawdownPercent > 0);
 });
 
+test("backtest applies slippage to fills and includes a chronological holdout", () => {
+  const closes = [10, 10, 10, 11, 12, 13, 14, 10, 8, 6, 6, 6];
+  const candles = closes.map((close, index) => candle(index, close, close));
+  const baseline = runSmaCrossoverBacktest("btc", candles, {
+    feeRate: 0,
+    slippageRate: 0,
+    fastWindow: 2,
+    slowWindow: 3,
+  });
+  const slipped = runSmaCrossoverBacktest("btc", candles, {
+    feeRate: 0,
+    slippageRate: 0.01,
+    fastWindow: 2,
+    slowWindow: 3,
+  });
+  assert.equal(slipped.trades[0]?.priceEur, candles[4]!.open * 1.01);
+  assert.equal(slipped.trades[1]?.priceEur, candles[8]!.open * 0.99);
+  assert.ok(slipped.slippageEur > 0);
+  assert.ok(slipped.finalValueEur < baseline.finalValueEur);
+  assert.equal(slipped.validation, undefined, "short fixtures should not imply a meaningful holdout");
+
+  const longer = Array.from({ length: 50 }, (_, index) => ({
+    ...candle(index, 10, 10),
+    openTime: now - (50 - index) * hour,
+    closeTime: now - (50 - index) * hour + hour - 1,
+  }));
+  const validated = runSmaCrossoverBacktest("eth", longer, {
+    feeRate: 0,
+    slippageRate: 0,
+    fastWindow: 2,
+    slowWindow: 3,
+  });
+  assert.equal(validated.validation?.candleCount, 10);
+  assert.equal(validated.validation?.periodStart, longer[40]!.openTime);
+  assert.equal(validated.validation?.finalValueEur, 10);
+  const report = buildCrossoverBacktestEmbed(validated, "fr").toJSON();
+  assert.ok(report.fields?.some(field => field.name === "Glissement estimé"));
+  assert.ok(report.fields?.some(field => field.name.includes("Validation chronologique")));
+  assert.match(report.footer?.text ?? "", /pas une prévision/);
+  assert.match(report.footer?.text ?? "", /aucun ordre réel/);
+});
+
 test("backtest includes assumed fees and rejects insufficient or invalid input", () => {
   const candles = [10, 10, 10, 11, 12, 13, 14, 10, 8, 6, 6, 6].map((close, index) => candle(index, close));
   const result = runSmaCrossoverBacktest("eth", candles, {
@@ -92,9 +136,11 @@ test("backtest includes assumed fees and rejects insufficient or invalid input",
     slowWindow: 3,
   });
   assert.ok(result.feesEur > 0);
+  assert.ok(result.slippageEur > 0);
   assert.equal(result.asset, "eth");
   assert.throws(() => runSmaCrossoverBacktest("btc", candles.slice(0, 4), { fastWindow: 2, slowWindow: 3 }), /not enough/i);
   assert.throws(() => runSmaCrossoverBacktest("btc", candles, { feeRate: -0.1 }), /fee rate/i);
+  assert.throws(() => runSmaCrossoverBacktest("btc", candles, { slippageRate: -0.1 }), /slippage rate/i);
   const discontinuous = candles.slice(0, 5);
   discontinuous[1] = { ...discontinuous[1]!, openTime: discontinuous[1]!.openTime + 10 };
   assert.throws(() => runSmaCrossoverBacktest("btc", discontinuous, {

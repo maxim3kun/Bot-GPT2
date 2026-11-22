@@ -911,12 +911,12 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
           it: "Elimina il conto simulato. Non viene usato denaro reale; le commissioni sono escluse.",
         }[tl] ?? "" },
         { name: "`/crypto strategie`", value: {
-          en: "Backtest an illustrative 24 h / 72 h moving-average rule against buy-and-hold using public Binance EUR candles. Historical results are not a forecast.",
-          fr: "Teste une règle illustrative de moyennes mobiles 24 h / 72 h face à l’achat conservé, avec les bougies Binance en euros. Le passé ne prédit pas le futur.",
-          es: "Prueba una regla ilustrativa de medias móviles de 24 h / 72 h frente a comprar y mantener, con velas públicas de Binance en euros. El pasado no predice el futuro.",
-          de: "Testet eine beispielhafte 24-h-/72-h-Durchschnittsregel gegen Kaufen und Halten mit öffentlichen Binance-EUR-Kerzen. Historische Ergebnisse sind keine Prognose.",
-          pt: "Testa uma regra ilustrativa de médias móveis de 24 h / 72 h contra comprar e manter, com velas públicas da Binance em euros. O passado não prevê o futuro.",
-          it: "Confronta una regola illustrativa di medie mobili 24 h / 72 h con compra e mantieni, usando candele pubbliche Binance in euro. Il passato non è una previsione.",
+          en: "Compare a fixed 24 h / 72 h moving-average rule with buy-and-hold on public Binance EUR candles. Includes hypothetical fees, slippage and a final 20% holdout; results are not a forecast.",
+          fr: "Compare une règle fixe de moyennes mobiles 24 h / 72 h à l’achat conservé, sur les bougies Binance en euros. Inclut frais et glissement hypothétiques ainsi qu’une validation sur les 20 % finaux. Ce n’est pas une prévision.",
+          es: "Compara una regla fija de medias móviles de 24 h / 72 h con comprar y mantener usando velas públicas de Binance en euros. Incluye comisiones, deslizamiento hipotético y una validación final del 20 %; no es una previsión.",
+          de: "Vergleicht eine feste 24-h-/72-h-Durchschnittsregel mit Kaufen und Halten anhand öffentlicher Binance-EUR-Kerzen. Enthält angenommene Gebühren, Slippage und eine abschließende Validierung mit 20 % der Daten; keine Prognose.",
+          pt: "Compara uma regra fixa de médias móveis de 24 h / 72 h com comprar e manter usando velas públicas da Binance em euros. Inclui taxas, derrapagem hipotéticas e validação nos 20 % finais; não é uma previsão.",
+          it: "Confronta una regola fissa di medie mobili 24 h / 72 h con compra e mantieni, usando candele pubbliche Binance in euro. Include commissioni, slippage ipotetici e una verifica sugli ultimi 20%; non è una previsione.",
         }[tl] ?? "" },
       );
       break;

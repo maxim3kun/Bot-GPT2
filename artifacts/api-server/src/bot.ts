@@ -110,7 +110,7 @@ import {
 import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-fallback.js";
 import { MessageEventDeduper } from "./discord/message-event-dedupe.js";
 import { buildCryptoPaperEmbed, cryptoPaperSimulator, getKrakenQuote, isCryptoAsset } from "./discord/crypto-simulator.js";
-import { buildCrossoverBacktestEmbed, getBinanceHourlyCandles, runSmaCrossoverBacktest } from "./discord/crypto-strategy.js";
+import { buildCrossoverBacktestEmbed, CRYPTO_STRATEGY, getBinanceHourlyCandles, runSmaCrossoverBacktest } from "./discord/crypto-strategy.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1005,7 +1005,8 @@ export function startBot(): void {
             }
           } else if (action === "strategie") {
             const requestedAsset: unknown = interaction.options.getString("actif", true);
-            const feePercent = interaction.options.getNumber("frais_pct") ?? 0.1;
+            const feePercent = interaction.options.getNumber("frais_pct") ?? CRYPTO_STRATEGY.defaultFeePercentPerSide;
+            const slippagePercent = interaction.options.getNumber("glissement_pct") ?? CRYPTO_STRATEGY.defaultSlippagePercentPerSide;
             if (!isCryptoAsset(requestedAsset)) {
               await interaction.editReply(fr ? "❌ Choisis Bitcoin, Ethereum ou Solana." : "❌ Choose Bitcoin, Ethereum or Solana.");
               break;
@@ -1015,6 +1016,7 @@ export function startBot(): void {
               const result = runSmaCrossoverBacktest(requestedAsset, candles, {
                 initialEur: 10,
                 feeRate: feePercent / 100,
+                slippageRate: slippagePercent / 100,
               });
               await interaction.editReply({ embeds: [buildCrossoverBacktestEmbed(result, responseLang)] });
             } catch {
