@@ -35,6 +35,43 @@ function reliability(journey: VerifiedJourney, fr: boolean) {
     : live ? (fr ? "Prévisions et horaires théoriques" : "Predictions and scheduled times")
     : (fr ? "Horaires théoriques · non temps réel" : "Scheduled times · not real-time");
 }
+const bikeSurfaceNames: Record<string, [string, string]> = {
+  asphalt: ["asphalte", "asphalt"], concrete: ["béton", "concrete"], paving_stones: ["pavés", "paving stones"],
+  sett: ["pavés taillés", "sett"], cobblestone: ["pavés irréguliers", "cobblestone"],
+  compacted: ["sol compacté", "compacted"], fine_gravel: ["gravillon fin", "fine gravel"],
+  gravel: ["gravier", "gravel"], ground: ["sol naturel", "ground"], dirt: ["terre", "dirt"],
+  earth: ["terre", "earth"], grass: ["herbe", "grass"], grass_paver: ["dalles engazonnées", "grass pavers"],
+  sand: ["sable", "sand"], wood: ["bois", "wood"], metal: ["métal", "metal"],
+  mud: ["boue", "mud"], snow: ["neige", "snow"], ice: ["glace", "ice"], unpaved: ["non revêtu", "unpaved"],
+};
+const bikeFacilityNames: Record<string, [string, string]> = {
+  track: ["piste cyclable", "cycle track"], lane: ["bande cyclable", "cycle lane"],
+  shared_lane: ["voie partagée avec marquage", "shared lane marking"], shared: ["voie partagée", "shared"],
+  opposite: ["circulation cyclable à contresens", "contraflow cycling"],
+  opposite_lane: ["bande cyclable à contresens", "contraflow cycle lane"],
+  opposite_track: ["piste cyclable à contresens", "contraflow cycle track"],
+  share_busway: ["voie de bus partagée", "shared bus lane"], shoulder: ["accotement", "shoulder"],
+  separate: ["aménagement séparé", "separate cycleway"], no: ["aucun aménagement indiqué", "no cycleway indicated"],
+};
+function bikeTagSummary(steps: NonNullable<VerifiedJourney["road"]>["steps"], tag: "surface" | "cycleway", fr: boolean) {
+  const totals = new Map<string, number>();
+  let unknown = 0;
+  for (const step of steps) {
+    if (step.distanceMeters <= 0) continue;
+    const value = step[tag];
+    if (value && (tag === "surface" ? bikeSurfaceNames[value] : bikeFacilityNames[value]))
+      totals.set(value, (totals.get(value) ?? 0) + step.distanceMeters);
+    else unknown += step.distanceMeters;
+  }
+  const names = tag === "surface" ? bikeSurfaceNames : bikeFacilityNames;
+  const formatDistance = (meters: number) => meters < 50 ? (fr ? "<0,1 km" : "<0.1 km")
+    : `${(meters / 1000).toLocaleString(fr ? "fr-FR" : "en-GB", { maximumFractionDigits: 1 })} km`;
+  const parts = [...totals].map(([value, meters]) => `${names[value]![fr ? 0 : 1]} ${formatDistance(meters)}`);
+  if (unknown > 0 || !parts.length) parts.push(`${fr ? "inconnu" : "unknown"} ${formatDistance(unknown)}`);
+  const label = tag === "surface" ? (fr ? "Revêtement OSM" : "OSM surface")
+    : (fr ? "Aménagement cyclable OSM" : "OSM cycling facility");
+  return `${label} : ${parts.join(" · ")}`;
+}
 
 /** Compact side-by-side summary; every displayed duration comes from an official planner. */
 export function comparisonPage(comparison: JourneyComparison, french: boolean): ItineraryPage {
@@ -61,8 +98,8 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
     const route = entry.journey.road;
     const distance = route ? ` · ${(route.distanceMeters / 1000).toLocaleString(fr ? "fr-FR" : "en-GB", { maximumFractionDigits: 1 })} km` : "";
     const quality = route
-      ? route.source === "openstreetmap" ? t("Réseau vélo OpenStreetMap · estimation sans trafic en temps réel, France métropolitaine",
-        "OpenStreetMap cycling network · no live-traffic data, metropolitan France")
+      ? route.source === "openstreetmap" ? `${t("Réseau vélo OpenStreetMap · estimation sans trafic en temps réel, France métropolitaine",
+        "OpenStreetMap cycling network · no live-traffic data, metropolitan France")} · ${bikeTagSummary(route.steps, "surface", fr)} · ${bikeTagSummary(route.steps, "cycleway", fr)}`
       : entry.mode === "walk" ? `${t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate")} · ${walkingAccessibilityNote(fr)}`
         : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
       : `${reliability(entry.journey, fr)} · ${entry.journey.legs.filter(leg => leg.kind === "transit").length} ${t("étape(s)", "leg(s)")}${entry.journey.warning ? ` · ${t("perturbation signalée", "disruption reported")}` : ""}`;

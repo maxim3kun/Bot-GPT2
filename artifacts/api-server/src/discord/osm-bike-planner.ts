@@ -1,4 +1,4 @@
-import { PlannerError, type BikeJourneyProvider, type OfficialPlace, type VerifiedJourney } from "./transport-planner-types.js";
+import { PlannerError, type BikeJourneyProvider, type OfficialPlace, type OSMBikeFacility, type OSMBikeSurface, type VerifiedJourney } from "./transport-planner-types.js";
 
 export const BIKE_SOURCE = "https://routing.openstreetmap.de/";
 export const OSM_ATTRIBUTION = "https://www.openstreetmap.org/copyright";
@@ -7,7 +7,7 @@ const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_DISTANCE_METERS = 3_000_000;
 const MAX_DURATION_SECONDS = 48 * 60 * 60;
 
-type BikeStep = { instruction: string; distanceMeters: number };
+type BikeStep = { instruction: string; distanceMeters: number; surface?: OSMBikeSurface; cycleway?: OSMBikeFacility };
 interface BikeRoute {
   distanceMeters: number;
   durationSeconds: number;
@@ -17,6 +17,13 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const surfaces = new Set<OSMBikeSurface>(["asphalt", "concrete", "paving_stones", "sett", "cobblestone",
+  "compacted", "fine_gravel", "gravel", "ground", "dirt", "earth", "grass", "grass_paver", "sand",
+  "wood", "metal", "mud", "snow", "ice", "unpaved"]);
+const facilities = new Set<OSMBikeFacility>(["track", "lane", "shared_lane", "shared", "opposite",
+  "opposite_lane", "opposite_track", "share_busway", "shoulder", "separate", "no"]);
+const osmTag = <T extends string>(value: unknown, allowed: Set<T>): T | undefined =>
+  typeof value === "string" && allowed.has(value.trim().toLowerCase() as T) ? value.trim().toLowerCase() as T : undefined;
 const validPoint = (value: unknown) => Array.isArray(value) && value.length >= 2 &&
   finite(value[0]) && finite(value[1]) && value[0] >= -5.5 && value[0] <= 10 && value[1] >= 41 && value[1] <= 51.6;
 const pointDistance = (a: number[], b: number[]) =>
@@ -71,8 +78,13 @@ export function parseBikeRoute(body: unknown, from: OfficialPlace, to: OfficialP
       const type = typeof maneuver.type === "string" ? maneuver.type : "";
       const modifier = typeof maneuver.modifier === "string" ? maneuver.modifier : "";
       const action = [type, modifier].filter(Boolean).join(" ");
+      // The router does not normally include OSM way tags. Keep only explicit,
+      // recognized values when a response does include them; names/profile are not evidence.
+      const tags = record(step.tags);
+      const surface = osmTag(step.surface ?? tags.surface, surfaces);
+      const cycleway = osmTag(step.cycleway ?? tags.cycleway, facilities);
       return { instruction: [action, name].filter(Boolean).join(" · ") || "Cycling route",
-        distanceMeters: step.distance as number };
+        distanceMeters: step.distance as number, ...(surface ? { surface } : {}), ...(cycleway ? { cycleway } : {}) };
     }),
   };
 }

@@ -20,6 +20,11 @@ export interface VerifiedLeg {
   direction?: string;
   freshness?: string;
 }
+export type OSMBikeSurface = "asphalt" | "concrete" | "paving_stones" | "sett" | "cobblestone"
+  | "compacted" | "fine_gravel" | "gravel" | "ground" | "dirt" | "earth" | "grass"
+  | "grass_paver" | "sand" | "wood" | "metal" | "mud" | "snow" | "ice" | "unpaved";
+export type OSMBikeFacility = "track" | "lane" | "shared_lane" | "shared" | "opposite"
+  | "opposite_lane" | "opposite_track" | "share_busway" | "shoulder" | "separate" | "no";
 export interface VerifiedJourney {
   departure: number;
   arrival: number;
@@ -29,7 +34,7 @@ export interface VerifiedJourney {
     mode: "car" | "walk" | "bike";
     source?: "ign" | "openstreetmap";
     distanceMeters: number;
-    steps: Array<{ instruction: string; distanceMeters: number }>;
+    steps: Array<{ instruction: string; distanceMeters: number; surface?: OSMBikeSurface; cycleway?: OSMBikeFacility }>;
     resourceVersion?: string;
   };
 }

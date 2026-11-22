@@ -117,9 +117,13 @@ test("comparison calculates each supported mode separately and labels missing tr
   assert.match(content,/À pied/);assert.match(content,/En voiture/);assert.match(content,/À vélo/);assert.match(content,/Transports en commun/);
   assert.match(content,/Accessibilité non vérifiée/);assert.match(content,/absence d’escaliers/);
   assert.match(content,/Réseau vélo OpenStreetMap/);assert.match(content,/France métropolitaine/);
+  assert.match(content,/Revêtement OSM : inconnu 1,2 km/);
+  assert.match(content,/Aménagement cyclable OSM : inconnu 1,2 km/);
   assert.match(content,/Géoplateforme/);assert.match(content,/OpenStreetMap contributors/);assert.match(content,/Île-de-France Mobilités/);
   const english=comparisonPage(result.comparison!,false).content;
   assert.match(english,/By bike/);assert.match(english,/metropolitan France/);assert.match(english,/OpenStreetMap bike router/);
+  assert.match(english,/OSM surface : unknown 1.2 km/);
+  assert.match(english,/OSM cycling facility : unknown 1.2 km/);
   assert.match(english,/Accessibility not verified/);assert.match(english,/wheelchair-accessible/);
 });
 
@@ -266,6 +270,29 @@ test("cycling routes use the public bike endpoint and accept only a cycling-prof
   assert.throws(()=>parseBikeRoute(bikeBody({mode:"driving"}),from,to),PlannerError);
   assert.throws(()=>parseBikeRoute({...bikeBody(),waypoints:[{location:[-1,45]},{location:[to.longitude,to.latitude]}]},from,to),PlannerError);
   assert.equal(OSM_ATTRIBUTION,"https://www.openstreetmap.org/copyright");
+});
+test("cycling surface and facility labels require explicit recognized OSM tags", async () => {
+  const response = bikeBody() as ReturnType<typeof bikeBody> & { routes: Array<{ legs: Array<{ steps: Array<Record<string, unknown>> }> }> };
+  response.routes[0]!.legs[0]!.steps[0]!.surface = "asphalt";
+  response.routes[0]!.legs[0]!.steps[0]!.tags = { cycleway: "track" };
+  response.routes[0]!.legs[0]!.steps[1]!.surface = "invented";
+  response.routes[0]!.legs[0]!.steps[1]!.cycleway = "lane;track";
+  const parsed = parseBikeRoute(response, from, to)!;
+  assert.equal(parsed.steps[0]!.surface, "asphalt");
+  assert.equal(parsed.steps[0]!.cycleway, "track");
+  assert.equal(parsed.steps[1]!.surface, undefined);
+  assert.equal(parsed.steps[1]!.cycleway, undefined);
+
+  const s = setup(), result = (await s.service.reply("s","Compare les trajets à vélo de Beauvais à Amiens","fr"))!;
+  result.comparison!.entries.find(entry => entry.mode === "bike")!.journey!.road!.steps = parsed.steps;
+  const { comparisonPage } = await import("../src/discord/transport-itinerary-presentation.js");
+  const french = comparisonPage(result.comparison!, true).content;
+  assert.match(french,/Revêtement OSM : asphalte 0,5 km · inconnu 0,7 km/);
+  assert.match(french,/Aménagement cyclable OSM : piste cyclable 0,5 km · inconnu 0,7 km/);
+  assert.doesNotMatch(french,/Rue cyclable.*asphalte|Piste verte.*piste cyclable/s);
+  const english = comparisonPage(result.comparison!, false).content;
+  assert.match(english,/OSM surface : asphalt 0.5 km · unknown 0.7 km/);
+  assert.match(english,/OSM cycling facility : cycle track 0.5 km · unknown 0.7 km/);
 });
 test("quota, malformed/oversized JSON, redirect failures and missing route are honest errors", async () => {
   for(const fetcher of [
