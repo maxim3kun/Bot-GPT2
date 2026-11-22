@@ -4,6 +4,7 @@ import type { VerifiedJourney } from "./transport-planner-types.js";
 export const ROUTE_MAP_FILENAME = "route-preview.png";
 const TILE_SIZE = 256;
 const IMAGE_SIZE = 512;
+const ROUTE_FOCUS_PIXELS = 360;
 const MAX_TILE_BYTES = 250_000;
 const MAX_IMAGE_BYTES = 1_000_000;
 const MAX_CACHED_TILES = 128;
@@ -87,25 +88,43 @@ export async function renderRouteMap(
   const xs = projected.map(point => point[0]), ys = projected.map(point => point[1]);
   const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
   if (!Number.isFinite(span)) return;
-  const zoom = clamp(Math.floor(Math.log2(110 / Math.max(span, 0.0001))), 3, 17);
-  const atZoom = routeLines.map(line => line.map(([lon, lat]) => project(lon, lat, zoom)));
-  const atZoomStops = stops.map(stop => project(stop.longitude, stop.latitude, zoom));
-  const allAtZoom = [...atZoom.flat(), ...atZoomStops];
-  const centerX = (Math.min(...allAtZoom.map(point => point[0])) + Math.max(...allAtZoom.map(point => point[0]))) / 2;
-  const centerY = (Math.min(...allAtZoom.map(point => point[1])) + Math.max(...allAtZoom.map(point => point[1]))) / 2;
-  const tileX = clamp(Math.floor(centerX / TILE_SIZE), 0, 2 ** zoom - 1);
-  const tileY = clamp(Math.floor(centerY / TILE_SIZE), 0, 2 ** zoom - 1);
-  const tile = await loadTile(tileX, tileY, zoom, fetcher);
-  if (!tile) return;
+  let zoom = clamp(Math.floor(Math.log2(ROUTE_FOCUS_PIXELS / Math.max(span, 0.0001))), 3, 17);
+  let atZoom: number[][][] = [];
+  let atZoomStops: [number, number][] = [];
+  let tileX = 0, tileY = 0;
+  const tileStart = (min: number, max: number, maxTile: number) => {
+    const centerTile = Math.floor(((min + max) / 2) / TILE_SIZE);
+    return [centerTile - 1, centerTile, centerTile - 2, centerTile + 1]
+      .map(value => clamp(value, 0, maxTile - 1))
+      .find(value => min >= value * TILE_SIZE && max <= (value + 2) * TILE_SIZE);
+  };
+  // Compose a 2x2 tile window so we can frame the whole route more closely
+  // without clipping its endpoints at tile boundaries.
+  for (; zoom >= 3; zoom--) {
+    atZoom = routeLines.map(line => line.map(([lon, lat]) => project(lon, lat, zoom)));
+    atZoomStops = stops.map(stop => project(stop.longitude, stop.latitude, zoom));
+    const allAtZoom = [...atZoom.flat(), ...atZoomStops];
+    tileX = tileStart(Math.min(...allAtZoom.map(point => point[0])),
+      Math.max(...allAtZoom.map(point => point[0])), 2 ** zoom)!;
+    tileY = tileStart(Math.min(...allAtZoom.map(point => point[1])),
+      Math.max(...allAtZoom.map(point => point[1])), 2 ** zoom)!;
+    if (tileX !== undefined && tileY !== undefined) break;
+  }
+  if (zoom < 3 || tileX === undefined || tileY === undefined) return;
+  const tileCoords = [
+    [tileX, tileY], [tileX + 1, tileY], [tileX, tileY + 1], [tileX + 1, tileY + 1],
+  ] as const;
+  const tiles = await Promise.all(tileCoords.map(([x, y]) => loadTile(x, y, zoom, fetcher)));
+  if (tiles.some(tile => !tile)) return;
 
-  const screenLines = atZoom.map(line => line.map(([x, y]) => [(x - tileX * TILE_SIZE) * 2, (y - tileY * TILE_SIZE) * 2] as const));
+  const screenLines = atZoom.map(line => line.map(([x, y]) => [x - tileX * TILE_SIZE, y - tileY * TILE_SIZE] as const));
   if (screenLines.flat().some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
   const paths = screenLines.map(points => points.map(([x, y], index) =>
     `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
   const credit = "© IGN · Géoplateforme";
   const screenStops = stops.map((stop, index) => {
     const [x, y] = atZoomStops[index]!;
-    return [(x - tileX * TILE_SIZE) * 2, (y - tileY * TILE_SIZE) * 2, stop.role, stop.affected] as const;
+    return [x - tileX * TILE_SIZE, y - tileY * TILE_SIZE, stop.role, stop.affected] as const;
   });
   if (screenStops.some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
   const markerColor = { departure: "#16a34a", transfer: "#f59e0b", stop: "#2563eb", arrival: "#dc2626" };
@@ -127,7 +146,11 @@ export async function renderRouteMap(
     <text x="16" y="497" font-family="Arial,sans-serif" font-size="13" fill="#20242a">${credit}</text>
   </svg>`);
   try {
-    const png = await sharp(tile).resize(IMAGE_SIZE, IMAGE_SIZE).composite([{ input: svg }]).png().toBuffer();
+    const overlays = tileCoords.map(([x, y], index) => ({
+      input: tiles[index]!, left: (x - tileX) * TILE_SIZE, top: (y - tileY) * TILE_SIZE,
+    }));
+    const png = await sharp({ create: { width: IMAGE_SIZE, height: IMAGE_SIZE, channels: 3, background: "#f1eee8" } })
+      .composite([...overlays, { input: svg }]).png().toBuffer();
     return png.length <= MAX_IMAGE_BYTES ? png : undefined;
   } catch {
     return;

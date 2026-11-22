@@ -72,12 +72,12 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
   };
   const detailPages = groups.filter(items => items.length).map((items, index) => {
     const suffix = groups.length > 1
-      ? ` · ${fr ? "Instructions" : "Directions"} ${index + 1}/${groups.length}`
-      : ` · ${fr ? "Instructions" : "Directions"}`;
+      ? ` · ${fr ? "Détail du trajet" : "Route details"} ${index + 1}/${groups.length}`
+      : ` · ${fr ? "Détail du trajet" : "Route details"}`;
     const steps = items.join("\n");
     const directions = `**${fr ? "Départ" : "From"}** ${view.origin.label} → **${fr ? "Arrivée" : "To"}** ${view.destination.label}`;
     return { embed: { color: TRANSPORT_CARD_COLOR, title: title + suffix, url: ROAD_SOURCE, description: directions,
-      fields: [{ name: fr ? "Instructions du trajet" : "Route directions", value: steps }],
+      fields: [{ name: fr ? "Étapes" : "Steps", value: steps }],
       footer: { text: footerText } },
       content: `**${title}${suffix}**\n${directions}\n\n${steps}\n\n${footerText}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
   });

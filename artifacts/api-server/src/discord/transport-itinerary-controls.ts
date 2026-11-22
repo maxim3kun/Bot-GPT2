@@ -118,27 +118,29 @@ export class ItineraryControls {
     const sourceLabel = view.journey.road?.source === "openstreetmap" ? "OSM" : view.journey.road ? "IGN" : "IDFM";
     const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(sourceLabel).setURL(itinerarySource(view.journey));
     const map = () => new ButtonBuilder().setStyle(ButtonStyle.Link)
-      .setLabel(t("Carte", "Map"))
+      .setLabel("Google Maps")
       .setURL(mapsDirectionsUrl(view.origin, view.destination, journeyMapMode(view.journey)));
     const button = (name: string, label: string, style = ButtonStyle.Secondary) =>
       new ButtonBuilder().setCustomId(`${id}:${name}`).setLabel(label).setStyle(style);
     const rows = (closed = false) => {
-      if (closed) return [new ActionRowBuilder<ButtonBuilder>().addComponents(source(), map())];
+      if (closed) return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...(compactRoad ? [map()] : [source(), map()]),
+      )];
       const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary));
       if (compactRoad) {
         const detailCount = pages.length - 1;
         if (expanded && detailCount > 1) {
           primary.addComponents(button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page >= detailCount - 1));
           return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(
-            map(), source(), button("summary", t("Résumé", "Summary")), button("close", t("Fermer", "Close")),
+            map(), button("summary", t("Résumé", "Summary")), button("close", t("Fermer", "Close")),
           )];
         }
         return [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
-            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Instructions", "Directions")),
+            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Détail du trajet", "Route details")),
           ),
-          new ActionRowBuilder<ButtonBuilder>().addComponents(source(), button("close", t("Fermer", "Close"))),
+          new ActionRowBuilder<ButtonBuilder>().addComponents(button("close", t("Fermer", "Close"))),
         ];
       } else if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
