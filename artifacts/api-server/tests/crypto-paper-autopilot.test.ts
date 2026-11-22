@@ -124,6 +124,30 @@ test("flat hourly data advances the private paper account without inventing trad
   assert.equal(result.account.asset, null);
 });
 
+test("a bullish crossover buys on the next candle and a stronger asset can rotate the position", () => {
+  const btcPrices = Array.from({ length: 180 }, (_, index) =>
+    index < 80 ? 100 : index < 96 ? 100 + (index - 79) * 2 : 132);
+  const ethPrices = Array.from({ length: 180 }, (_, index) => index < 110 ? 100 : 1_000);
+  const flat = Array.from({ length: 180 }, () => 100);
+  const market = { btc: makeCandles(btcPrices), eth: makeCandles(ethPrices), sol: makeCandles(flat) };
+  const source = account(market.btc[78]!.openTime);
+  const result = advanceCryptoPaperAutopilot(source, market, market.btc.at(-1)!.closeTime + 1);
+  const [first, rotationSell, rotationBuy] = result.account.trades;
+
+  assert.equal(first?.side, "buy");
+  assert.equal(first?.asset, "btc");
+  assert.equal(first?.reason, "bullish_cross");
+  assert.ok(first!.at >= market.btc[79]!.openTime);
+  assert.equal(rotationSell?.side, "sell");
+  assert.equal(rotationSell?.asset, "btc");
+  assert.equal(rotationSell?.reason, "stronger_trend");
+  assert.equal(rotationBuy?.side, "buy");
+  assert.equal(rotationBuy?.asset, "eth");
+  assert.equal(rotationBuy?.reason, "stronger_trend");
+  assert.ok(first!.feeEur > 0 && first!.slippageEur > 0);
+  assert.ok(rotationSell!.feeEur > 0 && rotationBuy!.feeEur > 0);
+});
+
 test("the 30-day finish liquidates a simulated position with both assumed costs", () => {
   const candles = makeCandles(Array.from({ length: 100 }, () => 100));
   const end = candles[99]!.closeTime;
@@ -214,6 +238,7 @@ test("status embed states that automation is fictional and reports cost and stop
   const candles = flatMarket().btc;
   const embed = buildCryptoPaperAutopilotEmbed(account(candles[98]!.openTime), "fr");
   assert.match(embed.description, /fictive/);
+  assert.match(embed.description, /Aucun gain n’est promis/);
   assert.match(embed.footer.text, /aucune clé ni transaction réelle/);
   assert.ok(embed.fields.some(field => field.name === "Ordres fictifs"));
   assert.ok(embed.fields.some(field => field.name === "Frais / glissement"));

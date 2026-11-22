@@ -647,8 +647,8 @@ export function buildCryptoPaperAutopilotEmbed(account: CryptoPaperAutopilotAcco
     color: account.currentValueEur >= account.budgetEur ? 0x26a269 : 0xe5534b,
     title: french ? "🧪 Paper trading automatique" : "🧪 Automatic paper trading",
     description: french
-      ? `Simulation fictive de **10 €**, limitée à **30 jours**. Règle fixe : croisements de moyennes mobiles 24 h / 72 h sur BTC, ETH et SOL.`
-      : `A fictional **€10** simulation limited to **30 days**. Fixed rule: 24 h / 72 h moving-average crossovers on BTC, ETH and SOL.`,
+      ? `Simulation fictive de **10 €**, limitée à **30 jours**. Règle fixe : croisements de moyennes mobiles 24 h / 72 h sur BTC, ETH et SOL. **Aucun gain n’est promis; le résultat peut être inférieur à 10 €.**`
+      : `A fictional **€10** simulation limited to **30 days**. Fixed rule: 24 h / 72 h moving-average crossovers on BTC, ETH and SOL. **No profit is promised; the result can be below €10.**`,
     fields: [
       { name: french ? "État" : "Status", value: status, inline: true },
       { name: french ? "Portefeuille estimé" : "Estimated portfolio", value: `${money.format(account.currentValueEur)} · ${percent((account.currentValueEur - account.budgetEur) / account.budgetEur * 100)}`, inline: true },
@@ -656,6 +656,7 @@ export function buildCryptoPaperAutopilotEmbed(account: CryptoPaperAutopilotAcco
       { name: french ? "Ordres fictifs" : "Paper trades", value: String(account.tradeCount), inline: true },
       { name: french ? "Recul maximal" : "Maximum drawdown", value: `${account.maxDrawdownPercent.toFixed(2)}%`, inline: true },
       { name: french ? "Frais / glissement" : "Fees / slippage", value: `${money.format(account.feesEur)} / ${money.format(account.slippageEur)}`, inline: true },
+      { name: french ? "Dernière actualisation" : "Last updated", value: new Date(account.lastUpdatedAt).toLocaleString(locale, { timeZone: "Europe/Paris" }), inline: false },
       { name: french ? "Période" : "Period", value: `${new Date(account.startedAt).toLocaleString(locale, { timeZone: "Europe/Paris" })} → ${new Date(account.endsAt).toLocaleString(locale, { timeZone: "Europe/Paris" })}`, inline: false },
       ...(trades ? [{ name: french ? "Derniers ordres fictifs" : "Latest paper trades", value: trades, inline: false }] : []),
       ...(account.stopReason ? [{ name: french ? "État final" : "Final status", value: account.stopReason, inline: false }] : []),

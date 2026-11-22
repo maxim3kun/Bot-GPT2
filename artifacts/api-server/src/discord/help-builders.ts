@@ -919,8 +919,8 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
           it: "Confronta una regola fissa di medie mobili 24 h / 72 h con compra e mantieni, usando candele pubbliche Binance in euro. Include commissioni, slippage ipotetici e una verifica sugli ultimi 20%; non è una previsione.",
         }[tl] ?? "" },
         { name: "`/crypto pilote demarrer` · `solde` · `arreter`", value: {
-          en: "Privately run a €10 automatic paper test across BTC, ETH and SOL for up to 30 days. Uses public Binance candles, assumed costs and a fixed illustrative rule; no real orders.",
-          fr: "Lance en privé un test automatique fictif de 10 € sur BTC, ETH et SOL pendant 30 jours maximum. Bougies Binance publiques, coûts supposés et règle illustrative fixe; aucun ordre réel.",
+          en: "Bot-owner-only €10 automatic paper test across BTC, ETH and SOL for up to 30 days. Public Binance candles, assumed costs and a fixed rule; no real orders.",
+          fr: "Test automatique fictif de 10 €, réservé au propriétaire du bot, sur BTC, ETH et SOL pendant 30 jours maximum. Bougies publiques et règle fixe; aucun ordre réel.",
           es: "Ejecuta en privado una prueba automática ficticia de 10 € en BTC, ETH y SOL durante un máximo de 30 días. Usa velas públicas de Binance, costes supuestos y una regla fija; sin órdenes reales.",
           de: "Führt privat einen automatischen Paper-Test mit 10 € in BTC, ETH und SOL für höchstens 30 Tage aus. Öffentliche Binance-Kerzen, angenommene Kosten und feste Beispielregel; keine echten Aufträge.",
           pt: "Executa em privado um teste automático fictício de 10 € em BTC, ETH e SOL por até 30 dias. Usa velas públicas da Binance, custos estimados e regra fixa; sem ordens reais.",
