@@ -87,6 +87,52 @@ test("official route stops keep only published coordinates and mark departure, t
   assert.equal(unavailable.mapStops, undefined);
   assert.equal(hasMapPreview(unavailable), false);
 });
+test("only exact published stop points linked to a disruption are marked", () => {
+  const body = journeyBody();
+  body.journeys[0]!.sections[1]!.links = [{ type: "disruption", id: "alert-daumesnil" }];
+  body.disruptions = [{
+    id: "alert-daumesnil",
+    impacted_objects: [
+      { pt_object: { id: "stop_point:IDFM:22181" } },
+      { pt_object: { id: "stop_point:IDFM:99999" } },
+      { pt_object: { id: "stop_area:IDFM:71614" } },
+    ],
+  }];
+  const journey = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.deepEqual(journey.mapStops?.map(stop => [stop.id, stop.role, stop.affected]), [
+    ["stop_point:IDFM:22182", "departure", undefined],
+    ["stop_point:IDFM:22181", "transfer", true],
+    ["stop_point:IDFM:463168", "transfer", undefined],
+    ["stop_point:IDFM:21784", "arrival", undefined],
+  ]);
+  assert.match(itineraryPages({ origin, destination, journey, now: NOW / 1000 }, true)[0]!.embed.footer!.text!,
+    /contour violet : arrêt touché par une perturbation/);
+});
+test("unlinked disruptions and impacts without an itinerary stop mark nothing", () => {
+  const body = journeyBody();
+  body.disruptions = [{
+    id: "unlinked-alert",
+    impacted_objects: [{ pt_object: { id: "stop_point:IDFM:22181" } }],
+  }];
+  const unlinked = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(unlinked.mapStops?.some(stop => stop.affected), false);
+
+  body.journeys[0]!.sections[1]!.links = [{ type: "disruption", id: "unlinked-alert" }];
+  body.disruptions[0]!.impacted_objects = [{ pt_object: { id: "stop_point:IDFM:99999" } }];
+  const noMatch = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(noMatch.mapStops?.some(stop => stop.affected), false);
+});
+test("a disruption outside its published application period marks no stop", () => {
+  const body = journeyBody();
+  body.journeys[0]!.sections[1]!.links = [{ type: "disruption", id: "later-alert" }];
+  body.disruptions = [{
+    id: "later-alert",
+    application_periods: [{ begin: "20261111T090000", end: "20261111T093000" }],
+    impacted_objects: [{ pt_object: { id: "stop_point:IDFM:22181" } }],
+  }];
+  const journey = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(journey.mapStops?.some(stop => stop.affected), false);
+});
 test("a direct route gets departure and arrival map stops without inventing a path", () => {
   const body = structuredClone(journeyBody()), raw = body.journeys[0]!, [access, transit, , , , exit] = raw.sections;
   transit!.to = exit!.from;
@@ -120,10 +166,20 @@ test("stop-only map preview draws distinct verified stop markers on the official
   assert.ok(contains(22, 163, 74), "departure marker is green");
   assert.ok(contains(245, 158, 11), "transfer markers are orange");
   assert.ok(contains(220, 38, 38), "arrival marker is red");
+  base.mapStops![0]!.affected = true;
+  const alertedImage = await renderRouteMap(base, (async () => new Response(tile, {
+    headers: { "content-type": "image/png", "content-length": String(tile.length) },
+  })) as typeof fetch);
+  const alertedPixels = await sharp(alertedImage!).removeAlpha().raw().toBuffer();
+  let hasPurpleRing = false;
+  for (let i = 0; i < alertedPixels.length; i += 3)
+    if (alertedPixels[i] === 147 && alertedPixels[i + 1] === 51 && alertedPixels[i + 2] === 234) hasPurpleRing = true;
+  assert.ok(hasPurpleRing, "affected stop gets a violet outline without replacing its role marker");
 });
 test("itinerary cards attach the stop map and explain its marker colors", async () => {
   const s = setup(), d = fakeDiscord(), scope = travelScope(d.message);
   const result = (await s.service.reply(scope, PAIR, "fr"))!;
+  result.itinerary!.journey.mapStops![0]!.affected = true;
   const controls = new ItineraryControls(s.service, s.authorize, async journey => {
     assert.equal(journey.mapStops?.length, 4);
     return Buffer.from("verified-map");
@@ -133,6 +189,7 @@ test("itinerary cards attach the stop map and explain its marker colors", async 
   assert.deepEqual(card.last.files[0], { name: ROUTE_MAP_FILENAME, size: 12 });
   assert.equal(card.last.embeds[0]!.image!.url, `attachment://${ROUTE_MAP_FILENAME}`);
   assert.match(card.last.embeds[0]!.footer!.text!, /départ vert, correspondances orange, arrivée rouge/);
+  assert.match(card.last.embeds[0]!.footer!.text!, /contour violet : arrêt touché par une perturbation/);
 });
 test("live, mixed and scheduled status is preserved, including per-leg status for mixed journeys", () => {
   const { base } = setup(), view = { origin, destination, journey: base, now: NOW / 1000 };

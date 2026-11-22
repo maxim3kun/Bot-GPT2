@@ -21,6 +21,8 @@ export function mapsDirectionsUrl(origin: OfficialPlace, destination: OfficialPl
 }
 export const journeyMapMode = (journey: VerifiedJourney): MapRouteMode => journey.road?.mode ?? "transit";
 export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
+  const affectedNote = journey.mapStops?.some(stop => stop.affected)
+    ? (fr ? " · contour violet : arrêt touché par une perturbation" : " · violet outline: stop affected by a disruption") : "";
   const mode = journey.road?.mode;
   const modeName = mode === "walk" ? (fr ? "à pied" : "walking")
     : mode === "car" ? (fr ? "en voiture" : "driving")
@@ -33,14 +35,14 @@ export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
   if (!hasRouteGeometry(journey) && journey.mapStops?.length) {
     const omissions = journey.mapStopsPartial
       ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
-    return `${fr ? "Arrêts vérifiés" : "Verified stops"} · ${fr ? "départ vert, correspondances orange, arrivée rouge" : "green departure, orange transfers, red arrival"} · Île-de-France Mobilités · ${fr ? "fond cartographique © IGN" : "basemap © IGN"}${omissions}`;
+    return `${fr ? "Arrêts vérifiés" : "Verified stops"} · ${fr ? "départ vert, correspondances orange, arrivée rouge" : "green departure, orange transfers, red arrival"}${affectedNote} · Île-de-France Mobilités · ${fr ? "fond cartographique © IGN" : "basemap © IGN"}${omissions}`;
   }
   const partial = journey.mapGeometryPartial
     ? (fr ? " · aperçu partiel, sections sans géométrie omises" : " · partial preview, sections without geometry omitted")
     : "";
   const stopNote = journey.mapStopsPartial
     ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
-  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}${stopNote}`;
+  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}${stopNote}${affectedNote}`;
 }
 export const hasRouteGeometry = (journey: VerifiedJourney) =>
   !!journey.road?.geometry?.length || !!journey.mapGeometry?.length;
@@ -190,8 +192,8 @@ export function itineraryPages(view: ItineraryView, french: boolean): ItineraryP
     ? !hasRouteGeometry(journey)
       ? routeMapCaption(journey, fr)
       : fr
-        ? `Géométrie fournie par Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections sans géométrie et accès en ligne droite omis" : ""}${journey.mapStopsPartial ? " · arrêts sans coordonnées omis" : ""}.`
-        : `Geometry supplied by Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections without geometry and straight-line access omitted" : ""}${journey.mapStopsPartial ? " · stops without coordinates omitted" : ""}.`
+        ? `Géométrie fournie par Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections sans géométrie et accès en ligne droite omis" : ""}${journey.mapStopsPartial ? " · arrêts sans coordonnées omis" : ""}${journey.mapStops?.some(stop => stop.affected) ? " · contour violet : arrêt touché par une perturbation" : ""}.`
+        : `Geometry supplied by Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections without geometry and straight-line access omitted" : ""}${journey.mapStopsPartial ? " · stops without coordinates omitted" : ""}${journey.mapStops?.some(stop => stop.affected) ? " · violet outline: stop affected by a disruption" : ""}.`
     : fr
       ? "Aucun aperçu du tracé : le calculateur de transports n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet."
       : "No route preview: the transit planner did not provide verified geometry. Google Maps may recalculate a different route.";

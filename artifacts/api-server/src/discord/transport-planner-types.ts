@@ -26,6 +26,7 @@ export interface VerifiedJourneyStop {
   longitude: number;
   latitude: number;
   role: "departure" | "transfer" | "stop" | "arrival";
+  affected?: boolean;
 }
 export type RouteGeometry = Array<[longitude: number, latitude: number]>;
 export type OSMBikeSurface = "asphalt" | "concrete" | "paving_stones" | "sett" | "cobblestone"

@@ -105,18 +105,19 @@ export async function renderRouteMap(
   const credit = "© IGN · Géoplateforme";
   const screenStops = stops.map((stop, index) => {
     const [x, y] = atZoomStops[index]!;
-    return [(x - tileX * TILE_SIZE) * 2, (y - tileY * TILE_SIZE) * 2, stop.role] as const;
+    return [(x - tileX * TILE_SIZE) * 2, (y - tileY * TILE_SIZE) * 2, stop.role, stop.affected] as const;
   });
   if (screenStops.some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
   const markerColor = { departure: "#16a34a", transfer: "#f59e0b", stop: "#2563eb", arrival: "#dc2626" };
-  const markers = screenStops.map(([x, y, role]) => {
+  const markers = screenStops.map(([x, y, role, affected]) => {
     const color = markerColor[role];
     const shape = role === "transfer"
       ? `<path d="M${x},${y - 9} L${x + 9},${y} L${x},${y + 9} L${x - 9},${y} Z" fill="${color}"/>`
       : role === "arrival"
         ? `<rect x="${x - 7}" y="${y - 7}" width="14" height="14" rx="2" fill="${color}"/>`
         : `<circle cx="${x}" cy="${y}" r="${role === "stop" ? 5 : 8}" fill="${color}"/>`;
-    return `<g stroke="#ffffff" stroke-width="3">${shape}<circle cx="${x}" cy="${y}" r="2" fill="#ffffff" stroke="none"/></g>`;
+    const affectedRing = affected ? `<circle cx="${x}" cy="${y}" r="12" fill="none" stroke="#9333ea" stroke-width="3"/>` : "";
+    return `<g stroke="#ffffff" stroke-width="3">${shape}<circle cx="${x}" cy="${y}" r="2" fill="#ffffff" stroke="none"/>${affectedRing}</g>`;
   }).join("");
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_SIZE}" height="${IMAGE_SIZE}" viewBox="0 0 ${IMAGE_SIZE} ${IMAGE_SIZE}">
     ${paths.map(path => `<path d="${path}" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}

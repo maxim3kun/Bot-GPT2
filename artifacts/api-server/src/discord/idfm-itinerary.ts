@@ -51,6 +51,7 @@ function itineraryStop(value: unknown): Omit<VerifiedJourneyStop, "role"> | unde
 
 type MapStopSegment = {
   stops: Array<Omit<VerifiedJourneyStop, "role">>;
+  affectedIds: Set<string>;
   startId?: string;
   endId?: string;
   transferFromPrevious: boolean;
@@ -58,6 +59,7 @@ type MapStopSegment = {
 function journeyMapStops(segments: MapStopSegment[]) {
   const ordered: Array<Omit<VerifiedJourneyStop, "role">> = [];
   const departureIndex = new Set<number>(), arrivalIndex = new Set<number>(), transferIndexes = new Set<number>();
+  const affectedIndexes = new Set<number>();
   const add = (stop: Omit<VerifiedJourneyStop, "role">) => {
     const last = ordered.at(-1);
     if (last?.id === stop.id) {
@@ -74,6 +76,7 @@ function journeyMapStops(segments: MapStopSegment[]) {
     const indexes = new Map<string, number>();
     for (const stop of segment.stops) {
       const index = add(stop);
+      if (segment.affectedIds.has(stop.id)) affectedIndexes.add(index);
       if (!indexes.has(stop.id)) indexes.set(stop.id, index);
     }
     segmentIndexes.push(indexes);
@@ -98,7 +101,8 @@ function journeyMapStops(segments: MapStopSegment[]) {
     Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude)
       ? [{ ...stop, role: departureIndex.has(index) ? "departure" as const
         : arrivalIndex.has(index) ? "arrival" as const
-        : transferIndexes.has(index) ? "transfer" as const : "stop" as const }]
+        : transferIndexes.has(index) ? "transfer" as const : "stop" as const,
+        ...(affectedIndexes.has(index) ? { affected: true } : {}) }]
       : []);
   const partial = verified.length !== ordered.length || verified.length > MAX_VERIFIED_MAP_STOPS;
   const limited = verified.length > MAX_VERIFIED_MAP_STOPS
@@ -171,6 +175,30 @@ function blocking(section: Json, root: Json, departure: number, arrival: number)
   });
 }
 
+function affectedStopIds(section: Json, root: Json, departure: number, arrival: number): Set<string> {
+  const entities = [section, obj(section.from), obj(section.to), obj(obj(section.from).stop_point),
+    obj(obj(section.to).stop_point), ...list(section.stop_date_times).flatMap(value =>
+      [obj(value), obj(obj(value).stop_point)])];
+  const linked = new Set(entities.flatMap(p =>
+    list(p.links).map(obj).filter(link => link.type === "disruption").map(link => text(link.id)).filter(Boolean)));
+  const affected = new Set<string>();
+  for (const disruption of list(root.disruptions).map(obj)) {
+    if (!linked.has(text(disruption.id))) continue;
+    const patterns = list(disruption.application_patterns);
+    const periods = list(disruption.application_periods).map(obj);
+    const applies = patterns.length > 0 || !periods.length || periods.some(period => {
+      const begin = idfmDate(period.begin), end = idfmDate(period.end);
+      return begin == null || end == null || begin < end && begin < arrival && end > departure;
+    });
+    if (!applies) continue;
+    for (const impact of list(disruption.impacted_objects).map(obj)) {
+      const id = text(obj(impact.pt_object).id);
+      if (idfmId(id) && id.startsWith("stop_point:")) affected.add(id);
+    }
+  }
+  return affected;
+}
+
 /** Invalid or contradictory alternatives are dropped, never repaired using model knowledge. */
 export function parseItineraries(body: unknown, from: OfficialPlace, to: OfficialPlace, at: number,
   represents: "arrival" | "departure"): VerifiedJourney[] {
@@ -232,7 +260,8 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
           .map(v => obj(v).stop_point || v), s.to];
         const stops = candidates.map(itineraryStop).filter((stop): stop is Omit<VerifiedJourneyStop, "role"> => !!stop)
           .filter((stop, index, all) => index === 0 || stop.id !== all[index - 1]!.id);
-        mapStopSegments.push({ stops, startId: itineraryStop(s.from)?.id, endId: itineraryStop(s.to)?.id,
+        mapStopSegments.push({ stops, affectedIds: affectedStopIds(s, root, departure, arrival),
+          startId: itineraryStop(s.from)?.id, endId: itineraryStop(s.to)?.id,
           transferFromPrevious: hasTransitSegment && pendingTransfer });
         hasTransitSegment = true;
         pendingTransfer = false;
