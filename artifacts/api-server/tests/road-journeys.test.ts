@@ -219,6 +219,9 @@ test("road cards start with a compact summary and reveal paginated directions on
   const card=d.cards[0]!;
   const labels=card.last.components.flatMap(row=>row.components.map(component=>component.label));
   assert.ok(labels.includes("Le trajet"));
+  assert.ok(labels.includes("Fermer"));
+  assert.equal(card.last.components.length,1);
+  assert.ok(card.last.components[0]!.components.some(component=>component.emoji?.name==="Maps"));
   assert.ok(!labels.includes("IGN") && !labels.includes("Carte"));
   const mapButton=card.last.components.flatMap(row=>row.components).find(component=>component.url?.includes("google.com/maps/dir/"));
   assert.equal(mapButton?.label,undefined);

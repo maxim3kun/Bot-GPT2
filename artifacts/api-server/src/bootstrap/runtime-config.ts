@@ -16,6 +16,10 @@ export function getServerPort(): number {
   return port;
 }
 
+export function isDiscordBotEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment["DISCORD_BOT_ENABLED"]?.trim().toLowerCase() !== "false";
+}
+
 export function logRuntimeConfig(port: number): void {
   logger.info({ port }, "Runtime config loaded");
 }

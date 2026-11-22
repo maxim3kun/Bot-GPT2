@@ -135,13 +135,11 @@ export class ItineraryControls {
             map(), button("summary", t("Résumé", "Summary")), button("close", t("Fermer", "Close")),
           )];
         }
-        return [
-          new ActionRowBuilder<ButtonBuilder>().addComponents(
-            button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
-            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Le trajet", "The route")),
-          ),
-          new ActionRowBuilder<ButtonBuilder>().addComponents(button("close", t("Fermer", "Close"))),
-        ];
+        return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+          button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
+          button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Le trajet", "The route")),
+          button("close", t("Fermer", "Close")),
+        )];
       } else if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
       const secondary = [source(), map()];

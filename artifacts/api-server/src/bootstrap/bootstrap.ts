@@ -1,5 +1,6 @@
 import { startBot } from "../bot.js";
-import { getServerPort, logRuntimeConfig } from "./runtime-config.js";
+import { logger } from "../lib/logger.js";
+import { getServerPort, isDiscordBotEnabled, logRuntimeConfig } from "./runtime-config.js";
 import { startHttpServer } from "./http-server.js";
 import { initializeRuntime } from "./startup.js";
 
@@ -9,5 +10,6 @@ export async function bootstrap(): Promise<void> {
 
   await initializeRuntime();
   startHttpServer(port);
-  startBot();
+  if (isDiscordBotEnabled()) startBot();
+  else logger.info("Discord bot login disabled by DISCORD_BOT_ENABLED");
 }

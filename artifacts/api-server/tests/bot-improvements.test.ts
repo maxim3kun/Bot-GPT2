@@ -7,6 +7,13 @@ import { chooseBotColumn } from "../src/discord/connect4-ai.js";
 import { handlePollCommand } from "../src/discord/poll.js";
 import { createSlashMessageAdapter } from "../src/discord/slash-message-adapter.js";
 import { MessageEventDeduper } from "../src/discord/message-event-dedupe.js";
+import { isDiscordBotEnabled } from "../src/bootstrap/runtime-config.js";
+
+test("Discord bot can be disabled for production without disabling the web server", () => {
+  assert.equal(isDiscordBotEnabled({}), true);
+  assert.equal(isDiscordBotEnabled({ DISCORD_BOT_ENABLED: "true" } as NodeJS.ProcessEnv), true);
+  assert.equal(isDiscordBotEnabled({ DISCORD_BOT_ENABLED: " FALSE " } as NodeJS.ProcessEnv), false);
+});
 
 test("A repeated Discord message event is ignored, while new and expired events are accepted", () => {
   const deduper = new MessageEventDeduper(1_000, 2);
