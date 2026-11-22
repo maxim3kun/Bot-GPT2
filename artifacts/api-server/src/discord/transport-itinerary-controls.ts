@@ -4,7 +4,7 @@ import {
   type APIEmbed, type Message, type MessageComponentInteraction,
 } from "discord.js";
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
-import { comparisonPage, itineraryPages, itinerarySource } from "./transport-itinerary-presentation.js";
+import { comparisonPage, itineraryPages, itinerarySource, journeyMapMode, mapsDirectionsUrl } from "./transport-itinerary-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
 import { BIKE_SOURCE } from "./osm-bike-planner.js";
 import { ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
@@ -30,10 +30,22 @@ export class ItineraryControls {
   async sendComparison(message: Message, comparison: JourneyComparison, language: string) {
     const fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
     const page = comparisonPage(comparison, fr);
+    const recommended = comparison.entries.find(entry => entry.mode === comparison.recommended && entry.journey)
+      ?? comparison.entries.find(entry => entry.journey);
+    const mapLabel = recommended ? ({
+      walk: t("Carte · à pied", "Map · walking"),
+      car: t("Carte · voiture", "Map · driving"),
+      bike: t("Carte · vélo", "Map · cycling"),
+      transit: t("Carte · transports", "Map · transit"),
+    } as const)[recommended.mode] : "";
+    const map = recommended && new ButtonBuilder().setStyle(ButtonStyle.Link)
+      .setLabel(mapLabel)
+      .setURL(mapsDirectionsUrl(recommended.origin, recommended.destination, recommended.mode));
     const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("IGN").setURL(ROAD_SOURCE),
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Vélo OSM").setURL(BIKE_SOURCE),
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(t("Transports", "Transit")).setURL(ITINERARY_SOURCE),
+      ...(map ? [map] : []),
     )];
     const embedded = canEmbed(message);
     const payload = {
@@ -57,14 +69,17 @@ export class ItineraryControls {
     let pages = itineraryPages(view, fr), page = 0, lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
     const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Source").setURL(itinerarySource(view.journey));
+    const map = () => new ButtonBuilder().setStyle(ButtonStyle.Link)
+      .setLabel(t("Carte Google Maps", "Google Maps"))
+      .setURL(mapsDirectionsUrl(view.origin, view.destination, journeyMapMode(view.journey)));
     const button = (name: string, label: string, style = ButtonStyle.Secondary) =>
       new ButtonBuilder().setCustomId(`${id}:${name}`).setLabel(label).setStyle(style);
     const rows = (closed = false) => {
-      if (closed) return [new ActionRowBuilder<ButtonBuilder>().addComponents(source())];
+      if (closed) return [new ActionRowBuilder<ButtonBuilder>().addComponents(source(), map())];
       const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary));
       if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
-      const secondary = [source(), button("close", t("Fermer", "Close"))];
+      const secondary = [source(), map(), button("close", t("Fermer", "Close"))];
       if (pages.length <= 1) { primary.addComponents(...secondary); return [primary]; }
       return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(...secondary)];
     };

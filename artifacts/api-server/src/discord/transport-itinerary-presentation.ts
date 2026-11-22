@@ -9,6 +9,17 @@ import { BIKE_SOURCE, OSM_ATTRIBUTION } from "./osm-bike-planner.js";
 export const ITINERARY_SOURCE = "https://prim.iledefrance-mobilites.fr/fr/apis/idfm-navitia-general-v2";
 export const itinerarySource = (journey: VerifiedJourney) => journey.road
   ? journey.road.source === "openstreetmap" ? BIKE_SOURCE : ROAD_SOURCE : ITINERARY_SOURCE;
+export type MapRouteMode = "walk" | "car" | "bike" | "transit";
+export function mapsDirectionsUrl(origin: OfficialPlace, destination: OfficialPlace, mode: MapRouteMode) {
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("origin", origin.label);
+  url.searchParams.set("destination", destination.label);
+  url.searchParams.set("travelmode", mode === "walk" ? "walking" : mode === "car" ? "driving"
+    : mode === "bike" ? "bicycling" : "transit");
+  return url.toString();
+}
+export const journeyMapMode = (journey: VerifiedJourney): MapRouteMode => journey.road?.mode ?? "transit";
 export interface ItineraryView {
   journey: VerifiedJourney;
   origin: OfficialPlace;
@@ -60,8 +71,8 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
   const origin = comparison.entries[0]?.origin.label ?? "";
   const destination = comparison.entries[0]?.destination.label ?? "";
   const description = `**${t("Départ", "From")}** ${origin}\n**${t("Arrivée", "To")}** ${destination}`;
-  const footer = t("Les durées proviennent des sources de calcul disponibles; elles ne sont pas toutes du temps réel. Le vélo est calculé en France métropolitaine uniquement, et seulement si le routeur OpenStreetMap renvoie un trajet.",
-    "Durations come from available routing sources; they are not all real-time. Cycling is calculated only in metropolitan France, and only when the OpenStreetMap router returns a route.");
+  const footer = t("Les durées viennent des sources indiquées. Le vélo est calculé en France métropolitaine si un trajet est trouvé. La carte s’ouvre dans Google Maps, qui peut proposer un autre trajet ou une autre durée.",
+    "Durations come from the listed sources. Cycling is calculated in metropolitan France when a route is found. The map opens in Google Maps, which may suggest a different route or duration.");
   const content = [`**${title}**`, description, ...entries.map(item => `**${item.name}**\n${item.value}`), footer,
     `[IGN / Géoplateforme](${ROAD_SOURCE}) · [OpenStreetMap bike router](${BIKE_SOURCE}) · [© OpenStreetMap contributors](${OSM_ATTRIBUTION}) · [Île-de-France Mobilités](${ITINERARY_SOURCE})`].join("\n\n");
   return {
@@ -103,7 +114,9 @@ export function itineraryPages(view: ItineraryView, french: boolean): ItineraryP
   });
   if (journey.warning) fields.push({ name: fr ? "À savoir" : "Please note",
     value: fr ? "Perturbation signalée : vérifie les informations de l’exploitant." : "Disruption reported: check operator information.", inline: false });
-  const footer = `${reliability(journey, fr)} · ${tz}`;
+  const footer = `${reliability(journey, fr)} · ${tz} · ${fr
+    ? "La carte Google Maps peut proposer un trajet ou des horaires différents."
+    : "Google Maps may suggest a different route or timetable."}`;
   // Bound BOTH the embed and its text fallback. Additional pages retain all legs;
   // none are truncated to fit a Discord message.
   const groups: typeof fields[] = [];

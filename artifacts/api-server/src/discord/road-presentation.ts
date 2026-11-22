@@ -18,7 +18,8 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
       : "IGN estimate on its pedestrian network. This does not confirm step-free accessibility.")
     : (fr ? "Durée estimée IGN, sans trafic en temps réel. Vérifie la signalisation et les conditions sur place."
       : "IGN estimated duration, no live traffic. Check road signs and local conditions. Instructions are supplied in French.");
-  const footer = `IGN / Géoplateforme · Europe/Paris${road.resourceVersion ? ` · ${road.resourceVersion}` : ""}`;
+  const footer = `IGN / Géoplateforme · Europe/Paris${road.resourceVersion ? ` · ${road.resourceVersion}` : ""} · ${
+    fr ? "Google Maps peut proposer un autre trajet ou une autre durée." : "Google Maps may suggest a different route or duration."}`;
   const groups: string[][] = [[]];
   road.steps.forEach((step, index) => {
     const text = `${index + 1}. ${step.instruction} (${km(step.distanceMeters)})`;

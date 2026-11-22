@@ -5,7 +5,8 @@ import { RoadHttp } from "../src/discord/road-http.js";
 import { TransportConversation } from "../src/discord/transport-conversation.js";
 import { BIKE_SOURCE, OSM_ATTRIBUTION, OpenStreetMapBikePlanner, parseBikeRoute } from "../src/discord/osm-bike-planner.js";
 import { createTransportDialogue, handleJourneyCommand, travelScope } from "../src/discord/transport-dialogue.js";
-import { itineraryPages } from "../src/discord/transport-itinerary-presentation.js";
+import { itineraryPages, mapsDirectionsUrl } from "../src/discord/transport-itinerary-presentation.js";
+import { ItineraryControls } from "../src/discord/transport-itinerary-controls.js";
 import { parseAiCommandTool, buildAiCommandTools } from "../src/discord/ai-command-tools.js";
 import { selectAiCommand } from "../src/discord/ai-command-intent.js";
 import { travelTurn } from "../src/discord/transport-intent.js";
@@ -127,12 +128,17 @@ test("comparison ranks only journeys actually returned by their official planner
 });
 test("comparison is delivered as a compact card with source links, including without embeds", async () => {
   const s=setup(), d=fakeDiscord({embed:false});
-  await createTransportDialogue(s.service,async()=>true)(d.message,"Compare de Beauvais à Amiens à pied et en voiture","fr");
+  const comparison=(await s.service.reply("map-check","Compare de Beauvais à Amiens à pied et en voiture","fr"))!.comparison!;
+  await new ItineraryControls(s.service,async()=>true).sendComparison(d.message,comparison,"fr");
   assert.match(d.cards[0]!.last.content!,/Comparaison des trajets/);
   const urls=d.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url));
   assert.ok(urls.some(url=>url===ROAD_SOURCE));
   assert.ok(urls.some(url=>url===BIKE_SOURCE));
   assert.ok(urls.some(url=>url?.includes("prim.iledefrance-mobilites.fr")));
+  const map=new URL(urls.find(url=>url?.includes("google.com/maps/dir"))!);
+  assert.equal(map.searchParams.get("origin"),"Beauvais · 60, Oise");
+  assert.equal(map.searchParams.get("destination"),"Amiens · 80, Somme");
+  assert.equal(map.searchParams.get("travelmode"),({walk:"walking",car:"driving",bike:"bicycling",transit:"transit"} as const)[comparison.recommended!]);
 });
 test("a standalone bike route is declined, while comparisons can request cycling", async () => {
   const s=setup();
@@ -155,7 +161,24 @@ test("native command and natural AI request use identical cards in guilds and DM
   await createTransportDialogue(b.service,async()=>true)(db.message,"Comment aller de Beauvais à Amiens en voiture ?","fr");
   assert.deepEqual(da.cards[0]!.last.embeds,db.cards[0]!.last.embeds);
   assert.equal(da.cards[0]!.last.embeds[0]?.url,ROAD_SOURCE);
+  const mapUrl=da.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url))
+    .find(url=>url?.includes("google.com/maps/dir"));
+  assert.ok(mapUrl);
+  assert.equal(new URL(mapUrl!).searchParams.get("travelmode"),"driving");
   da.cards[0]!.collector.stop("closed"); db.cards[0]!.collector.stop("closed");
+});
+test("Google Maps links encode endpoints and select the requested mode without a key", () => {
+  const url=new URL(mapsDirectionsUrl(
+    {id:"a",ids:["a"],name:"Rue",label:"10 rue A & 2, Beauvais",latitude:49.43,longitude:2.08},
+    {id:"b",ids:["b"],name:"Amiens",label:"Gare d’Amiens",latitude:49.89,longitude:2.29},
+    "walk",
+  ));
+  assert.equal(url.origin,"https://www.google.com");
+  assert.equal(url.searchParams.get("origin"),"10 rue A & 2, Beauvais");
+  assert.equal(url.searchParams.get("destination"),"Gare d’Amiens");
+  assert.equal(url.searchParams.get("travelmode"),"walking");
+  assert.equal(new URL(mapsDirectionsUrl(from,to,"bike")).searchParams.get("travelmode"),"bicycling");
+  assert.equal(new URL(mapsDirectionsUrl(from,to,"transit")).searchParams.get("travelmode"),"transit");
 });
 test("typed request uses literal endpoints rather than reinterpreting a field as another mode", async () => {
   const s=setup(), d=fakeDiscord();
