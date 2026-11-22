@@ -70,9 +70,10 @@ export class ItineraryControls {
     let compactRoad = !!view.journey.road && pages.length > 1;
     let lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
-    const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Source").setURL(itinerarySource(view.journey));
+    const sourceLabel = view.journey.road?.source === "openstreetmap" ? "OSM" : view.journey.road ? "IGN" : "IDFM";
+    const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(sourceLabel).setURL(itinerarySource(view.journey));
     const map = () => new ButtonBuilder().setStyle(ButtonStyle.Link)
-      .setLabel(t("Carte Google Maps", "Google Maps"))
+      .setLabel(t("Carte", "Map"))
       .setURL(mapsDirectionsUrl(view.origin, view.destination, journeyMapMode(view.journey)));
     const button = (name: string, label: string, style = ButtonStyle.Secondary) =>
       new ButtonBuilder().setCustomId(`${id}:${name}`).setLabel(label).setStyle(style);
@@ -81,13 +82,22 @@ export class ItineraryControls {
       const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary));
       if (compactRoad) {
         const detailCount = pages.length - 1;
-        if (expanded && detailCount > 1) primary.addComponents(
-          button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page >= detailCount - 1));
+        if (expanded && detailCount > 1) {
+          primary.addComponents(button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page >= detailCount - 1));
+          return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(
+            map(), source(), button("summary", t("Résumé", "Summary")), button("close", t("Fermer", "Close")),
+          )];
+        }
+        return [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
+            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Instructions", "Directions")),
+          ),
+          new ActionRowBuilder<ButtonBuilder>().addComponents(source(), button("close", t("Fermer", "Close"))),
+        ];
       } else if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
       const secondary = [source(), map()];
-      if (compactRoad) secondary.push(button(expanded ? "summary" : "details",
-        expanded ? t("Résumé", "Summary") : t("Instructions", "Directions")));
       secondary.push(button("close", t("Fermer", "Close")));
       if (pages.length <= 1) { primary.addComponents(...secondary); return [primary]; }
       if (compactRoad && (!expanded || pages.length === 2)) { primary.addComponents(...secondary); return [primary]; }
