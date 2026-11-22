@@ -103,8 +103,8 @@ test("a walking request uses the official pedestrian profile and gets a walking 
   const s=setup(), result=(await s.service.reply("s","Combien de temps à pied de Beauvais à Amiens ?","fr"))!;
   assert.equal(result.itinerary?.journey.road?.mode,"walk");
   const json=JSON.stringify(itineraryPages(result.itinerary!,true));
-  assert.match(json,/Itinéraire à pied/); assert.match(json,/réseau piéton/);
-  assert.match(json,/Accessibilité non vérifiée/); assert.match(json,/absence d’escaliers/); assert.match(json,/accessibilité PMR/);
+  assert.match(json,/🚶 Beauvais → Amiens/); assert.match(json,/réseau piéton/);
+  assert.match(json,/Accessibilité non vérifiée/); assert.match(json,/absence d’escaliers/); assert.match(json,/accès PMR/);
   assert.doesNotMatch(json,/itinéraire accessible/i);
   assert.doesNotMatch(json,/sans trafic en temps réel/);
   const english=JSON.stringify(itineraryPages(result.itinerary!,false));
@@ -201,11 +201,12 @@ test("a standalone bike route is declined, while comparisons can request cycling
 test("road presentation and source never claim PRIM or live traffic", async () => {
   const s=setup(),result=(await s.service.reply("s","Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
   const pages=itineraryPages(result.itinerary!,true), json=JSON.stringify(pages);
-  assert.match(json,/65 km/); assert.match(json,/60 min/); assert.match(json,/Arrivée estimée/); assert.match(json,/sans trafic en temps réel/);
-  assert.match(pages[0]!.embed.title!,/voiture/);
+  assert.match(json,/65 km/); assert.match(json,/1 h/); assert.match(json,/Arrivée estimée/); assert.match(json,/sans trafic en temps réel/);
+  assert.match(pages[0]!.embed.title!,/Beauvais.*Amiens/);
+  assert.match(pages[0]!.embed.description!,/Oise → Somme.*1 h.*65 km.*Aujourd’hui.*Départ prévu/s);
   assert.doesNotMatch(JSON.stringify(pages[0]!.embed.fields),/Instructions du trajet/);
   assert.match(JSON.stringify(pages[1]!.embed.fields),/Instructions du trajet/);
-  assert.equal(pages[0]!.embed.url,ROAD_SOURCE); assert.doesNotMatch(json,/PRIM|Île-de-France Mobilités|Horaires théoriques/);
+  assert.equal(pages[0]!.embed.url,ROAD_SOURCE); assert.doesNotMatch(json,/PRIM|Île-de-France Mobilités|Horaires théoriques|Europe\/Paris|2026-11/);
   assert.ok(pages.every(p=>p.content.length<2000));
 });
 test("road cards start with a compact summary and reveal paginated directions on demand", async () => {
@@ -223,7 +224,7 @@ test("road cards start with a compact summary and reveal paginated directions on
   await card.collector.collect(card.interaction("next").value);
   assert.match(card.last.embeds[0]?.title ?? "",/Instructions 2\/2/);
   await card.collector.collect(card.interaction("summary").value);
-  assert.match(card.last.embeds[0]?.title ?? "",/Itinéraire en voiture/);
+  assert.match(card.last.embeds[0]?.title ?? "",/Beauvais.*Amiens/);
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Instructions du trajet/);
   await card.collector.collect(card.interaction("close").value); await card.collector.endWork;
 });
@@ -233,7 +234,7 @@ test("native command and natural AI request use identical cards in guilds and DM
   await createTransportDialogue(b.service,async()=>true)(db.message,"Comment aller de Beauvais à Amiens en voiture ?","fr");
   assert.deepEqual(da.cards[0]!.last.embeds,db.cards[0]!.last.embeds);
   assert.equal(da.cards[0]!.last.embeds[0]?.url,ROAD_SOURCE);
-  assert.match(da.cards[0]!.last.embeds[0]!.footer!.text,/Aucun aperçu du tracé/);
+  assert.match(da.cards[0]!.last.embeds[0]!.footer!.text,/Aucun aperçu IGN vérifié/);
   const mapUrl=da.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url))
     .find(url=>url?.includes("google.com/maps/dir"));
   assert.ok(mapUrl);
@@ -268,7 +269,7 @@ test("an unavailable IGN map tile never substitutes a route and keeps the extern
   await controls.send(d.message,scope,result,"fr");
   const card=d.cards[0]!;
   assert.equal(card.last.embeds[0]!.image,undefined);
-  assert.match(card.last.embeds[0]!.footer!.text,/fond IGN.*Aucun tracé de remplacement/);
+  assert.match(card.last.embeds[0]!.footer!.text,/fond IGN.*Aucun aperçu de remplacement/);
   assert.ok(card.last.components.flatMap(row=>row.components).some(button=>button.url?.includes("google.com/maps/dir")));
   card.collector.stop("closed");
 });
@@ -289,7 +290,7 @@ test("typed request uses literal endpoints rather than reinterpreting a field as
   const s=setup(), d=fakeDiscord();
   await createTransportDialogue(s.service,async()=>true)(d.message,"itinéraire","fr",
     {journey:{mode:"car",origin:"Beauvais",destination:"Amiens"}});
-  assert.deepEqual(s.calls,["Beauvais","Amiens"]); assert.match(d.cards[0]!.last.embeds[0]!.title!,/voiture/);
+  assert.deepEqual(s.calls,["Beauvais","Amiens"]); assert.match(d.cards[0]!.last.embeds[0]!.title!,/Beauvais.*Amiens/);
   d.cards[0]!.collector.stop("closed");
 });
 test("municipality-only search prevents the Beauvais street in Guichen regression and retains both Breteuils", async () => {
