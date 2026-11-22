@@ -118,7 +118,7 @@ export class ItineraryControls {
     const sourceLabel = view.journey.road?.source === "openstreetmap" ? "OSM" : view.journey.road ? "IGN" : "IDFM";
     const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(sourceLabel).setURL(itinerarySource(view.journey));
     const map = () => new ButtonBuilder().setStyle(ButtonStyle.Link)
-      .setLabel("Google Maps")
+      .setEmoji({ id: "1574083298232111215", name: "Maps" })
       .setURL(mapsDirectionsUrl(view.origin, view.destination, journeyMapMode(view.journey)));
     const button = (name: string, label: string, style = ButtonStyle.Secondary) =>
       new ButtonBuilder().setCustomId(`${id}:${name}`).setLabel(label).setStyle(style);

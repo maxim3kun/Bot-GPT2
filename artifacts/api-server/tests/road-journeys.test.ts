@@ -217,9 +217,11 @@ test("road cards start with a compact summary and reveal paginated directions on
   await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
   const card=d.cards[0]!;
   const labels=card.last.components.flatMap(row=>row.components.map(component=>component.label));
-  assert.ok(labels.includes("Google Maps"));
   assert.ok(labels.includes("Détail du trajet"));
   assert.ok(!labels.includes("IGN") && !labels.includes("Carte"));
+  const mapButton=card.last.components.flatMap(row=>row.components).find(component=>component.url?.includes("google.com/maps/dir/"));
+  assert.equal(mapButton?.label,undefined);
+  assert.deepEqual(mapButton?.emoji,{id:"1574083298232111215",name:"Maps"});
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
   assert.ok(card.custom("details"));
   await card.collector.collect(card.interaction("details").value);
@@ -383,6 +385,15 @@ test("route-map image uses interior geometry, stays small, and never draws a fal
   assert.ok(first);
   const info=await sharp(first!).metadata();
   assert.equal(info.width,512);assert.equal(info.height,512);assert.ok(first!.length<1_000_000);
+  const raster=await sharp(first!).removeAlpha().raw().toBuffer({resolveWithObject:true});
+  const bluePoints:{x:number;y:number}[]=[];
+  for(let y=0;y<raster.info.height;y++)for(let x=0;x<raster.info.width;x++){
+    const offset=(y*raster.info.width+x)*raster.info.channels;
+    if(raster.data[offset]!<80&&raster.data[offset+1]!>50&&raster.data[offset+2]!>150)bluePoints.push({x,y});
+  }
+  assert.ok(bluePoints.length>0);
+  const blueRows=bluePoints.map(point=>point.y);
+  assert.ok(Math.max(...blueRows)-Math.min(...blueRows)>300,"tight crop should make the verified route fill most of the preview");
   assert.equal(requested.length,4);
   assert.equal(requested[0]!.searchParams.get("LAYER"),"GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2");
   const zoom = Number(requested[0]!.searchParams.get("TILEMATRIX"));

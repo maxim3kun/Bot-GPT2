@@ -4,7 +4,10 @@ import { PermissionFlagsBits, type Message, type MessageComponentInteraction } f
 export interface RecordedPayload {
   content?: string;
   embeds: any[];
-  components: { components: { custom_id?: string; url?: string; label?: string; disabled?: boolean }[] }[];
+  components: { components: {
+    custom_id?: string; url?: string; label?: string; disabled?: boolean;
+    emoji?: { id?: string; name?: string };
+  }[] }[];
   files: { name?: string; size?: number }[];
 }
 const record = (payload: any): RecordedPayload => structuredClone(typeof payload === "string" ? {

@@ -108,6 +108,7 @@ import {
   reportModuleFailure,
 } from "./discord/module-technician.js";
 import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-fallback.js";
+import { MessageEventDeduper } from "./discord/message-event-dedupe.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -1502,6 +1503,7 @@ export function startBot(): void {
 
   // ── Message handler ──────────────────────────────────────────────────────────
 
+  const messageEventDeduper = new MessageEventDeduper();
   const handleMessageCreate = async (message: Message) => {
     if (message.author.bot) return;
     if (await handleAdminUnlockTrigger(message, client)) return;
@@ -3955,7 +3957,13 @@ export function startBot(): void {
     }
     await handleMessageCreate(executableMessage);
   });
-  client.on("messageCreate", handleMessageCreate);
+  client.on("messageCreate", message => {
+    if (!messageEventDeduper.claim(message.id)) {
+      logger.warn({ messageId: message.id, guildId: message.guildId }, "Duplicate Discord message event ignored");
+      return;
+    }
+    void handleMessageCreate(message).catch(err => logger.error({ err, messageId: message.id }, "Message handler failed"));
+  });
 
   registerGuildEvents(client);
 

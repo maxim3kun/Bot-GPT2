@@ -6,6 +6,17 @@ import { extractOwnBirthday, applyBirthdayToSummary } from "../src/discord/ai-bi
 import { chooseBotColumn } from "../src/discord/connect4-ai.js";
 import { handlePollCommand } from "../src/discord/poll.js";
 import { createSlashMessageAdapter } from "../src/discord/slash-message-adapter.js";
+import { MessageEventDeduper } from "../src/discord/message-event-dedupe.js";
+
+test("A repeated Discord message event is ignored, while new and expired events are accepted", () => {
+  const deduper = new MessageEventDeduper(1_000, 2);
+  assert.equal(deduper.claim("message-1", 10), true);
+  assert.equal(deduper.claim("message-1", 11), false);
+  assert.equal(deduper.claim("message-2", 12), true);
+  assert.equal(deduper.claim("message-3", 13), true);
+  assert.equal(deduper.claim("message-3", 14), false);
+  assert.equal(deduper.claim("message-1", 1_011), true);
+});
 
 test("Daily image counters allow 10 regular images and 4 persona photos independently", async () => {
   counts.clear(); reservations.length = 0;

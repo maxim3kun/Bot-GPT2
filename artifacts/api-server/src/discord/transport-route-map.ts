@@ -91,6 +91,7 @@ export async function renderRouteMap(
   let zoom = clamp(Math.floor(Math.log2(ROUTE_FOCUS_PIXELS / Math.max(span, 0.0001))), 3, 17);
   let atZoom: number[][][] = [];
   let atZoomStops: [number, number][] = [];
+  let allAtZoom: [number, number][] = [];
   let tileX = 0, tileY = 0;
   const tileStart = (min: number, max: number, maxTile: number) => {
     const centerTile = Math.floor(((min + max) / 2) / TILE_SIZE);
@@ -103,7 +104,7 @@ export async function renderRouteMap(
   for (; zoom >= 3; zoom--) {
     atZoom = routeLines.map(line => line.map(([lon, lat]) => project(lon, lat, zoom)));
     atZoomStops = stops.map(stop => project(stop.longitude, stop.latitude, zoom));
-    const allAtZoom = [...atZoom.flat(), ...atZoomStops];
+    allAtZoom = [...atZoom.flat() as [number, number][], ...atZoomStops];
     tileX = tileStart(Math.min(...allAtZoom.map(point => point[0])),
       Math.max(...allAtZoom.map(point => point[0])), 2 ** zoom)!;
     tileY = tileStart(Math.min(...allAtZoom.map(point => point[1])),
@@ -117,14 +118,30 @@ export async function renderRouteMap(
   const tiles = await Promise.all(tileCoords.map(([x, y]) => loadTile(x, y, zoom, fetcher)));
   if (tiles.some(tile => !tile)) return;
 
-  const screenLines = atZoom.map(line => line.map(([x, y]) => [x - tileX * TILE_SIZE, y - tileY * TILE_SIZE] as const));
+  const mosaicPoints = allAtZoom.map(([x, y]) => [x - tileX * TILE_SIZE, y - tileY * TILE_SIZE] as const);
+  const minX = Math.min(...mosaicPoints.map(([x]) => x)), maxX = Math.max(...mosaicPoints.map(([x]) => x));
+  const minY = Math.min(...mosaicPoints.map(([, y]) => y)), maxY = Math.max(...mosaicPoints.map(([, y]) => y));
+  let cropSize = Math.min(IMAGE_SIZE, Math.max(240, Math.ceil(Math.max(maxX - minX, maxY - minY) * 1.3)));
+  let cropX = 0, cropY = 0;
+  for (;;) {
+    cropX = clamp(Math.floor((minX + maxX - cropSize) / 2), 0, IMAGE_SIZE - cropSize);
+    cropY = clamp(Math.floor((minY + maxY - cropSize) / 2), 0, IMAGE_SIZE - cropSize);
+    if (minX >= cropX && maxX <= cropX + cropSize && minY >= cropY && maxY <= cropY + cropSize) break;
+    if (cropSize >= IMAGE_SIZE) return;
+    cropSize = Math.min(IMAGE_SIZE, cropSize + 32);
+  }
+  const cropScale = IMAGE_SIZE / cropSize;
+  const screenLines = atZoom.map(line => line.map(([x, y]) => [
+    (x - tileX * TILE_SIZE - cropX) * cropScale,
+    (y - tileY * TILE_SIZE - cropY) * cropScale,
+  ] as const));
   if (screenLines.flat().some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
   const paths = screenLines.map(points => points.map(([x, y], index) =>
     `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
   const credit = "© IGN · Géoplateforme";
   const screenStops = stops.map((stop, index) => {
     const [x, y] = atZoomStops[index]!;
-    return [x - tileX * TILE_SIZE, y - tileY * TILE_SIZE, stop.role, stop.affected] as const;
+    return [(x - tileX * TILE_SIZE - cropX) * cropScale, (y - tileY * TILE_SIZE - cropY) * cropScale, stop.role, stop.affected] as const;
   });
   if (screenStops.some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
   const markerColor = { departure: "#16a34a", transfer: "#f59e0b", stop: "#2563eb", arrival: "#dc2626" };
@@ -149,8 +166,10 @@ export async function renderRouteMap(
     const overlays = tileCoords.map(([x, y], index) => ({
       input: tiles[index]!, left: (x - tileX) * TILE_SIZE, top: (y - tileY) * TILE_SIZE,
     }));
-    const png = await sharp({ create: { width: IMAGE_SIZE, height: IMAGE_SIZE, channels: 3, background: "#f1eee8" } })
-      .composite([...overlays, { input: svg }]).png().toBuffer();
+    const mosaic = await sharp({ create: { width: IMAGE_SIZE, height: IMAGE_SIZE, channels: 3, background: "#f1eee8" } })
+      .composite(overlays).png().toBuffer();
+    const png = await sharp(mosaic).extract({ left: cropX, top: cropY, width: cropSize, height: cropSize })
+      .resize(IMAGE_SIZE, IMAGE_SIZE).composite([{ input: svg }]).png().toBuffer();
     return png.length <= MAX_IMAGE_BYTES ? png : undefined;
   } catch {
     return;
