@@ -4,7 +4,7 @@ import {
   ApplicationCommandType,
   type RESTPostAPIApplicationCommandsJSONBody,
 } from "discord.js";
-import { mergePrimaryEntryPointCommand } from "../src/discord/slash.js";
+import { mergePrimaryEntryPointCommand, SLASH_COMMANDS } from "../src/discord/slash.js";
 
 const localCommands: RESTPostAPIApplicationCommandsJSONBody[] = [
   {
@@ -13,6 +13,17 @@ const localCommands: RESTPostAPIApplicationCommandsJSONBody[] = [
     type: ApplicationCommandType.ChatInput,
   },
 ];
+
+test("crypto command offers private simulation actions and a fixed asset list", () => {
+  const crypto = SLASH_COMMANDS.find(command => command.name === "crypto");
+  assert.ok(crypto);
+  assert.deepEqual(crypto.options?.map(option => option.name), ["demarrer", "solde", "reinitialiser", "strategie"]);
+  const start = crypto.options?.find(option => option.name === "demarrer");
+  assert.deepEqual(start?.options?.[0]?.choices?.map(choice => choice.value), ["btc", "eth", "sol"]);
+  const strategy = crypto.options?.find(option => option.name === "strategie");
+  assert.deepEqual(strategy?.options?.[0]?.choices?.map(choice => choice.value), ["btc", "eth", "sol"]);
+  assert.equal(strategy?.options?.[1]?.name, "frais_pct");
+});
 
 test("bulk overwrite preserves the existing Activity Entry Point", () => {
   const result = mergePrimaryEntryPointCommand(localCommands, [

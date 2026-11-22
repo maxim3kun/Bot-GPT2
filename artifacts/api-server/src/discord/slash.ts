@@ -315,6 +315,81 @@ export const SLASH_COMMANDS = [
     )
     .toJSON(),
 
+  // ── Crypto paper simulator ────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("crypto")
+    .setDescription("Track a private €10 crypto paper investment — no real trades")
+    .setDescriptionLocalizations({
+      fr: "Suivre un placement crypto fictif privé de 10 €, sans transaction réelle",
+      "es-ES": "Seguir una inversión ficticia privada de 10 €, sin operaciones reales",
+    })
+    .addSubcommand(sub =>
+      sub.setName("demarrer")
+        .setDescription("Start a private simulated €10 purchase")
+        .setDescriptionLocalizations({
+          fr: "Démarrer un achat fictif privé de 10 €",
+          "es-ES": "Iniciar una compra ficticia privada de 10 €",
+        })
+        .addStringOption(opt =>
+          opt.setName("actif")
+            .setDescription("Cryptocurrency to simulate")
+            .setDescriptionLocalizations({ fr: "Cryptomonnaie à simuler", "es-ES": "Criptomoneda a simular" })
+            .setRequired(true)
+            .addChoices(
+              { name: "Bitcoin (BTC)", value: "btc" },
+              { name: "Ethereum (ETH)", value: "eth" },
+              { name: "Solana (SOL)", value: "sol" },
+            ),
+        ),
+    )
+    .addSubcommand(sub =>
+      sub.setName("solde")
+        .setDescription("View your current private simulation")
+        .setDescriptionLocalizations({
+          fr: "Afficher ton portefeuille simulé et son évolution",
+          "es-ES": "Ver tu cartera simulada y su evolución",
+        }),
+    )
+    .addSubcommand(sub =>
+      sub.setName("reinitialiser")
+        .setDescription("Delete your simulated portfolio")
+        .setDescriptionLocalizations({
+          fr: "Effacer ton portefeuille simulé",
+          "es-ES": "Borrar tu cartera simulada",
+        }),
+    )
+    .addSubcommand(sub =>
+      sub.setName("strategie")
+        .setDescription("Backtest an illustrative paper strategy on public Binance candles")
+        .setDescriptionLocalizations({
+          fr: "Tester une règle fictive sur les bougies Binance publiques",
+          "es-ES": "Probar una regla ficticia con velas públicas de Binance",
+        })
+        .addStringOption(opt =>
+          opt.setName("actif")
+            .setDescription("EUR market to test")
+            .setDescriptionLocalizations({ fr: "Marché en euros à tester", "es-ES": "Mercado en euros que probar" })
+            .setRequired(true)
+            .addChoices(
+              { name: "Bitcoin (BTC/EUR)", value: "btc" },
+              { name: "Ethereum (ETH/EUR)", value: "eth" },
+              { name: "Solana (SOL/EUR)", value: "sol" },
+            ),
+        )
+        .addNumberOption(opt =>
+          opt.setName("frais_pct")
+            .setDescription("Assumed fee per side in percent; default 0.1")
+            .setDescriptionLocalizations({
+              fr: "Frais supposés par côté en pourcentage; défaut 0,1",
+              "es-ES": "Comisión supuesta por lado en porcentaje; predeterminado 0,1",
+            })
+            .setMinValue(0)
+            .setMaxValue(5)
+            .setRequired(false),
+        ),
+    )
+    .toJSON(),
+
   // ── Welcome (admin setup) ─────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("welcome")

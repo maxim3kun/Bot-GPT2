@@ -330,6 +330,10 @@ export function getTransportMetadataCollection(): Collection<import("../discord/
 export function getWeatherCacheCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("public_weather_cache") ?? null;
 }
+/** Encrypted per-user simulated portfolios only; never exchange credentials or real balances. */
+export function getCryptoPaperAccountsCollection<T extends import("mongodb").Document>(): Collection<T> | null {
+  return db?.collection<T>("crypto_paper_accounts") ?? null;
+}
 export function getTransportPreferencesCollection(): Collection<TransportPreferencesDoc> | null {
   return transportPreferencesCol;
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, ActivityType, GuildMember, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Partials, Message, EmbedBuilder, ActivityType, GuildMember, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
 import os from "os";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
@@ -109,6 +109,8 @@ import {
 } from "./discord/module-technician.js";
 import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-fallback.js";
 import { MessageEventDeduper } from "./discord/message-event-dedupe.js";
+import { buildCryptoPaperEmbed, cryptoPaperSimulator, getKrakenQuote, isCryptoAsset } from "./discord/crypto-simulator.js";
+import { buildCrossoverBacktestEmbed, getBinanceHourlyCandles, runSmaCrossoverBacktest } from "./discord/crypto-strategy.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -815,7 +817,11 @@ export function startBot(): void {
     const failureBefore = getModuleLastFailureAt(commandModule);
 
     try {
-      await interaction.deferReply();
+      if (interaction.commandName === "crypto") {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      } else {
+        await interaction.deferReply();
+      }
       const responseLang = getEffectiveLanguage(interaction.guildId, interaction.user.id);
 
       // Fetch full GuildMember for voice-state access
@@ -965,6 +971,91 @@ export function startBot(): void {
         case "pokemon": {
           const pokeName = interaction.options.getString("name", true);
           await handlePokemon(pokeName, responseLang, (opts) => interaction.editReply(opts as Parameters<typeof interaction.editReply>[0]));
+          break;
+        }
+
+        case "crypto": {
+          const action = interaction.options.getSubcommand();
+          const fr = responseLang === "fr";
+          if (action === "demarrer") {
+            const requestedAsset: unknown = interaction.options.getString("actif", true);
+            if (!isCryptoAsset(requestedAsset)) {
+              await interaction.editReply(fr ? "❌ Choisis Bitcoin, Ethereum ou Solana." : "❌ Choose Bitcoin, Ethereum or Solana.");
+              break;
+            }
+            const started = await cryptoPaperSimulator.start(interaction.user.id, requestedAsset);
+            if (started.status === "created") {
+              await interaction.editReply({ embeds: [buildCryptoPaperEmbed(started.account, started.quote, responseLang)] });
+            } else if (started.status === "exists") {
+              await interaction.editReply(fr
+                ? "Tu as déjà une simulation. Consulte-la avec `/crypto solde` ou efface-la avec `/crypto reinitialiser`."
+                : "You already have a simulation. View it with `/crypto solde` or erase it with `/crypto reinitialiser`.");
+            } else if (started.status === "unavailable") {
+              await interaction.editReply(fr
+                ? "⚠️ Simulation indisponible : le stockage chiffré n’est pas prêt. Aucun compte n’a été créé."
+                : "⚠️ Simulation unavailable: encrypted storage is not ready. No account was created.");
+            } else if (started.status === "price_unavailable") {
+              await interaction.editReply(fr
+                ? "⚠️ Le cours Kraken n’a pas pu être vérifié. Aucun portefeuille fictif n’a été créé; réessaie plus tard."
+                : "⚠️ The Kraken price could not be verified. No paper portfolio was created; try again later.");
+            } else {
+              await interaction.editReply(fr
+                ? "⚠️ Impossible d’enregistrer la simulation. Aucune transaction réelle n’a eu lieu."
+                : "⚠️ The simulation could not be saved. No real transaction took place.");
+            }
+          } else if (action === "strategie") {
+            const requestedAsset: unknown = interaction.options.getString("actif", true);
+            const feePercent = interaction.options.getNumber("frais_pct") ?? 0.1;
+            if (!isCryptoAsset(requestedAsset)) {
+              await interaction.editReply(fr ? "❌ Choisis Bitcoin, Ethereum ou Solana." : "❌ Choose Bitcoin, Ethereum or Solana.");
+              break;
+            }
+            try {
+              const candles = await getBinanceHourlyCandles(requestedAsset);
+              const result = runSmaCrossoverBacktest(requestedAsset, candles, {
+                initialEur: 10,
+                feeRate: feePercent / 100,
+              });
+              await interaction.editReply({ embeds: [buildCrossoverBacktestEmbed(result, responseLang)] });
+            } catch {
+              await interaction.editReply(fr
+                ? "⚠️ Le test historique n’a pas pu être calculé : données Binance manquantes ou insuffisantes. Aucun ordre réel n’a été envoyé."
+                : "⚠️ The historical test could not be calculated: Binance data is missing or insufficient. No real order was sent.");
+            }
+          } else if (action === "solde") {
+            const stored = await cryptoPaperSimulator.get(interaction.user.id);
+            if (stored.status === "empty") {
+              await interaction.editReply(fr
+                ? "Tu n’as pas encore de portefeuille fictif. Lance `/crypto demarrer` pour investir virtuellement 10 €."
+                : "You do not have a paper portfolio yet. Use `/crypto demarrer` to start a virtual €10 investment.");
+            } else if (stored.status === "unavailable") {
+              await interaction.editReply(fr
+                ? "⚠️ Simulation indisponible : le stockage chiffré n’est pas prêt."
+                : "⚠️ Simulation unavailable: encrypted storage is not ready.");
+            } else if (stored.status === "error") {
+              await interaction.editReply(fr
+                ? "⚠️ Impossible de lire ta simulation. Aucune donnée n’a été modifiée."
+                : "⚠️ The simulation could not be read. No data was changed.");
+            } else {
+              try {
+                const quote = await getKrakenQuote(stored.account.asset);
+                await interaction.editReply({ embeds: [buildCryptoPaperEmbed(stored.account, quote, responseLang)] });
+              } catch {
+                await interaction.editReply(fr
+                  ? "⚠️ Le cours Kraken est momentanément indisponible. Ta simulation n’a pas été modifiée."
+                  : "⚠️ The Kraken price is temporarily unavailable. Your simulation was not changed.");
+              }
+            }
+          } else if (action === "reinitialiser") {
+            const result = await cryptoPaperSimulator.reset(interaction.user.id);
+            await interaction.editReply(result === "deleted"
+              ? fr ? "Simulation effacée. Aucun argent réel n’a été touché." : "Simulation deleted. No real money was affected."
+              : result === "empty"
+                ? fr ? "Aucune simulation à effacer." : "There is no simulation to delete."
+                : result === "unavailable"
+                  ? fr ? "⚠️ Le stockage chiffré n’est pas prêt; la simulation n’a pas été effacée." : "⚠️ Encrypted storage is not ready; the simulation was not deleted."
+                  : fr ? "⚠️ Impossible de confirmer l’effacement. Réessaie plus tard." : "⚠️ Deletion could not be confirmed. Try again later.");
+          }
           break;
         }
 

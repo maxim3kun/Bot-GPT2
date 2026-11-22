@@ -24,7 +24,7 @@ export type HelpTopic =
   | "language" | "general" | "games" | "dj" | "music" | "radio" | "youtube" | "karaoke"
   | "playlist" | "voice" | "ai" | "quest" | "levels" | "birthday" | "guesslogo" | "tools"
   | "dictionary" | "qr" | "echo" | "pokemon" | "welcome" | "schedule" | "agenda" | "food" | "civic"
-  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme";
+  | "tierlist" | "blindtest" | "milliongame" | "persona" | "memory" | "diagnostics" | "translation" | "meme" | "crypto";
 
 interface FavoriteCommand {
   id: string;
@@ -666,6 +666,10 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
         name: sections.tools,
         value: `\`${p}define <${args.word}>\` · \`${p}pokemon <${args.name}>\`\n\`${p}qr <${args.text}>\` · \`${p}food\` · \`${p}translate <${args.language}>\`\n\`${p}meme\` · \`${p}shazam\`\n\`${p}excel <URL>\` · \`${p}pdf <URL>\``,
       },
+      {
+        name: lang === "fr" ? "Simulation crypto" : "Crypto simulation",
+        value: "`/crypto demarrer` · `/crypto solde` · `/crypto strategie` · `/crypto reinitialiser`",
+      },
     );
   } else if (page === 3) {
     embed.addFields(
@@ -805,6 +809,7 @@ export function resolveTopicKey(raw: string, langOverride?: HelpLanguage): { top
     translate: { topic: "translation" }, translation: { topic: "translation" },
     traduis: { topic: "translation", lang: "fr" }, traduction: { topic: "translation", lang: "fr" },
     meme: { topic: "meme" }, mème: { topic: "meme", lang: "fr" },
+    crypto: { topic: "crypto" }, cryptomonnaie: { topic: "crypto", lang: "fr" }, cryptomonnaies: { topic: "crypto", lang: "fr" },
     memory: { topic: "memory" }, mémoire: { topic: "memory", lang: "fr" }, memoire: { topic: "memory", lang: "fr" },
     tech: { topic: "diagnostics" }, technician: { topic: "diagnostics" }, diagnostic: { topic: "diagnostics", lang: "fr" },
     language: { topic: "language" }, langue: { topic: "language", lang: "fr" }, idioma: { topic: "language", lang: "es" },
@@ -878,6 +883,43 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
   const embed = new EmbedBuilder().setCommandPrefix(prefix).setColor(COLORS[lang]);
 
   switch (topic) {
+    case "crypto":
+      embed.setTitle({ en: "🧪 Crypto paper simulator", fr: "🧪 Simulation crypto fictive", es: "🧪 Simulación cripto ficticia", de: "🧪 Krypto-Simulation", pt: "🧪 Simulação cripto fictícia", it: "🧪 Simulazione crypto" }[tl] ?? "🧪 Crypto paper simulator");
+      embed.addFields(
+        { name: "`/crypto demarrer`", value: {
+          en: "Start a one-time simulated €10 purchase of Bitcoin, Ethereum or Solana using a public Kraken quote.",
+          fr: "Démarre un achat fictif unique de 10 € en Bitcoin, Ethereum ou Solana, avec un cours public Kraken.",
+          es: "Inicia una compra ficticia única de 10 € en Bitcoin, Ethereum o Solana con un precio público de Kraken.",
+          de: "Startet einen einmaligen simulierten Kauf im Wert von 10 € in Bitcoin, Ethereum oder Solana mit einem öffentlichen Kraken-Kurs.",
+          pt: "Inicia uma compra fictícia única de 10 € em Bitcoin, Ethereum ou Solana usando uma cotação pública da Kraken.",
+          it: "Avvia un acquisto simulato unico di 10 € in Bitcoin, Ethereum o Solana usando un prezzo pubblico Kraken.",
+        }[tl] ?? "" },
+        { name: "`/crypto solde`", value: {
+          en: "Privately show the simulated value and gain or loss. It is not a forecast.",
+          fr: "Affiche en privé la valeur simulée et le gain ou la perte. Ce n’est pas une prévision.",
+          es: "Muestra en privado el valor simulado y la ganancia o pérdida. No es una previsión.",
+          de: "Zeigt privat den simulierten Wert sowie Gewinn oder Verlust. Es ist keine Prognose.",
+          pt: "Mostra em privado o valor simulado e o ganho ou perda. Não é uma previsão.",
+          it: "Mostra in privato il valore simulato e il guadagno o la perdita. Non è una previsione.",
+        }[tl] ?? "" },
+        { name: "`/crypto reinitialiser`", value: {
+          en: "Delete your simulated account. No real money is involved; fees are excluded.",
+          fr: "Efface ton compte simulé. Aucun argent réel n’est utilisé; les frais sont exclus.",
+          es: "Borra tu cuenta simulada. No se usa dinero real; se excluyen las comisiones.",
+          de: "Löscht dein Simulationskonto. Es wird kein echtes Geld verwendet; Gebühren sind nicht enthalten.",
+          pt: "Apaga a conta simulada. Não se usa dinheiro real; as taxas não estão incluídas.",
+          it: "Elimina il conto simulato. Non viene usato denaro reale; le commissioni sono escluse.",
+        }[tl] ?? "" },
+        { name: "`/crypto strategie`", value: {
+          en: "Backtest an illustrative 24 h / 72 h moving-average rule against buy-and-hold using public Binance EUR candles. Historical results are not a forecast.",
+          fr: "Teste une règle illustrative de moyennes mobiles 24 h / 72 h face à l’achat conservé, avec les bougies Binance en euros. Le passé ne prédit pas le futur.",
+          es: "Prueba una regla ilustrativa de medias móviles de 24 h / 72 h frente a comprar y mantener, con velas públicas de Binance en euros. El pasado no predice el futuro.",
+          de: "Testet eine beispielhafte 24-h-/72-h-Durchschnittsregel gegen Kaufen und Halten mit öffentlichen Binance-EUR-Kerzen. Historische Ergebnisse sind keine Prognose.",
+          pt: "Testa uma regra ilustrativa de médias móveis de 24 h / 72 h contra comprar e manter, com velas públicas da Binance em euros. O passado não prevê o futuro.",
+          it: "Confronta una regola illustrativa di medie mobili 24 h / 72 h con compra e mantieni, usando candele pubbliche Binance in euro. Il passato non è una previsione.",
+        }[tl] ?? "" },
+      );
+      break;
     case "civic":
       embed.setTitle({ en: "📚 Verified civic data", fr: "📚 Informations civiques vérifiées", es: "📚 Datos cívicos verificados", de: "📚 Geprüfte Bürgerdaten", pt: "📚 Dados cívicos verificados", it: "📚 Dati civici verificati" }[tl] ?? "📚 Verified civic data");
       embed.addFields(
