@@ -15,6 +15,7 @@ export function mapsDirectionsUrl(origin: OfficialPlace, destination: OfficialPl
   url.searchParams.set("api", "1");
   url.searchParams.set("origin", origin.label);
   url.searchParams.set("destination", destination.label);
+  url.searchParams.set("dir_action", "navigate");
   url.searchParams.set("travelmode", mode === "walk" ? "walking" : mode === "car" ? "driving"
     : mode === "bike" ? "bicycling" : "transit");
   return url.toString();

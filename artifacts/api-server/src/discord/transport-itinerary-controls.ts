@@ -111,7 +111,7 @@ export class ItineraryControls {
     const ticket = view.ticket, fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
     const id = `transport-trip:${randomUUID()}`;
     let mapBuffer = hasMapPreview(view.journey) ? await this.mapRenderer(view.journey).catch(() => undefined) : undefined;
-    let pages = applyRouteMap(itineraryPages(view, fr), view.journey, mapBuffer, fr), page = 0, expanded = false;
+    let pages = applyRouteMap(itineraryPages(view, fr), view.journey, mapBuffer, fr), page = 0;
     let compactRoad = !!view.journey.road && pages.length > 1;
     let lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
@@ -128,27 +128,17 @@ export class ItineraryControls {
       )];
       const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary));
       if (compactRoad) {
-        const detailCount = pages.length - 1;
-        if (expanded && detailCount > 1) {
-          primary.addComponents(button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page >= detailCount - 1));
-          return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(
-            map(), button("summary", t("Résumé", "Summary")), button("close", t("Fermer", "Close")),
-          )];
-        }
         return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
-          button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : "🗺️"),
-          button("close", t("Fermer", "Close")),
+          button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(), button("close", t("Fermer", "Close")),
         )];
       } else if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
       const secondary = [source(), map()];
       secondary.push(button("close", t("Fermer", "Close")));
       if (pages.length <= 1) { primary.addComponents(...secondary); return [primary]; }
-      if (compactRoad && (!expanded || pages.length === 2)) { primary.addComponents(...secondary); return [primary]; }
       return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(...secondary)];
     };
-    const visiblePage = () => pages[compactRoad ? (expanded ? page + 1 : 0) : page];
+    const visiblePage = () => pages[compactRoad ? 0 : page];
     const payload = (notice = "", closed = false): Payload => ({
       content: [embedded && visiblePage() ? "" : lastText, notice].filter(Boolean).join("\n\n"),
       embeds: embedded && visiblePage() ? [visiblePage()!.embed] : [],
@@ -195,7 +185,7 @@ export class ItineraryControls {
         return;
       }
       const action = interaction.customId.slice(id.length + 1);
-       if (!["refresh", "prev", "next", "details", "summary", "close"].includes(action)) return;
+       if (!["refresh", "prev", "next", "close"].includes(action)) return;
       if (!live || !this.service.remaining(scope, ticket)) {
         await ephemeral(interaction, t("Cette recherche est expirée ou remplacée. Demande un nouveau trajet.", "This search expired or was replaced. Request a new journey."));
         collector.stop("replaced");
@@ -212,18 +202,10 @@ export class ItineraryControls {
         await interaction.deferUpdate();
         if (!await this.authorize(message, language)) { collector.stop("denied"); return; }
         if (!live || !this.service.remaining(scope, ticket)) { collector.stop("replaced"); return; }
-        if (compactRoad && action === "details") {
-          expanded = true; page = 0; lastText = pages[1]?.content ?? lastText;
-          await edit(); return;
-        }
-        if (compactRoad && action === "summary") {
-          expanded = false; page = 0; lastText = pages[0]?.content ?? lastText;
-          await edit(); return;
-        }
         if (action === "prev" || action === "next") {
-          const lastPage = compactRoad ? pages.length - 2 : pages.length - 1;
+          const lastPage = pages.length - 1;
           page = Math.max(0, Math.min(lastPage, page + (action === "next" ? 1 : -1)));
-          lastText = pages[compactRoad ? page + 1 : page]?.content ?? lastText;
+          lastText = pages[page]?.content ?? lastText;
           await edit(); return;
         }
         const updated = await this.service.refresh(scope, ticket, language);
@@ -236,7 +218,7 @@ export class ItineraryControls {
         pages = updated.itinerary ? applyRouteMap(itineraryPages(updated.itinerary, fr),
           updated.itinerary.journey, mapBuffer, fr) : [];
         compactRoad = !!updated.itinerary?.journey.road && pages.length > 1;
-        expanded = false; page = 0; lastText = pages[0]?.content ?? updated.content;
+        page = 0; lastText = pages[0]?.content ?? updated.content;
         await edit();
       } finally { busy = false; }
     };
@@ -244,7 +226,7 @@ export class ItineraryControls {
       try { await interact(interaction); }
       catch {
         if (!live || !this.service.remaining(scope, ticket)) return;
-        pages = []; compactRoad = false; expanded = false; page = 0;
+        pages = []; compactRoad = false; page = 0;
         mapBuffer = undefined;
         lastText = t("L’actualisation a échoué. Aucun nouveau trajet n’est confirmé.", "Refresh failed. No new journey is confirmed.");
         await edit().catch(() => undefined);

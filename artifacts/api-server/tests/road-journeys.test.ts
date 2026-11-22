@@ -211,30 +211,25 @@ test("road presentation and source never claim PRIM or live traffic", async () =
   assert.equal(pages[0]!.embed.url,ROAD_SOURCE); assert.doesNotMatch(json,/PRIM|Île-de-France Mobilités|Horaires théoriques|Europe\/Paris|2026-11/);
   assert.ok(pages.every(p=>p.content.length<2000));
 });
-test("road cards start with a compact summary and reveal paginated directions on demand", async () => {
+test("road cards stay compact and use only the Maps emoji for external directions", async () => {
   const s=setup(), d=fakeDiscord();
   const steps=Array.from({length:7},(_,i)=>({distance:i===6?11000:9000,duration:i===6?600:500,instruction:{type:"continue",modifier:"straight"},attributes:{name:`D${i+1}`} }));
   s.road.journeys=async(a,b,at,rep,_fresh,mode)=>[parseRoad({...body(mode==="walk"?"pedestrian":"car"),portions:[{steps}]},a,b,at,rep,mode)];
   await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
   const card=d.cards[0]!;
   const labels=card.last.components.flatMap(row=>row.components.map(component=>component.label));
-  assert.ok(labels.includes("🗺️"));
   assert.ok(labels.includes("Fermer"));
   assert.equal(card.last.components.length,1);
+  assert.equal(labels.filter(Boolean).length,2);
   assert.ok(card.last.components[0]!.components.some(component=>component.emoji?.name==="Maps"));
   assert.ok(!labels.includes("IGN") && !labels.includes("Carte"));
   const mapButton=card.last.components.flatMap(row=>row.components).find(component=>component.url?.includes("google.com/maps/dir/"));
   assert.equal(mapButton?.label,undefined);
   assert.deepEqual(mapButton?.emoji,{id:"1574083298232111215",name:"Maps"});
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
-  assert.ok(card.custom("details"));
-  await card.collector.collect(card.interaction("details").value);
-  assert.match(card.last.embeds[0]?.title ?? "",/Le trajet 1\/2/);
-  assert.match(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
-  assert.ok(card.custom("next")); assert.ok(card.custom("summary"));
-  await card.collector.collect(card.interaction("next").value);
-  assert.match(card.last.embeds[0]?.title ?? "",/Le trajet 2\/2/);
-  await card.collector.collect(card.interaction("summary").value);
+  assert.ok(!card.custom("details"));
+  assert.ok(!card.custom("summary"));
+  assert.ok(!card.custom("next"));
   assert.match(card.last.embeds[0]?.title ?? "",/Beauvais.*Amiens/);
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
   await card.collector.collect(card.interaction("close").value); await card.collector.endWork;
@@ -294,6 +289,7 @@ test("Google Maps links encode endpoints and select the requested mode without a
   assert.equal(url.searchParams.get("origin"),"10 rue A & 2, Beauvais");
   assert.equal(url.searchParams.get("destination"),"Gare d’Amiens");
   assert.equal(url.searchParams.get("travelmode"),"walking");
+  assert.equal(url.searchParams.get("dir_action"),"navigate");
   assert.equal(new URL(mapsDirectionsUrl(from,to,"bike")).searchParams.get("travelmode"),"bicycling");
   assert.equal(new URL(mapsDirectionsUrl(from,to,"transit")).searchParams.get("travelmode"),"transit");
 });
