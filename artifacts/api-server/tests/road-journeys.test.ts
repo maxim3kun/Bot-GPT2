@@ -190,7 +190,7 @@ test("road presentation and source never claim PRIM or live traffic", async () =
 });
 test("road cards start with a compact summary and reveal paginated directions on demand", async () => {
   const s=setup(), d=fakeDiscord();
-  const steps=Array.from({length:7},(_,i)=>({distance:9000,duration:480,instruction:{type:"continue",modifier:"straight"},attributes:{name:`D${i+1}`} }));
+  const steps=Array.from({length:7},(_,i)=>({distance:i===6?11000:9000,duration:i===6?600:500,instruction:{type:"continue",modifier:"straight"},attributes:{name:`D${i+1}`} }));
   s.road.journeys=async(a,b,at,rep,_fresh,mode)=>[parseRoad({...body(mode==="walk"?"pedestrian":"car"),portions:[{steps}]},a,b,at,rep,mode)];
   await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
   const card=d.cards[0]!;
