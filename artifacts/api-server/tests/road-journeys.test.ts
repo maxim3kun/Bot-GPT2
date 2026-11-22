@@ -218,7 +218,7 @@ test("road cards start with a compact summary and reveal paginated directions on
   await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
   const card=d.cards[0]!;
   const labels=card.last.components.flatMap(row=>row.components.map(component=>component.label));
-  assert.ok(labels.includes("Le trajet"));
+  assert.ok(labels.includes("🗺️"));
   assert.ok(labels.includes("Fermer"));
   assert.equal(card.last.components.length,1);
   assert.ok(card.last.components[0]!.components.some(component=>component.emoji?.name==="Maps"));

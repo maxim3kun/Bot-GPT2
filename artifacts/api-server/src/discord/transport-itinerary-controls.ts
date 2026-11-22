@@ -137,7 +137,7 @@ export class ItineraryControls {
         }
         return [new ActionRowBuilder<ButtonBuilder>().addComponents(
           button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
-          button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Le trajet", "The route")),
+          button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : "🗺️"),
           button("close", t("Fermer", "Close")),
         )];
       } else if (pages.length > 1) primary.addComponents(
