@@ -66,7 +66,9 @@ export class ItineraryControls {
     if (!view || !this.service.remaining(scope, view.ticket)) return;
     const ticket = view.ticket, fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
     const id = `transport-trip:${randomUUID()}`;
-    let pages = itineraryPages(view, fr), page = 0, lastText = pages[0]!.content;
+    let pages = itineraryPages(view, fr), page = 0, expanded = false;
+    let compactRoad = !!view.journey.road && pages.length > 1;
+    let lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
     const source = () => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Source").setURL(itinerarySource(view.journey));
     const map = () => new ButtonBuilder().setStyle(ButtonStyle.Link)
@@ -77,15 +79,24 @@ export class ItineraryControls {
     const rows = (closed = false) => {
       if (closed) return [new ActionRowBuilder<ButtonBuilder>().addComponents(source(), map())];
       const primary = new ActionRowBuilder<ButtonBuilder>().addComponents(button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary));
-      if (pages.length > 1) primary.addComponents(
+      if (compactRoad) {
+        const detailCount = pages.length - 1;
+        if (expanded && detailCount > 1) primary.addComponents(
+          button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page >= detailCount - 1));
+      } else if (pages.length > 1) primary.addComponents(
         button("prev", "←").setDisabled(page === 0), button("next", "→").setDisabled(page === pages.length - 1));
-      const secondary = [source(), map(), button("close", t("Fermer", "Close"))];
+      const secondary = [source(), map()];
+      if (compactRoad) secondary.push(button(expanded ? "summary" : "details",
+        expanded ? t("Résumé", "Summary") : t("Instructions", "Directions")));
+      secondary.push(button("close", t("Fermer", "Close")));
       if (pages.length <= 1) { primary.addComponents(...secondary); return [primary]; }
+      if (compactRoad && (!expanded || pages.length === 2)) { primary.addComponents(...secondary); return [primary]; }
       return [primary, new ActionRowBuilder<ButtonBuilder>().addComponents(...secondary)];
     };
+    const visiblePage = () => pages[compactRoad ? (expanded ? page + 1 : 0) : page];
     const payload = (notice = "", closed = false): Payload => ({
-      content: [embedded && pages[page] ? "" : lastText, notice].filter(Boolean).join("\n\n"),
-      embeds: embedded && pages[page] ? [pages[page]!.embed] : [],
+      content: [embedded && visiblePage() ? "" : lastText, notice].filter(Boolean).join("\n\n"),
+      embeds: embedded && visiblePage() ? [visiblePage()!.embed] : [],
       components: rows(closed), allowedMentions: { parse: [] },
     });
     const write = async (writer: (data: Payload) => Promise<Message>, notice = "", closed = false) => {
@@ -128,7 +139,7 @@ export class ItineraryControls {
         return;
       }
       const action = interaction.customId.slice(id.length + 1);
-      if (!["refresh", "prev", "next", "close"].includes(action)) return;
+       if (!["refresh", "prev", "next", "details", "summary", "close"].includes(action)) return;
       if (!live || !this.service.remaining(scope, ticket)) {
         await ephemeral(interaction, t("Cette recherche est expirée ou remplacée. Demande un nouveau trajet.", "This search expired or was replaced. Request a new journey."));
         collector.stop("replaced");
@@ -145,9 +156,18 @@ export class ItineraryControls {
         await interaction.deferUpdate();
         if (!await this.authorize(message, language)) { collector.stop("denied"); return; }
         if (!live || !this.service.remaining(scope, ticket)) { collector.stop("replaced"); return; }
+        if (compactRoad && action === "details") {
+          expanded = true; page = 0; lastText = pages[1]?.content ?? lastText;
+          await edit(); return;
+        }
+        if (compactRoad && action === "summary") {
+          expanded = false; page = 0; lastText = pages[0]?.content ?? lastText;
+          await edit(); return;
+        }
         if (action === "prev" || action === "next") {
-          page = Math.max(0, Math.min(pages.length - 1, page + (action === "next" ? 1 : -1)));
-          lastText = pages[page]?.content ?? lastText;
+          const lastPage = compactRoad ? pages.length - 2 : pages.length - 1;
+          page = Math.max(0, Math.min(lastPage, page + (action === "next" ? 1 : -1)));
+          lastText = pages[compactRoad ? page + 1 : page]?.content ?? lastText;
           await edit(); return;
         }
         const updated = await this.service.refresh(scope, ticket, language);
@@ -156,7 +176,8 @@ export class ItineraryControls {
           collector.stop("replaced"); return;
         }
         pages = updated.itinerary ? itineraryPages(updated.itinerary, fr) : [];
-        page = 0; lastText = pages[0]?.content ?? updated.content;
+        compactRoad = !!updated.itinerary?.journey.road && pages.length > 1;
+        expanded = false; page = 0; lastText = pages[0]?.content ?? updated.content;
         await edit();
       } finally { busy = false; }
     };
@@ -164,7 +185,7 @@ export class ItineraryControls {
       try { await interact(interaction); }
       catch {
         if (!live || !this.service.remaining(scope, ticket)) return;
-        pages = []; page = 0;
+        pages = []; compactRoad = false; expanded = false; page = 0;
         lastText = t("L’actualisation a échoué. Aucun nouveau trajet n’est confirmé.", "Refresh failed. No new journey is confirmed.");
         await edit().catch(() => undefined);
       }

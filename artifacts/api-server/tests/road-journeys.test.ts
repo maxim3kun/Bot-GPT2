@@ -182,8 +182,30 @@ test("road presentation and source never claim PRIM or live traffic", async () =
   const s=setup(),result=(await s.service.reply("s","Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
   const pages=itineraryPages(result.itinerary!,true), json=JSON.stringify(pages);
   assert.match(json,/65 km/); assert.match(json,/60 min/); assert.match(json,/Arrivée estimée/); assert.match(json,/sans trafic en temps réel/);
+  assert.match(pages[0]!.embed.title!,/voiture/);
+  assert.doesNotMatch(JSON.stringify(pages[0]!.embed.fields),/Instructions du trajet/);
+  assert.match(JSON.stringify(pages[1]!.embed.fields),/Instructions du trajet/);
   assert.equal(pages[0]!.embed.url,ROAD_SOURCE); assert.doesNotMatch(json,/PRIM|Île-de-France Mobilités|Horaires théoriques/);
   assert.ok(pages.every(p=>p.content.length<2000));
+});
+test("road cards start with a compact summary and reveal paginated directions on demand", async () => {
+  const s=setup(), d=fakeDiscord();
+  const steps=Array.from({length:7},(_,i)=>({distance:9000,duration:480,instruction:{type:"continue",modifier:"straight"},attributes:{name:`D${i+1}`} }));
+  s.road.journeys=async(a,b,at,rep,_fresh,mode)=>[parseRoad({...body(mode==="walk"?"pedestrian":"car"),portions:[{steps}]},a,b,at,rep,mode)];
+  await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
+  const card=d.cards[0]!;
+  assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Instructions du trajet/);
+  assert.ok(card.custom("details"));
+  await card.collector.collect(card.interaction("details").value);
+  assert.match(card.last.embeds[0]?.title ?? "",/Instructions 1\/2/);
+  assert.match(JSON.stringify(card.last.embeds[0]?.fields),/Instructions du trajet/);
+  assert.ok(card.custom("next")); assert.ok(card.custom("summary"));
+  await card.collector.collect(card.interaction("next").value);
+  assert.match(card.last.embeds[0]?.title ?? "",/Instructions 2\/2/);
+  await card.collector.collect(card.interaction("summary").value);
+  assert.match(card.last.embeds[0]?.title ?? "",/Itinéraire en voiture/);
+  assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Instructions du trajet/);
+  await card.collector.collect(card.interaction("close").value); await card.collector.endWork;
 });
 test("native command and natural AI request use identical cards in guilds and DMs", async () => {
   const a=setup(),b=setup(),da=fakeDiscord(),db=fakeDiscord({guildId:null});

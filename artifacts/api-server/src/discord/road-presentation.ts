@@ -31,13 +31,25 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     if (group.length >= 6 || group.join("\n").length + text.length > 700) groups.push([]);
     groups.at(-1)!.push(text);
   });
-  return groups.map((items, index) => {
-    const suffix = groups.length > 1 ? ` · ${index + 1}/${groups.length}` : "";
+  const footerText = footer;
+  const summaryPage: ItineraryPage = {
+    embed: { color: TRANSPORT_CARD_COLOR, title, url: ROAD_SOURCE, description,
+      fields: [
+        { name: fr ? "Distance et durée estimée" : "Distance and estimated time", value: summary },
+        { name: fr ? "À savoir" : "Please note", value: note },
+      ],
+      footer: { text: footerText } },
+    content: `**${title}**\n${description}\n\n${summary}\n\n${note}\n${footerText}\n[IGN / Géoplateforme](${ROAD_SOURCE})`,
+  };
+  const detailPages = groups.filter(items => items.length).map((items, index) => {
+    const suffix = groups.length > 1
+      ? ` · ${fr ? "Instructions" : "Directions"} ${index + 1}/${groups.length}`
+      : ` · ${fr ? "Instructions" : "Directions"}`;
     const steps = items.join("\n");
     return { embed: { color: TRANSPORT_CARD_COLOR, title: title + suffix, url: ROAD_SOURCE, description,
-      fields: [{ name: fr ? "Distance et estimation" : "Distance and estimate", value: summary },
-        { name: fr ? "Instructions du trajet" : "Route directions", value: steps },
-        { name: fr ? "À savoir" : "Please note", value: note }], footer: { text: footer } },
-      content: `**${title}${suffix}**\n${description}\n\n${summary}\n\n${steps}\n\n${note}\n${footer}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
+      fields: [{ name: fr ? "Instructions du trajet" : "Route directions", value: steps }],
+      footer: { text: footerText } },
+      content: `**${title}${suffix}**\n${description}\n\n${steps}\n\n${footerText}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
   });
+  return [summaryPage, ...detailPages];
 }
