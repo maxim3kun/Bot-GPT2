@@ -5,12 +5,18 @@ export interface RecordedPayload {
   content?: string;
   embeds: any[];
   components: { components: { custom_id?: string; url?: string; label?: string; disabled?: boolean }[] }[];
+  files: { name?: string; size?: number }[];
 }
 const record = (payload: any): RecordedPayload => structuredClone(typeof payload === "string" ? {
   content: payload, embeds: [], components: [],
 } : {
   content: payload.content, embeds: payload.embeds ?? [],
   components: (payload.components ?? []).map((row: any) => row.toJSON ? row.toJSON() : row),
+  files: (payload.files ?? []).map((file: any) => ({
+    name: file.name ?? file.attachment?.name,
+    size: Buffer.isBuffer(file.attachment) ? file.attachment.length
+      : Buffer.isBuffer(file) ? file.length : undefined,
+  })),
 });
 export class FakeCollector extends EventEmitter {
   stopped = false;

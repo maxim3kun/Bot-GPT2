@@ -11,12 +11,16 @@ import { parseAiCommandTool, buildAiCommandTools } from "../src/discord/ai-comma
 import { selectAiCommand } from "../src/discord/ai-command-intent.js";
 import { travelTurn } from "../src/discord/transport-intent.js";
 import { PlannerError, type OfficialPlace, type ItineraryProvider } from "../src/discord/transport-planner-types.js";
+import { renderRouteMap } from "../src/discord/transport-route-map.js";
+import sharp from "sharp";
 import { fakeDiscord } from "./fixtures/transport-discord.js";
 const NOW = Date.UTC(2026, 10, 11, 14);
 const from: OfficialPlace = { id: "ign:60057", ids: ["ign:60057"], name: "Beauvais", label: "Beauvais · 60, Oise", longitude: 2.08, latitude: 49.43 };
 const to: OfficialPlace = { id: "ign:80021", ids: ["ign:80021"], name: "Amiens", label: "Amiens · 80, Somme", longitude: 2.29, latitude: 49.89 };
-const body = (profile = "car") => ({ resource: "bdtopo-osrm", profile, crs: "EPSG:4326", distanceUnit: "meter", timeUnit: "second",
+const routeGeometry = { type: "LineString", coordinates: [[2.08,49.43],[2.12,49.61],[2.29,49.89]] };
+const body = (profile = "car", geometry?: unknown) => ({ resource: "bdtopo-osrm", profile, crs: "EPSG:4326", distanceUnit: "meter", timeUnit: "second",
   start: "2.08,49.43", end: "2.29,49.89", duration: 3600, distance: 65000, resourceVersion: "2026-11-11",
+  ...(geometry ? { geometry } : {}),
   portions: [{ steps: [{ distance: 65000, duration: 3600, instruction: { type: "continue", modifier: "straight" }, attributes: { name: "D1001" } }] }] });
 const bikeBody = (options: { mode?: string; code?: string } = {}) => ({
   code: options.code ?? "Ok",
@@ -164,11 +168,27 @@ test("comparison is delivered as a compact card with source links, including wit
   const urls=d.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url));
   assert.ok(urls.some(url=>url===ROAD_SOURCE));
   assert.ok(urls.some(url=>url===BIKE_SOURCE));
+  assert.ok(urls.some(url=>url===OSM_ATTRIBUTION));
   assert.ok(urls.some(url=>url?.includes("prim.iledefrance-mobilites.fr")));
   const map=new URL(urls.find(url=>url?.includes("google.com/maps/dir"))!);
   assert.equal(map.searchParams.get("origin"),"Beauvais · 60, Oise");
   assert.equal(map.searchParams.get("destination"),"Amiens · 80, Somme");
   assert.equal(map.searchParams.get("travelmode"),({walk:"walking",car:"driving",bike:"bicycling",transit:"transit"} as const)[comparison.recommended!]);
+});
+test("comparison preview uses only the recommended route geometry and keeps the Google Maps link", async () => {
+  const s=setup(), d=fakeDiscord();
+  const comparison=(await s.service.reply("map-compare","Compare les trajets de Beauvais à Amiens à pied et en voiture","fr"))!.comparison!;
+  const selected=comparison.entries.find(entry=>entry.mode===comparison.recommended)!.journey!;
+  selected.road!.geometry=routeGeometry.coordinates as [number,number][];
+  let rendered: unknown;
+  const controls=new ItineraryControls(s.service,async()=>true,async journey=>{rendered=journey.road?.geometry;return Buffer.from("verified-map");});
+  await controls.sendComparison(d.message,comparison,"fr");
+  assert.deepEqual(rendered,selected.road!.geometry);
+  assert.equal(d.cards[0]!.last.embeds[0]!.image!.url,"attachment://route-preview.png");
+  assert.match(d.cards[0]!.last.embeds[0]!.footer!.text,/Aperçu · .*calculateur IGN|Aperçu · .*routeur vélo OpenStreetMap/);
+  assert.equal(d.cards[0]!.last.files[0]!.name,"route-preview.png");
+  const map=d.cards[0]!.last.components.flatMap(row=>row.components).find(button=>button.url?.includes("google.com/maps/dir"));
+  assert.ok(map);
 });
 test("a standalone bike route is declined, while comparisons can request cycling", async () => {
   const s=setup();
@@ -213,11 +233,44 @@ test("native command and natural AI request use identical cards in guilds and DM
   await createTransportDialogue(b.service,async()=>true)(db.message,"Comment aller de Beauvais à Amiens en voiture ?","fr");
   assert.deepEqual(da.cards[0]!.last.embeds,db.cards[0]!.last.embeds);
   assert.equal(da.cards[0]!.last.embeds[0]?.url,ROAD_SOURCE);
+  assert.match(da.cards[0]!.last.embeds[0]!.footer!.text,/Aucun aperçu du tracé/);
   const mapUrl=da.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url))
     .find(url=>url?.includes("google.com/maps/dir"));
   assert.ok(mapUrl);
   assert.equal(new URL(mapUrl!).searchParams.get("travelmode"),"driving");
   da.cards[0]!.collector.stop("closed"); db.cards[0]!.collector.stop("closed");
+});
+test("journey preview attaches the verified route while retaining the external map button", async () => {
+  const s=setup(), scope="map-control";
+  s.road.journeys=async(a,b,at,rep, _fresh,mode)=>[
+    parseRoad({...body(mode==="walk"?"pedestrian":"car",routeGeometry),
+      start:`${a.longitude},${a.latitude}`,end:`${b.longitude},${b.latitude}`},a,b,at,rep,mode ?? "car"),
+  ];
+  const controls=new ItineraryControls(s.service,async()=>true,async()=>Buffer.from("verified-map"));
+  const result=(await s.service.reply(scope,"Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
+  const other=fakeDiscord();
+  await controls.send(other.message,scope,result,"fr");
+  const card=other.cards[0]!;
+  assert.equal(card.last.embeds[0]!.image!.url,"attachment://route-preview.png");
+  assert.match(card.last.embeds[0]!.footer!.text,/voiture.*IGN|driving.*IGN/i);
+  assert.equal(card.last.files[0]!.name,"route-preview.png");
+  assert.ok(card.last.components.flatMap(row=>row.components).some(button=>button.url?.includes("google.com/maps/dir")));
+  card.collector.stop("closed");
+});
+test("an unavailable IGN map tile never substitutes a route and keeps the external link", async () => {
+  const s=setup(), scope="missing-map-tile";
+  s.road.journeys=async(a,b,at,rep, _fresh,mode)=>[
+    parseRoad({...body(mode==="walk"?"pedestrian":"car",routeGeometry),
+      start:`${a.longitude},${a.latitude}`,end:`${b.longitude},${b.latitude}`},a,b,at,rep,mode ?? "car"),
+  ];
+  const result=(await s.service.reply(scope,"Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
+  const controls=new ItineraryControls(s.service,async()=>true,async()=>undefined), d=fakeDiscord();
+  await controls.send(d.message,scope,result,"fr");
+  const card=d.cards[0]!;
+  assert.equal(card.last.embeds[0]!.image,undefined);
+  assert.match(card.last.embeds[0]!.footer!.text,/fond IGN.*Aucun tracé de remplacement/);
+  assert.ok(card.last.components.flatMap(row=>row.components).some(button=>button.url?.includes("google.com/maps/dir")));
+  card.collector.stop("closed");
 });
 test("Google Maps links encode endpoints and select the requested mode without a key", () => {
   const url=new URL(mapsDirectionsUrl(
@@ -264,6 +317,13 @@ test("bad units, times, totals and mismatched endpoints cannot become a verified
   assert.throws(()=>parseRoad(body("car"),from,to,NOW/1000,"departure","walk"),PlannerError);
   const arrival=parseRoad(body(),from,to,NOW/1000+7200,"arrival");assert.equal(arrival.arrival,NOW/1000+7200);assert.equal(arrival.departure,NOW/1000+3600);
 });
+test("IGN keeps only bounded route geometry whose ends match the snapped route", () => {
+  const journey=parseRoad(body("car",routeGeometry),from,to,NOW/1000,"departure");
+  assert.deepEqual(journey.road?.geometry,routeGeometry.coordinates);
+  const malformed=parseRoad(body("car",{type:"LineString",coordinates:[[2.08,49.43],[2.29,48.89]]}),from,to,NOW/1000,"departure");
+  assert.equal(malformed.road?.geometry,undefined);
+  assert.equal(parseRoad(body(),from,to,NOW/1000,"departure").road?.geometry,undefined);
+});
 test("IGN requests select the documented pedestrian or car profile and validates that profile back", async () => {
   const requests:URL[]=[];
   const planner=new IgnRoadPlanner(async input=>{
@@ -292,6 +352,40 @@ test("cycling routes use the public bike endpoint and accept only a cycling-prof
   assert.throws(()=>parseBikeRoute(bikeBody({mode:"driving"}),from,to),PlannerError);
   assert.throws(()=>parseBikeRoute({...bikeBody(),waypoints:[{location:[-1,45]},{location:[to.longitude,to.latitude]}]},from,to),PlannerError);
   assert.equal(OSM_ATTRIBUTION,"https://www.openstreetmap.org/copyright");
+});
+test("bike router requests a full GeoJSON route and retains its verified geometry", async () => {
+  const requests:URL[]=[];
+  const geoBike={...bikeBody(),routes:[{...bikeBody().routes[0]!,geometry:routeGeometry}]};
+  const planner=new OpenStreetMapBikePlanner(async input=>{
+    requests.push(new URL(String(input)));
+    return Response.json(geoBike);
+  },()=>NOW,0);
+  const journey=(await planner.journeys(from,to,NOW/1000,"departure"))[0]!;
+  assert.equal(requests[0]!.searchParams.get("overview"),"full");
+  assert.equal(requests[0]!.searchParams.get("geometries"),"geojson");
+  assert.deepEqual(journey.road?.geometry,routeGeometry.coordinates);
+});
+test("route-map image uses interior geometry, stays small, and never draws a fallback line", async () => {
+  const tile=await sharp({create:{width:256,height:256,channels:3,background:"#ece8dd"}}).png().toBuffer();
+  const requested:URL[]=[];
+  const fetcher=async (input:RequestInfo|URL)=>{
+    requested.push(new URL(String(input)));
+    return new Response(tile,{headers:{"content-type":"image/png","content-length":String(tile.length)}});
+  };
+  const journey=parseRoad(body("car",routeGeometry),from,to,NOW/1000,"departure");
+  const first=await renderRouteMap(journey,fetcher as typeof fetch);
+  assert.ok(first);
+  const info=await sharp(first!).metadata();
+  assert.equal(info.width,512);assert.equal(info.height,512);assert.ok(first!.length<1_000_000);
+  assert.equal(requested.length,1);
+  assert.equal(requested[0]!.searchParams.get("LAYER"),"GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2");
+  const alternate={...journey,road:{...journey.road!,geometry:[[2.08,49.43],[2.18,49.48],[2.29,49.89]] as [number,number][]}};
+  const second=await renderRouteMap(alternate,fetcher as typeof fetch);
+  assert.ok(second);assert.notDeepEqual(first,second,"different router bends must produce different map images");
+  let unused=0;
+  assert.equal(await renderRouteMap(parseRoad(body(),from,to,NOW/1000,"departure"),
+    (async()=>{unused++;return new Response(tile);}) as typeof fetch),undefined);
+  assert.equal(unused,0,"missing geometry must not trigger a straight-line preview or a tile request");
 });
 test("cycling surface and facility labels require explicit recognized OSM tags", async () => {
   const response = bikeBody() as ReturnType<typeof bikeBody> & { routes: Array<{ legs: Array<{ steps: Array<Record<string, unknown>> }> }> };

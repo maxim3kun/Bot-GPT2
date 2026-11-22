@@ -1,5 +1,6 @@
 import { scheduledEpoch } from "./gtfs-realtime.js";
 import { PlannerError, type OfficialPlace, type VerifiedJourney, type VerifiedLeg } from "./transport-planner-types.js";
+import { verifiedRouteGeometry } from "./transport-route-geometry.js";
 
 export type Json = Record<string, unknown>;
 export const obj = (v: unknown): Json => v && typeof v === "object" && !Array.isArray(v) ? v as Json : {};
@@ -66,6 +67,11 @@ function endpointMatches(value: unknown, place: OfficialPlace) {
   return place.latitude != null && place.longitude != null &&
     Math.abs(Number(coord.lat) - place.latitude) < 0.000001 && Math.abs(Number(coord.lon) - place.longitude) < 0.000001;
 }
+function sectionCoordinates(value: unknown): [number, number] | undefined {
+  const p = obj(value), embedded = obj(p[text(p.embedded_type)]), coord = obj(embedded.coord);
+  const longitude = Number(coord.lon), latitude = Number(coord.lat);
+  return Number.isFinite(longitude) && Number.isFinite(latitude) ? [longitude, latitude] : undefined;
+}
 function blocking(section: Json, root: Json, departure: number, arrival: number) {
   if (section.status === "NO_SERVICE") return true;
   const linked = new Set([section, obj(section.from), obj(section.to),
@@ -102,6 +108,9 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
     const duration = Number(j.duration);
     if (!Number.isFinite(duration) || Math.abs(arr - dep - duration) > 1) continue;
     const legs: VerifiedLeg[] = [];
+    const mapGeometry: NonNullable<VerifiedJourney["mapGeometry"]> = [];
+    let geometryPointCount = 0;
+    let mapGeometryPartial = false;
     let valid = true, previousEnd = dep, previousPlace: unknown;
     for (const raw of sections) {
       // Navitia omits the endpoints of a waiting section. It stays at the
@@ -123,6 +132,17 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
       if (kind === "transit" && (!line || !direction ||
         [visits[0], visits.at(-1)].filter(Boolean).some(v => ["skipped", "deleted", "cancelled"].includes(text(obj(v).departure_status)) ||
           ["skipped", "deleted", "cancelled"].includes(text(obj(v).arrival_status))))) { valid = false; break; }
+      if (s.type === "crow_fly") {
+        // Navitia's crow_fly is a straight endpoint connector, not a routed path.
+        mapGeometryPartial = true;
+      } else if (["public_transport", "street_network", "transfer"].includes(text(s.type))) {
+        const geometry = verifiedRouteGeometry(s.geojson, sectionCoordinates(s.from), sectionCoordinates(s.to));
+        if (geometry && geometryPointCount + geometry.length <= 25_000) {
+          mapGeometry.push(geometry);
+          geometryPointCount += geometry.length;
+        }
+        else mapGeometryPartial = true;
+      }
       legs.push({ kind, from: fromName, to: toName, departure, arrival, ...(kind === "transit" ? {
         line: `${display(info.commercial_mode || info.physical_mode)} ${line}`.trim(), direction,
         freshness: text(s.data_freshness),
@@ -130,7 +150,8 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
       previousEnd = arrival; previousPlace = s.to;
     }
     if (valid && legs.some(l => l.kind === "transit") && previousEnd === arr && legs.length <= 14)
-      journeys.push({ departure: dep, arrival: arr, legs, warning: !!j.status && j.status !== "NO_SERVICE" });
+      journeys.push({ departure: dep, arrival: arr, legs, warning: !!j.status && j.status !== "NO_SERVICE",
+        ...(mapGeometry.length ? { mapGeometry } : {}), ...(mapGeometryPartial ? { mapGeometryPartial: true } : {}) });
   }
   if (!journeys.length && root.journeys.length) throw new PlannerError("invalid");
   return journeys;

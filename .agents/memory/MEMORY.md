@@ -26,6 +26,7 @@
 - [Railway runtime checks](railway-runtime-checks.md) — Online deployment status can hide runtime restarts; exit 137 alone does not prove OOM.
 - [GTFS protobuf field presence](gtfs-protobuf-presence.md) — Missing optional fields have inherited zero defaults; check actual presence before using timestamps or stop sequences.
 - [IDFM live-data contracts](idfm-live-contracts.md) — Closure code bundles span platforms; scope exact impacts by line and never invent a live arrival from GTFS or another vehicle.
+- [IDFM route geometry](idfm-route-geometry.md) — Navitia can include GeoJSON by default; verify each section and never draw its crow-fly connectors as routes.
 - [Québec source contracts](quebec-source-contracts.md) — Verify catalogue resources and seasonal services; resolve public route numbers from official names, not guessed aliases.
 - [IGN geocoding](ign-geocoding.md) — Towns, addresses and station POIs need distinct searches; plausible geocoding corrections must not silently change a location.
 - [Free weather contracts](weather-source-contracts.md) — MET requires consent and shared caching; handle global city geocodes and Québec timezone exceptions.

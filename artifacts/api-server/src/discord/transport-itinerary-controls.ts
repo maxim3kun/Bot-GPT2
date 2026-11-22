@@ -1,20 +1,44 @@
 import { randomUUID } from "node:crypto";
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits,
+  ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits,
   type APIEmbed, type Message, type MessageComponentInteraction,
 } from "discord.js";
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
-import { comparisonPage, itineraryPages, itinerarySource, journeyMapMode, mapsDirectionsUrl } from "./transport-itinerary-presentation.js";
+import { comparisonPage, hasRouteGeometry, itineraryPages, itinerarySource, journeyMapMode, mapsDirectionsUrl, routeMapCaption } from "./transport-itinerary-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
-import { BIKE_SOURCE } from "./osm-bike-planner.js";
+import { BIKE_SOURCE, OSM_ATTRIBUTION } from "./osm-bike-planner.js";
 import { ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
-import type { JourneyComparison } from "./transport-planner-types.js";
+import type { JourneyComparison, VerifiedJourney } from "./transport-planner-types.js";
+import { renderRouteMap, ROUTE_MAP_FILENAME } from "./transport-route-map.js";
 
 export type TransportAuthorization = (message: Message, language: string) => Promise<boolean>;
 type Payload = {
   content: string; embeds: APIEmbed[]; components: ActionRowBuilder<ButtonBuilder>[];
   allowedMentions: { parse: [] };
+  files?: AttachmentBuilder[];
 };
+type RouteMapRenderer = (journey: VerifiedJourney) => Promise<Buffer | undefined>;
+function applyRouteMap(pages: ReturnType<typeof itineraryPages>, journey: VerifiedJourney,
+  image: Buffer | undefined, french: boolean) {
+  const caption = image ? routeMapCaption(journey, french) : "";
+  const failure = !image && hasRouteGeometry(journey)
+    ? (french ? "Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun tracé de remplacement n’est affiché."
+      : "Preview unavailable: the IGN basemap could not be loaded. No substitute route is drawn.")
+    : "";
+  return pages.map(item => {
+    const note = caption || failure;
+    return {
+      ...item,
+      embed: {
+        ...item.embed,
+        ...(image ? { image: { url: `attachment://${ROUTE_MAP_FILENAME}` } } : {}),
+        ...(note && !item.embed.footer?.text?.includes(note)
+          ? { footer: { text: [item.embed.footer?.text, note].filter(Boolean).join(" · ") } } : {}),
+      },
+      ...(failure ? { content: `${item.content}\n\n${failure}` } : {}),
+    };
+  });
+}
 function canEmbed(message: Message) {
   return !message.guildId || "permissionsFor" in message.channel &&
     !!message.client.user && !!message.channel.permissionsFor(message.client.user)?.has(PermissionFlagsBits.EmbedLinks);
@@ -24,7 +48,8 @@ const missingPermissions = (error: unknown) => error && typeof error === "object
 /** Each card owns one immutable route ticket, not the latest mutable conversation. */
 export class ItineraryControls {
   private active = new Map<string, { stop: (reason: string) => void }>();
-  constructor(private service: TransportConversation, private authorize: TransportAuthorization) {}
+  constructor(private service: TransportConversation, private authorize: TransportAuthorization,
+    private mapRenderer: RouteMapRenderer = renderRouteMap) {}
   invalidate(scope: string) { this.active.get(scope)?.stop("replaced"); }
 
   async sendComparison(message: Message, comparison: JourneyComparison, language: string) {
@@ -32,6 +57,8 @@ export class ItineraryControls {
     const page = comparisonPage(comparison, fr);
     const recommended = comparison.entries.find(entry => entry.mode === comparison.recommended && entry.journey)
       ?? comparison.entries.find(entry => entry.journey);
+    const mapBuffer = recommended?.journey && hasRouteGeometry(recommended.journey)
+      ? await this.mapRenderer(recommended.journey).catch(() => undefined) : undefined;
     const mapLabel = recommended ? ({
       walk: t("Carte · à pied", "Map · walking"),
       car: t("Carte · voiture", "Map · driving"),
@@ -44,20 +71,37 @@ export class ItineraryControls {
     const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("IGN").setURL(ROAD_SOURCE),
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Vélo OSM").setURL(BIKE_SOURCE),
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("© OpenStreetMap").setURL(OSM_ATTRIBUTION),
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(t("Transports", "Transit")).setURL(ITINERARY_SOURCE),
       ...(map ? [map] : []),
     )];
     const embedded = canEmbed(message);
+    let content = embedded ? "" : page.content;
+    let embed = page.embed;
+    if (mapBuffer && recommended?.journey) {
+      const caption = routeMapCaption(recommended.journey, fr);
+      embed = { ...embed, image: { url: `attachment://${ROUTE_MAP_FILENAME}` },
+        footer: { text: embed.footer?.text?.includes(caption) ? embed.footer.text
+          : [embed.footer?.text, caption].filter(Boolean).join(" · ") } };
+      content = page.content;
+    } else if (recommended?.journey && hasRouteGeometry(recommended.journey)) {
+      const notice = t("Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun tracé de remplacement n’est affiché.",
+        "Preview unavailable: the IGN basemap could not be loaded. No substitute route is drawn.");
+      embed = { ...embed, footer: { text: [embed.footer?.text, notice].filter(Boolean).join(" · ") } };
+      content = `${page.content}\n\n${notice}`;
+    }
     const payload = {
-      content: embedded ? "" : page.content,
-      embeds: embedded ? [page.embed] : [],
+      content: embedded ? "" : content,
+      embeds: embedded ? [embed] : [],
       components,
       allowedMentions: { parse: [] as [] },
+      files: mapBuffer ? [new AttachmentBuilder(mapBuffer, { name: ROUTE_MAP_FILENAME })] : [],
     };
     try { await message.reply(payload); }
     catch (error) {
       if (!embedded || !missingPermissions(error)) throw error;
-      await message.reply({ content: page.content, embeds: [], components, allowedMentions: { parse: [] } });
+      await message.reply({ content, embeds: [], components, allowedMentions: { parse: [] },
+        files: mapBuffer ? [new AttachmentBuilder(mapBuffer, { name: ROUTE_MAP_FILENAME })] : [] });
     }
   }
 
@@ -66,7 +110,8 @@ export class ItineraryControls {
     if (!view || !this.service.remaining(scope, view.ticket)) return;
     const ticket = view.ticket, fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
     const id = `transport-trip:${randomUUID()}`;
-    let pages = itineraryPages(view, fr), page = 0, expanded = false;
+    let mapBuffer = hasRouteGeometry(view.journey) ? await this.mapRenderer(view.journey).catch(() => undefined) : undefined;
+    let pages = applyRouteMap(itineraryPages(view, fr), view.journey, mapBuffer, fr), page = 0, expanded = false;
     let compactRoad = !!view.journey.road && pages.length > 1;
     let lastText = pages[0]!.content;
     let embedded = canEmbed(message), live = true, busy = false;
@@ -108,6 +153,7 @@ export class ItineraryControls {
       content: [embedded && visiblePage() ? "" : lastText, notice].filter(Boolean).join("\n\n"),
       embeds: embedded && visiblePage() ? [visiblePage()!.embed] : [],
       components: rows(closed), allowedMentions: { parse: [] },
+      files: mapBuffer ? [new AttachmentBuilder(mapBuffer, { name: ROUTE_MAP_FILENAME })] : [],
     });
     const write = async (writer: (data: Payload) => Promise<Message>, notice = "", closed = false) => {
       if (embedded && !canEmbed(message)) embedded = false;
@@ -185,7 +231,10 @@ export class ItineraryControls {
         if (!live || !this.service.remaining(scope, ticket) || !updated?.content) {
           collector.stop("replaced"); return;
         }
-        pages = updated.itinerary ? itineraryPages(updated.itinerary, fr) : [];
+        mapBuffer = updated.itinerary && hasRouteGeometry(updated.itinerary.journey)
+          ? await this.mapRenderer(updated.itinerary.journey).catch(() => undefined) : undefined;
+        pages = updated.itinerary ? applyRouteMap(itineraryPages(updated.itinerary, fr),
+          updated.itinerary.journey, mapBuffer, fr) : [];
         compactRoad = !!updated.itinerary?.journey.road && pages.length > 1;
         expanded = false; page = 0; lastText = pages[0]?.content ?? updated.content;
         await edit();
@@ -196,6 +245,7 @@ export class ItineraryControls {
       catch {
         if (!live || !this.service.remaining(scope, ticket)) return;
         pages = []; compactRoad = false; expanded = false; page = 0;
+        mapBuffer = undefined;
         lastText = t("L’actualisation a échoué. Aucun nouveau trajet n’est confirmé.", "Refresh failed. No new journey is confirmed.");
         await edit().catch(() => undefined);
       }

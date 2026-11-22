@@ -20,6 +20,23 @@ export function mapsDirectionsUrl(origin: OfficialPlace, destination: OfficialPl
   return url.toString();
 }
 export const journeyMapMode = (journey: VerifiedJourney): MapRouteMode => journey.road?.mode ?? "transit";
+export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
+  const mode = journey.road?.mode;
+  const modeName = mode === "walk" ? (fr ? "à pied" : "walking")
+    : mode === "car" ? (fr ? "en voiture" : "driving")
+    : mode === "bike" ? (fr ? "à vélo" : "cycling")
+    : (fr ? "en transports" : "public transit");
+  const routeSource = journey.road?.source === "openstreetmap"
+    ? (fr ? "routeur vélo OpenStreetMap · © OpenStreetMap contributors" : "OpenStreetMap bike router · © OpenStreetMap contributors")
+    : journey.road ? (fr ? "calculateur IGN / Géoplateforme" : "IGN / Géoplateforme router")
+      : (fr ? "Île-de-France Mobilités" : "Île-de-France Mobilités");
+  const partial = journey.mapGeometryPartial
+    ? (fr ? " · aperçu partiel, sections sans géométrie omises" : " · partial preview, sections without geometry omitted")
+    : "";
+  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}`;
+}
+export const hasRouteGeometry = (journey: VerifiedJourney) =>
+  !!journey.road?.geometry?.length || !!journey.mapGeometry?.length;
 export interface ItineraryView {
   journey: VerifiedJourney;
   origin: OfficialPlace;
@@ -106,11 +123,19 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
     return { name: labels[entry.mode], value: `**${duration(entry.journey)}${distance}**\n${quality}${recommendation}`, inline: false };
   });
   const title = t("Comparaison des trajets", "Journey comparison");
+  const previewJourney = comparison.entries.find(entry => entry.mode === comparison.recommended && entry.journey)?.journey
+    ?? comparison.entries.find(entry => entry.journey)?.journey;
+  const previewNote = previewJourney
+    ? hasRouteGeometry(previewJourney)
+      ? routeMapCaption(previewJourney, fr)
+      : t("Aucun aperçu du tracé : le calculateur n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet.",
+        "No route preview: the router did not provide verified geometry. Google Maps may recalculate a different route.")
+    : "";
   const origin = comparison.entries[0]?.origin.label ?? "";
   const destination = comparison.entries[0]?.destination.label ?? "";
   const description = `**${t("Départ", "From")}** ${origin}\n**${t("Arrivée", "To")}** ${destination}`;
-  const footer = t("Les durées viennent des sources indiquées. Le vélo est calculé en France métropolitaine si un trajet est trouvé. La carte s’ouvre dans Google Maps, qui peut proposer un autre trajet ou une autre durée.",
-    "Durations come from the listed sources. Cycling is calculated in metropolitan France when a route is found. The map opens in Google Maps, which may suggest a different route or duration.");
+  const footer = [t("Les durées viennent des sources indiquées. Le vélo est calculé en France métropolitaine si un trajet est trouvé. La carte externe peut proposer un autre trajet ou une autre durée.",
+    "Durations come from the listed sources. Cycling is calculated in metropolitan France when a route is found. The external map may suggest a different route or duration."), previewNote].filter(Boolean).join(" ");
   const content = [`**${title}**`, description, ...entries.map(item => `**${item.name}**\n${item.value}`), footer,
     `[IGN / Géoplateforme](${ROAD_SOURCE}) · [OpenStreetMap bike router](${BIKE_SOURCE}) · [© OpenStreetMap contributors](${OSM_ATTRIBUTION}) · [Île-de-France Mobilités](${ITINERARY_SOURCE})`].join("\n\n");
   return {
@@ -152,9 +177,14 @@ export function itineraryPages(view: ItineraryView, french: boolean): ItineraryP
   });
   if (journey.warning) fields.push({ name: fr ? "À savoir" : "Please note",
     value: fr ? "Perturbation signalée : vérifie les informations de l’exploitant." : "Disruption reported: check operator information.", inline: false });
-  const footer = `${reliability(journey, fr)} · ${tz} · ${fr
-    ? "La carte Google Maps peut proposer un trajet ou des horaires différents."
-    : "Google Maps may suggest a different route or timetable."}`;
+  const previewNote = hasRouteGeometry(journey)
+    ? fr
+      ? `Géométrie fournie par Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections sans géométrie et accès en ligne droite omis" : ""}.`
+      : `Geometry supplied by Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections without geometry and straight-line access omitted" : ""}.`
+    : fr
+      ? "Aucun aperçu du tracé : le calculateur de transports n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet."
+      : "No route preview: the transit planner did not provide verified geometry. Google Maps may recalculate a different route.";
+  const footer = `${reliability(journey, fr)} · ${tz} · ${previewNote}`;
   // Bound BOTH the embed and its text fallback. Additional pages retain all legs;
   // none are truncated to fit a Discord message.
   const groups: typeof fields[] = [];

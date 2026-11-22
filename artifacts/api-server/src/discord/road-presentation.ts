@@ -22,8 +22,13 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     ? `${fr ? "Durée estimée par l’IGN sur son réseau piéton." : "IGN estimate on its pedestrian network."} ${walkingAccessibilityNote(fr)}`
     : (fr ? "Durée estimée IGN, sans trafic en temps réel. Vérifie la signalisation et les conditions sur place."
       : "IGN estimated duration, no live traffic. Check road signs and local conditions. Instructions are supplied in French.");
+  const previewNote = road.geometry
+    ? (fr ? "Le calculateur IGN a fourni une géométrie vérifiée pour l’aperçu."
+      : "The IGN router supplied verified geometry for the preview.")
+    : (fr ? "Aucun aperçu du tracé : le calculateur IGN n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet."
+      : "No route preview: the IGN router did not provide verified geometry. Google Maps may recalculate a different route.");
   const footer = `IGN / Géoplateforme · Europe/Paris${road.resourceVersion ? ` · ${road.resourceVersion}` : ""} · ${
-    fr ? "Google Maps peut proposer un autre trajet ou une autre durée." : "Google Maps may suggest a different route or duration."}`;
+    fr ? "Google Maps peut proposer un autre trajet ou une autre durée." : "Google Maps may suggest a different route or duration."} · ${previewNote}`;
   const groups: string[][] = [[]];
   road.steps.forEach((step, index) => {
     const text = `${index + 1}. ${step.instruction} (${km(step.distanceMeters)})`;

@@ -1,4 +1,5 @@
 import { PlannerError, type BikeJourneyProvider, type OfficialPlace, type OSMBikeFacility, type OSMBikeSurface, type VerifiedJourney } from "./transport-planner-types.js";
+import { verifiedRouteGeometry } from "./transport-route-geometry.js";
 
 export const BIKE_SOURCE = "https://routing.openstreetmap.de/";
 export const OSM_ATTRIBUTION = "https://www.openstreetmap.org/copyright";
@@ -12,6 +13,7 @@ interface BikeRoute {
   distanceMeters: number;
   durationSeconds: number;
   steps: BikeStep[];
+  geometry?: Array<[longitude: number, latitude: number]>;
 }
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -69,9 +71,11 @@ export function parseBikeRoute(body: unknown, from: OfficialPlace, to: OfficialP
   if (!closeTo(stepDistance, route.distance) || !closeTo(stepDuration, route.duration))
     throw new PlannerError("invalid");
 
+  const geometry = verifiedRouteGeometry(route.geometry, snapped[0], snapped[1]);
   return {
     distanceMeters: route.distance,
     durationSeconds: route.duration,
+    ...(geometry ? { geometry } : {}),
     steps: rawSteps.map(step => {
       const name = typeof step.name === "string" ? step.name.trim() : "";
       const maneuver = record(step.maneuver);
@@ -117,7 +121,7 @@ export class OpenStreetMapBikePlanner implements BikeJourneyProvider {
       if (Date.now() >= deadline) throw new PlannerError("busy");
       this.nextRequestAt = Date.now() + this.minIntervalMs;
       const coordinates = `${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
-      const url = `${API}/${coordinates}?alternatives=false&steps=true&overview=false&annotations=false`;
+      const url = `${API}/${coordinates}?alternatives=false&steps=true&overview=full&geometries=geojson&annotations=false`;
       let response: Response;
       try {
         response = await this.fetcher(url, {
@@ -186,6 +190,7 @@ export class OpenStreetMapBikePlanner implements BikeJourneyProvider {
         mode: "bike",
         source: "openstreetmap",
         distanceMeters: route.distanceMeters,
+        ...(route.geometry ? { geometry: route.geometry } : {}),
         steps: route.steps,
       },
     };

@@ -1,6 +1,7 @@
 import { obj, list, text, display, placeKey } from "./idfm-itinerary.js";
 import { PlannerError, type OfficialPlace, type ItineraryProvider, type VerifiedJourney } from "./transport-planner-types.js";
 import { RoadHttp } from "./road-http.js";
+import { verifiedRouteGeometry } from "./transport-route-geometry.js";
 export const ROAD_SOURCE = "https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/calcul-itineraire";
 const coordinate = (p: number[]) => p.length >= 2 && p.every(Number.isFinite) && p[0]! >= -5.5 && p[0]! <= 10 && p[1]! >= 41 && p[1]! <= 51.6;
 const point = (p: unknown) => typeof p === "string" ? p.split(",").map(Number) : [];
@@ -54,8 +55,10 @@ export function parseRoad(body: unknown, from: OfficialPlace, to: OfficialPlace,
   if (Math.abs(raw.reduce((sum, s) => sum + (s.duration as number), 0) - duration) > Math.max(5, duration * .02))
     throw new PlannerError("invalid");
   const seconds = Math.ceil(duration), departure = represents === "arrival" ? at - seconds : at;
+  const geometry = verifiedRouteGeometry(root.geometry, point(root.start), point(root.end));
   return { departure, arrival: departure + seconds, legs: [], warning: false,
-    road: { mode, distanceMeters: distance, steps, resourceVersion: display(root.resourceVersion) } };
+    road: { mode, distanceMeters: distance, steps, ...(geometry ? { geometry } : {}),
+      resourceVersion: display(root.resourceVersion) } };
 }
 export class IgnRoadPlanner implements ItineraryProvider {
   private http: RoadHttp;

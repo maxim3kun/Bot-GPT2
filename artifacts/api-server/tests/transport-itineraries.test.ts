@@ -7,6 +7,7 @@ import { travelTurn, requestedTravelTime } from "../src/discord/transport-intent
 import { TransportConversation, formatItinerary } from "../src/discord/transport-conversation.js";
 import { createTransportDialogue, travelScope } from "../src/discord/transport-dialogue.js";
 import { PlannerError, type ItineraryProvider, type OfficialPlace } from "../src/discord/transport-planner-types.js";
+import { itineraryPages, routeMapCaption } from "../src/discord/transport-itinerary-presentation.js";
 import { NOW, origin, destination, area, journeyBody, requestAt, placeBody } from "./fixtures/itinerary-fixtures.js";
 import { fakeDiscord } from "./fixtures/transport-discord.js";
 
@@ -164,6 +165,27 @@ test("Navitia's endpoint-free waiting sections retain the verified connection", 
   const result = parseItineraries(journeyBody(), origin, destination, requestAt, "departure");
   assert.equal(result.length, 1); assert.equal(result[0]!.legs.filter(l => l.kind === "transit").length, 2);
   assert.match(formatItinerary(result[0]!, origin, destination, true), /Arrivée 11\/11 08:33/);
+});
+test("IDFM map keeps only independently verified section lines and marks omitted crow-fly gaps", () => {
+  const body = journeyBody();
+  const first = body.journeys[0]!.sections[1]!, second = body.journeys[0]!.sections[4]!;
+  first.from.stop_point.coord = { lon: "2.35", lat: "48.85" };
+  first.to.stop_point.coord = { lon: "2.38", lat: "48.84" };
+  first.geojson = { type: "LineString", coordinates: [[2.35,48.85],[2.36,48.845],[2.38,48.84]] };
+  second.from.stop_point.coord = { lon: "2.38", lat: "48.84" };
+  second.to.stop_point.coord = { lon: "2.46", lat: "48.77" };
+  second.geojson = { type: "LineString", coordinates: [[2.38,48.84],[2.42,48.8],[2.46,48.77]] };
+  const journey = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(journey.mapGeometry?.length, 2);
+  assert.equal(journey.mapGeometryPartial, true);
+  assert.deepEqual(journey.mapGeometry?.map(line => line.length), [3,3]);
+  const page = itineraryPages({ journey, origin, destination, now: requestAt }, true)[0]!;
+  assert.match(page.embed.footer!.text,/Géométrie fournie par Île-de-France Mobilités/);
+  assert.match(page.embed.footer!.text,/sections sans géométrie et accès en ligne droite omis/);
+  assert.match(routeMapCaption(journey,true),/Aperçu · en transports · Île-de-France Mobilités/);
+  const absent = parseItineraries(journeyBody(), origin, destination, requestAt, "departure")[0]!;
+  const absentPage = itineraryPages({ journey: absent, origin, destination, now: requestAt }, true)[0]!;
+  assert.match(absentPage.embed.footer!.text,/n’a pas fourni de géométrie vérifiée/);
 });
 for (const mutate of [
   (b: ReturnType<typeof journeyBody>) => { b.journeys[0]!.duration = 42; },

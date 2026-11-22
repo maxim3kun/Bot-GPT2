@@ -20,6 +20,7 @@ export interface VerifiedLeg {
   direction?: string;
   freshness?: string;
 }
+export type RouteGeometry = Array<[longitude: number, latitude: number]>;
 export type OSMBikeSurface = "asphalt" | "concrete" | "paving_stones" | "sett" | "cobblestone"
   | "compacted" | "fine_gravel" | "gravel" | "ground" | "dirt" | "earth" | "grass"
   | "grass_paver" | "sand" | "wood" | "metal" | "mud" | "snow" | "ice" | "unpaved";
@@ -30,11 +31,15 @@ export interface VerifiedJourney {
   arrival: number;
   legs: VerifiedLeg[];
   warning: boolean;
+  /** Independently verified GeoJSON sections from the public-transit planner. */
+  mapGeometry?: RouteGeometry[];
+  mapGeometryPartial?: boolean;
   road?: {
     mode: "car" | "walk" | "bike";
     source?: "ign" | "openstreetmap";
     distanceMeters: number;
     steps: Array<{ instruction: string; distanceMeters: number; surface?: OSMBikeSurface; cycleway?: OSMBikeFacility }>;
+    geometry?: RouteGeometry;
     resourceVersion?: string;
   };
 }
