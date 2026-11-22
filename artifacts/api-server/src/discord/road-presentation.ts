@@ -44,13 +44,6 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     `**${duration} · ${km(road.distanceMeters)}**`,
     timeLabel,
   ].filter(Boolean).join("\n");
-  const routePreviewNote = !road.geometry
-    ? (fr ? "Aucun aperçu IGN vérifié · Google Maps peut recalculer le trajet."
-      : "No verified IGN preview · Google Maps may recalculate the route.")
-    : (fr ? "La carte Google peut recalculer un autre trajet." : "Google Maps may recalculate a different route.");
-  const footer = road.mode === "walk"
-    ? `${fr ? "IGN · réseau piéton" : "IGN · pedestrian network"} · ${routePreviewNote}`
-    : `${fr ? "IGN · estimation sans trafic en temps réel" : "IGN · estimate without live traffic"} · ${routePreviewNote}`;
   const accessibilityField = road.mode === "walk"
     ? [{ name: fr ? "Accessibilité non vérifiée" : "Accessibility not verified",
       value: fr ? "L’IGN ne confirme ni l’absence d’escaliers ni l’accès PMR."
@@ -63,23 +56,21 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     if (group.length >= 6 || group.join("\n").length + text.length > 700) groups.push([]);
     groups.at(-1)!.push(text);
   });
-  const footerText = footer;
   const summaryPage: ItineraryPage = {
     embed: { color: TRANSPORT_CARD_COLOR, title, url: ROAD_SOURCE, description,
-      fields: accessibilityField, footer: { text: footerText } },
+      fields: accessibilityField },
     content: `**${title}**\n${description}${accessibilityField.length
-      ? `\n\n**${accessibilityField[0]!.name}** · ${accessibilityField[0]!.value}` : ""}\n\n${footerText}\n[IGN / Géoplateforme](${ROAD_SOURCE})`,
+      ? `\n\n**${accessibilityField[0]!.name}** · ${accessibilityField[0]!.value}` : ""}\n[IGN / Géoplateforme](${ROAD_SOURCE})`,
   };
   const detailPages = groups.filter(items => items.length).map((items, index) => {
     const suffix = groups.length > 1
-      ? ` · ${fr ? "Détail du trajet" : "Route details"} ${index + 1}/${groups.length}`
-      : ` · ${fr ? "Détail du trajet" : "Route details"}`;
+      ? ` · ${fr ? "Le trajet" : "The route"} ${index + 1}/${groups.length}`
+      : ` · ${fr ? "Le trajet" : "The route"}`;
     const steps = items.join("\n");
     const directions = `**${fr ? "Départ" : "From"}** ${view.origin.label} → **${fr ? "Arrivée" : "To"}** ${view.destination.label}`;
     return { embed: { color: TRANSPORT_CARD_COLOR, title: title + suffix, url: ROAD_SOURCE, description: directions,
-      fields: [{ name: fr ? "Étapes" : "Steps", value: steps }],
-      footer: { text: footerText } },
-      content: `**${title}${suffix}**\n${directions}\n\n${steps}\n\n${footerText}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
+      fields: [{ name: fr ? "Étapes" : "Steps", value: steps }] },
+      content: `**${title}${suffix}**\n${directions}\n\n${steps}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
   });
   return [summaryPage, ...detailPages];
 }

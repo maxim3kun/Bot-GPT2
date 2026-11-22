@@ -103,7 +103,7 @@ test("a walking request uses the official pedestrian profile and gets a walking 
   const s=setup(), result=(await s.service.reply("s","Combien de temps à pied de Beauvais à Amiens ?","fr"))!;
   assert.equal(result.itinerary?.journey.road?.mode,"walk");
   const json=JSON.stringify(itineraryPages(result.itinerary!,true));
-  assert.match(json,/🚶 Beauvais → Amiens/); assert.match(json,/réseau piéton/);
+  assert.match(json,/🚶 Beauvais → Amiens/);
   assert.match(json,/Accessibilité non vérifiée/); assert.match(json,/absence d’escaliers/); assert.match(json,/accès PMR/);
   assert.doesNotMatch(json,/itinéraire accessible/i);
   assert.doesNotMatch(json,/sans trafic en temps réel/);
@@ -185,7 +185,7 @@ test("comparison preview uses only the recommended route geometry and keeps the 
   await controls.sendComparison(d.message,comparison,"fr");
   assert.deepEqual(rendered,selected.road!.geometry);
   assert.equal(d.cards[0]!.last.embeds[0]!.image!.url,"attachment://route-preview.png");
-  assert.match(d.cards[0]!.last.embeds[0]!.footer!.text,/Aperçu · .*calculateur IGN|Aperçu · .*routeur vélo OpenStreetMap/);
+  assert.doesNotMatch(d.cards[0]!.last.embeds[0]!.footer?.text ?? "",/calculateur IGN|routeur vélo OpenStreetMap|fond cartographique/);
   assert.equal(d.cards[0]!.last.files[0]!.name,"route-preview.png");
   const map=d.cards[0]!.last.components.flatMap(row=>row.components).find(button=>button.url?.includes("google.com/maps/dir"));
   assert.ok(map);
@@ -201,11 +201,12 @@ test("a standalone bike route is declined, while comparisons can request cycling
 test("road presentation and source never claim PRIM or live traffic", async () => {
   const s=setup(),result=(await s.service.reply("s","Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
   const pages=itineraryPages(result.itinerary!,true), json=JSON.stringify(pages);
-  assert.match(json,/65 km/); assert.match(json,/1 h/); assert.match(json,/Arrivée estimée/); assert.match(json,/sans trafic en temps réel/);
+  assert.match(json,/65 km/); assert.match(json,/1 h/); assert.match(json,/Arrivée estimée/);
+  assert.doesNotMatch(json,/sans trafic en temps réel|La carte Google peut recalculer|Aperçu · en voiture|fond cartographique ©/);
   assert.match(pages[0]!.embed.title!,/Beauvais.*Amiens/);
   assert.match(pages[0]!.embed.description!,/Oise → Somme.*1 h.*65 km.*Aujourd’hui.*Départ prévu/s);
   assert.doesNotMatch(JSON.stringify(pages[0]!.embed.fields),/Étapes/);
-  assert.match(pages[1]!.embed.title!,/Détail du trajet/);
+  assert.match(pages[1]!.embed.title!,/Le trajet/);
   assert.match(JSON.stringify(pages[1]!.embed.fields),/Étapes/);
   assert.equal(pages[0]!.embed.url,ROAD_SOURCE); assert.doesNotMatch(json,/PRIM|Île-de-France Mobilités|Horaires théoriques|Europe\/Paris|2026-11/);
   assert.ok(pages.every(p=>p.content.length<2000));
@@ -217,7 +218,7 @@ test("road cards start with a compact summary and reveal paginated directions on
   await handleJourneyCommand(d.message,["voiture","Beauvais","->","Amiens"],"fr",createTransportDialogue(s.service,async()=>true));
   const card=d.cards[0]!;
   const labels=card.last.components.flatMap(row=>row.components.map(component=>component.label));
-  assert.ok(labels.includes("Détail du trajet"));
+  assert.ok(labels.includes("Le trajet"));
   assert.ok(!labels.includes("IGN") && !labels.includes("Carte"));
   const mapButton=card.last.components.flatMap(row=>row.components).find(component=>component.url?.includes("google.com/maps/dir/"));
   assert.equal(mapButton?.label,undefined);
@@ -225,11 +226,11 @@ test("road cards start with a compact summary and reveal paginated directions on
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
   assert.ok(card.custom("details"));
   await card.collector.collect(card.interaction("details").value);
-  assert.match(card.last.embeds[0]?.title ?? "",/Détail du trajet 1\/2/);
+  assert.match(card.last.embeds[0]?.title ?? "",/Le trajet 1\/2/);
   assert.match(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
   assert.ok(card.custom("next")); assert.ok(card.custom("summary"));
   await card.collector.collect(card.interaction("next").value);
-  assert.match(card.last.embeds[0]?.title ?? "",/Détail du trajet 2\/2/);
+  assert.match(card.last.embeds[0]?.title ?? "",/Le trajet 2\/2/);
   await card.collector.collect(card.interaction("summary").value);
   assert.match(card.last.embeds[0]?.title ?? "",/Beauvais.*Amiens/);
   assert.doesNotMatch(JSON.stringify(card.last.embeds[0]?.fields),/Étapes/);
@@ -241,7 +242,7 @@ test("native command and natural AI request use identical cards in guilds and DM
   await createTransportDialogue(b.service,async()=>true)(db.message,"Comment aller de Beauvais à Amiens en voiture ?","fr");
   assert.deepEqual(da.cards[0]!.last.embeds,db.cards[0]!.last.embeds);
   assert.equal(da.cards[0]!.last.embeds[0]?.url,ROAD_SOURCE);
-  assert.match(da.cards[0]!.last.embeds[0]!.footer!.text,/Aucun aperçu IGN vérifié/);
+  assert.doesNotMatch(da.cards[0]!.last.content!,/Aucun aperçu IGN vérifié/);
   const mapUrl=da.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url))
     .find(url=>url?.includes("google.com/maps/dir"));
   assert.ok(mapUrl);
@@ -260,7 +261,7 @@ test("journey preview attaches the verified route while retaining the external m
   await controls.send(other.message,scope,result,"fr");
   const card=other.cards[0]!;
   assert.equal(card.last.embeds[0]!.image!.url,"attachment://route-preview.png");
-  assert.match(card.last.embeds[0]!.footer!.text,/voiture.*IGN|driving.*IGN/i);
+  assert.equal(card.last.embeds[0]!.footer,undefined);
   assert.equal(card.last.files[0]!.name,"route-preview.png");
   assert.ok(card.last.components.flatMap(row=>row.components).some(button=>button.url?.includes("google.com/maps/dir")));
   card.collector.stop("closed");
@@ -276,7 +277,7 @@ test("an unavailable IGN map tile never substitutes a route and keeps the extern
   await controls.send(d.message,scope,result,"fr");
   const card=d.cards[0]!;
   assert.equal(card.last.embeds[0]!.image,undefined);
-  assert.match(card.last.embeds[0]!.footer!.text,/fond IGN.*Aucun aperçu de remplacement/);
+  assert.match(card.last.embeds[0]!.footer!.text,/Aperçu de la carte indisponible/);
   assert.ok(card.last.components.flatMap(row=>row.components).some(button=>button.url?.includes("google.com/maps/dir")));
   card.collector.stop("closed");
 });

@@ -22,8 +22,8 @@ function applyRouteMap(pages: ReturnType<typeof itineraryPages>, journey: Verifi
   image: Buffer | undefined, french: boolean) {
   const caption = image ? routeMapCaption(journey, french) : "";
   const failure = !image && hasMapPreview(journey)
-    ? (french ? "Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun aperçu de remplacement n’est affiché."
-      : "Preview unavailable: the IGN basemap could not be loaded. No substitute map is shown.")
+    ? (french ? "Aperçu de la carte indisponible."
+      : "Map preview unavailable.")
     : "";
   return pages.map(item => {
     const note = caption || failure;
@@ -138,7 +138,7 @@ export class ItineraryControls {
         return [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             button("refresh", t("Actualiser", "Refresh"), ButtonStyle.Primary), map(),
-            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Détail du trajet", "Route details")),
+            button(expanded ? "summary" : "details", expanded ? t("Résumé", "Summary") : t("Le trajet", "The route")),
           ),
           new ActionRowBuilder<ButtonBuilder>().addComponents(button("close", t("Fermer", "Close"))),
         ];

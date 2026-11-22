@@ -21,17 +21,9 @@ export function mapsDirectionsUrl(origin: OfficialPlace, destination: OfficialPl
 }
 export const journeyMapMode = (journey: VerifiedJourney): MapRouteMode => journey.road?.mode ?? "transit";
 export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
+  if (journey.road) return "";
   const affectedNote = journey.mapStops?.some(stop => stop.affected)
     ? (fr ? " · contour violet : arrêt touché par une perturbation" : " · violet outline: stop affected by a disruption") : "";
-  const mode = journey.road?.mode;
-  const modeName = mode === "walk" ? (fr ? "à pied" : "walking")
-    : mode === "car" ? (fr ? "en voiture" : "driving")
-    : mode === "bike" ? (fr ? "à vélo" : "cycling")
-    : (fr ? "en transports" : "public transit");
-  const routeSource = journey.road?.source === "openstreetmap"
-    ? (fr ? "routeur vélo OpenStreetMap · © OpenStreetMap contributors" : "OpenStreetMap bike router · © OpenStreetMap contributors")
-    : journey.road ? (fr ? "calculateur IGN / Géoplateforme" : "IGN / Géoplateforme router")
-      : (fr ? "Île-de-France Mobilités" : "Île-de-France Mobilités");
   if (!hasRouteGeometry(journey) && journey.mapStops?.length) {
     const omissions = journey.mapStopsPartial
       ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
@@ -42,7 +34,7 @@ export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
     : "";
   const stopNote = journey.mapStopsPartial
     ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
-  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}${stopNote}${affectedNote}`;
+  return `${fr ? "Aperçu" : "Preview"} · ${fr ? "en transports" : "public transit"} · Île-de-France Mobilités · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}${stopNote}${affectedNote}`;
 }
 export const hasRouteGeometry = (journey: VerifiedJourney) =>
   !!journey.road?.geometry?.length || !!journey.mapGeometry?.length;
