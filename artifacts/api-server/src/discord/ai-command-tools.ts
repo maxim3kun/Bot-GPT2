@@ -48,7 +48,7 @@ export function parseAiCommandTool(
     && !(args.place&&args.atDestination))
     return {name,...args} as AiCommandAction;
   if (name === "plan_journey" && Object.keys(args).every(k => ["mode", "origin", "destination", "time"].includes(k))
-    && [null, "car", "transit"].includes(args.mode as string | null)
+    && [null, "car", "walk", "transit", "compare"].includes(args.mode as string | null)
     && ["origin", "destination", "time"].every(k => args[k] === undefined || safeSearchText(args[k], k === "time" ? 80 : 140) && (args[k] as string).trim().length > 0))
     return { name, mode: args.mode, ...(args.origin ? { origin: args.origin } : {}),
       ...(args.destination ? { destination: args.destination } : {}), ...(args.time ? { time: args.time } : {}) } as AiCommandAction;
@@ -99,8 +99,8 @@ export function buildAiCommandTools(stationKeys: string[]) {
     tool("get_weather","Get a verified forecast on explicit request. Destination means only the requester's verified journey in this channel/persona. Never supply coordinates, URLs, user IDs or invented weather.",{
       place:{type:"string",maxLength:140},territory:{enum:["fr","qc"]},when:{type:"string",maxLength:80},atDestination:{type:"boolean"},
     }),
-    tool("plan_journey", "Calculate a verified driving route in metropolitan France or public transit where the official planner covers it. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
-      mode: { enum: ["car", "transit", null] }, origin: { type: "string", maxLength: 140 },
+    tool("plan_journey", "Calculate a verified walking or driving route in metropolitan France, public transit where its official planner covers it, or compare available modes. Missing endpoints or mode are clarified; never supply URLs or invented connections.", {
+      mode: { enum: ["walk", "car", "transit", "compare", null] }, origin: { type: "string", maxLength: 140 },
       destination: { type: "string", maxLength: 140 }, time: { type: "string", maxLength: 80 },
     }, ["mode"]),
     tool("civic_lookup", "Use the existing official-source handlers for National Assembly votes, public holidays, or French legal texts. Do not invent results; holidays need a country and law searches need a subject or article.", {

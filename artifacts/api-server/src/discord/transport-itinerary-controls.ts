@@ -4,7 +4,10 @@ import {
   type APIEmbed, type Message, type MessageComponentInteraction,
 } from "discord.js";
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
-import { itineraryPages, itinerarySource } from "./transport-itinerary-presentation.js";
+import { comparisonPage, itineraryPages, itinerarySource } from "./transport-itinerary-presentation.js";
+import { ROAD_SOURCE } from "./ign-road-planner.js";
+import { ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
+import type { JourneyComparison } from "./transport-planner-types.js";
 
 export type TransportAuthorization = (message: Message, language: string) => Promise<boolean>;
 type Payload = {
@@ -22,6 +25,27 @@ export class ItineraryControls {
   private active = new Map<string, { stop: (reason: string) => void }>();
   constructor(private service: TransportConversation, private authorize: TransportAuthorization) {}
   invalidate(scope: string) { this.active.get(scope)?.stop("replaced"); }
+
+  async sendComparison(message: Message, comparison: JourneyComparison, language: string) {
+    const fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
+    const page = comparisonPage(comparison, fr);
+    const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("IGN").setURL(ROAD_SOURCE),
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(t("Transports", "Transit")).setURL(ITINERARY_SOURCE),
+    )];
+    const embedded = canEmbed(message);
+    const payload = {
+      content: embedded ? "" : page.content,
+      embeds: embedded ? [page.embed] : [],
+      components,
+      allowedMentions: { parse: [] as [] },
+    };
+    try { await message.reply(payload); }
+    catch (error) {
+      if (!embedded || !missingPermissions(error)) throw error;
+      await message.reply({ content: page.content, embeds: [], components, allowedMentions: { parse: [] } });
+    }
+  }
 
   async send(message: Message, scope: string, result: TravelReply, language: string) {
     const view = result.itinerary;

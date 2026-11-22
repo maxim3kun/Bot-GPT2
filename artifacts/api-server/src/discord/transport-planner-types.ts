@@ -26,13 +26,26 @@ export interface VerifiedJourney {
   legs: VerifiedLeg[];
   warning: boolean;
   road?: {
+    mode: "car" | "walk";
     distanceMeters: number;
     steps: Array<{ instruction: string; distanceMeters: number }>;
     resourceVersion: string;
   };
 }
+export type JourneyMode = "car" | "walk" | "transit" | "compare";
+export interface ComparedJourney {
+  mode: "car" | "walk" | "transit";
+  origin: OfficialPlace;
+  destination: OfficialPlace;
+  journey?: VerifiedJourney;
+  unavailable?: string;
+}
+export interface JourneyComparison {
+  entries: ComparedJourney[];
+  recommended?: "car" | "walk" | "transit";
+}
 export interface JourneyRequest {
-  mode: "car" | "transit" | null;
+  mode: JourneyMode | null;
   origin?: string;
   destination?: string;
   time?: string;
@@ -40,6 +53,6 @@ export interface JourneyRequest {
 export interface ItineraryProvider {
   places(query: string, fresh?: boolean): Promise<OfficialPlace[]>;
   journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure",
-    fresh?: boolean): Promise<VerifiedJourney[]>;
+    fresh?: boolean, mode?: "car" | "walk"): Promise<VerifiedJourney[]>;
   stations(line: string, fresh?: boolean): Promise<{ line: string; count: number }>;
 }

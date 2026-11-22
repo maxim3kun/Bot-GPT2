@@ -75,7 +75,8 @@ export function createTransportDialogue(
         const result = await service.reply(scope, input, language, options.continuationOnly, options.journey);
         if (!await authorize(message, language)) { service.clear(scope); cards.invalidate(scope); return true; }
         if (result?.content) {
-          if (result.itinerary) await cards.send(message, scope, result, language);
+          if (result.comparison) await cards.sendComparison(message, result.comparison, language);
+          else if (result.itinerary) await cards.send(message, scope, result, language);
           else await message.reply({ content: result.content, allowedMentions: { parse: [] } });
         }
       } catch {

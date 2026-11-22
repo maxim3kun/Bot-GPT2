@@ -128,8 +128,8 @@ export function selectAiCommand(text: string, stations: Readonly<Record<string, 
       ...(parsed.line ? { line: parsed.line } : {}), ...(territory ?? parsed.territory ? { territory: territory ?? parsed.territory } : {}) });
   }
   const travel = travelTurn(body);
-  if (travel.request && travel.mode === "car" && !travel.unsupportedMode)
-    return action({ name: "plan_journey", mode: "car", ...(travel.origin ? { origin: travel.origin } : {}),
+  if (travel.request && travel.mode && !travel.unsupportedMode)
+    return action({ name: "plan_journey", mode: travel.mode, ...(travel.origin ? { origin: travel.origin } : {}),
       ...(travel.destination ? { destination: travel.destination } : {}) });
   if (/^(?:affiche[r]?|montre[r]?|ouvre|show)\s+(?:l |la |le )?(?:aide|help)$/.test(n)) return action({ name: "show_help" });
   if (/^(?:(?:affiche[r]?|montre[r]?|consulte[r]?|verifie[r]?) (?:le |les )?)?(?:diagnostic(?: des modules)?|module diagnostics|tech status)$/.test(n)) return action({ name: "module_diagnostic" });

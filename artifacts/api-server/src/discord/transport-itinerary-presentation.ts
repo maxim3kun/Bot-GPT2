@@ -1,7 +1,7 @@
 import type { APIEmbed } from "discord.js";
 import { addDays, localDate } from "./gtfs-realtime.js";
 import { TRANSPORT_CARD_COLOR } from "./transport-presentation.js";
-import type { OfficialPlace, VerifiedJourney } from "./transport-planner-types.js";
+import type { OfficialPlace, VerifiedJourney, JourneyComparison } from "./transport-planner-types.js";
 import { roadPages } from "./road-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
 
@@ -21,6 +21,47 @@ function reliability(journey: VerifiedJourney, fr: boolean) {
   return live && live === legs.length ? (fr ? "Prévisions temps réel" : "Real-time estimates")
     : live ? (fr ? "Prévisions et horaires théoriques" : "Predictions and scheduled times")
     : (fr ? "Horaires théoriques · non temps réel" : "Scheduled times · not real-time");
+}
+
+/** Compact side-by-side summary; every displayed duration comes from an official planner. */
+export function comparisonPage(comparison: JourneyComparison, french: boolean): ItineraryPage {
+  const fr = french, t = (a: string, b: string) => fr ? a : b;
+  const labels = {
+    walk: t("À pied", "On foot"),
+    car: t("En voiture", "By car"),
+    transit: t("Transports en commun", "Public transit"),
+  } as const;
+  const elapsed = (journey: VerifiedJourney) => {
+    const mins = Math.ceil((journey.arrival - journey.departure) / 60);
+    return mins < 60 ? minutes(mins * 60) : `${Math.floor(mins / 60)} h ${mins % 60} min`;
+  };
+  const duration = (journey: VerifiedJourney) => `${elapsed(journey)} · ${
+    new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
+      timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit",
+    }).format(journey.departure * 1000)} → ${new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
+      timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit",
+    }).format(journey.arrival * 1000)}`;
+  const entries = comparison.entries.map(entry => {
+    const recommendation = comparison.recommended === entry.mode ? ` · ${t("plus rapide parmi les résultats vérifiés", "fastest verified option")}` : "";
+    if (!entry.journey) return { name: labels[entry.mode], value: entry.unavailable ?? t("non disponible", "unavailable"), inline: false };
+    const route = entry.journey.road;
+    const distance = route ? ` · ${(route.distanceMeters / 1000).toLocaleString(fr ? "fr-FR" : "en-GB", { maximumFractionDigits: 1 })} km` : "";
+    const quality = route
+      ? entry.mode === "walk" ? t("estimation IGN, réseau piéton", "IGN pedestrian-network estimate") : t("estimation IGN, sans trafic en direct", "IGN estimate, no live traffic")
+      : `${reliability(entry.journey, fr)} · ${entry.journey.legs.filter(leg => leg.kind === "transit").length} ${t("étape(s)", "leg(s)")}${entry.journey.warning ? ` · ${t("perturbation signalée", "disruption reported")}` : ""}`;
+    return { name: labels[entry.mode], value: `**${duration(entry.journey)}${distance}**\n${quality}${recommendation}`, inline: false };
+  });
+  const title = t("Comparaison des trajets", "Journey comparison");
+  const origin = comparison.entries[0]?.origin.label ?? "";
+  const destination = comparison.entries[0]?.destination.label ?? "";
+  const description = `**${t("Départ", "From")}** ${origin}\n**${t("Arrivée", "To")}** ${destination}`;
+  const footer = t("Les durées proviennent des calculateurs officiels disponibles; elles ne sont pas toutes du temps réel.", "Durations come from the available official planners; they are not all real-time.");
+  const content = [`**${title}**`, description, ...entries.map(item => `**${item.name}**\n${item.value}`), footer,
+    `[IGN / Géoplateforme](${ROAD_SOURCE}) · [Île-de-France Mobilités](${ITINERARY_SOURCE})`].join("\n\n");
+  return {
+    embed: { color: TRANSPORT_CARD_COLOR, title, description, fields: entries, footer: { text: footer } },
+    content,
+  };
 }
 
 /** Same hierarchy and colour as !metro, but every connection comes from the planner. */

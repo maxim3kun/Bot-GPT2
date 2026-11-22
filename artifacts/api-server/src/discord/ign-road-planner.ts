@@ -31,9 +31,10 @@ const turns: Record<string, string> = { left: "à gauche", right: "à droite", s
 const verbs: Record<string, string> = { depart: "Partir", arrive: "Arriver", turn: "Tourner", continue: "Continuer",
   merge: "Rejoindre", "on ramp": "Prendre la bretelle", "off ramp": "Sortir", fork: "À la bifurcation",
   roundabout: "Prendre le rond-point", rotary: "Prendre le rond-point", "exit roundabout": "Sortir du rond-point", "new name": "Continuer" };
-export function parseRoad(body: unknown, from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure"): VerifiedJourney {
+export function parseRoad(body: unknown, from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure",
+  mode: "car" | "walk" = "car"): VerifiedJourney {
   const root = obj(body), distance = root.distance, duration = root.duration;
-  if (root.profile !== "car" || root.resource !== "bdtopo-osrm" || root.crs !== "EPSG:4326" ||
+  if (root.profile !== (mode === "walk" ? "pedestrian" : "car") || root.resource !== "bdtopo-osrm" || root.crs !== "EPSG:4326" ||
     root.distanceUnit !== "meter" || root.timeUnit !== "second" || typeof distance !== "number" || !Number.isFinite(distance) || distance <= 0 || distance > 3_000_000 ||
     typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0 || duration > 48 * 3600 ||
     !near(point(root.start), [from.longitude!, from.latitude!]) || !near(point(root.end), [to.longitude!, to.latitude!]))
@@ -54,7 +55,7 @@ export function parseRoad(body: unknown, from: OfficialPlace, to: OfficialPlace,
     throw new PlannerError("invalid");
   const seconds = Math.ceil(duration), departure = represents === "arrival" ? at - seconds : at;
   return { departure, arrival: departure + seconds, legs: [], warning: false,
-    road: { distanceMeters: distance, steps, resourceVersion: display(root.resourceVersion) } };
+    road: { mode, distanceMeters: distance, steps, resourceVersion: display(root.resourceVersion) } };
 }
 export class IgnRoadPlanner implements ItineraryProvider {
   private http: RoadHttp;
@@ -67,12 +68,14 @@ export class IgnRoadPlanner implements ItineraryProvider {
     const body = await this.http.json("/geocodage/search", { q, index: poi ? "poi" : "address", limit: "20", ...(!address && !poi ? { type: "municipality" } : {}) }, fresh);
     return roadPlaces(body, query);
   }
-  async journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure", fresh = false) {
+  async journeys(from: OfficialPlace, to: OfficialPlace, at: number, represents: "arrival" | "departure",
+    fresh = false, mode: "car" | "walk" = "car") {
     if (!coordinate([from.longitude!, from.latitude!]) || !coordinate([to.longitude!, to.latitude!])) throw new PlannerError("invalid");
-    const body = await this.http.json("/navigation/itineraire", { resource: "bdtopo-osrm", profile: "car", optimization: "fastest",
+    const body = await this.http.json("/navigation/itineraire", { resource: "bdtopo-osrm",
+      profile: mode === "walk" ? "pedestrian" : "car", optimization: "fastest",
       start: `${from.longitude},${from.latitude}`, end: `${to.longitude},${to.latitude}`, getSteps: "true",
       getBbox: "false", distanceUnit: "meter", timeUnit: "second", geometryFormat: "geojson" }, fresh);
-    const result = parseRoad(body, from, to, at, represents);
+    const result = parseRoad(body, from, to, at, represents, mode);
     if (result.departure < this.now() / 1000 - 60) throw new PlannerError("date");
     return [result];
   }

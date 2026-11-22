@@ -7,12 +7,17 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
   const clock = (epoch: number) => new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
     timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   }).format(epoch * 1000);
-  const title = fr ? "Itinéraire en voiture" : "Driving route";
+  const title = road.mode === "walk"
+    ? (fr ? "Itinéraire à pied" : "Walking route")
+    : (fr ? "Itinéraire en voiture" : "Driving route");
   const description = `**${fr ? "Départ" : "From"}** ${view.origin.label}\n**${fr ? "Arrivée" : "To"}** ${view.destination.label}`;
   const summary = `${km(road.distanceMeters)} · **${Math.ceil((view.journey.arrival - view.journey.departure) / 60)} min**\n${
     fr ? "Départ prévu" : "Planned departure"} ${clock(view.journey.departure)} → ${fr ? "Arrivée estimée" : "Estimated arrival"} ${clock(view.journey.arrival)}`;
-  const note = fr ? "Durée estimée IGN, sans trafic en temps réel. Vérifie la signalisation et les conditions sur place."
-    : "IGN estimated duration, no live traffic. Check road signs and local conditions. Instructions are supplied in French.";
+  const note = road.mode === "walk"
+    ? (fr ? "Durée estimée par l’IGN sur son réseau piéton. Ce calcul ne confirme pas l’accessibilité PMR."
+      : "IGN estimate on its pedestrian network. This does not confirm step-free accessibility.")
+    : (fr ? "Durée estimée IGN, sans trafic en temps réel. Vérifie la signalisation et les conditions sur place."
+      : "IGN estimated duration, no live traffic. Check road signs and local conditions. Instructions are supplied in French.");
   const footer = `IGN / Géoplateforme · Europe/Paris${road.resourceVersion ? ` · ${road.resourceVersion}` : ""}`;
   const groups: string[][] = [[]];
   road.steps.forEach((step, index) => {
@@ -26,7 +31,7 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     const steps = items.join("\n");
     return { embed: { color: TRANSPORT_CARD_COLOR, title: title + suffix, url: ROAD_SOURCE, description,
       fields: [{ name: fr ? "Distance et estimation" : "Distance and estimate", value: summary },
-        { name: fr ? "Instructions routières" : "Road instructions", value: steps },
+        { name: fr ? "Instructions du trajet" : "Route directions", value: steps },
         { name: fr ? "À savoir" : "Please note", value: note }], footer: { text: footer } },
       content: `**${title}${suffix}**\n${description}\n\n${summary}\n\n${steps}\n\n${note}\n${footer}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
   });

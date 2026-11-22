@@ -128,7 +128,7 @@ test("origin/destination clauses and English pair stay in their stated order", (
   assert.equal(travelTurn("Je pars de Dugommier et je dois aller à Créteil").request, true);
   assert.equal(travelTurn("Prochains passages du métro 8 à Bonne Nouvelle").request, false);
 });
-test("unsupported cycling is not silently replaced with a metro journey", async () => {
+test("unsupported cycling is not silently replaced with a metro journey, while walking has a dedicated profile", async () => {
   const { api, calls } = provider(), c = new TransportConversation(api, () => NOW);
   assert.match(content(await c.reply("s", `${PAIR} à vélo`, "fr")), /pas encore/);
   assert.equal(calls.places.length, 0);

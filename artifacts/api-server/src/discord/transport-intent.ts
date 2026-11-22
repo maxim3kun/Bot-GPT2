@@ -10,8 +10,7 @@ export interface TravelTurn {
   paris?: boolean;
   outside?: boolean;
   unsupportedMode?: boolean;
-  mode?: "car" | "transit";
-  modeAmbiguous?: boolean;
+  mode?: "car" | "walk" | "transit" | "compare";
   correction?: boolean;
   reverse?: boolean;
   cancel?: boolean;
@@ -22,12 +21,13 @@ const place = (s: string | undefined) => s?.split(/[?!;]/)[0]?.replace(temporalT
   .replace(/\s+(?:quel(?:le)?|comment|peux|puis|pourrais)\b.*$/i, "")
   .replace(/\s+(?:et\s+)?je\s+.*$/i, "")
   .replace(/\s+(?:pour\s+(?:aller|me\s+rendre)|vers|en\s+direction\s+de)\s+.*$/i, "")
-  .replace(/\s+(?:en\s+(?:voiture|auto|m[eé]tro|bus|train|tram|transports?)|by\s+car|driving).*$/i, "")
+  .replace(/\s+(?:(?:à|a)\s+pied|on\s+foot|walking|walk).*$/i, "")
+  .replace(/\s+(?:en\s+(?:voiture|auto|m[eé]tro|bus|train|tram|transports?)|(?:à|a)\s+pied|by\s+(?:car|foot|walking)|driving|on foot).*$/i, "")
   .replace(/^[\s"'`]+|[\s."’'`]+$/g, "").trim().slice(0, 140) || undefined;
 
 export function travelTurn(input: string): TravelTurn {
   const clean = input.replace(/<@!?\d+>/g, " ").replace(/\s+/g, " ").trim(), n = placeKey(clean);
-  const request = /\b(?:itineraire|trajet|quel(?:le)?(?: est)?(?: le)? chemin|comment.*(?:aller|rendre|rejoindre)|chemin.*(?:prendre|suivre)|quelles? correspondances?|route from|directions to|how.*(?:get|go|travel).*(?:to|from)|(?:which|what).*(?:route|way))\b/.test(n) ||
+  const request = /\b(?:itineraire|trajet|quel(?:le)?(?: est)?(?: le)? chemin|meilleur moyen|meilleur mode|plus rapide|comment.*(?:aller|rendre|rejoindre)|je\s+(?:dois|veux|souhaite)\s+(?:aller|me rendre)|chemin.*(?:prendre|suivre)|quelles? correspondances?|compare[r]?|comparaison|combien de temps|route from|directions to|best way|fastest|how.*(?:get|go|travel).*(?:to|from)|(?:which|what).*(?:route|way))\b/.test(n) ||
     /\b(?:metro|rer|bus|tram|train|ligne)\b/.test(n) && /\b(?:comment.*(?:prendre|emprunter)|quell?e?s?.*(?:prendre|emprunter)|quelle direction)\b/.test(n);
   const service = /\b(?:mon service|je (?:prends?|commence) (?:mon )?service|je travaille)\b/.test(n);
   const origin = place(clean.match(/\b(?:je\s+(?:prends?|prend|vais\s+prendre|monte)|j['’]embarque)\s+(?:dans\s+)?(?:le\s+)?(?:m[eé]tro|bus|train|tram(?:way)?)\s+(?:à|a|au|depuis|de)\s+(.+)$/i)?.[1]
@@ -36,9 +36,10 @@ export function travelTurn(input: string): TravelTurn {
     ?? clean.match(/\b(?:service|je\s+travaille)\s+(?:(?:commence|commencera)\s+)?(?:à|a)\s+\d{1,2}(?:h\d{0,2}|:\d{2})\s+(?:à|a|au)\s+(.+)$/i)?.[1]
     ?? clean.match(/\b(?:pour\s+(?:aller|me\s+rendre)|je\s+(?:veux|dois)\s+(?:aller|être|etre)|aller|me\s+rendre|arriver|arriv[eé]e)\s*(?:[:=]\s*|(?:à|a|au|vers)\s+)(?!\d)(.+)$/i)?.[1]
     ?? (request ? clean.match(/\b(?:vers|pour|to)\s+(?!\d)(.+)$/i)?.[1] : undefined));
-  const arrow = request ? clean.match(/^(?:(?:itin[eé]raire|trajet|route|directions)(?:\s+(?:voiture|car|transports?|transit))?\s+)(.+?)\s*(?:→|->)\s*(.*)$/i) : null;
+  const arrow = request ? clean.match(/^(?:(?:itin[eé]raire|trajet|route|directions)(?:\s+(?:(?:en\s+)?(?:voiture|auto|car|m[eé]tro|bus|train|tram|transports?|transit)|(?:à|a)\s+pied|walking|walk|compare|comparer|comparaison))?\s+)(.+?)\s*(?:→|->)\s*(.*)$/i) : null;
+  const pairSource = clean.replace(/^(?:combien\s+de\s+temps|how\s+long)(?:\s+(?:does\s+it\s+take|is\s+it|faut[- ]il))?\s+/i, "");
   const pair = request || /^(?:de|from|depuis)\s+/i.test(clean) || /\b(?:m[eé]tro|bus|train|tram)\b/i.test(clean)
-    ? clean.match(/\b(?:depuis|au\s+d[eé]part\s+de|from|de)\s+(.+?)\s+(?:vers|à|a|to|→|->)\s+(.+)$/i) : null;
+    ? pairSource.match(/\b(?:depuis|au\s+d[eé]part\s+de|from|de)\s+(.+?)\s+(?:vers|à|a|pour|to|→|->)\s+(.+)$/i) : null;
   const singleFrom = !pair ? clean.match(/(?:^(?:trajet|itin[eé]raire)(?:\s+(?:voiture|transports?|car|en voiture))?|aller|partir|drive)\s+(?:de|from|depuis)\s+(.+)$/i)?.[1] : undefined;
   const line = clean.match(/\b(?:ligne|line)\s*(\d{1,2}(?:bis)?)\b/i)?.[1]?.toLowerCase();
   const stationQuestion = !!line && /\b(?:stations?|arrets?|stops?)\b/.test(n) &&
@@ -47,17 +48,19 @@ export function travelTurn(input: string): TravelTurn {
     !/\b(?:merci|salut|bonjour|bonsoir|hello|thanks|oui|non|yes|no|pourquoi|parle|aide|help)\b/.test(n)
     ? place(clean) : undefined;
   const car = /\b(?:en voiture|en auto|by car|driving|(?:trajet|itineraire|route) (?:voiture|car))\b/.test(n) || /^(?:voiture|auto|car)$/.test(n);
+  const walk = /\b(?:a pied|on foot|walking|walk)\b/.test(n);
   const transit = /\b(?:metro|rer|bus|train|tram|transports?|public transit)\b/.test(n) || n === "transit";
-  const modeAmbiguous = car && transit && /\b(?:ou|or)\b/.test(n);
+  const compare = /\b(?:compare|comparer|comparaison|meilleur moyen|meilleur mode|plus rapide|best way|fastest|toutes? les options|tous les modes|all modes|compare modes)\b/.test(n) ||
+    [car, walk, transit].filter(Boolean).length > 1;
   return {
     request: request || !!(origin && destination) || !!(pair?.[1] && pair?.[2]),
-    origin: arrow ? place(arrow[1]) : origin ?? place(pair?.[1] ?? singleFrom), destination: arrow ? place(arrow[2]) : destination ?? place(pair?.[2]), service,
+    origin: arrow ? place(arrow[1]) : pair?.[1] ? place(pair[1]) : origin ?? place(singleFrom),
+    destination: arrow ? place(arrow[2]) : pair?.[2] ? place(pair[2]) : destination, service,
     line, stationQuestion,
     paris: /\b(?:paris|parisien(?:ne)?|ile de france|idf)\b/.test(n),
     outside: /\b(?:quebec|montreal|laval|sherbrooke|gatineau|toronto|london|londres|lyon|marseille|lille|toulouse|amiens|beauvais|breteuil)\b/.test(n.replace(/\bgare de lyon\b/g, "")),
-    mode: modeAmbiguous ? undefined : car ? "car" : transit ? "transit" : undefined,
-    modeAmbiguous,
-    unsupportedMode: /\b(?:a velo|en velo|a pied|cycling|on foot)\b/.test(n),
+    mode: compare ? "compare" : car ? "car" : walk ? "walk" : transit ? "transit" : undefined,
+    unsupportedMode: /\b(?:a velo|en velo|cycling|by bike|bicycle)\b/.test(n),
     correction: /\b(?:tu mens|c est faux|ce n est pas vrai|tu t es trompe|reverifie|verifie|wrong|not true|check again)\b/.test(n),
     reverse: /\b(?:inverse|inverser|sens inverse|dans l autre sens|reverse|other way)\b/.test(n),
     cancel: /^(?:stop|annule|annuler|arrete|cancel|forget it)(?: (?:le |ce )?(?:trajet|itineraire|route))?$/.test(n),

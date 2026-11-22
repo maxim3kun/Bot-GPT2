@@ -13,7 +13,7 @@ import { fakeDiscord } from "./fixtures/transport-discord.js";
 const NOW = Date.UTC(2026, 10, 11, 14);
 const from: OfficialPlace = { id: "ign:60057", ids: ["ign:60057"], name: "Beauvais", label: "Beauvais · 60, Oise", longitude: 2.08, latitude: 49.43 };
 const to: OfficialPlace = { id: "ign:80021", ids: ["ign:80021"], name: "Amiens", label: "Amiens · 80, Somme", longitude: 2.29, latitude: 49.89 };
-const body = () => ({ resource: "bdtopo-osrm", profile: "car", crs: "EPSG:4326", distanceUnit: "meter", timeUnit: "second",
+const body = (profile = "car") => ({ resource: "bdtopo-osrm", profile, crs: "EPSG:4326", distanceUnit: "meter", timeUnit: "second",
   start: "2.08,49.43", end: "2.29,49.89", duration: 3600, distance: 65000, resourceVersion: "2026-11-11",
   portions: [{ steps: [{ distance: 65000, duration: 3600, instruction: { type: "continue", modifier: "straight" }, attributes: { name: "D1001" } }] }] });
 const geo = (city = "Beauvais", code = "60057", coordinates = [2.08,49.43], type = "municipality") => ({
@@ -22,10 +22,10 @@ const geo = (city = "Beauvais", code = "60057", coordinates = [2.08,49.43], type
 function setup() {
   const calls: string[] = [];
   const road: ItineraryProvider = { places: async q => { calls.push(q); return /amiens/i.test(q) ? [to] : [from]; },
-    journeys: async (a,b,at,rep) => [parseRoad(body(),a,b,at,rep)], stations: async () => { throw Error("not a road function"); } };
+    journeys: async (a,b,at,rep,_fresh,mode) => [parseRoad(body(mode === "walk" ? "pedestrian" : "car"),a,b,at,rep,mode)], stations: async () => { throw Error("not a road function"); } };
   const transit: ItineraryProvider = { places: async () => { throw Error("must not call PRIM"); }, journeys: async () => { throw Error("must not call PRIM"); },
     stations: async () => ({ line: "8", count: 38 }) };
-  return { service: new TransportConversation(transit, () => NOW, road), road, calls };
+  return { service: new TransportConversation(transit, () => NOW, road), road, transit, calls };
 }
 test("car grammar keeps A/B in order and strips the mode, not an address comma", () => {
   for (const q of ["Comment aller de Beauvais à Amiens en voiture ?", "Trajet voiture Beauvais -> Amiens"]) {
@@ -34,20 +34,71 @@ test("car grammar keeps A/B in order and strips the mode, not an address comma",
   const t = travelTurn("Trajet voiture 10 rue A, 60000 Beauvais -> 15 rue B, Amiens");
   assert.equal(t.origin, "10 rue A, 60000 Beauvais"); assert.equal(t.destination, "15 rue B, Amiens");
 });
+test("walking and comparison requests keep endpoints and choose the correct mode", () => {
+  const walking = travelTurn("Combien de temps à pied de Beauvais à Amiens ?");
+  assert.equal(walking.mode, "walk"); assert.equal(walking.origin, "Beauvais"); assert.equal(walking.destination, "Amiens");
+  const compare = travelTurn("Compare le trajet de Beauvais à Amiens à pied, en voiture ou en transports");
+  assert.equal(compare.mode, "compare"); assert.equal(compare.origin, "Beauvais"); assert.equal(compare.destination, "Amiens");
+  const arrow = travelTurn("Trajet à pied Beauvais -> Amiens");
+  assert.equal(arrow.mode,"walk");assert.equal(arrow.origin,"Beauvais");assert.equal(arrow.destination,"Amiens");
+  const compareArrow=travelTurn("Trajet comparer Beauvais -> Amiens");
+  assert.equal(compareArrow.mode,"compare");assert.equal(compareArrow.origin,"Beauvais");assert.equal(compareArrow.destination,"Amiens");
+  const best = travelTurn("Quel est le meilleur moyen pour aller de 10 rue A, Beauvais à 15 rue B, Amiens ?");
+  assert.deepEqual({mode:best.mode,origin:best.origin,destination:best.destination},
+    {mode:"compare",origin:"10 rue A, Beauvais",destination:"15 rue B, Amiens"});
+  assert.equal(selectAiCommand("Quel est le meilleur moyen pour aller de Beauvais à Amiens ?",{}).kind,"action");
+});
 test("typed road tools reject URLs, identities, unknown modes and unknown fields", () => {
   const parse = (args: object) => parseAiCommandTool([{type:"function",function:{name:"plan_journey",arguments:JSON.stringify(args)}}],[]);
   assert.deepEqual(parse({mode:"car",origin:"Beauvais",destination:"Amiens"}),{name:"plan_journey",mode:"car",origin:"Beauvais",destination:"Amiens"});
+  assert.deepEqual(parse({mode:"walk",origin:"Beauvais",destination:"Amiens"}),{name:"plan_journey",mode:"walk",origin:"Beauvais",destination:"Amiens"});
+  assert.equal(parse({mode:"compare",origin:"Beauvais",destination:"Amiens"})?.name,"plan_journey");
   for(const args of [{mode:"car",origin:"https://evil.test"}, {mode:"car",userId:"x"}, {mode:"bike"}, {mode:"car",origin:"<@123>"}]) assert.equal(parse(args),null);
   assert.ok(buildAiCommandTools([]).some(t=>t.function.name==="plan_journey"));
   const intent=selectAiCommand("Comment aller de Beauvais à Amiens en voiture ?",{});
   assert.equal(intent.kind,"action"); if(intent.kind==="action")assert.equal(intent.action.name,"plan_journey");
+  const compare=selectAiCommand("Compare les trajets à pied et en voiture de Beauvais à Amiens",{});
+  assert.equal(compare.kind,"action"); if(compare.kind==="action")assert.equal(compare.action.name,"plan_journey");
 });
 test("a generic journey clarifies mode without using a provider, then uses the road provider", async () => {
   const s=setup(); const first=await s.service.reply("s","Quel trajet de Beauvais à Amiens ?","fr");
-  assert.match(first!.content!,/voiture ou en transports/); assert.equal(s.calls.length,0);
+  assert.match(first!.content!,/à pied, en voiture ou en transports/); assert.equal(s.calls.length,0);
   const result=await s.service.reply("s","voiture","fr",true);
   assert.ok(result?.itinerary?.journey.road); assert.deepEqual(s.calls,["Beauvais","Amiens"]);
   assert.equal(await s.service.reply("someone else","voiture","fr",true),null);
+});
+test("a walking request uses the official pedestrian profile and gets a walking card", async () => {
+  const s=setup(), result=(await s.service.reply("s","Combien de temps à pied de Beauvais à Amiens ?","fr"))!;
+  assert.equal(result.itinerary?.journey.road?.mode,"walk");
+  const json=JSON.stringify(itineraryPages(result.itinerary!,true));
+  assert.match(json,/Itinéraire à pied/); assert.match(json,/réseau piéton/);
+  assert.doesNotMatch(json,/sans trafic en temps réel/);
+});
+test("comparison calculates each supported mode separately and labels missing transit honestly", async () => {
+  const s=setup(), result=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
+  assert.equal(result.comparison?.entries.find(e=>e.mode==="walk")?.journey?.road?.mode,"walk");
+  assert.equal(result.comparison?.entries.find(e=>e.mode==="car")?.journey?.road?.mode,"car");
+  assert.match(result.comparison?.entries.find(e=>e.mode==="transit")?.unavailable ?? "",/indisponible/);
+  const { comparisonPage }=await import("../src/discord/transport-itinerary-presentation.js");
+  const content=comparisonPage(result.comparison! ,true).content;
+  assert.match(content,/À pied/);assert.match(content,/En voiture/);assert.match(content,/Transports en commun/);
+  assert.match(content,/Géoplateforme/);assert.match(content,/Île-de-France Mobilités/);
+});
+test("comparison ranks only journeys actually returned by their official planners", async () => {
+  const s=setup();
+  s.transit.places=async query=>[{id:`id:${query}`,ids:[`id:${query}`],name:query,label:query,longitude:2.1,latitude:49.4}];
+  s.transit.journeys=async(from,to,at)=>[{departure:at,arrival:at+600,legs:[{kind:"transit",from:from.label,to:to.label,departure:at,arrival:at+600,line:"Train",direction:to.label}],warning:false}];
+  const result=(await s.service.reply("s","Compare les trajets de Beauvais à Amiens à pied, en voiture ou en transports","fr"))!;
+  assert.equal(result.comparison?.entries.filter(entry=>entry.journey).length,3);
+  assert.equal(result.comparison?.recommended,"transit");
+});
+test("comparison is delivered as a compact card with source links, including without embeds", async () => {
+  const s=setup(), d=fakeDiscord({embed:false});
+  await createTransportDialogue(s.service,async()=>true)(d.message,"Compare de Beauvais à Amiens à pied et en voiture","fr");
+  assert.match(d.cards[0]!.last.content!,/Comparaison des trajets/);
+  const urls=d.cards[0]!.last.components.flatMap(row=>row.components.map(button=>button.url));
+  assert.ok(urls.some(url=>url===ROAD_SOURCE));
+  assert.ok(urls.some(url=>url?.includes("prim.iledefrance-mobilites.fr")));
 });
 test("road presentation and source never claim PRIM or live traffic", async () => {
   const s=setup(),result=(await s.service.reply("s","Comment aller de Beauvais à Amiens en voiture ?","fr"))!;
@@ -92,7 +143,21 @@ test("bad units, times, totals and mismatched endpoints cannot become a verified
   for(const change of [{profile:"walking"},{distanceUnit:"kilometer"},{distance:NaN},{duration:NaN},{duration:1},{start:"1,45"},{end:"2.08,49.43"},{portions:[]}]){
     assert.throws(()=>parseRoad({...body(),...change},from,to,NOW/1000,"departure"),PlannerError);
   }
+  assert.equal(parseRoad(body("pedestrian"),from,to,NOW/1000,"departure","walk").road?.mode,"walk");
+  assert.throws(()=>parseRoad(body("car"),from,to,NOW/1000,"departure","walk"),PlannerError);
   const arrival=parseRoad(body(),from,to,NOW/1000+7200,"arrival");assert.equal(arrival.arrival,NOW/1000+7200);assert.equal(arrival.departure,NOW/1000+3600);
+});
+test("IGN requests select the documented pedestrian or car profile and validates that profile back", async () => {
+  const requests:URL[]=[];
+  const planner=new IgnRoadPlanner(async input=>{
+    const url=new URL(String(input));requests.push(url);
+    return Response.json(body(url.searchParams.get("profile") === "pedestrian" ? "pedestrian" : "car"));
+  },()=>NOW);
+  const walking=await planner.journeys(from,to,NOW/1000,"departure",false,"walk");
+  const driving=await planner.journeys(from,to,NOW/1000,"departure",false,"car");
+  assert.equal(requests[0]!.searchParams.get("profile"),"pedestrian");
+  assert.equal(requests[1]!.searchParams.get("profile"),"car");
+  assert.equal(walking[0]!.road?.mode,"walk");assert.equal(driving[0]!.road?.mode,"car");
 });
 test("quota, malformed/oversized JSON, redirect failures and missing route are honest errors", async () => {
   for(const fetcher of [
@@ -136,14 +201,14 @@ test("Québec is not routed through a similarly named French commune", async () 
   const s=setup();const r=await s.service.reply("s","Quel trajet de Montréal Québec à Laval en voiture ?","fr");
   assert.match(r!.content!,/France métropolitaine/);assert.equal(s.calls.length,0);
 });
-test("an incomplete car request retains its starting city, and ambiguous modes do not execute a provider", async () => {
+test("an incomplete car request retains its starting city, and several requested modes are compared", async () => {
   const s=setup();
   const question=await s.service.reply("s","Comment aller de Beauvais en voiture ?","fr");
   assert.match(question!.content!,/depuis.*Beauvais/);assert.equal(s.calls.length,0);
   const result=await s.service.reply("s","Amiens","fr",true);assert.ok(result?.itinerary?.journey.road);
   const ambiguous=setup();
   const response=await ambiguous.service.reply("s","Quel trajet de Beauvais à Amiens en voiture ou en transports ?","fr");
-  assert.match(response!.content!,/voiture ou en transports/);assert.equal(ambiguous.calls.length,0);
+  assert.ok(response!.comparison);assert.equal(ambiguous.calls.length,2);
 });
 test("homonymous choices stay scoped and reversing keeps the selected coordinates", async () => {
   const s=setup(),bre27={...from,id:"ign:27112",name:"Breteuil",label:"Breteuil · 27 Eure",longitude:.9,latitude:48.8},
