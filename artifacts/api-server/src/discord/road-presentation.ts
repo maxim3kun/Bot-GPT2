@@ -60,7 +60,7 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     embed: { color: TRANSPORT_CARD_COLOR, title, url: ROAD_SOURCE, description,
       fields: accessibilityField },
     content: `**${title}**\n${description}${accessibilityField.length
-      ? `\n\n**${accessibilityField[0]!.name}** · ${accessibilityField[0]!.value}` : ""}\n[IGN / Géoplateforme](${ROAD_SOURCE})`,
+      ? `\n\n**${accessibilityField[0]!.name}** · ${accessibilityField[0]!.value}` : ""}`,
   };
   const detailPages = groups.filter(items => items.length).map((items, index) => {
     const suffix = groups.length > 1
@@ -70,7 +70,7 @@ export function roadPages(view: ItineraryView, fr: boolean): ItineraryPage[] {
     const directions = `**${fr ? "Départ" : "From"}** ${view.origin.label} → **${fr ? "Arrivée" : "To"}** ${view.destination.label}`;
     return { embed: { color: TRANSPORT_CARD_COLOR, title: title + suffix, url: ROAD_SOURCE, description: directions,
       fields: [{ name: fr ? "Étapes" : "Steps", value: steps }] },
-      content: `**${title}${suffix}**\n${directions}\n\n${steps}\n[IGN / Géoplateforme](${ROAD_SOURCE})` };
+      content: `**${title}${suffix}**\n${directions}\n\n${steps}` };
   });
   return [summaryPage, ...detailPages];
 }
