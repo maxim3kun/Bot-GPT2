@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import sharp from "sharp";
 import { MessageFlags } from "discord.js";
 import { TransportConversation } from "../src/discord/transport-conversation.js";
 import { ItineraryControls } from "../src/discord/transport-itinerary-controls.js";
 import { createTransportDialogue, travelScope } from "../src/discord/transport-dialogue.js";
-import { itineraryPages, ITINERARY_SOURCE } from "../src/discord/transport-itinerary-presentation.js";
+import { hasMapPreview, itineraryPages, ITINERARY_SOURCE } from "../src/discord/transport-itinerary-presentation.js";
 import { TRANSPORT_CARD_COLOR } from "../src/discord/transport-presentation.js";
 import { parseItineraries, idfmDate } from "../src/discord/idfm-itinerary.js";
 import { PlannerError, type ItineraryProvider, type VerifiedJourney } from "../src/discord/transport-planner-types.js";
+import { renderRouteMap, ROUTE_MAP_FILENAME } from "../src/discord/transport-route-map.js";
 import { NOW, origin, destination, journeyBody, requestAt } from "./fixtures/itinerary-fixtures.js";
 import { fakeDiscord, hasControls } from "./fixtures/transport-discord.js";
 
@@ -28,7 +30,7 @@ function setup() {
   };
   const service = new TransportConversation(api, () => now);
   const authorize = async () => { authCalls++; return authorized; };
-  return { service, api, base, calls, authorize, controls: new ItineraryControls(service, authorize),
+  return { service, api, base, calls, authorize, controls: new ItineraryControls(service, authorize, async () => undefined),
     setNow(value: number) { now = value; }, deny() { authorized = false; }, get authCalls() { return authCalls; } };
 }
 async function opened(text = PAIR, options: Parameters<typeof fakeDiscord>[0] = {}) {
@@ -52,6 +54,85 @@ test("journey cards reuse métro colour and hierarchy, with verified times and e
   assert.doesNotMatch(serialized(embed), /Embarquement|RER A/);
   assert.equal(card.last.content, ""); assert.ok(card.custom("refresh")); assert.ok(card.custom("close"));
   assert.equal(card.last.components.flatMap(r => r.components).find(c => c.url)?.url, ITINERARY_SOURCE);
+});
+test("official route stops keep only published coordinates and mark departure, transfer and arrival", () => {
+  const { base } = setup();
+  assert.deepEqual(base.mapStops?.map(stop => [stop.name, stop.role]), [
+    ["Dugommier (Paris)", "departure"],
+    ["Daumesnil (Paris)", "transfer"],
+    ["Daumesnil (Paris)", "transfer"],
+    ["Pointe du Lac (Créteil)", "arrival"],
+  ]);
+  assert.ok(base.mapStops?.every(stop => stop.longitude >= 1 && stop.longitude <= 4 &&
+    stop.latitude >= 48 && stop.latitude <= 49.5));
+  assert.equal(hasMapPreview(base), true);
+
+  const withoutCoordinate = structuredClone(journeyBody());
+  const sections = withoutCoordinate.journeys[0]!.sections;
+  delete sections[1]!.stop_date_times[1]!.stop_point.coord;
+  const partial = parseItineraries(withoutCoordinate, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(partial.mapStops?.some(stop => stop.id === "stop_point:IDFM:22181"), false);
+  assert.equal(partial.mapStopsPartial, true);
+  assert.equal(partial.mapStops?.find(stop => stop.role === "departure")?.name, "Dugommier (Paris)");
+
+  const noCoordinates = structuredClone(journeyBody());
+  for (const section of noCoordinates.journeys[0]!.sections) {
+    const values = [section.from, section.to, ...(section.stop_date_times ?? []).map(v => v.stop_point)];
+    for (const value of values) {
+      if (value?.stop_point) delete value.stop_point.coord;
+      else if (value?.coord) delete value.coord;
+    }
+  }
+  const unavailable = parseItineraries(noCoordinates, origin, destination, requestAt, "departure")[0]!;
+  assert.equal(unavailable.mapStops, undefined);
+  assert.equal(hasMapPreview(unavailable), false);
+});
+test("a direct route gets departure and arrival map stops without inventing a path", () => {
+  const body = structuredClone(journeyBody()), raw = body.journeys[0]!, [access, transit, , , , exit] = raw.sections;
+  transit!.to = exit!.from;
+  transit!.arrival_date_time = "20261111T083300";
+  transit!.stop_date_times = [
+    { stop_point: transit!.from.stop_point },
+    { stop_point: transit!.to.stop_point },
+  ];
+  raw.sections = [access!, transit!, exit!];
+  const direct = parseItineraries(body, origin, destination, requestAt, "departure")[0]!;
+  assert.deepEqual(direct.mapStops?.map(stop => stop.role), ["departure", "arrival"]);
+  assert.equal(direct.mapGeometry, undefined);
+  assert.equal(hasMapPreview(direct), true);
+});
+test("stop-only map preview draws distinct verified stop markers on the official basemap", async () => {
+  const { base } = setup();
+  const tile = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#ece8dd" } }).png().toBuffer();
+  const image = await renderRouteMap(base, (async () => new Response(tile, {
+    headers: { "content-type": "image/png", "content-length": String(tile.length) },
+  })) as typeof fetch);
+  assert.ok(image);
+  const metadata = await sharp(image!).metadata();
+  assert.equal(metadata.width, 512);
+  assert.equal(metadata.height, 512);
+  const pixels = await sharp(image!).removeAlpha().raw().toBuffer();
+  const contains = (r: number, g: number, b: number) => {
+    for (let i = 0; i < pixels.length; i += 3)
+      if (pixels[i] === r && pixels[i + 1] === g && pixels[i + 2] === b) return true;
+    return false;
+  };
+  assert.ok(contains(22, 163, 74), "departure marker is green");
+  assert.ok(contains(245, 158, 11), "transfer markers are orange");
+  assert.ok(contains(220, 38, 38), "arrival marker is red");
+});
+test("itinerary cards attach the stop map and explain its marker colors", async () => {
+  const s = setup(), d = fakeDiscord(), scope = travelScope(d.message);
+  const result = (await s.service.reply(scope, PAIR, "fr"))!;
+  const controls = new ItineraryControls(s.service, s.authorize, async journey => {
+    assert.equal(journey.mapStops?.length, 4);
+    return Buffer.from("verified-map");
+  });
+  await controls.send(d.message, scope, result, "fr");
+  const card = d.cards[0]!;
+  assert.deepEqual(card.last.files[0], { name: ROUTE_MAP_FILENAME, size: 12 });
+  assert.equal(card.last.embeds[0]!.image!.url, `attachment://${ROUTE_MAP_FILENAME}`);
+  assert.match(card.last.embeds[0]!.footer!.text!, /départ vert, correspondances orange, arrivée rouge/);
 });
 test("live, mixed and scheduled status is preserved, including per-leg status for mixed journeys", () => {
   const { base } = setup(), view = { origin, destination, journey: base, now: NOW / 1000 };

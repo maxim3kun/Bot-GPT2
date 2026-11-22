@@ -76,16 +76,21 @@ export async function renderRouteMap(
   fetcher: typeof fetch = fetch,
 ): Promise<Buffer | undefined> {
   const lines = journey.road?.geometry ? [journey.road.geometry] : journey.mapGeometry;
-  if (!lines?.length || lines.some(line => line.length < 2) ||
-      lines.reduce((sum, line) => sum + line.length, 0) > 25_000) return;
-  const points = lines.flat();
+  const stops = journey.mapStops?.filter(stop => Number.isFinite(stop.longitude) &&
+    Number.isFinite(stop.latitude) && stop.longitude >= 1 && stop.longitude <= 4 &&
+    stop.latitude >= 48 && stop.latitude <= 49.5).slice(0, 500) ?? [];
+  if ((!lines?.length && stops.length < 2) || lines?.some(line => line.length < 2) ||
+      (lines?.reduce((sum, line) => sum + line.length, 0) ?? 0) > 25_000) return;
+  const routeLines = lines ?? [];
+  const points = [...routeLines.flat(), ...stops.map(stop => [stop.longitude, stop.latitude] as const)];
   const projected = points.map(([lon, lat]) => project(lon, lat, 0));
   const xs = projected.map(point => point[0]), ys = projected.map(point => point[1]);
   const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
   if (!Number.isFinite(span)) return;
   const zoom = clamp(Math.floor(Math.log2(110 / Math.max(span, 0.0001))), 3, 17);
-  const atZoom = lines.map(line => line.map(([lon, lat]) => project(lon, lat, zoom)));
-  const allAtZoom = atZoom.flat();
+  const atZoom = routeLines.map(line => line.map(([lon, lat]) => project(lon, lat, zoom)));
+  const atZoomStops = stops.map(stop => project(stop.longitude, stop.latitude, zoom));
+  const allAtZoom = [...atZoom.flat(), ...atZoomStops];
   const centerX = (Math.min(...allAtZoom.map(point => point[0])) + Math.max(...allAtZoom.map(point => point[0]))) / 2;
   const centerY = (Math.min(...allAtZoom.map(point => point[1])) + Math.max(...allAtZoom.map(point => point[1]))) / 2;
   const tileX = clamp(Math.floor(centerX / TILE_SIZE), 0, 2 ** zoom - 1);
@@ -98,9 +103,25 @@ export async function renderRouteMap(
   const paths = screenLines.map(points => points.map(([x, y], index) =>
     `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
   const credit = "© IGN · Géoplateforme";
+  const screenStops = stops.map((stop, index) => {
+    const [x, y] = atZoomStops[index]!;
+    return [(x - tileX * TILE_SIZE) * 2, (y - tileY * TILE_SIZE) * 2, stop.role] as const;
+  });
+  if (screenStops.some(([x, y]) => x < 0 || y < 0 || x > IMAGE_SIZE || y > IMAGE_SIZE)) return;
+  const markerColor = { departure: "#16a34a", transfer: "#f59e0b", stop: "#2563eb", arrival: "#dc2626" };
+  const markers = screenStops.map(([x, y, role]) => {
+    const color = markerColor[role];
+    const shape = role === "transfer"
+      ? `<path d="M${x},${y - 9} L${x + 9},${y} L${x},${y + 9} L${x - 9},${y} Z" fill="${color}"/>`
+      : role === "arrival"
+        ? `<rect x="${x - 7}" y="${y - 7}" width="14" height="14" rx="2" fill="${color}"/>`
+        : `<circle cx="${x}" cy="${y}" r="${role === "stop" ? 5 : 8}" fill="${color}"/>`;
+    return `<g stroke="#ffffff" stroke-width="3">${shape}<circle cx="${x}" cy="${y}" r="2" fill="#ffffff" stroke="none"/></g>`;
+  }).join("");
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_SIZE}" height="${IMAGE_SIZE}" viewBox="0 0 ${IMAGE_SIZE} ${IMAGE_SIZE}">
     ${paths.map(path => `<path d="${path}" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}
     ${paths.map(path => `<path d="${path}" fill="none" stroke="#1167d5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}
+    ${markers}
     <rect x="8" y="480" width="194" height="24" rx="5" fill="#ffffff" fill-opacity=".92"/>
     <text x="16" y="497" font-family="Arial,sans-serif" font-size="13" fill="#20242a">${credit}</text>
   </svg>`);

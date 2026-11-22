@@ -20,6 +20,13 @@ export interface VerifiedLeg {
   direction?: string;
   freshness?: string;
 }
+export interface VerifiedJourneyStop {
+  id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  role: "departure" | "transfer" | "stop" | "arrival";
+}
 export type RouteGeometry = Array<[longitude: number, latitude: number]>;
 export type OSMBikeSurface = "asphalt" | "concrete" | "paving_stones" | "sett" | "cobblestone"
   | "compacted" | "fine_gravel" | "gravel" | "ground" | "dirt" | "earth" | "grass"
@@ -34,6 +41,9 @@ export interface VerifiedJourney {
   /** Independently verified GeoJSON sections from the public-transit planner. */
   mapGeometry?: RouteGeometry[];
   mapGeometryPartial?: boolean;
+  /** Official itinerary stops with coordinates supplied by the transit planner. */
+  mapStops?: VerifiedJourneyStop[];
+  mapStopsPartial?: boolean;
   road?: {
     mode: "car" | "walk" | "bike";
     source?: "ign" | "openstreetmap";

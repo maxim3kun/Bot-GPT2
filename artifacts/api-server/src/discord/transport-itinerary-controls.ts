@@ -4,7 +4,7 @@ import {
   type APIEmbed, type Message, type MessageComponentInteraction,
 } from "discord.js";
 import type { TransportConversation, TravelReply } from "./transport-conversation.js";
-import { comparisonPage, hasRouteGeometry, itineraryPages, itinerarySource, journeyMapMode, mapsDirectionsUrl, routeMapCaption } from "./transport-itinerary-presentation.js";
+import { comparisonPage, hasMapPreview, itineraryPages, itinerarySource, journeyMapMode, mapsDirectionsUrl, routeMapCaption } from "./transport-itinerary-presentation.js";
 import { ROAD_SOURCE } from "./ign-road-planner.js";
 import { BIKE_SOURCE, OSM_ATTRIBUTION } from "./osm-bike-planner.js";
 import { ITINERARY_SOURCE } from "./transport-itinerary-presentation.js";
@@ -21,9 +21,9 @@ type RouteMapRenderer = (journey: VerifiedJourney) => Promise<Buffer | undefined
 function applyRouteMap(pages: ReturnType<typeof itineraryPages>, journey: VerifiedJourney,
   image: Buffer | undefined, french: boolean) {
   const caption = image ? routeMapCaption(journey, french) : "";
-  const failure = !image && hasRouteGeometry(journey)
-    ? (french ? "Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun tracé de remplacement n’est affiché."
-      : "Preview unavailable: the IGN basemap could not be loaded. No substitute route is drawn.")
+  const failure = !image && hasMapPreview(journey)
+    ? (french ? "Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun aperçu de remplacement n’est affiché."
+      : "Preview unavailable: the IGN basemap could not be loaded. No substitute map is shown.")
     : "";
   return pages.map(item => {
     const note = caption || failure;
@@ -57,7 +57,7 @@ export class ItineraryControls {
     const page = comparisonPage(comparison, fr);
     const recommended = comparison.entries.find(entry => entry.mode === comparison.recommended && entry.journey)
       ?? comparison.entries.find(entry => entry.journey);
-    const mapBuffer = recommended?.journey && hasRouteGeometry(recommended.journey)
+    const mapBuffer = recommended?.journey && hasMapPreview(recommended.journey)
       ? await this.mapRenderer(recommended.journey).catch(() => undefined) : undefined;
     const mapLabel = recommended ? ({
       walk: t("Carte · à pied", "Map · walking"),
@@ -84,9 +84,9 @@ export class ItineraryControls {
         footer: { text: embed.footer?.text?.includes(caption) ? embed.footer.text
           : [embed.footer?.text, caption].filter(Boolean).join(" · ") } };
       content = page.content;
-    } else if (recommended?.journey && hasRouteGeometry(recommended.journey)) {
-      const notice = t("Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun tracé de remplacement n’est affiché.",
-        "Preview unavailable: the IGN basemap could not be loaded. No substitute route is drawn.");
+    } else if (recommended?.journey && hasMapPreview(recommended.journey)) {
+      const notice = t("Aperçu indisponible : le fond IGN n’a pas pu être chargé. Aucun aperçu de remplacement n’est affiché.",
+        "Preview unavailable: the IGN basemap could not be loaded. No substitute map is shown.");
       embed = { ...embed, footer: { text: [embed.footer?.text, notice].filter(Boolean).join(" · ") } };
       content = `${page.content}\n\n${notice}`;
     }
@@ -110,7 +110,7 @@ export class ItineraryControls {
     if (!view || !this.service.remaining(scope, view.ticket)) return;
     const ticket = view.ticket, fr = language === "fr", t = (a: string, b: string) => fr ? a : b;
     const id = `transport-trip:${randomUUID()}`;
-    let mapBuffer = hasRouteGeometry(view.journey) ? await this.mapRenderer(view.journey).catch(() => undefined) : undefined;
+    let mapBuffer = hasMapPreview(view.journey) ? await this.mapRenderer(view.journey).catch(() => undefined) : undefined;
     let pages = applyRouteMap(itineraryPages(view, fr), view.journey, mapBuffer, fr), page = 0, expanded = false;
     let compactRoad = !!view.journey.road && pages.length > 1;
     let lastText = pages[0]!.content;
@@ -231,7 +231,7 @@ export class ItineraryControls {
         if (!live || !this.service.remaining(scope, ticket) || !updated?.content) {
           collector.stop("replaced"); return;
         }
-        mapBuffer = updated.itinerary && hasRouteGeometry(updated.itinerary.journey)
+        mapBuffer = updated.itinerary && hasMapPreview(updated.itinerary.journey)
           ? await this.mapRenderer(updated.itinerary.journey).catch(() => undefined) : undefined;
         pages = updated.itinerary ? applyRouteMap(itineraryPages(updated.itinerary, fr),
           updated.itinerary.journey, mapBuffer, fr) : [];

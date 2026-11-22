@@ -1,5 +1,5 @@
 import { scheduledEpoch } from "./gtfs-realtime.js";
-import { PlannerError, type OfficialPlace, type VerifiedJourney, type VerifiedLeg } from "./transport-planner-types.js";
+import { PlannerError, type OfficialPlace, type VerifiedJourney, type VerifiedJourneyStop, type VerifiedLeg } from "./transport-planner-types.js";
 import { verifiedRouteGeometry } from "./transport-route-geometry.js";
 
 export type Json = Record<string, unknown>;
@@ -28,6 +28,85 @@ export function plannerDate(at: number): string {
     day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(at * 1000);
   const get = (type: string) => parts.find(p => p.type === type)?.value;
   return `${get("year")}${get("month")}${get("day")}T${get("hour")}${get("minute")}${get("second")}`;
+}
+const MAX_VERIFIED_MAP_STOPS = 500;
+
+/** Only actual IDFM stop points and their published coordinates are map candidates. */
+function itineraryStop(value: unknown): Omit<VerifiedJourneyStop, "role"> | undefined {
+  const raw = obj(value);
+  const nested = obj(raw.stop_point);
+  const point = raw.embedded_type === "stop_point" ? nested
+    : Object.keys(nested).length ? nested
+    : text(raw.id).startsWith("stop_point:") ? raw : {};
+  const id = text(point.id), name = display(point.name || raw.name);
+  if (!idfmId(id) || !id.startsWith("stop_point:") || !name) return;
+  const coord = obj(point.coord), longitude = coord.lon, latitude = coord.lat;
+  if (typeof longitude !== "number" || typeof latitude !== "number" ||
+      !Number.isFinite(longitude) || !Number.isFinite(latitude) ||
+      longitude < 1 || longitude > 4 || latitude < 48 || latitude > 49.5) {
+    return { id, name, longitude: NaN, latitude: NaN };
+  }
+  return { id, name, longitude, latitude };
+}
+
+type MapStopSegment = {
+  stops: Array<Omit<VerifiedJourneyStop, "role">>;
+  startId?: string;
+  endId?: string;
+  transferFromPrevious: boolean;
+};
+function journeyMapStops(segments: MapStopSegment[]) {
+  const ordered: Array<Omit<VerifiedJourneyStop, "role">> = [];
+  const departureIndex = new Set<number>(), arrivalIndex = new Set<number>(), transferIndexes = new Set<number>();
+  const add = (stop: Omit<VerifiedJourneyStop, "role">) => {
+    const last = ordered.at(-1);
+    if (last?.id === stop.id) {
+      const index = ordered.length - 1;
+      if ((!Number.isFinite(last.longitude) || !Number.isFinite(last.latitude)) &&
+          Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude)) ordered[index] = stop;
+      return index;
+    }
+    ordered.push(stop);
+    return ordered.length - 1;
+  };
+  const segmentIndexes: Array<Map<string, number>> = [];
+  for (const segment of segments) {
+    const indexes = new Map<string, number>();
+    for (const stop of segment.stops) {
+      const index = add(stop);
+      if (!indexes.has(stop.id)) indexes.set(stop.id, index);
+    }
+    segmentIndexes.push(indexes);
+  }
+  const firstSegment = segments[0], lastSegment = segments.at(-1);
+  if (firstSegment?.startId) {
+    const index = segmentIndexes[0]?.get(firstSegment.startId);
+    if (index != null) departureIndex.add(index);
+  }
+  if (lastSegment?.endId) {
+    const index = segmentIndexes.at(-1)?.get(lastSegment.endId);
+    if (index != null) arrivalIndex.add(index);
+  }
+  for (let index = 1; index < segments.length; index++) {
+    const previous = segments[index - 1]!, current = segments[index]!;
+    if (!current.transferFromPrevious || !previous.endId || !current.startId) continue;
+    const from = segmentIndexes[index - 1]?.get(previous.endId), to = segmentIndexes[index]?.get(current.startId);
+    if (from != null) transferIndexes.add(from);
+    if (to != null) transferIndexes.add(to);
+  }
+  const verified = ordered.flatMap((stop, index) =>
+    Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude)
+      ? [{ ...stop, role: departureIndex.has(index) ? "departure" as const
+        : arrivalIndex.has(index) ? "arrival" as const
+        : transferIndexes.has(index) ? "transfer" as const : "stop" as const }]
+      : []);
+  const partial = verified.length !== ordered.length || verified.length > MAX_VERIFIED_MAP_STOPS;
+  const limited = verified.length > MAX_VERIFIED_MAP_STOPS
+    ? [...verified.slice(0, MAX_VERIFIED_MAP_STOPS - 1), verified.at(-1)!] : verified;
+  return {
+    ...(verified.length ? { mapStops: limited } : {}),
+    ...(partial ? { mapStopsPartial: true } : {}),
+  };
 }
 
 export function parsePlaces(body: unknown): OfficialPlace[] {
@@ -109,8 +188,10 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
     if (!Number.isFinite(duration) || Math.abs(arr - dep - duration) > 1) continue;
     const legs: VerifiedLeg[] = [];
     const mapGeometry: NonNullable<VerifiedJourney["mapGeometry"]> = [];
+    const mapStopSegments: MapStopSegment[] = [];
     let geometryPointCount = 0;
     let mapGeometryPartial = false;
+    let hasTransitSegment = false, pendingTransfer = false;
     let valid = true, previousEnd = dep, previousPlace: unknown;
     for (const raw of sections) {
       // Navitia omits the endpoints of a waiting section. It stays at the
@@ -143,15 +224,30 @@ export function parseItineraries(body: unknown, from: OfficialPlace, to: Officia
         }
         else mapGeometryPartial = true;
       }
+      if (kind === "transfer" && hasTransitSegment) pendingTransfer = true;
+      if (kind === "transit") {
+        const candidates = [s.from, ...visits
+          .filter(v => !["skipped", "deleted", "cancelled"].includes(text(obj(v).arrival_status)) &&
+            !["skipped", "deleted", "cancelled"].includes(text(obj(v).departure_status)))
+          .map(v => obj(v).stop_point || v), s.to];
+        const stops = candidates.map(itineraryStop).filter((stop): stop is Omit<VerifiedJourneyStop, "role"> => !!stop)
+          .filter((stop, index, all) => index === 0 || stop.id !== all[index - 1]!.id);
+        mapStopSegments.push({ stops, startId: itineraryStop(s.from)?.id, endId: itineraryStop(s.to)?.id,
+          transferFromPrevious: hasTransitSegment && pendingTransfer });
+        hasTransitSegment = true;
+        pendingTransfer = false;
+      }
       legs.push({ kind, from: fromName, to: toName, departure, arrival, ...(kind === "transit" ? {
         line: `${display(info.commercial_mode || info.physical_mode)} ${line}`.trim(), direction,
         freshness: text(s.data_freshness),
       } : {}) });
       previousEnd = arrival; previousPlace = s.to;
     }
-    if (valid && legs.some(l => l.kind === "transit") && previousEnd === arr && legs.length <= 14)
+    if (valid && legs.some(l => l.kind === "transit") && previousEnd === arr && legs.length <= 14) {
+      const mapStops = journeyMapStops(mapStopSegments);
       journeys.push({ departure: dep, arrival: arr, legs, warning: !!j.status && j.status !== "NO_SERVICE",
-        ...(mapGeometry.length ? { mapGeometry } : {}), ...(mapGeometryPartial ? { mapGeometryPartial: true } : {}) });
+        ...(mapGeometry.length ? { mapGeometry } : {}), ...(mapGeometryPartial ? { mapGeometryPartial: true } : {}), ...mapStops });
+    }
   }
   if (!journeys.length && root.journeys.length) throw new PlannerError("invalid");
   return journeys;

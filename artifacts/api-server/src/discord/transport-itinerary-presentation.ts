@@ -30,13 +30,22 @@ export function routeMapCaption(journey: VerifiedJourney, fr: boolean) {
     ? (fr ? "routeur vélo OpenStreetMap · © OpenStreetMap contributors" : "OpenStreetMap bike router · © OpenStreetMap contributors")
     : journey.road ? (fr ? "calculateur IGN / Géoplateforme" : "IGN / Géoplateforme router")
       : (fr ? "Île-de-France Mobilités" : "Île-de-France Mobilités");
+  if (!hasRouteGeometry(journey) && journey.mapStops?.length) {
+    const omissions = journey.mapStopsPartial
+      ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
+    return `${fr ? "Arrêts vérifiés" : "Verified stops"} · ${fr ? "départ vert, correspondances orange, arrivée rouge" : "green departure, orange transfers, red arrival"} · Île-de-France Mobilités · ${fr ? "fond cartographique © IGN" : "basemap © IGN"}${omissions}`;
+  }
   const partial = journey.mapGeometryPartial
     ? (fr ? " · aperçu partiel, sections sans géométrie omises" : " · partial preview, sections without geometry omitted")
     : "";
-  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}`;
+  const stopNote = journey.mapStopsPartial
+    ? (fr ? " · arrêts sans coordonnées omis" : " · stops without coordinates omitted") : "";
+  return `${fr ? "Aperçu" : "Preview"} · ${modeName} · ${routeSource} · ${fr ? "fond cartographique" : "basemap"} © IGN${partial}${stopNote}`;
 }
 export const hasRouteGeometry = (journey: VerifiedJourney) =>
   !!journey.road?.geometry?.length || !!journey.mapGeometry?.length;
+export const hasMapPreview = (journey: VerifiedJourney) => hasRouteGeometry(journey) ||
+  (journey.mapStops?.length ?? 0) >= 2;
 export interface ItineraryView {
   journey: VerifiedJourney;
   origin: OfficialPlace;
@@ -126,7 +135,7 @@ export function comparisonPage(comparison: JourneyComparison, french: boolean): 
   const previewJourney = comparison.entries.find(entry => entry.mode === comparison.recommended && entry.journey)?.journey
     ?? comparison.entries.find(entry => entry.journey)?.journey;
   const previewNote = previewJourney
-    ? hasRouteGeometry(previewJourney)
+    ? hasMapPreview(previewJourney)
       ? routeMapCaption(previewJourney, fr)
       : t("Aucun aperçu du tracé : le calculateur n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet.",
         "No route preview: the router did not provide verified geometry. Google Maps may recalculate a different route.")
@@ -177,10 +186,12 @@ export function itineraryPages(view: ItineraryView, french: boolean): ItineraryP
   });
   if (journey.warning) fields.push({ name: fr ? "À savoir" : "Please note",
     value: fr ? "Perturbation signalée : vérifie les informations de l’exploitant." : "Disruption reported: check operator information.", inline: false });
-  const previewNote = hasRouteGeometry(journey)
-    ? fr
-      ? `Géométrie fournie par Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections sans géométrie et accès en ligne droite omis" : ""}.`
-      : `Geometry supplied by Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections without geometry and straight-line access omitted" : ""}.`
+  const previewNote = hasMapPreview(journey)
+    ? !hasRouteGeometry(journey)
+      ? routeMapCaption(journey, fr)
+      : fr
+        ? `Géométrie fournie par Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections sans géométrie et accès en ligne droite omis" : ""}${journey.mapStopsPartial ? " · arrêts sans coordonnées omis" : ""}.`
+        : `Geometry supplied by Île-de-France Mobilités${journey.mapGeometryPartial ? " · sections without geometry and straight-line access omitted" : ""}${journey.mapStopsPartial ? " · stops without coordinates omitted" : ""}.`
     : fr
       ? "Aucun aperçu du tracé : le calculateur de transports n’a pas fourni de géométrie vérifiée. Google Maps peut recalculer un autre trajet."
       : "No route preview: the transit planner did not provide verified geometry. Google Maps may recalculate a different route.";
