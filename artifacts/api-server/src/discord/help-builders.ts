@@ -668,7 +668,7 @@ export function buildHelpEmbed(lang: HelpLanguage, page: HelpPage, prefix = "!")
       },
       {
         name: lang === "fr" ? "Simulation crypto" : "Crypto simulation",
-        value: "`/crypto demarrer` · `/crypto solde` · `/crypto strategie` · `/crypto reinitialiser`",
+        value: "`/crypto demarrer` · `/crypto solde` · `/crypto strategie`\n`/crypto pilote demarrer` · `solde` · `arreter`",
       },
     );
   } else if (page === 3) {
@@ -917,6 +917,14 @@ export function buildTopicEmbed(topic: HelpTopic, lang: HelpLanguage, prefix = "
           de: "Vergleicht eine feste 24-h-/72-h-Durchschnittsregel mit Kaufen und Halten anhand öffentlicher Binance-EUR-Kerzen. Enthält angenommene Gebühren, Slippage und eine abschließende Validierung mit 20 % der Daten; keine Prognose.",
           pt: "Compara uma regra fixa de médias móveis de 24 h / 72 h com comprar e manter usando velas públicas da Binance em euros. Inclui taxas, derrapagem hipotéticas e validação nos 20 % finais; não é uma previsão.",
           it: "Confronta una regola fissa di medie mobili 24 h / 72 h con compra e mantieni, usando candele pubbliche Binance in euro. Include commissioni, slippage ipotetici e una verifica sugli ultimi 20%; non è una previsione.",
+        }[tl] ?? "" },
+        { name: "`/crypto pilote demarrer` · `solde` · `arreter`", value: {
+          en: "Privately run a €10 automatic paper test across BTC, ETH and SOL for up to 30 days. Uses public Binance candles, assumed costs and a fixed illustrative rule; no real orders.",
+          fr: "Lance en privé un test automatique fictif de 10 € sur BTC, ETH et SOL pendant 30 jours maximum. Bougies Binance publiques, coûts supposés et règle illustrative fixe; aucun ordre réel.",
+          es: "Ejecuta en privado una prueba automática ficticia de 10 € en BTC, ETH y SOL durante un máximo de 30 días. Usa velas públicas de Binance, costes supuestos y una regla fija; sin órdenes reales.",
+          de: "Führt privat einen automatischen Paper-Test mit 10 € in BTC, ETH und SOL für höchstens 30 Tage aus. Öffentliche Binance-Kerzen, angenommene Kosten und feste Beispielregel; keine echten Aufträge.",
+          pt: "Executa em privado um teste automático fictício de 10 € em BTC, ETH e SOL por até 30 dias. Usa velas públicas da Binance, custos estimados e regra fixa; sem ordens reais.",
+          it: "Esegue in privato un test automatico simulato da 10 € su BTC, ETH e SOL per un massimo di 30 giorni. Usa candele pubbliche Binance, costi ipotetici e regola fissa; nessun ordine reale.",
         }[tl] ?? "" },
       );
       break;

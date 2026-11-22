@@ -17,13 +17,15 @@ const localCommands: RESTPostAPIApplicationCommandsJSONBody[] = [
 test("crypto command offers private simulation actions and a fixed asset list", () => {
   const crypto = SLASH_COMMANDS.find(command => command.name === "crypto");
   assert.ok(crypto);
-  assert.deepEqual(crypto.options?.map(option => option.name), ["demarrer", "solde", "reinitialiser", "strategie"]);
+  assert.deepEqual(crypto.options?.map(option => option.name), ["demarrer", "solde", "reinitialiser", "strategie", "pilote"]);
   const start = crypto.options?.find(option => option.name === "demarrer");
   assert.deepEqual(start?.options?.[0]?.choices?.map(choice => choice.value), ["btc", "eth", "sol"]);
   const strategy = crypto.options?.find(option => option.name === "strategie");
   assert.deepEqual(strategy?.options?.[0]?.choices?.map(choice => choice.value), ["btc", "eth", "sol"]);
   assert.equal(strategy?.options?.[1]?.name, "frais_pct");
   assert.equal(strategy?.options?.[2]?.name, "glissement_pct");
+  const autopilot = crypto.options?.find(option => option.name === "pilote");
+  assert.deepEqual(autopilot?.options?.map(option => option.name), ["demarrer", "solde", "arreter"]);
 });
 
 test("bulk overwrite preserves the existing Activity Entry Point", () => {

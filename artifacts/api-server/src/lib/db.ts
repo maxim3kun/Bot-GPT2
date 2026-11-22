@@ -334,6 +334,10 @@ export function getWeatherCacheCollection<T extends import("mongodb").Document>(
 export function getCryptoPaperAccountsCollection<T extends import("mongodb").Document>(): Collection<T> | null {
   return db?.collection<T>("crypto_paper_accounts") ?? null;
 }
+/** Encrypted, per-Discord-user paper-trading state; indexed metadata is only a hash, status and revision. */
+export function getCryptoPaperAutopilotsCollection<T extends import("mongodb").Document>(): Collection<T> | null {
+  return db?.collection<T>("crypto_paper_autopilots") ?? null;
+}
 export function getTransportPreferencesCollection(): Collection<TransportPreferencesDoc> | null {
   return transportPreferencesCol;
 }

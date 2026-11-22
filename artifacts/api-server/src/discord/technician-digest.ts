@@ -2,9 +2,8 @@ import type { Client } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { deliverDiagnosticOnce, dueDiagnosticSlot } from "./ai-observability-policy.js";
 import { deliveryCollection, diagnosticSummary, flushDiagnosticEvents, initializeObservability } from "./ai-observability-store.js";
+import { DISCORD_OWNER_ID } from "./owner.js";
 
-// Explicitly requested recipient; never inferred from a display name.
-const DIAGNOSTIC_OWNER_ID = "562005937884233730";
 let started = false;
 let inFlight = false;
 
@@ -38,7 +37,7 @@ export function startTechnicianDigest(client: Client): void {
           }
         },
         async () => {
-          const owner = await client.users.fetch(DIAGNOSTIC_OWNER_ID);
+          const owner = await client.users.fetch(DISCORD_OWNER_ID);
           const sent = await owner.send({
             content: `**Diagnostic MaximeGPT — ${slot.key.endsWith(":9") ? "matin" : "soir"}**\nDu ${format(slot.since)} au ${format(slot.until)} (Paris)\n\n${body}`,
             allowedMentions: { parse: [] },

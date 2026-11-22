@@ -111,6 +111,9 @@ import { moduleFallbackMessage, runModuleWithFallback } from "./discord/module-f
 import { MessageEventDeduper } from "./discord/message-event-dedupe.js";
 import { buildCryptoPaperEmbed, cryptoPaperSimulator, getKrakenQuote, isCryptoAsset } from "./discord/crypto-simulator.js";
 import { buildCrossoverBacktestEmbed, CRYPTO_STRATEGY, getBinanceHourlyCandles, runSmaCrossoverBacktest } from "./discord/crypto-strategy.js";
+import {
+  buildCryptoPaperAutopilotEmbed, cryptoPaperAutopilot, startCryptoPaperAutopilotScheduler,
+} from "./discord/crypto-paper-autopilot.js";
 
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -975,9 +978,65 @@ export function startBot(): void {
         }
 
         case "crypto": {
-          const action = interaction.options.getSubcommand();
+          const action = interaction.options.getSubcommandGroup(false) ?? interaction.options.getSubcommand();
           const fr = responseLang === "fr";
-          if (action === "demarrer") {
+          if (action === "pilote") {
+            const pilotAction = interaction.options.getSubcommand();
+            if (pilotAction === "demarrer") {
+              const started = await cryptoPaperAutopilot.start(interaction.user.id);
+              if (started.status === "created" || started.status === "exists") {
+                await interaction.editReply({ embeds: [buildCryptoPaperAutopilotEmbed(started.account, responseLang)] });
+              } else if (started.status === "forbidden") {
+                await interaction.editReply(fr
+                  ? "🔒 Ce test de trading privé est réservé au propriétaire du bot."
+                  : "🔒 This private trading test is reserved for the bot owner.");
+              } else if (started.status === "unavailable") {
+                await interaction.editReply(fr
+                  ? "⚠️ Le paper trading est indisponible : le stockage chiffré n’est pas prêt."
+                  : "⚠️ Paper trading is unavailable: encrypted storage is not ready.");
+              } else if (started.status === "market_unavailable") {
+                await interaction.editReply(fr
+                  ? "⚠️ Les trois marchés Binance n’ont pas fourni assez de bougies synchronisées. Aucun test n’a été démarré."
+                  : "⚠️ Binance did not provide enough synchronized candles for all three markets. No test was started.");
+              } else {
+                await interaction.editReply(fr
+                  ? "⚠️ Impossible d’enregistrer ce paper trading. Aucun ordre réel n’a été passé."
+                  : "⚠️ This paper-trading test could not be saved. No real order was placed.");
+              }
+            } else if (pilotAction === "solde") {
+              const current = await cryptoPaperAutopilot.refresh(interaction.user.id);
+              if (current.status === "ok") {
+                await interaction.editReply({ embeds: [buildCryptoPaperAutopilotEmbed(current.account, responseLang)] });
+              } else if (current.status === "empty") {
+                await interaction.editReply(fr
+                  ? "Aucun paper trading automatique. Lance `/crypto pilote demarrer` pour commencer."
+                  : "No automatic paper test. Use `/crypto pilote demarrer` to start one.");
+              } else if (current.status === "forbidden") {
+                await interaction.editReply(fr
+                  ? "🔒 Ce portefeuille fictif privé est réservé au propriétaire du bot."
+                  : "🔒 This private paper portfolio is reserved for the bot owner.");
+              } else {
+                await interaction.editReply(fr
+                  ? "⚠️ Impossible de lire ton paper trading chiffré."
+                  : "⚠️ Your encrypted paper-trading account could not be read.");
+              }
+            } else if (pilotAction === "arreter") {
+              const stopped = await cryptoPaperAutopilot.stop(interaction.user.id);
+              if (stopped.status === "stopped" || stopped.status === "already_stopped") {
+                await interaction.editReply({ embeds: [buildCryptoPaperAutopilotEmbed(stopped.account, responseLang)] });
+              } else if (stopped.status === "empty") {
+                await interaction.editReply(fr ? "Aucun paper trading à arrêter." : "There is no paper test to stop.");
+              } else if (stopped.status === "forbidden") {
+                await interaction.editReply(fr
+                  ? "🔒 L’arrêt de ce portefeuille fictif est réservé au propriétaire du bot."
+                  : "🔒 Stopping this paper portfolio is reserved for the bot owner.");
+              } else {
+                await interaction.editReply(fr
+                  ? "⚠️ Impossible de confirmer l’arrêt. Le statut n’a pas été modifié."
+                  : "⚠️ The stop could not be confirmed. The status was not changed.");
+              }
+            }
+          } else if (action === "demarrer") {
             const requestedAsset: unknown = interaction.options.getString("actif", true);
             if (!isCryptoAsset(requestedAsset)) {
               await interaction.editReply(fr ? "❌ Choisis Bitcoin, Ethereum ou Solana." : "❌ Choose Bitcoin, Ethereum or Solana.");
@@ -4066,6 +4125,7 @@ export function startBot(): void {
     startQuestReminders(client, openai);
     startScheduler(client);
     startPrivateAgendaReminderScheduler(client);
+    startCryptoPaperAutopilotScheduler(client);
     startTechnicianDigest(client);
     if (client.user) {
       registerSlashCommands(client.user.id, token)

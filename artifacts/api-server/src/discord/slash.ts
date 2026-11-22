@@ -399,6 +399,38 @@ export const SLASH_COMMANDS = [
             .setRequired(false),
         ),
     )
+    .addSubcommandGroup(group =>
+      group.setName("pilote")
+        .setDescription("Run a private 30-day automatic paper-trading test")
+        .setDescriptionLocalizations({
+          fr: "Lancer un test privé de paper trading automatique pendant 30 jours",
+          "es-ES": "Iniciar una prueba privada de trading simulado automático durante 30 días",
+        })
+        .addSubcommand(sub =>
+          sub.setName("demarrer")
+            .setDescription("Start the private €10 automatic paper test")
+            .setDescriptionLocalizations({
+              fr: "Démarrer le test automatique fictif privé de 10 €",
+              "es-ES": "Iniciar la prueba automática privada simulada de 10 €",
+            }),
+        )
+        .addSubcommand(sub =>
+          sub.setName("solde")
+            .setDescription("View your private paper-trading status")
+            .setDescriptionLocalizations({
+              fr: "Afficher l’état privé de ton paper trading",
+              "es-ES": "Ver el estado privado de tu trading simulado",
+            }),
+        )
+        .addSubcommand(sub =>
+          sub.setName("arreter")
+            .setDescription("Stop your automatic paper test")
+            .setDescriptionLocalizations({
+              fr: "Arrêter ton test automatique fictif",
+              "es-ES": "Detener tu prueba automática simulada",
+            }),
+        ),
+    )
     .toJSON(),
 
   // ── Welcome (admin setup) ─────────────────────────────────────────────────

@@ -128,7 +128,9 @@ export function createBinanceHourlyCandleProvider(
   fetcher: typeof fetch = fetch,
   now: () => number = Date.now,
   cacheMs = 60_000,
+  limit = KLINE_LIMIT,
 ) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_KLINES) throw new Error("Candle limit is out of range");
   const cache = new Map<CryptoAsset, { candles: HourlyCandle[]; expiresAt: number }>();
   const inFlight = new Map<CryptoAsset, Promise<HourlyCandle[]>>();
 
@@ -140,7 +142,7 @@ export function createBinanceHourlyCandleProvider(
 
     const request = (async () => {
       const symbol = STRATEGY_ASSETS[asset].symbol;
-      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${CRYPTO_STRATEGY.interval}&limit=${KLINE_LIMIT}`;
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${CRYPTO_STRATEGY.interval}&limit=${limit}`;
       const response = await fetcher(url, {
         signal: AbortSignal.timeout(8_000),
         redirect: "error",

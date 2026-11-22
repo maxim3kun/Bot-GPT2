@@ -43,6 +43,7 @@
     "test:ai-travel-research": "esbuild tests/ai-travel-research.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/ai-travel-research.test.mjs && node node_modules/.cache/ai-travel-research.test.mjs",
     "test:crypto": "esbuild tests/crypto-simulator.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/crypto-simulator.test.mjs && node node_modules/.cache/crypto-simulator.test.mjs",
     "test:crypto-strategy": "esbuild tests/crypto-strategy.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/crypto-strategy.test.mjs && node node_modules/.cache/crypto-strategy.test.mjs",
+    "test:crypto-autopilot": "esbuild tests/crypto-paper-autopilot.test.ts --bundle --packages=external --platform=node --format=esm --outfile=node_modules/.cache/crypto-paper-autopilot.test.mjs && node node_modules/.cache/crypto-paper-autopilot.test.mjs",
     "test:images": "node tests/run-images.mjs",
     "test:improvements": "node tests/run-bot-improvements.mjs",
     "test:quests": "node tests/run-quests-language.mjs",
